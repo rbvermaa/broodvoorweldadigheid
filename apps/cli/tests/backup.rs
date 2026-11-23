@@ -750,3 +750,132 @@ async fn binary_checks_every_repo_before_failing() {
         "{stderr}"
     );
 }
+
+fn run_tags(repo: &str, password_file: &Path, run_tag: &str) -> Vec<Vec<String>> {
+    snapshot_tags(repo, password_file)
+        .into_iter()
+        .filter(|tags| tags.iter().any(|tag| tag == run_tag))
+        .collect()
+}
+
+#[tokio::test]
+async fn missing_uploads_forget_the_run_and_restore_test_uses_the_previous_run() {
+    let fixture = Fixture::new("missing_uploads", SEED).await;
+    let repo = fixture.repo("local");
+    let repos = [repo.clone()];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("first backup");
+
+    let missing = fixture.dir.join("no-such-uploads");
+    let error = backup::run(&BackupRun {
+        uploads: Some(&missing),
+        ..fixture.backup(&repos, "2")
+    })
+    .await
+    .expect_err("missing uploads must fail the run");
+    let message = error.to_string();
+    assert!(matches!(error, Error::BackupsFailed { .. }), "{message}");
+    assert!(
+        message.starts_with(&format!(
+            "backup failed for 1 of 1 repositories:\n  {repo}: uploads: rustic failed"
+        )),
+        "{message}"
+    );
+    assert_eq!(message.lines().count(), 2, "{message}");
+    assert!(!message.contains('\u{1b}'), "{message}");
+    assert_eq!(
+        run_tags(&repo, &fixture.password_file, "run-2"),
+        Vec::<Vec<String>>::new()
+    );
+
+    let admin = admin_url();
+    let verified = backup::restore_test(&fixture.restore_test(&repo, &admin))
+        .await
+        .expect("restore test falls back to the complete run");
+    assert_eq!(verified.run, "1");
+}
+
+#[tokio::test]
+async fn unreadable_uploads_fail_the_backup_and_leave_no_snapshots() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new("unreadable_uploads", SEED).await;
+    let repo = fixture.repo("local");
+    let repos = [repo.clone()];
+    let locked = fixture.uploads.join("locked");
+    std::fs::create_dir_all(&locked).expect("create locked dir");
+    std::fs::write(locked.join("label.txt"), "test label").expect("write upload");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("lock dir");
+
+    let result = backup::run(&fixture.backup(&repos, "1")).await;
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("unlock dir");
+    let error = result.expect_err("unreadable uploads must fail the run");
+    let message = error.to_string();
+    assert!(
+        message.starts_with(&format!(
+            "backup failed for 1 of 1 repositories:\n  {repo}: uploads: rustic could not read every file: "
+        )),
+        "{message}"
+    );
+    assert!(message.contains("Permission denied"), "{message}");
+    assert_eq!(
+        snapshot_tags(&repo, &fixture.password_file),
+        Vec::<Vec<String>>::new()
+    );
+
+    let admin = admin_url();
+    let error = backup::restore_test(&fixture.restore_test(&repo, &admin))
+        .await
+        .expect_err("no complete run");
+    assert_eq!(
+        error.to_string(),
+        format!("no snapshot tagged db in {repo}")
+    );
+}
+
+#[tokio::test]
+async fn restore_test_fails_when_the_uploads_snapshot_of_the_run_is_missing() {
+    let fixture = Fixture::new("lost_uploads", SEED).await;
+    let repo = fixture.repo("local");
+    backup::run(&fixture.backup(std::slice::from_ref(&repo), "1"))
+        .await
+        .expect("backup");
+    let rustic_repo = fixture.rustic_repo(&repo);
+    let uploads = rustic::latest_snapshot(&rustic_repo, &["uploads", "run-1"])
+        .expect("list")
+        .expect("uploads snapshot");
+    let output = rustic::forget(&rustic_repo, &[uploads.id])
+        .output()
+        .expect("rustic forget");
+    assert!(output.status.success());
+
+    let admin = admin_url();
+    let error = backup::restore_test(&fixture.restore_test(&repo, &admin))
+        .await
+        .expect_err("uploads are part of the run");
+    assert!(matches!(error, Error::MissingUploads { .. }), "{error}");
+    assert_eq!(
+        error.to_string(),
+        format!("run 1 in {repo} backed up uploads, but no uploads snapshot of that run is left")
+    );
+    assert!(!scratch_exists("scratch_lost_uploads").await);
+}
+
+#[tokio::test]
+async fn restore_test_needs_no_uploads_snapshot_when_none_were_backed_up() {
+    let fixture = Fixture::new("no_uploads", SEED).await;
+    let repo = fixture.repo("local");
+    let repos = [repo.clone()];
+    backup::run(&BackupRun {
+        uploads: None,
+        ..fixture.backup(&repos, "1")
+    })
+    .await
+    .expect("backup");
+
+    let admin = admin_url();
+    let verified = backup::restore_test(&fixture.restore_test(&repo, &admin))
+        .await
+        .expect("restore test");
+    assert_eq!(verified.run, "1");
+}

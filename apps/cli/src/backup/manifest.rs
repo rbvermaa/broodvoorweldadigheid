@@ -13,6 +13,9 @@ pub struct TableFingerprint {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub tables: BTreeMap<String, TableFingerprint>,
+    /// Whether the run stored an uploads snapshot; absent in older manifests.
+    #[serde(default)]
+    pub uploads: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +99,7 @@ mod tests {
                     )
                 })
                 .collect(),
+            uploads: false,
         }
     }
 
@@ -146,9 +150,25 @@ mod tests {
         let json = serde_json::to_string(&expected).expect("serialise");
         assert_eq!(
             json,
-            r#"{"tables":{"public.loaves":{"rows":3,"fingerprint":"abc"}}}"#
+            r#"{"tables":{"public.loaves":{"rows":3,"fingerprint":"abc"}},"uploads":false}"#
         );
         let parsed: Manifest = serde_json::from_str(&json).expect("parse");
         assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn json_records_uploads_and_reads_old_manifests_without_them() {
+        let with_uploads = Manifest {
+            uploads: true,
+            ..manifest(&[("public.loaves", 3, "abc")])
+        };
+        let json = serde_json::to_string(&with_uploads).expect("serialise");
+        assert!(json.ends_with(r#","uploads":true}"#), "{json}");
+        let parsed: Manifest = serde_json::from_str(&json).expect("parse");
+        assert_eq!(parsed, with_uploads);
+
+        let old = r#"{"tables":{"public.loaves":{"rows":3,"fingerprint":"abc"}}}"#;
+        let parsed: Manifest = serde_json::from_str(old).expect("parse");
+        assert_eq!(parsed, manifest(&[("public.loaves", 3, "abc")]));
     }
 }

@@ -111,6 +111,13 @@ pub fn latest_snapshot(repo: &Repo<'_>, tags: &[&str]) -> Result<Option<Snapshot
     Ok(list_snapshots(repo, tags)?.pop())
 }
 
+/// rustic logs files it could not read as `[WARN] ignoring error...` and still succeeds.
+pub fn skipped_files(stderr: &str) -> bool {
+    stderr
+        .lines()
+        .any(|line| line.trim_start().starts_with("[WARN] ignoring error"))
+}
+
 /// rustic splits `--stdin-command` with POSIX shell word rules.
 pub fn shell_join(words: &[String]) -> String {
     words
@@ -246,6 +253,19 @@ mod tests {
             shell_join(&["a b".to_string(), "it's".to_string()]),
             r"'a b' 'it'\''s'"
         );
+    }
+
+    #[test]
+    fn skipped_files_spots_read_errors_only() {
+        assert!(!skipped_files(""));
+        assert!(!skipped_files("[WARN] some other warning"));
+        assert!(skipped_files(
+            "[WARN] ignoring error: Error: Failed to get next entry from walk iterator.\n\
+             caused by: /data/uploads/sub: Permission denied (os error 13)"
+        ));
+        assert!(skipped_files(
+            "[WARN] ignoring error obtaining xargs: Error getting xattrs for `/data/uploads/a`"
+        ));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 pub mod manifest;
 pub mod postgres;
 mod process;
+mod report;
 pub mod rustic;
 pub mod select;
 
@@ -38,7 +39,11 @@ pub enum Error {
         producer: Box<Error>,
         consumer: Box<Error>,
     },
-    #[error("{source}\nalso could not forget the partial db snapshot in {repo}: {cleanup}")]
+    #[error("{program} could not read every file: {stderr}")]
+    Unreadable { program: String, stderr: String },
+    #[error(
+        "{source}\nalso could not forget the partial snapshots of this run in {repo}: {cleanup}"
+    )]
     Cleanup {
         repo: String,
         source: Box<Error>,
@@ -91,6 +96,8 @@ pub enum Error {
         ahead: SignedDuration,
         limit: SignedDuration,
     },
+    #[error("run {run} in {repo} backed up uploads, but no uploads snapshot of that run is left")]
+    MissingUploads { repo: String, run: String },
     #[error("the manifest lists no tables, so there is nothing to verify")]
     EmptyManifest,
     #[error("the database restored from {repo} does not match the manifest:{mismatches}")]
@@ -148,7 +155,8 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
     let snapshot: String = sqlx::query_scalar("SELECT pg_export_snapshot()")
         .fetch_one(&mut *tx)
         .await?;
-    let manifest = postgres::read_manifest(&mut tx).await?;
+    let mut manifest = postgres::read_manifest(&mut tx).await?;
+    manifest.uploads = backup.uploads.is_some();
     let manifest_json =
         serde_json::to_vec_pretty(&manifest).map_err(|source| Error::ManifestJson {
             snapshot: snapshot.clone(),
@@ -172,7 +180,11 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
             &run_tag,
             backup.uploads,
         ) {
-            failures.push(format!("{location}: {error}"));
+            failures.push(format!(
+                "{location}: {}: {}",
+                error.step,
+                report::summary(&error.error)
+            ));
         }
     }
     tx.rollback().await?;
@@ -187,6 +199,13 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
     }
 }
 
+struct StepFailed {
+    step: &'static str,
+    error: Error,
+}
+
+/// All or nothing: on any failure every snapshot of this run in `repo` is forgotten. The
+/// manifest goes last, so a run without one never counts as complete.
 fn store_run(
     repo: &Repo<'_>,
     source: &postgres::Libpq,
@@ -194,29 +213,43 @@ fn store_run(
     manifest_json: &[u8],
     run_tag: &str,
     uploads: Option<&Path>,
-) -> Result<(), Error> {
+) -> Result<(), StepFailed> {
     let stored = (|| {
         let mut dump_command =
             rustic::backup_command_output(repo, dump, DB_FILE, &[DB_TAG, run_tag]);
         source.apply(&mut dump_command);
-        process::run(dump_command)?;
+        process::run(dump_command).map_err(|error| ("db", error))?;
+        if let Some(uploads) = uploads {
+            backup_uploads(repo, uploads, run_tag).map_err(|error| ("uploads", error))?;
+        }
         process::run_with_input(
             rustic::backup_stdin(repo, MANIFEST_FILE, &[MANIFEST_TAG, run_tag]),
             manifest_json,
         )
+        .map(drop)
+        .map_err(|error| ("manifest", error))
     })();
-    if let Err(error) = stored {
-        return Err(forget_partial_run(repo, run_tag, error));
-    }
-    if let Some(uploads) = uploads {
-        process::run(rustic::backup_dir(repo, uploads, &[UPLOADS_TAG, run_tag]))?;
+    stored.map_err(|(step, error)| StepFailed {
+        step,
+        error: forget_partial_run(repo, run_tag, error),
+    })
+}
+
+/// rustic skips files it cannot read and still exits 0.
+fn backup_uploads(repo: &Repo<'_>, uploads: &Path, run_tag: &str) -> Result<(), Error> {
+    let stderr = process::run_stderr(rustic::backup_dir(repo, uploads, &[UPLOADS_TAG, run_tag]))?;
+    if rustic::skipped_files(&stderr) {
+        return Err(Error::Unreadable {
+            program: "rustic".to_string(),
+            stderr,
+        });
     }
     Ok(())
 }
 
 /// A failed dump still leaves a snapshot behind (rustic stores what it read, maybe 0 bytes).
 fn forget_partial_run(repo: &Repo<'_>, run_tag: &str, error: Error) -> Error {
-    let forgotten = rustic::list_snapshots(repo, &[DB_TAG, run_tag]).and_then(|partial| {
+    let forgotten = rustic::list_snapshots(repo, &[run_tag]).and_then(|partial| {
         if partial.is_empty() {
             return Ok(());
         }
@@ -276,6 +309,15 @@ pub async fn restore_test(test: &RestoreTest<'_>) -> Result<Verified, Error> {
         })?;
     if expected.tables.is_empty() {
         return Err(Error::EmptyManifest);
+    }
+    if expected.uploads {
+        let run_tag = format!("{RUN_TAG_PREFIX}{}", choice.run);
+        if rustic::list_snapshots(&repo, &[UPLOADS_TAG, &run_tag])?.is_empty() {
+            return Err(Error::MissingUploads {
+                repo: test.repo.to_string(),
+                run: choice.run,
+            });
+        }
     }
 
     let scratch = postgres::quote_ident(test.scratch_database);
