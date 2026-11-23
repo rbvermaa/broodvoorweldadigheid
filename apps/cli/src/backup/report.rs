@@ -1,21 +1,21 @@
-use super::Error;
+use super::{Error, rustic};
 
-/// One line per error: the program and status, plus the first line of its output that says
-/// what went wrong.
+/// One line per error: the program and status, plus the line of its output that says what
+/// went wrong.
 pub fn summary(error: &Error) -> String {
     match error {
         Error::Failed {
             program,
             status,
             stderr,
-        } => format!(
-            "{program} failed ({status}): {}",
-            first_meaningful_line(stderr)
-        ),
-        Error::Unreadable { program, stderr } => format!(
-            "{program} could not read every file: {}",
-            first_meaningful_line(stderr)
-        ),
+        } => format!("{program} failed ({status}): {}", cause(stderr)),
+        Error::Unreadable { program, stderr } => {
+            let plain = strip_ansi(stderr);
+            format!(
+                "{program} could not read every file: {}",
+                rustic::first_skipped_file(&plain).map_or_else(|| cause(&plain), str::to_string)
+            )
+        }
         Error::Pipe { producer, consumer } => {
             format!("{}; {}", summary(producer), summary(consumer))
         }
@@ -26,17 +26,40 @@ pub fn summary(error: &Error) -> String {
             summary(source),
             summary(cleanup)
         ),
-        other => first_meaningful_line(&other.to_string()),
+        other => cause(&other.to_string()),
     }
 }
 
-fn first_meaningful_line(text: &str) -> String {
-    strip_ansi(text)
-        .lines()
-        .map(str::trim)
-        .find(|line| !is_noise(line))
-        .unwrap_or("(no error output)")
-        .to_string()
+/// The first meaningful line, unless it is only a warning and an `[ERROR]` line follows.
+/// rustic's generic "`rustic_core` experienced an error" header gets the line after
+/// `Message:` appended, since that line holds the actual cause.
+fn cause(text: &str) -> String {
+    let plain = strip_ansi(text);
+    let lines: Vec<&str> = plain.lines().map(str::trim).collect();
+    let Some(first) = lines.iter().position(|line| !is_noise(line)) else {
+        return "(no error output)".to_string();
+    };
+    let chosen = if lines[first].starts_with("[WARN]") {
+        lines[first..]
+            .iter()
+            .position(|line| line.starts_with("[ERROR]"))
+            .map_or(first, |offset| first + offset)
+    } else {
+        first
+    };
+    let line = lines[chosen];
+    if !line.contains("`rustic_core` experienced an error") {
+        return line.to_string();
+    }
+    let message = lines[chosen + 1..]
+        .iter()
+        .skip_while(|line| !line.starts_with("Message:"))
+        .skip(1)
+        .find(|line| !line.is_empty());
+    match message {
+        Some(message) => format!("{line} {message}"),
+        None => line.to_string(),
+    }
 }
 
 fn is_noise(line: &str) -> bool {
@@ -160,6 +183,54 @@ mod tests {
                 repo: "/backup/local".into(),
             }),
             "no snapshot tagged db in /backup/local"
+        );
+    }
+
+    const NO_CONFIG: &str = "\u{1b}[0m\u{1b}[0m\u{1b}[1m\u{1b}[31merror:\u{1b}[0m `rustic_core` experienced an error related to `the configuration`.\n\
+        \n\
+        Message:\n\
+        No repository config file found for `local:/backup/local`. Please check the repository.\n\
+        \n\
+        \n\
+        Some additional details ...\n\
+        \n\
+        Backtrace:\n\
+        disabled backtrace (set 'RUST_BACKTRACE=\"1\"' environment variable to enable)";
+
+    #[test]
+    fn adds_the_message_to_rustics_generic_header() {
+        assert_eq!(
+            summary(&failed(NO_CONFIG)),
+            "rustic failed (exit status: 1): error: `rustic_core` experienced an error related to \
+             `the configuration`. No repository config file found for `local:/backup/local`. \
+             Please check the repository."
+        );
+    }
+
+    #[test]
+    fn prefers_an_error_line_over_earlier_warnings() {
+        assert_eq!(
+            summary(&failed(
+                "[WARN] unrelated: cache dir not found\n[ERROR] the real cause: repo locked"
+            )),
+            "rustic failed (exit status: 1): [ERROR] the real cause: repo locked"
+        );
+        assert_eq!(
+            summary(&failed("[WARN] unrelated: cache dir not found\n")),
+            "rustic failed (exit status: 1): [WARN] unrelated: cache dir not found"
+        );
+    }
+
+    #[test]
+    fn unreadable_names_the_skipped_file_warning() {
+        assert_eq!(
+            summary(&Error::Unreadable {
+                program: "rustic".into(),
+                stderr: "[WARN] some other warning\n\
+                         \u{1b}[33m[WARN] ignoring error: /data/uploads/x: Permission denied\u{1b}[0m"
+                    .into(),
+            }),
+            "rustic could not read every file: [WARN] ignoring error: /data/uploads/x: Permission denied"
         );
     }
 }

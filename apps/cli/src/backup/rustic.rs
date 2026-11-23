@@ -113,9 +113,14 @@ pub fn latest_snapshot(repo: &Repo<'_>, tags: &[&str]) -> Result<Option<Snapshot
 
 /// rustic logs files it could not read as `[WARN] ignoring error...` and still succeeds.
 pub fn skipped_files(stderr: &str) -> bool {
+    first_skipped_file(stderr).is_some()
+}
+
+pub fn first_skipped_file(stderr: &str) -> Option<&str> {
     stderr
         .lines()
-        .any(|line| line.trim_start().starts_with("[WARN] ignoring error"))
+        .map(str::trim)
+        .find(|line| line.starts_with("[WARN] ignoring error"))
 }
 
 /// rustic splits `--stdin-command` with POSIX shell word rules.
