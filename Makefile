@@ -16,7 +16,7 @@ NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage restore-test
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -50,3 +50,6 @@ audit: ## Known-vulnerability check (cargo-audit)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
+
+restore-test: ## Back up a seeded database, restore it and verify (Gate 1)
+	$(call CHECK,restore)
