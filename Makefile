@@ -44,6 +44,9 @@ export DATABASE_URL
 
 COMPOSE_PROJECT ?= bvw
 SMOKE_PROJECT ?= bvw-smoke
+SMOKE_HTTP_PORT ?= 18080
+SMOKE_HTTPS_PORT ?= 18443
+SMOKE_SUBNET ?= 10.89.1.0/24
 BVW_IMAGE_TAG ?= dev
 BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
@@ -105,8 +108,8 @@ up: ## Start the Compose stack on BVW_HTTP_PORT/BVW_HTTPS_PORT (default 8080/844
 down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
-smoke: ## Compose smoke test against the loaded images (Gate 1)
-	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(BVW_HTTP_PORT) --https-port $(BVW_HTTPS_PORT)
+smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
+	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET)
 
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH and docker load it
 

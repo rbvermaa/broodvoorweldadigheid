@@ -7,6 +7,8 @@ use std::process::{Command, ExitCode};
 pub const DEFAULT_PGDATA: &str = "/var/lib/postgresql/data";
 pub const DEFAULT_KANIDM_TLS_CHAIN: &str = "/data/chain.pem";
 pub const DEFAULT_KANIDM_TLS_KEY: &str = "/data/key.pem";
+/// Written to PGDATA only after initdb and the pg_hba.conf update both succeed.
+pub const INIT_DONE_MARKER: &str = ".bvw-init-done";
 
 #[derive(Debug, Clone, Copy, clap::Subcommand)]
 pub enum Service {
@@ -25,8 +27,8 @@ pub struct Step {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Plan {
     pub init: Option<Step>,
-    /// pg_hba.conf that gets a remote scram rule after `init` succeeds.
-    pub pg_hba: Option<PathBuf>,
+    /// PGDATA to pass to [`finish_init`] after `init` succeeds.
+    pub finish: Option<PathBuf>,
     pub exec: Step,
 }
 
@@ -36,12 +38,19 @@ pub enum PlanError {
     Missing(&'static str),
     #[error("password file {0} does not exist")]
     NoPasswordFile(PathBuf),
+    #[error(
+        "{0} has PG_VERSION but no {INIT_DONE_MARKER}, so an earlier initdb did not finish. \
+         Remove the data volume to start fresh, or create the marker by hand if the cluster is complete"
+    )]
+    InitUnfinished(PathBuf),
 }
 
 pub fn postgres_plan(lookup: impl Fn(&str) -> Option<String>) -> Result<Plan, PlanError> {
     let pgdata = PathBuf::from(non_empty(&lookup, "PGDATA").unwrap_or(DEFAULT_PGDATA.into()));
-    let init = if pgdata.join("PG_VERSION").exists() {
+    let init = if pgdata.join(INIT_DONE_MARKER).exists() {
         None
+    } else if pgdata.join("PG_VERSION").exists() {
+        return Err(PlanError::InitUnfinished(pgdata));
     } else {
         let user =
             non_empty(&lookup, "POSTGRES_USER").ok_or(PlanError::Missing("POSTGRES_USER"))?;
@@ -67,7 +76,7 @@ pub fn postgres_plan(lookup: impl Fn(&str) -> Option<String>) -> Result<Plan, Pl
         })
     };
     Ok(Plan {
-        pg_hba: init.as_ref().map(|_| pgdata.join("pg_hba.conf")),
+        finish: init.as_ref().map(|_| pgdata.clone()),
         init,
         exec: Step {
             program: "postgres",
@@ -90,7 +99,7 @@ pub fn kanidm_plan(lookup: impl Fn(&str) -> Option<String>) -> Plan {
             program: "kanidmd",
             args: vec!["cert-generate".into()],
         }),
-        pg_hba: None,
+        finish: None,
         exec: Step {
             program: "kanidmd",
             args: vec!["server".into()],
@@ -124,10 +133,13 @@ pub fn run(service: Service) -> ExitCode {
             }
         }
     }
-    if let Some(pg_hba) = plan.pg_hba
-        && let Err(error) = allow_remote_scram(&pg_hba)
+    if let Some(pgdata) = plan.finish
+        && let Err(error) = finish_init(&pgdata)
     {
-        eprintln!("entrypoint: cannot update {}: {error}", pg_hba.display());
+        eprintln!(
+            "entrypoint: cannot finish init of {}: {error}",
+            pgdata.display()
+        );
         return ExitCode::FAILURE;
     }
     let error = Command::new(plan.exec.program).args(&plan.exec.args).exec();
@@ -136,9 +148,14 @@ pub fn run(service: Service) -> ExitCode {
 }
 
 /// initdb's `--auth-host` only covers loopback; other containers connect over the network.
-pub fn allow_remote_scram(pg_hba: &Path) -> std::io::Result<()> {
-    let mut file = std::fs::OpenOptions::new().append(true).open(pg_hba)?;
-    file.write_all(b"host all all all scram-sha-256\n")
+pub fn finish_init(pgdata: &Path) -> std::io::Result<()> {
+    let mut hba = std::fs::OpenOptions::new()
+        .append(true)
+        .open(pgdata.join("pg_hba.conf"))?;
+    hba.write_all(b"host all all samenet scram-sha-256\n")?;
+    hba.sync_all()?;
+    std::fs::File::create(pgdata.join(INIT_DONE_MARKER))?.sync_all()?;
+    std::fs::File::open(pgdata)?.sync_all()
 }
 
 fn non_empty(lookup: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
@@ -230,40 +247,58 @@ mod tests {
                 args: args(&["-D", &pgdata, "-c", "listen_addresses=*"]),
             }
         );
-        assert_eq!(
-            plan.pg_hba,
-            Some(PathBuf::from(&pgdata).join("pg_hba.conf"))
-        );
+        assert_eq!(plan.finish, Some(PathBuf::from(&pgdata)));
     }
 
     #[test]
-    fn postgres_skips_initdb_when_pg_version_exists() {
+    fn postgres_skips_initdb_when_init_finished() {
         let dir = TempDir::new("pg-ready");
         dir.file("PG_VERSION");
+        dir.file(INIT_DONE_MARKER);
         let plan = postgres_plan(lookup(vec![("PGDATA", dir.path(""))])).expect("plan");
         assert_eq!(plan.init, None);
-        assert_eq!(plan.pg_hba, None);
+        assert_eq!(plan.finish, None);
         assert_eq!(plan.exec.program, "postgres");
     }
 
     #[test]
-    fn remote_scram_line_is_appended_to_pg_hba() {
-        let dir = TempDir::new("pg-hba");
-        let hba = dir.0.join("pg_hba.conf");
-        fs::write(&hba, "local all all trust\n").expect("write pg_hba.conf");
-        allow_remote_scram(&hba).expect("append");
-        assert_eq!(
-            fs::read_to_string(&hba).expect("read pg_hba.conf"),
-            "local all all trust\nhost all all all scram-sha-256\n"
-        );
+    fn postgres_refuses_a_cluster_whose_init_did_not_finish() {
+        let dir = TempDir::new("pg-half");
+        dir.file("PG_VERSION");
+        let pgdata = dir.path("");
+        let error = postgres_plan(lookup(vec![
+            ("PGDATA", pgdata.clone()),
+            ("POSTGRES_USER", "bakery".into()),
+            ("POSTGRES_PASSWORD_FILE", dir.file("pw")),
+        ]))
+        .expect_err("must refuse");
+        assert_eq!(error, PlanError::InitUnfinished(PathBuf::from(&pgdata)));
+        let message = error.to_string();
+        assert!(message.contains(INIT_DONE_MARKER), "{message}");
+        assert!(fs::exists(dir.0.join("PG_VERSION")).expect("exists"));
     }
 
     #[test]
-    fn remote_scram_needs_an_existing_pg_hba() {
-        let dir = TempDir::new("pg-hba-missing");
-        assert!(allow_remote_scram(&dir.0.join("pg_hba.conf")).is_err());
+    fn finish_init_allows_remote_scram_then_writes_the_marker() {
+        let dir = TempDir::new("pg-finish");
+        let hba = dir.0.join("pg_hba.conf");
+        fs::write(&hba, "local all all trust\n").expect("write pg_hba.conf");
+        finish_init(&dir.0).expect("finish");
+        assert_eq!(
+            fs::read_to_string(&hba).expect("read pg_hba.conf"),
+            "local all all trust\nhost all all samenet scram-sha-256\n"
+        );
+        assert!(dir.0.join(INIT_DONE_MARKER).is_file());
+        let plan = postgres_plan(lookup(vec![("PGDATA", dir.path(""))])).expect("plan");
+        assert_eq!(plan.init, None);
     }
 
+    #[test]
+    fn finish_init_without_pg_hba_fails_and_writes_no_marker() {
+        let dir = TempDir::new("pg-hba-missing");
+        assert!(finish_init(&dir.0).is_err());
+        assert!(!dir.0.join(INIT_DONE_MARKER).exists());
+    }
     #[test]
     fn postgres_defaults_pgdata() {
         if Path::new(DEFAULT_PGDATA).join("PG_VERSION").exists() {
@@ -322,7 +357,7 @@ mod tests {
                     program: "kanidmd",
                     args: args(&["cert-generate"]),
                 }),
-                pg_hba: None,
+                finish: None,
                 exec: Step {
                     program: "kanidmd",
                     args: args(&["server"]),

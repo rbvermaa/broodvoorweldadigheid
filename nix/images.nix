@@ -47,6 +47,7 @@ let
       ports ? [ ],
       volumes ? [ ],
       extraCommands ? "",
+      stopSignal ? null,
     }:
     let
       stream = pkgs.dockerTools.streamLayeredImage {
@@ -77,7 +78,8 @@ let
           Env = baseEnv ++ env;
           ExposedPorts = lib.genAttrs (map (port: "${toString port}/tcp") ports) (_: { });
           Volumes = lib.genAttrs volumes (_: { });
-        };
+        }
+        // lib.optionalAttrs (stopSignal != null) { StopSignal = stopSignal; };
       };
     in
     pkgs.runCommand "bvw-${name}-image.tar" { passthru = { inherit stream; }; } "${stream} > $out";
@@ -111,6 +113,8 @@ let
         mkdir -p bin
         ln -s ${lib.getExe pkgs.dash} bin/sh
       '';
+      # postgres treats SIGTERM as a "smart" shutdown that waits for every client to leave.
+      stopSignal = "SIGINT";
       ports = [ 5432 ];
       volumes = [ "/var/lib/postgresql/data" ];
     };
@@ -263,6 +267,17 @@ in
         "$TMPDIR/server/root$server" healthcheck --help | grep -q -- --url \
           || fail "server image: server healthcheck --help does not list --url"
         echo "server image: server on PATH; server healthcheck --help runs"
+
+        unexpected=$(find "$TMPDIR/server/root/nix/store" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+          | sed -E 's/^[0-9a-z]{32}-//' \
+          | grep -Ev '^(server-[0-9.]+|glibc-[0-9.]+(-[0-9]+)?|(x?gcc)-[0-9.]+-libgcc|gcc-[0-9.]+-lib|libidn2-[0-9.]+|libunistring-[0-9.]+|nss-cacert-[0-9.]+|tzdata-[0-9a-z]+)$' \
+          || true)
+        [ -z "$unexpected" ] || fail "server image: store paths outside the allowlist: $unexpected"
+        echo "server image: store paths match the allowlist"
+
+        [ "$(jq -r '.config.StopSignal // ""' "$(config_of postgres)")" = SIGINT ] \
+          || fail "postgres image: StopSignal must be SIGINT"
+        echo "postgres image: StopSignal is SIGINT"
 
         for tool in rustic pg_dump pg_restore; do
           on_path backup "$tool" > /dev/null

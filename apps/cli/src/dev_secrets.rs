@@ -1,6 +1,6 @@
-use std::fs::{DirBuilder, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::fs::{DirBuilder, OpenOptions, Permissions};
+use std::io::{ErrorKind, Read};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 pub const POSTGRES_PASSWORD_FILE: &str = "postgres-password";
@@ -8,11 +8,17 @@ pub const DATABASE_ENV_FILE: &str = "database.env";
 pub const RUSTIC_PASSWORD_FILE: &str = "rustic-password";
 
 const PASSWORD_BYTES: usize = 32;
+const FILE_MODE: u32 = 0o644;
+const DIR_MODE: u32 = 0o700;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0} already exists; remove it first if you want new secrets")]
     Exists(PathBuf),
+    #[error(
+        "{path} has mode {mode:o}, so other users can read the secrets; run `chmod 700` on it first"
+    )]
+    OpenDirectory { path: PathBuf, mode: u32 },
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,
@@ -34,46 +40,92 @@ pub fn contents(postgres_password: &str, rustic_password: &str) -> [(&'static st
     ]
 }
 
-/// Files are world-readable because the containers read them as uid 1000; a directory
-/// this creates is 0700, which keeps other host users out.
+/// Files are world-readable because the containers read them as uid 1000; the directory
+/// must be 0700, which keeps other host users out. Either all files are written or none.
 pub fn write(
     dir: &Path,
     mut password: impl FnMut() -> std::io::Result<String>,
 ) -> Result<Vec<PathBuf>, Error> {
-    let io = |path: &Path| {
-        let path = path.to_path_buf();
-        move |source| Error::Io { path, source }
-    };
     let names = contents("", "").map(|(name, _)| dir.join(name));
     if let Some(existing) = names.iter().find(|path| path.exists()) {
         return Err(Error::Exists(existing.clone()));
     }
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
-        .map_err(io(dir))?;
+    private_dir(dir)?;
     let postgres_password = password().map_err(io(dir))?;
     let rustic_password = password().map_err(io(dir))?;
-    let mut written = Vec::new();
+    let mut created = Created(Vec::new());
+    let mut staged = Vec::new();
     for (name, text) in contents(&postgres_password, &rustic_password) {
-        let path = dir.join(name);
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o644)
-            .open(&path)
-            .map_err(|source| match source.kind() {
-                std::io::ErrorKind::AlreadyExists => Error::Exists(path.clone()),
-                _ => Error::Io {
-                    path: path.clone(),
-                    source,
-                },
-            })?;
-        file.write_all(text.as_bytes()).map_err(io(&path))?;
-        written.push(path);
+        let temp = dir.join(format!(".{name}.tmp"));
+        create_new(&temp, &mut created)?;
+        std::fs::write(&temp, text).map_err(io(&temp))?;
+        std::fs::set_permissions(&temp, Permissions::from_mode(FILE_MODE)).map_err(io(&temp))?;
+        staged.push((temp, dir.join(name)));
     }
-    Ok(written)
+    for (temp, path) in &staged {
+        std::fs::hard_link(temp, path).map_err(|source| exists_or_io(path, source))?;
+        created.0.push(path.clone());
+    }
+    for (temp, _) in &staged {
+        std::fs::remove_file(temp).map_err(io(temp))?;
+    }
+    created.0.clear();
+    Ok(staged.into_iter().map(|(_, path)| path).collect())
+}
+
+/// Removes every path it holds when dropped, so a failed `write` leaves nothing behind.
+struct Created(Vec<PathBuf>);
+
+impl Drop for Created {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+fn private_dir(dir: &Path) -> Result<(), Error> {
+    match std::fs::metadata(dir) {
+        Ok(metadata) => {
+            let mode = metadata.permissions().mode() & 0o777;
+            if mode & 0o077 != 0 {
+                return Err(Error::OpenDirectory {
+                    path: dir.to_path_buf(),
+                    mode,
+                });
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => DirBuilder::new()
+            .recursive(true)
+            .mode(DIR_MODE)
+            .create(dir)
+            .map_err(io(dir)),
+        Err(error) => Err(io(dir)(error)),
+    }
+}
+
+fn create_new(path: &Path, created: &mut Created) -> Result<(), Error> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|source| exists_or_io(path, source))?;
+    created.0.push(path.to_path_buf());
+    Ok(())
+}
+
+fn io(path: &Path) -> impl FnOnce(std::io::Error) -> Error {
+    let path = path.to_path_buf();
+    move |source| Error::Io { path, source }
+}
+
+fn exists_or_io(path: &Path, source: std::io::Error) -> Error {
+    match source.kind() {
+        ErrorKind::AlreadyExists => Error::Exists(path.to_path_buf()),
+        _ => io(path)(source),
+    }
 }
 
 pub fn random_password() -> std::io::Result<String> {
@@ -159,6 +211,81 @@ mod tests {
         );
         assert!(!dir.0.join(POSTGRES_PASSWORD_FILE).exists());
         assert_eq!(read(&dir.0, RUSTIC_PASSWORD_FILE), "keep me");
+    }
+
+    fn mode(path: &Path) -> u32 {
+        fs::metadata(path).expect("metadata").permissions().mode() & 0o777
+    }
+
+    fn private_dir(path: &Path) {
+        fs::create_dir_all(path).expect("create dir");
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700)).expect("chmod");
+    }
+
+    fn entries(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn every_file_is_readable_by_the_containers() {
+        let dir = TempDir::new("all-modes");
+        for path in write(&dir.0, counter()).expect("write") {
+            assert_eq!(mode(&path), 0o644, "{}", path.display());
+        }
+        assert_eq!(
+            entries(&dir.0),
+            [
+                DATABASE_ENV_FILE,
+                POSTGRES_PASSWORD_FILE,
+                RUSTIC_PASSWORD_FILE
+            ]
+        );
+    }
+
+    #[test]
+    fn refuses_an_existing_directory_other_users_can_enter() {
+        let dir = TempDir::new("open-dir");
+        fs::create_dir_all(&dir.0).expect("create dir");
+        fs::set_permissions(&dir.0, fs::Permissions::from_mode(0o755)).expect("chmod");
+        let error = write(&dir.0, counter()).expect_err("must refuse");
+        assert!(
+            matches!(&error, Error::OpenDirectory { path, mode: 0o755 } if path == &dir.0),
+            "{error}"
+        );
+        assert!(entries(&dir.0).is_empty());
+    }
+
+    #[test]
+    fn accepts_an_existing_private_directory() {
+        let dir = TempDir::new("private-dir");
+        private_dir(&dir.0);
+        write(&dir.0, counter()).expect("write");
+        assert_eq!(mode(&dir.0), 0o700);
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_files_behind() {
+        let dir = TempDir::new("partial");
+        private_dir(&dir.0);
+        let stale = dir.0.join(format!(".{DATABASE_ENV_FILE}.tmp"));
+        fs::write(&stale, "stale").expect("write stale temp file");
+        let error = write(&dir.0, counter()).expect_err("must fail");
+        assert!(
+            matches!(&error, Error::Exists(path) if path == &stale),
+            "{error}"
+        );
+        assert_eq!(entries(&dir.0), [format!(".{DATABASE_ENV_FILE}.tmp")]);
     }
 
     #[test]
