@@ -31,6 +31,11 @@ pub enum Error {
         status: std::process::ExitStatus,
         stderr: String,
     },
+    #[error("{producer}\n{consumer}")]
+    Pipe {
+        producer: Box<Error>,
+        consumer: Box<Error>,
+    },
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
     #[error("the database URL must look like postgres://user@host/database")]
