@@ -70,12 +70,13 @@ Build them with Nix (`nix build .#packages.aarch64-linux.server-image`); the rem
 
 ## Commands
 
-<!-- Fill in once Phase 0 exists. -->
+Run `make help` for the full list. Each target wraps a Nix command.
+
+- `make check` — everything CI runs (`nix flake check`)
+- `make test` — fast test loop (`cargo nextest run` in the dev shell)
+- `make fmt` / `make fmt-check` / `make lint` — format, check formatting, Clippy
 - `nix develop` — dev shell with the pinned toolchain
-- `nix flake check` — everything CI runs
-- `cargo nextest run` — fast test loop inside the dev shell
 - `cargo insta review` — review snapshot changes
-- `nix build .#server-image` — build the server image
 
 ## Current phase
 

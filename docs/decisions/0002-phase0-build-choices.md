@@ -10,3 +10,4 @@ Status: accepted, 2026-11-23
 | Images for both `aarch64-linux` and `x86_64-linux` | The server's CPU is not known yet; Docker Desktop on the dev Mac needs aarch64 |
 | Repo tooling (layer check, coverage thresholds, compose smoke test) in an `xtask/` crate | The usual Cargo place for project tooling; not in the spec's workspace layout and never shipped |
 | Root `Makefile` wraps every top-level command | One easy entry point; build logic stays in `flake.nix` |
+| Clippy's default lint set at `deny`, without `clippy::pedantic` | Pedantic lints such as `must_use_candidate` would need `#[allow]`s, which CLAUDE.md forbids. Individual pedantic lints can be added to `[workspace.lints.clippy]` later |
