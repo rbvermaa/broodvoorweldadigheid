@@ -54,6 +54,18 @@
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          postgresql = pkgs.postgresql_17;
+          postgres = import ./nix/postgres.nix { inherit postgresql; };
+          cli = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "cli";
+              cargoExtraArgs = "--locked --package cli";
+              doCheck = false;
+              meta.mainProgram = "cli";
+            }
+          );
         in
         {
           inherit
@@ -63,14 +75,17 @@
             src
             commonArgs
             cargoArtifacts
+            postgresql
+            postgres
+            cli
             ;
         };
 
       images =
-        { pkgs, ... }:
+        { pkgs, postgresql, ... }:
         pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
           import ./nix/images.nix {
-            inherit pkgs;
+            inherit pkgs postgresql;
             inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) server cli;
           }
         );
@@ -83,6 +98,8 @@
           src,
           commonArgs,
           cargoArtifacts,
+          postgres,
+          cli,
           ...
         }@ctx:
         (images ctx).checks or { }
@@ -102,12 +119,12 @@
             // {
               inherit cargoArtifacts;
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
+              doInstallCargoArtifacts = false;
+              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              preCheck = postgres.start;
+              postCheck = postgres.stop;
               # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
               __darwinAllowLocalNetworking = true;
-            }
-            // import ./nix/postgres-check.nix {
-              postgresql = pkgs.postgresql_17;
-              phase = "Check";
             }
           );
 
@@ -153,14 +170,15 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoLlvmCovExtraArgs = "--workspace --remap-path-prefix --lcov --summary-only --output-path $out";
+              cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
+              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              preBuild = postgres.start;
+              postBuild = postgres.stop;
               __darwinAllowLocalNetworking = true;
             }
-            // import ./nix/postgres-check.nix {
-              postgresql = pkgs.postgresql_17;
-              phase = "Build";
-            }
           );
+
+          restore = import ./nix/restore-check.nix { inherit pkgs cli postgres; };
 
           coverage = craneLib.mkCargoDerivation (
             commonArgs
@@ -181,6 +199,7 @@
           craneLib,
           commonArgs,
           cargoArtifacts,
+          cli,
           ...
         }@ctx:
         (images ctx).packages or { }
@@ -195,16 +214,7 @@
               meta.mainProgram = "server";
             }
           );
-          cli = craneLib.buildPackage (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              pname = "cli";
-              cargoExtraArgs = "--locked --package cli";
-              doCheck = false;
-              meta.mainProgram = "cli";
-            }
-          );
+          inherit cli;
           default = server;
         }
       );

@@ -17,7 +17,7 @@ pub struct Dep {
 pub struct Crate {
     pub name: String,
     pub deps: Vec<Dep>,
-    pub default_features: Vec<String>,
+    pub features: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]

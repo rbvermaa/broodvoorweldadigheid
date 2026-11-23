@@ -6,6 +6,7 @@ use tokio::net::TcpStream;
 pub const DEFAULT_URL: &str = "http://127.0.0.1:8080/health";
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_STATUS_LINE: usize = 1024;
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum HealthcheckError {
@@ -72,15 +73,30 @@ async fn fetch_status(target: &Target<'_>) -> Result<u16, HealthcheckError> {
     );
     stream.write_all(request.as_bytes()).await.map_err(io)?;
     let mut response = Vec::new();
-    stream.read_to_end(&mut response).await.map_err(io)?;
+    let mut buffer = [0_u8; 256];
+    while !response.windows(2).any(|pair| pair == b"\r\n") && response.len() < MAX_STATUS_LINE {
+        let read = stream.read(&mut buffer).await.map_err(io)?;
+        if read == 0 {
+            break;
+        }
+        response.extend_from_slice(&buffer[..read]);
+    }
     status_code(&String::from_utf8_lossy(&response))
 }
 
 pub async fn check(url: &str) -> Result<(), HealthcheckError> {
+    check_within(url, TIMEOUT).await
+}
+
+async fn check_within(url: &str, timeout: Duration) -> Result<(), HealthcheckError> {
     let target = parse_url(url)?;
-    let code = tokio::time::timeout(TIMEOUT, fetch_status(&target))
+    let code = tokio::time::timeout(timeout, fetch_status(&target))
         .await
-        .map_err(|_| HealthcheckError::Timeout(TIMEOUT))??;
+        .map_err(|_| HealthcheckError::Timeout(timeout))??;
+    verdict(code)
+}
+
+fn verdict(code: u16) -> Result<(), HealthcheckError> {
     if code == 200 {
         Ok(())
     } else {
@@ -131,5 +147,52 @@ mod tests {
         assert_eq!(status_code("HTTP/1.1 503 Service Unavailable\r\n"), Ok(503));
         assert!(status_code("").is_err());
         assert!(status_code("SSH-2.0-OpenSSH\r\n").is_err());
+    }
+
+    #[test]
+    fn status_line_must_start_with_http_1() {
+        assert!(status_code("XTTP/1.1 200 OK\r\n").is_err());
+        assert!(status_code("HTTP/2 200\r\n").is_err());
+    }
+
+    #[test]
+    fn only_200_counts_as_healthy() {
+        assert_eq!(verdict(200), Ok(()));
+        assert_eq!(verdict(204), Err(HealthcheckError::Unhealthy(204)));
+        assert_eq!(verdict(503), Err(HealthcheckError::Unhealthy(503)));
+    }
+
+    #[tokio::test]
+    async fn silent_server_times_out() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}/health", listener.local_addr().expect("addr"));
+        let timeout = Duration::from_millis(200);
+        assert_eq!(
+            check_within(&url, timeout).await,
+            Err(HealthcheckError::Timeout(timeout))
+        );
+        drop(listener);
+    }
+
+    #[tokio::test]
+    async fn answer_is_read_without_waiting_for_the_connection_to_close() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}/health", listener.local_addr().expect("addr"));
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut request = [0_u8; 512];
+            let _ = socket.read(&mut request).await.expect("read");
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                .await
+                .expect("write");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+        assert_eq!(check_within(&url, Duration::from_secs(1)).await, Ok(()));
+        server.abort();
     }
 }

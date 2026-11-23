@@ -1,31 +1,26 @@
 #![forbid(unsafe_code)]
 
-mod entrypoint;
-
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::Parser;
 
-#[derive(Parser)]
-#[command(name = "cli")]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    /// Container entrypoints: first-start setup, then exec the service
-    #[command(subcommand)]
-    Entrypoint(entrypoint::Service),
-}
-
-fn main() -> ExitCode {
-    match Cli::parse().command {
-        Some(Command::Entrypoint(service)) => entrypoint::run(service),
-        None => {
-            let _ = Cli::command().print_help();
-            ExitCode::SUCCESS
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+    let command = match cli::Cli::parse().command {
+        cli::Command::Entrypoint(service) => return cli::entrypoint::run(service),
+        cli::Command::Backup(command) => command,
+    };
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default()
+        .to_string();
+    match cli::execute(command, &run_id).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
         }
     }
 }

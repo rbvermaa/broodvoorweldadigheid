@@ -48,6 +48,25 @@ fn layer(name: &str) -> Option<u8> {
         .map(|(_, layer)| *layer)
 }
 
+fn default_enables_ai(features: &std::collections::BTreeMap<String, Vec<String>>) -> bool {
+    let mut pending = vec!["default"];
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(feature) = pending.pop() {
+        if !seen.insert(feature) {
+            continue;
+        }
+        for entry in features.get(feature).into_iter().flatten() {
+            if entry == "ai" || entry == "dep:ai" || entry.starts_with("ai/") {
+                return true;
+            }
+            if features.contains_key(entry.as_str()) {
+                pending.push(entry);
+            }
+        }
+    }
+    false
+}
+
 fn label(name: &str) -> String {
     match layer(name) {
         Some(layer) => format!("{name} (layer {layer})"),
@@ -77,12 +96,7 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
             ));
             continue;
         }
-        if name == "server"
-            && krate
-                .default_features
-                .iter()
-                .any(|feature| feature == "ai" || feature == "dep:ai")
-        {
+        if name == "server" && default_enables_ai(&krate.features) {
             violations.push(format!(
                 "{}: the default features enable ai; ai must stay opt-in",
                 label(name)
@@ -172,7 +186,7 @@ mod tests {
         Crate {
             name: name.to_string(),
             deps,
-            default_features: Vec::new(),
+            features: std::collections::BTreeMap::new(),
         }
     }
 
@@ -304,10 +318,38 @@ mod tests {
         assert_eq!(check(&crates), Vec::<String>::new());
     }
 
+    fn features(entries: &[(&str, &[&str])]) -> std::collections::BTreeMap<String, Vec<String>> {
+        entries
+            .iter()
+            .map(|(name, enables)| {
+                (
+                    (*name).to_string(),
+                    enables.iter().map(|entry| (*entry).to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rule_d_ai_reached_through_default_feature_chain_fails() {
+        let mut crates = clean_workspace();
+        crates[5].features = features(&[("default", &["full"]), ("full", &["ai/extras"])]);
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("default"), "{violations:?}");
+    }
+
+    #[test]
+    fn rule_d_weak_ai_feature_in_default_passes() {
+        let mut crates = clean_workspace();
+        crates[5].features = features(&[("default", &["ai?/extras"]), ("ai", &["dep:ai"])]);
+        assert_eq!(check(&crates), Vec::<String>::new());
+    }
+
     #[test]
     fn rule_d_ai_in_server_default_features_fails() {
         let mut crates = clean_workspace();
-        crates[5].default_features = vec!["ai".to_string()];
+        crates[5].features = features(&[("default", &["ai"])]);
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].contains("default"), "{violations:?}");

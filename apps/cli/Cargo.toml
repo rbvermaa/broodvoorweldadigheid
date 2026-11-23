@@ -9,4 +9,9 @@ workspace = true
 
 [dependencies]
 clap.workspace = true
+db = { path = "../../crates/db" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
+tokio.workspace = true

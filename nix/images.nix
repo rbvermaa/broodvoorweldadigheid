@@ -4,11 +4,11 @@
   pkgs,
   server,
   cli,
+  postgresql,
 }:
 let
   inherit (pkgs) lib;
   uid = "1000";
-  postgresql = pkgs.postgresql_17;
   kanidm = pkgs.kanidm_1_12;
 
   nss = pkgs.dockerTools.fakeNss.override {
