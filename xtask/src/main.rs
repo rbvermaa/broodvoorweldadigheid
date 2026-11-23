@@ -19,9 +19,13 @@ fn main() -> ExitCode {
         ),
         [task] if task == "unsafe-forbid" => (
             task,
-            metadata::load(None)
-                .and_then(|metadata| metadata::root_files(&metadata))
-                .map(|roots| unsafe_forbid::check(&roots)),
+            metadata::load(None).and_then(|metadata| {
+                let mut violations = unsafe_forbid::check(&metadata::root_files(&metadata)?);
+                violations.extend(unsafe_forbid::check_manifests(&metadata::manifests(
+                    &metadata,
+                )?));
+                Ok(violations)
+            }),
         ),
         [task, report] if task == "coverage" => (
             task,

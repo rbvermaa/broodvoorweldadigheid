@@ -17,10 +17,18 @@ pub struct Dep {
 pub struct Crate {
     pub name: String,
     pub deps: Vec<Dep>,
+    pub default_features: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct RootFile {
+    pub crate_name: String,
+    pub path: String,
+    pub contents: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Manifest {
     pub crate_name: String,
     pub path: String,
     pub contents: String,

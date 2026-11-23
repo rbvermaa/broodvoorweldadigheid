@@ -2,7 +2,7 @@ use std::path::Path;
 
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, TargetKind};
 
-use crate::model::{Crate, Dep, DepKind, RootFile};
+use crate::model::{Crate, Dep, DepKind, Manifest, RootFile};
 
 pub fn load(manifest_path: Option<&Path>) -> Result<Metadata, String> {
     let mut command = MetadataCommand::new();
@@ -25,6 +25,7 @@ pub fn crates(metadata: &Metadata) -> Vec<Crate> {
         .iter()
         .map(|package| Crate {
             name: package.name.to_string(),
+            default_features: package.features.get("default").cloned().unwrap_or_default(),
             deps: package
                 .dependencies
                 .iter()
@@ -36,8 +37,7 @@ pub fn crates(metadata: &Metadata) -> Vec<Crate> {
                         _ => DepKind::Normal,
                     },
                     optional: dependency.optional,
-                    workspace: dependency.path.is_some()
-                        && names.contains(&dependency.name.as_str()),
+                    workspace: names.contains(&dependency.name.as_str()),
                 })
                 .collect(),
         })
@@ -58,6 +58,10 @@ pub fn root_files(metadata: &Metadata) -> Result<Vec<RootFile>, String> {
                         | TargetKind::DyLib
                         | TargetKind::CDyLib
                         | TargetKind::StaticLib
+                        | TargetKind::Test
+                        | TargetKind::Example
+                        | TargetKind::Bench
+                        | TargetKind::CustomBuild
                 )
             });
             if !is_root {
@@ -75,6 +79,22 @@ pub fn root_files(metadata: &Metadata) -> Result<Vec<RootFile>, String> {
     Ok(roots)
 }
 
+pub fn manifests(metadata: &Metadata) -> Result<Vec<Manifest>, String> {
+    metadata
+        .workspace_packages()
+        .iter()
+        .map(|package| {
+            std::fs::read_to_string(&package.manifest_path)
+                .map(|contents| Manifest {
+                    crate_name: package.name.to_string(),
+                    path: package.manifest_path.to_string(),
+                    contents,
+                })
+                .map_err(|error| format!("cannot read {}: {error}", package.manifest_path))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +109,10 @@ mod tests {
         let roots = root_files(&metadata).expect("root files");
         assert!(roots.iter().any(|root| root.crate_name == "domain"));
         assert_eq!(crate::unsafe_forbid::check(&roots), Vec::<String>::new());
+        let manifests = manifests(&metadata).expect("manifests");
+        assert_eq!(
+            crate::unsafe_forbid::check_manifests(&manifests),
+            Vec::<String>::new()
+        );
     }
 }
