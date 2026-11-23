@@ -24,7 +24,7 @@ DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
 export DATABASE_URL
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid server db-up db-down
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -49,6 +49,15 @@ layers: ## Crate layer and dependency rules check
 
 unsafe-forbid: ## Every crate root forbids unsafe code
 	$(call CHECK,unsafe-forbid)
+
+deny: ## Licence, ban and source checks (cargo-deny)
+	$(call CHECK,deny)
+
+audit: ## Known-vulnerability check (cargo-audit)
+	$(call CHECK,audit)
+
+coverage: ## Line coverage gate (80% overall, 95% in strict crates)
+	$(call CHECK,coverage)
 
 server: ## Build the server binary
 	nix build --print-build-logs .\#server

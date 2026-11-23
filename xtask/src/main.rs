@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod coverage;
 mod layers;
 mod metadata;
 mod model;
@@ -7,26 +8,29 @@ mod unsafe_forbid;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: cargo xtask <layers|unsafe-forbid>";
+const USAGE: &str = "usage: cargo xtask <layers|unsafe-forbid|coverage <lcov-report>>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let task = match args.as_slice() {
-        [task] => task.as_str(),
+    let (task, result) = match args.as_slice() {
+        [task] if task == "layers" => (
+            task,
+            metadata::load(None).map(|metadata| layers::check(&metadata::crates(&metadata))),
+        ),
+        [task] if task == "unsafe-forbid" => (
+            task,
+            metadata::load(None)
+                .and_then(|metadata| metadata::root_files(&metadata))
+                .map(|roots| unsafe_forbid::check(&roots)),
+        ),
+        [task, report] if task == "coverage" => (
+            task,
+            std::fs::read_to_string(report)
+                .map_err(|error| format!("cannot read {report}: {error}"))
+                .and_then(|contents| coverage::check(&contents)),
+        ),
         _ => {
             eprintln!("{USAGE}");
-            return ExitCode::from(2);
-        }
-    };
-    let result = match task {
-        "layers" => {
-            metadata::load(None).map(|metadata| layers::check(&metadata::crates(&metadata)))
-        }
-        "unsafe-forbid" => metadata::load(None)
-            .and_then(|metadata| metadata::root_files(&metadata))
-            .map(|roots| unsafe_forbid::check(&roots)),
-        _ => {
-            eprintln!("unknown task {task:?}\n{USAGE}");
             return ExitCode::from(2);
         }
     };

@@ -95,8 +95,27 @@
               # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
               __darwinAllowLocalNetworking = true;
             }
-            // import ./nix/postgres-check.nix { postgresql = pkgs.postgresql_17; }
+            // import ./nix/postgres-check.nix {
+              postgresql = pkgs.postgresql_17;
+              phase = "Check";
+            }
           );
+
+          deny = craneLib.cargoDeny {
+            inherit (commonArgs) pname version;
+            src = pkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = pkgs.lib.fileset.unions [
+                (craneLib.fileset.commonCargoSources ./.)
+                ./deny.toml
+              ];
+            };
+          };
+
+          audit = craneLib.cargoAudit {
+            inherit (commonArgs) src pname version;
+            inherit advisory-db;
+          };
 
           layers = craneLib.mkCargoDerivation (
             commonArgs
@@ -115,6 +134,31 @@
               inherit cargoArtifacts;
               pnameSuffix = "-unsafe-forbid";
               buildPhaseCargoCommand = "cargo xtask unsafe-forbid";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
+          coverage-report = craneLib.cargoLlvmCov (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoLlvmCovExtraArgs = "--workspace --remap-path-prefix --lcov --summary-only --output-path $out";
+              __darwinAllowLocalNetworking = true;
+            }
+            // import ./nix/postgres-check.nix {
+              postgresql = pkgs.postgresql_17;
+              phase = "Build";
+            }
+          );
+
+          coverage = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-coverage";
+              coverageReport = self.checks.${pkgs.stdenv.hostPlatform.system}.coverage-report;
+              buildPhaseCargoCommand = "cargo xtask coverage $coverageReport";
               installPhaseCommand = "mkdir -p $out";
               doInstallCargoArtifacts = false;
             }

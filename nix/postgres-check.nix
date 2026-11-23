@@ -1,11 +1,12 @@
-# Starts a throwaway PostgreSQL around a crane check's test phase and exports
-# DATABASE_URL for #[sqlx::test]. It listens on a unix socket only, so it needs
-# no network and works in the Linux and macOS build sandboxes.
-{ postgresql }:
+# Starts a throwaway PostgreSQL around the phase of a crane derivation that runs
+# the tests, and exports DATABASE_URL for #[sqlx::test]. It listens on a unix
+# socket only, so it needs no network and works in the Linux and macOS sandboxes.
+# `phase` is "Check" for cargoNextest and "Build" for cargoLlvmCov.
+{ postgresql, phase }:
 {
-  nativeCheckInputs = [ postgresql ];
+  nativeBuildInputs = [ postgresql ];
 
-  preCheck = ''
+  "pre${phase}" = ''
     stopPostgres() {
       pg_ctl --pgdata="$PGDATA" --wait --mode=fast stop || true
     }
@@ -27,7 +28,7 @@
     export DATABASE_URL="postgres://postgres@localhost/postgres?host=$PGHOST"
   '';
 
-  postCheck = ''
+  "post${phase}" = ''
     stopPostgres
   '';
 }
