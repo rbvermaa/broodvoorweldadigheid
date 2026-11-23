@@ -9,6 +9,8 @@ pub const DEFAULT_KANIDM_TLS_CHAIN: &str = "/data/chain.pem";
 pub const DEFAULT_KANIDM_TLS_KEY: &str = "/data/key.pem";
 /// Written to PGDATA only after initdb and the pg_hba.conf update both succeed.
 pub const INIT_DONE_MARKER: &str = ".bvw-init-done";
+/// Written by the postmaster on every start but never by initdb, so its presence means initdb finished.
+const STARTED_MARKER: &str = "postmaster.opts";
 const REMOTE_SCRAM: [&str; 5] = ["host", "all", "all", "samenet", "scram-sha-256"];
 
 #[derive(Debug, Clone, Copy, clap::Subcommand)]
@@ -40,7 +42,7 @@ pub enum PlanError {
     #[error("password file {0} does not exist")]
     NoPasswordFile(PathBuf),
     #[error(
-        "{0} has PG_VERSION but no {INIT_DONE_MARKER} and no global/pg_filenode.map. \
+        "{0} has PG_VERSION but no {INIT_DONE_MARKER} and no {STARTED_MARKER}. \
          Either an earlier initdb was interrupted, or the volume is not a PostgreSQL data directory \
          this image created. To start fresh, remove only the postgres volume: \
          `docker compose stop postgres && docker compose rm -f postgres && docker volume rm <project>_pgdata`"
@@ -53,7 +55,7 @@ pub fn postgres_plan(lookup: impl Fn(&str) -> Option<String>) -> Result<Plan, Pl
     let init = if pgdata.join(INIT_DONE_MARKER).exists() {
         None
     } else if pgdata.join("PG_VERSION").exists() {
-        if !pgdata.join("global/pg_filenode.map").exists() {
+        if !pgdata.join(STARTED_MARKER).exists() {
             return Err(PlanError::InitUnfinished(pgdata));
         }
         return Ok(Plan {
@@ -285,8 +287,7 @@ mod tests {
 
     fn complete_cluster(dir: &TempDir, hba: &str) {
         dir.file("PG_VERSION");
-        fs::create_dir_all(dir.0.join("global")).expect("create global");
-        dir.file("global/pg_filenode.map");
+        dir.file(STARTED_MARKER);
         fs::write(dir.0.join("pg_hba.conf"), hba).expect("write pg_hba.conf");
     }
 
@@ -325,6 +326,18 @@ mod tests {
     }
 
     #[test]
+    fn postgres_refuses_a_cluster_killed_after_the_bootstrap_step() {
+        let dir = TempDir::new("pg-post-bootstrap");
+        dir.file("PG_VERSION");
+        fs::create_dir_all(dir.0.join("global")).expect("create global");
+        dir.file("global/pg_filenode.map");
+        fs::write(dir.0.join("pg_hba.conf"), "local all all trust\n").expect("write pg_hba.conf");
+        let error = postgres_plan(lookup(vec![("PGDATA", dir.path(""))])).expect_err("must refuse");
+        assert_eq!(error, PlanError::InitUnfinished(dir.0.clone()));
+        assert!(!dir.0.join(INIT_DONE_MARKER).exists());
+    }
+
+    #[test]
     fn postgres_refuses_an_incomplete_cluster() {
         let dir = TempDir::new("pg-half");
         dir.file("PG_VERSION");
@@ -338,7 +351,7 @@ mod tests {
         assert_eq!(error, PlanError::InitUnfinished(PathBuf::from(&pgdata)));
         let message = error.to_string();
         assert!(message.contains(INIT_DONE_MARKER), "{message}");
-        assert!(message.contains("pg_filenode.map"), "{message}");
+        assert!(message.contains(STARTED_MARKER), "{message}");
         assert!(message.contains("initdb was interrupted"), "{message}");
         assert!(
             message.contains("not a PostgreSQL data directory"),
