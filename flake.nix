@@ -83,7 +83,7 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoNextestExtraArgs = "--workspace --no-tests=pass";
+              cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
             }
           );
         }
