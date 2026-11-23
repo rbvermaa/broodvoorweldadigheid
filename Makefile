@@ -3,6 +3,8 @@
 #   make db-up && make test     run the tests against a local PostgreSQL
 #   make db-down                stop it (data stays in .pg/)
 #   PG_PORT=54332 make db-up    use another port when one is taken
+#   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
+#   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
@@ -23,8 +25,16 @@ PG_PORT ?= 54331
 DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
 export DATABASE_URL
 
+COMPOSE_PROJECT ?= bvw
+SMOKE_PROJECT ?= bvw-smoke
+BVW_IMAGE_TAG ?= dev
+BVW_HTTP_PORT ?= 8080
+BVW_HTTPS_PORT ?= 8443
+export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
+COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
+
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down restore-test
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down restore-test up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -64,6 +74,15 @@ restore-test: ## Back up a seeded database, restore it and verify (Gate 1)
 
 server: ## Build the server binary
 	nix build --print-build-logs .\#server
+
+up: ## Start the Compose stack on BVW_HTTP_PORT/BVW_HTTPS_PORT (default 8080/8443)
+	$(COMPOSE) up --detach --wait
+
+down: ## Stop the Compose stack (volumes stay)
+	$(COMPOSE) down
+
+smoke: ## Compose smoke test against the loaded images (Gate 1)
+	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(BVW_HTTP_PORT) --https-port $(BVW_HTTPS_PORT)
 
 db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 	@mkdir -p $(PG_DIR)/sock

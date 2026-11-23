@@ -1,0 +1,20 @@
+{
+	admin off
+	skip_install_trust
+}
+
+localhost {
+	tls internal
+	reverse_proxy server:8080
+}
+
+idm.localhost {
+	tls internal
+	# Kanidm always serves TLS itself, with the self-signed cert from cert-generate.
+	reverse_proxy https://kanidm:8443 {
+		header_up Host {host}
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
