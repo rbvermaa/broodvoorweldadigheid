@@ -16,7 +16,7 @@ NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -35,3 +35,9 @@ fmt-check: ## Formatting check only
 
 lint: ## Clippy check only
 	$(call CHECK,clippy)
+
+layers: ## Crate layer and dependency rules check
+	$(call CHECK,layers)
+
+unsafe-forbid: ## Every crate root forbids unsafe code
+	$(call CHECK,unsafe-forbid)

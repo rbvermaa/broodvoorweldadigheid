@@ -1,12 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*"]
+members = ["crates/*", "apps/*", "xtask"]
 
 [workspace.package]
 edition = "2024"
 publish = false
 
 [workspace.dependencies]
+cargo_metadata = "0.23.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
