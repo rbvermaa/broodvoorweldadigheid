@@ -5,6 +5,7 @@
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
+#   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH and docker load it
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
@@ -47,6 +48,7 @@ SMOKE_PROJECT ?= bvw-smoke
 SMOKE_HTTP_PORT ?= 18080
 SMOKE_HTTPS_PORT ?= 18443
 SMOKE_SUBNET ?= 10.89.1.0/24
+SMOKE_ARGS ?=
 BVW_IMAGE_TAG ?= dev
 BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
@@ -109,7 +111,7 @@ down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
-	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET)
+	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
 
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH and docker load it
 
