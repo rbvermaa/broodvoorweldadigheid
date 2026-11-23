@@ -48,7 +48,22 @@ fn layer(name: &str) -> Option<u8> {
         .map(|(_, layer)| *layer)
 }
 
-fn default_enables_ai(features: &std::collections::BTreeMap<String, Vec<String>>) -> bool {
+fn ai_names(krate: &Crate) -> Vec<&str> {
+    let mut names = vec!["ai"];
+    names.extend(
+        krate
+            .deps
+            .iter()
+            .filter(|dep| dep.name == "ai")
+            .filter_map(|dep| dep.rename.as_deref()),
+    );
+    names
+}
+
+fn default_enables_ai(
+    features: &std::collections::BTreeMap<String, Vec<String>>,
+    ai_names: &[&str],
+) -> bool {
     let mut pending = vec!["default"];
     let mut seen = std::collections::BTreeSet::new();
     while let Some(feature) = pending.pop() {
@@ -56,7 +71,14 @@ fn default_enables_ai(features: &std::collections::BTreeMap<String, Vec<String>>
             continue;
         }
         for entry in features.get(feature).into_iter().flatten() {
-            if entry == "ai" || entry == "dep:ai" || entry.starts_with("ai/") {
+            let enables_ai = ai_names.iter().any(|name| {
+                entry == name
+                    || entry.strip_prefix("dep:") == Some(*name)
+                    || entry
+                        .strip_prefix(*name)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            });
+            if enables_ai {
                 return true;
             }
             if features.contains_key(entry.as_str()) {
@@ -96,7 +118,7 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
             ));
             continue;
         }
-        if name == "server" && default_enables_ai(&krate.features) {
+        if name == "server" && default_enables_ai(&krate.features, &ai_names(krate)) {
             violations.push(format!(
                 "{}: the default features enable ai; ai must stay opt-in",
                 label(name)
@@ -167,6 +189,7 @@ mod tests {
     fn ws(name: &str, kind: DepKind) -> Dep {
         Dep {
             name: name.to_string(),
+            rename: None,
             kind,
             optional: false,
             workspace: true,
@@ -176,6 +199,7 @@ mod tests {
     fn ext(name: &str) -> Dep {
         Dep {
             name: name.to_string(),
+            rename: None,
             kind: DepKind::Normal,
             optional: false,
             workspace: false,
@@ -334,6 +358,16 @@ mod tests {
     fn rule_d_ai_reached_through_default_feature_chain_fails() {
         let mut crates = clean_workspace();
         crates[5].features = features(&[("default", &["full"]), ("full", &["ai/extras"])]);
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("default"), "{violations:?}");
+    }
+
+    #[test]
+    fn rule_d_renamed_ai_in_default_features_fails() {
+        let mut crates = clean_workspace();
+        crates[5].deps[2].rename = Some("brain".to_string());
+        crates[5].features = features(&[("default", &["dep:brain"])]);
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].contains("default"), "{violations:?}");
