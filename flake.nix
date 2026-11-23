@@ -86,6 +86,28 @@
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
             }
           );
+
+          layers = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-layers";
+              buildPhaseCargoCommand = "cargo xtask layers";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
+          unsafe-forbid = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-unsafe-forbid";
+              buildPhaseCargoCommand = "cargo xtask unsafe-forbid";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
         }
       );
 
