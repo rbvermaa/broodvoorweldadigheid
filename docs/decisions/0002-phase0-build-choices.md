@@ -14,3 +14,4 @@ Status: accepted, 2026-11-23
 | Clippy's default lint set at `deny`, without `clippy::pedantic` | Pedantic lints such as `must_use_candidate` would need `#[allow]`s, which CLAUDE.md forbids. Individual pedantic lints can be added to `[workspace.lints.clippy]` later |
 | The HTTP-crate rule also applies to `testkit` and to dev-dependencies | The spec's fakes (Mollie, clock, printer) are in-process; revisit only if a fake needs a real HTTP server |
 | Inline `#[cfg(test)]` modules count toward line coverage | Simple and the same for every crate; revisit if large inline test modules start to inflate the strict-crate numbers |
+| `cargo xtask unsafe-forbid` reads crate roots and manifests as text, not with a parser | It errs on the strict side: `/*! */` before the attribute, `forbid(unsafe_code, ...)` lists, multi-line attributes and `workspace=true` without spaces are rejected. Write those the plain way instead |
