@@ -86,6 +86,7 @@ let
     server-image = mkImage {
       name = "server";
       entrypoint = [ (lib.getExe server) ];
+      env = [ "PATH=${server}/bin" ];
       ports = [ 8080 ];
     };
 
@@ -165,9 +166,9 @@ let
       env = [
         "PATH=${pkgs.rustic}/bin:${postgresql}/bin"
         "RUSTIC_NO_PROGRESS=true"
-        "RUSTIC_CACHE_DIR=/var/cache/rustic"
       ];
-      dirs."/var/cache/rustic" = "0750";
+      dirs."/backup" = "0750";
+      volumes = [ "/backup" ];
     };
   };
 
@@ -203,7 +204,7 @@ in
       }
       ''
         fail() {
-          echo "$1"
+          echo "$1" >&2
           exit 1
         }
 
@@ -243,21 +244,41 @@ in
           echo "$name image: User=$user, $(find "$root" -type f | wc -l) files, shell check passed"
         done
 
-        root="$TMPDIR/backup/root"
-        path=$(jq -r '.config.Env[] | select(startswith("PATH=")) | ltrimstr("PATH=")' \
-          "$TMPDIR/backup/tar/$(jq -r '.[0].Config' "$TMPDIR/backup/tar/manifest.json")")
-        for tool in rustic pg_dump pg_restore; do
-          located=""
+        config_of() {
+          echo "$TMPDIR/$1/tar/$(jq -r '.[0].Config' "$TMPDIR/$1/tar/manifest.json")"
+        }
+        # Prints the in-image path of $2 found on the image's PATH, or fails.
+        on_path() {
+          local path located=""
+          path=$(jq -r '.config.Env[] | select(startswith("PATH=")) | ltrimstr("PATH=")' "$(config_of "$1")")
+          [ -n "$path" ] || fail "$1 image: PATH is not set"
           for bin in ''${path//:/ }; do
-            if [ -x "$root$bin/$tool" ]; then located="$bin/$tool"; fi
+            if [ -z "$located" ] && [ -x "$TMPDIR/$1/root$bin/$2" ]; then located="$bin/$2"; fi
           done
-          [ -n "$located" ] || fail "backup image: $tool is not on PATH ($path)"
+          [ -n "$located" ] || fail "$1 image: $2 is not on PATH ($path)"
+          echo "$located"
+        }
+
+        server=$(on_path server server)
+        "$TMPDIR/server/root$server" healthcheck --help | grep -q -- --url \
+          || fail "server image: server healthcheck --help does not list --url"
+        echo "server image: server on PATH; server healthcheck --help runs"
+
+        for tool in rustic pg_dump pg_restore; do
+          on_path backup "$tool" > /dev/null
         done
-        entry=$(jq -r '.config.Entrypoint[0]' \
-          "$TMPDIR/backup/tar/$(jq -r '.[0].Config' "$TMPDIR/backup/tar/manifest.json")")
-        "$root$entry" backup --help | grep -q restore-test \
+        if jq -e '.config.Env[] | select(startswith("RUSTIC_CACHE_DIR="))' "$(config_of backup)" > /dev/null; then
+          fail "backup image: RUSTIC_CACHE_DIR conflicts with the --no-cache that cli passes to rustic"
+        fi
+        entry=$(jq -r '.config.Entrypoint[0]' "$(config_of backup)")
+        "$TMPDIR/backup/root$entry" backup --help | grep -q restore-test \
           || fail "backup image: cli backup --help does not list restore-test"
-        echo "backup image: rustic, pg_dump, pg_restore on PATH; cli backup --help runs"
+        backup_dir=$(for layer in $(jq -r '.[0].Layers[]' "$TMPDIR/backup/tar/manifest.json"); do
+          tar --numeric-owner -tvf "$TMPDIR/backup/tar/$layer"
+        done | awk '$NF ~ /^(\.\/)?backup\/?$/ { print $1, $2 }')
+        [ "$backup_dir" = "drwxr-x--- ${uid}/${uid}" ] \
+          || fail "backup image: /backup must be drwxr-x--- ${uid}/${uid}, got '$backup_dir'"
+        echo "backup image: rustic, pg_dump, pg_restore on PATH; cli backup --help runs; /backup owned by ${uid}"
         touch $out
       '';
 }

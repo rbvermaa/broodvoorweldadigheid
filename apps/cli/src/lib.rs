@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 pub mod backup;
+pub mod dev_secrets;
 pub mod entrypoint;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -18,6 +20,8 @@ pub struct Cli {
 pub enum Command {
     #[command(subcommand, about = "Encrypted backups with rustic")]
     Backup(BackupCommand),
+    #[command(about = "Write random secrets for deploy/compose.yaml into DIR; never overwrites")]
+    DevSecrets { dir: PathBuf },
     #[command(
         subcommand,
         about = "Container entrypoints: first-start setup, then exec the service"
@@ -43,7 +47,7 @@ pub struct RunArgs {
     pub repos: Vec<String>,
     #[arg(long)]
     pub password_file: PathBuf,
-    #[arg(long)]
+    #[arg(long, env = "DATABASE_URL")]
     pub database_url: String,
     #[arg(long)]
     pub uploads: Option<PathBuf>,
@@ -55,13 +59,31 @@ pub struct RestoreTestArgs {
     pub repos: Vec<String>,
     #[arg(long)]
     pub password_file: PathBuf,
-    #[arg(long, help = "connection with the right to create and drop databases")]
+    #[arg(
+        long,
+        env = "DATABASE_URL",
+        help = "connection with the right to create and drop databases"
+    )]
     pub database_url: String,
 }
 
-pub async fn execute(command: BackupCommand, run_id: &str) -> Result<(), backup::Error> {
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Backup(#[from] backup::Error),
+    #[error(transparent)]
+    DevSecrets(#[from] dev_secrets::Error),
+}
+
+pub async fn execute(command: Command, run_id: &str) -> Result<ExitCode, Error> {
     match command {
-        BackupCommand::Run(args) => {
+        Command::Entrypoint(service) => return Ok(entrypoint::run(service)),
+        Command::DevSecrets { dir } => {
+            for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
+                println!("wrote {}", path.display());
+            }
+        }
+        Command::Backup(BackupCommand::Run(args)) => {
             backup::run(&backup::BackupRun {
                 repos: &args.repos,
                 password_file: &args.password_file,
@@ -75,7 +97,7 @@ pub async fn execute(command: BackupCommand, run_id: &str) -> Result<(), backup:
                 args.repos.len()
             );
         }
-        BackupCommand::RestoreTest(args) => {
+        Command::Backup(BackupCommand::RestoreTest(args)) => {
             let scratch_database = format!("restore_test_{run_id}");
             for repo in &args.repos {
                 let tables = backup::restore_test(&backup::RestoreTest {
@@ -91,7 +113,7 @@ pub async fn execute(command: BackupCommand, run_id: &str) -> Result<(), backup:
             }
         }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
@@ -143,6 +165,16 @@ mod tests {
             panic!("expected restore-test, got {cli:?}");
         };
         assert_eq!(args.repos, ["/backup/local"]);
+    }
+
+    #[test]
+    fn parses_dev_secrets() {
+        let cli =
+            Cli::try_parse_from(["cli", "dev-secrets", "deploy/secrets"]).expect("valid arguments");
+        let Command::DevSecrets { dir } = cli.command else {
+            panic!("expected dev-secrets, got {cli:?}");
+        };
+        assert_eq!(dir, PathBuf::from("deploy/secrets"));
     }
 
     #[test]

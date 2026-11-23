@@ -233,6 +233,7 @@
               cargo-deny
               cargo-audit
               rustic
+              curl
               sops
               age
               typst
