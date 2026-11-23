@@ -19,7 +19,8 @@ const ROW_TEXT_SETTINGS: &str = "
     SET IntervalStyle = 'postgres';
     SET TimeZone = 'UTC';
     SET extra_float_digits = 1;
-    SET bytea_output = 'hex';";
+    SET bytea_output = 'hex';
+    SET search_path = pg_catalog;";
 
 pub fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -267,6 +268,7 @@ mod tests {
             "TimeZone",
             "extra_float_digits",
             "bytea_output",
+            "search_path",
         ] {
             assert!(ROW_TEXT_SETTINGS.contains(setting), "{setting}");
         }

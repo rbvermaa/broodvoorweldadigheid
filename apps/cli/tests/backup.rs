@@ -202,6 +202,32 @@ async fn restore_test_ignores_database_level_output_settings() {
         .expect("restore test");
 }
 
+#[tokio::test]
+async fn restore_test_ignores_a_database_level_search_path() {
+    let seed = "
+        CREATE TABLE ovens (id integer PRIMARY KEY);
+        CREATE TABLE refs (target regclass NOT NULL);
+        INSERT INTO refs VALUES ('public.ovens');
+    ";
+    let fixture = Fixture::new("search_path", seed).await;
+    let mut admin = PgConnection::connect(&admin_url())
+        .await
+        .expect("connect admin");
+    admin
+        .execute("ALTER DATABASE source_search_path SET search_path = pg_catalog")
+        .await
+        .expect("set database search_path");
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+
+    let admin = admin_url();
+    backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+        .await
+        .expect("restore test");
+}
+
 fn with_password(url: &str, password: &str) -> String {
     let with = url.replacen("://postgres@", &format!("://postgres:{password}@"), 1);
     assert_ne!(with, url, "DATABASE_URL must use the postgres user: {url}");
