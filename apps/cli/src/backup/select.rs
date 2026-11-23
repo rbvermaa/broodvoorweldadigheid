@@ -7,6 +7,7 @@ pub const RUN_TAG_PREFIX: &str = "run-";
 /// Followed by the run id: nanoseconds since the Unix epoch when the restore test started.
 pub const SCRATCH_PREFIX: &str = "restore_test_";
 pub const SCRATCH_MAX_AGE: SignedDuration = SignedDuration::from_hours(1);
+pub const CLOCK_SKEW: SignedDuration = SignedDuration::from_mins(5);
 
 pub fn run_id(now: Timestamp) -> Result<String, Error> {
     if now < Timestamp::UNIX_EPOCH {
@@ -100,6 +101,14 @@ pub fn check_age(
     max_age: SignedDuration,
 ) -> Result<SignedDuration, Error> {
     let age = SignedDuration::from_secs(now.duration_since(choice.dump.time).as_secs());
+    if -age > CLOCK_SKEW {
+        return Err(Error::FromTheFuture {
+            snapshot: choice.dump.id.clone(),
+            run: choice.run.clone(),
+            ahead: -age,
+            limit: CLOCK_SKEW,
+        });
+    }
     if age > max_age {
         let mut skipped = String::new();
         for line in &choice.skipped {
@@ -270,6 +279,29 @@ mod tests {
             error.to_string(),
             "the newest usable backup, db snapshot d1 of run 1, is 48h old; the limit is 26h\
              \n  db snapshot d2 of run 2 has no manifest — backup failed?"
+        );
+    }
+
+    #[test]
+    fn check_age_tolerates_small_clock_skew_but_rejects_future_backups() {
+        let dumps = [snapshot("d1", "2026-11-23T02:05:00Z", &["db", "run-1"])];
+        let manifests = [snapshot(
+            "m1",
+            "2026-11-23T02:05:01Z",
+            &["manifest", "run-1"],
+        )];
+        let choice = choose("/repo", &dumps, &manifests).expect("choice");
+        let max_age: SignedDuration = "26h".parse().expect("duration");
+
+        assert_eq!(
+            check_age(&choice, ts("2026-11-23T02:00:00Z"), max_age).expect("within skew"),
+            SignedDuration::from_mins(-5)
+        );
+        let error = check_age(&choice, ts("2026-11-23T01:59:59Z"), max_age).expect_err("future");
+        assert_eq!(
+            error.to_string(),
+            "db snapshot d1 of run 1 is dated 5m 1s in the future; the limit is 5m. \
+             Check the clocks of this machine and the backup host"
         );
     }
 }

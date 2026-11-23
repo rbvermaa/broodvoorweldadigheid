@@ -74,6 +74,16 @@ pub enum Error {
         max_age: SignedDuration,
         skipped: String,
     },
+    #[error(
+        "db snapshot {snapshot} of run {run} is dated {ahead:#} in the future; the limit is {limit:#}. \
+         Check the clocks of this machine and the backup host"
+    )]
+    FromTheFuture {
+        snapshot: String,
+        run: String,
+        ahead: SignedDuration,
+        limit: SignedDuration,
+    },
     #[error("the manifest lists no tables, so there is nothing to verify")]
     EmptyManifest,
     #[error("the database restored from {repo} does not match the manifest:{mismatches}")]
