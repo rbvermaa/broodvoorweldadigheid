@@ -19,6 +19,13 @@ pub enum Error {
         "{path} has mode {mode:o}, so other users can read the secrets; run `chmod 700` on it first"
     )]
     OpenDirectory { path: PathBuf, mode: u32 },
+    #[error(
+        "cannot hard link {path}: {source}; the secrets directory must be on a filesystem that supports hard links"
+    )]
+    HardLink {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,
@@ -63,7 +70,7 @@ pub fn write(
         staged.push((temp, dir.join(name)));
     }
     for (temp, path) in &staged {
-        std::fs::hard_link(temp, path).map_err(|source| exists_or_io(path, source))?;
+        std::fs::hard_link(temp, path).map_err(|source| link_error(path, source))?;
         created.0.push(path.clone());
     }
     for (temp, _) in &staged {
@@ -119,6 +126,16 @@ fn create_new(path: &Path, created: &mut Created) -> Result<(), Error> {
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> Error {
     let path = path.to_path_buf();
     move |source| Error::Io { path, source }
+}
+
+fn link_error(path: &Path, source: std::io::Error) -> Error {
+    match source.kind() {
+        ErrorKind::AlreadyExists => Error::Exists(path.to_path_buf()),
+        _ => Error::HardLink {
+            path: path.to_path_buf(),
+            source,
+        },
+    }
 }
 
 fn exists_or_io(path: &Path, source: std::io::Error) -> Error {
@@ -264,6 +281,20 @@ mod tests {
             "{error}"
         );
         assert!(entries(&dir.0).is_empty());
+    }
+
+    #[test]
+    fn hard_link_failure_names_the_filesystem() {
+        let path = Path::new("/secrets/database.env");
+        let error = link_error(path, std::io::Error::from(ErrorKind::Unsupported));
+        let message = error.to_string();
+        assert!(message.contains("hard link"), "{message}");
+        assert!(message.contains("filesystem"), "{message}");
+        assert!(message.contains("/secrets/database.env"), "{message}");
+        assert!(matches!(
+            link_error(path, std::io::Error::from(ErrorKind::AlreadyExists)),
+            Error::Exists(_)
+        ));
     }
 
     #[test]
