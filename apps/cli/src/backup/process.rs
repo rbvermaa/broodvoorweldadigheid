@@ -70,14 +70,23 @@ pub fn pipe(mut producer: Command, mut consumer: Command) -> Result<(), Error> {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     );
+    // The Command keeps its copy of the pipe's read end; while it is open, the producer
+    // never sees a broken pipe if the consumer exits early.
+    consumer.stdin(Stdio::null());
     let (produced, consumed) = std::thread::scope(|scope| {
         let consumed = scope.spawn(|| sink.and_then(|child| wait(&consumer, child)));
         let produced = wait(&producer, source);
         (produced, consumed.join())
     });
-    produced?;
-    consumed.unwrap_or_else(|panic| std::panic::resume_unwind(panic))?;
-    Ok(())
+    let consumed = consumed.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    match (produced, consumed) {
+        (Ok(_), Ok(_)) => Ok(()),
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+        (Err(producer), Err(consumer)) => Err(Error::Pipe {
+            producer: Box::new(producer),
+            consumer: Box::new(consumer),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -138,6 +147,23 @@ mod tests {
         )
         .expect_err("grep finds nothing");
         assert!(error.to_string().starts_with("grep failed"), "{error}");
+    }
+
+    #[test]
+    fn pipe_returns_when_the_consumer_exits_before_reading() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = pipe(
+                command("head", &["-c", "1048576", "/dev/zero"]),
+                command("false", &[]),
+            );
+            let _ = sender.send(result.map_err(|error| error.to_string()));
+        });
+        let result = receiver
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("pipe must not hang when the consumer exits early");
+        let error = result.expect_err("false fails");
+        assert!(error.contains("false failed"), "{error}");
     }
 
     #[test]

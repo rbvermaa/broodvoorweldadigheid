@@ -47,7 +47,7 @@ pub struct RunArgs {
     pub repos: Vec<String>,
     #[arg(long)]
     pub password_file: PathBuf,
-    #[arg(long, env = "DATABASE_URL")]
+    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     pub database_url: String,
     #[arg(long)]
     pub uploads: Option<PathBuf>,
@@ -62,9 +62,16 @@ pub struct RestoreTestArgs {
     #[arg(
         long,
         env = "DATABASE_URL",
+        hide_env_values = true,
         help = "connection with the right to create and drop databases"
     )]
     pub database_url: String,
+    #[arg(
+        long,
+        default_value = "26h",
+        help = "fail if the newest backup is older"
+    )]
+    pub max_age: jiff::SignedDuration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -75,7 +82,7 @@ pub enum Error {
     DevSecrets(#[from] dev_secrets::Error),
 }
 
-pub async fn execute(command: Command, run_id: &str) -> Result<ExitCode, Error> {
+pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode, Error> {
     match command {
         Command::Entrypoint(service) => return Ok(entrypoint::run(service)),
         Command::DevSecrets { dir } => {
@@ -84,6 +91,7 @@ pub async fn execute(command: Command, run_id: &str) -> Result<ExitCode, Error> 
             }
         }
         Command::Backup(BackupCommand::Run(args)) => {
+            let run_id = &backup::run_id(now)?;
             backup::run(&backup::BackupRun {
                 repos: &args.repos,
                 password_file: &args.password_file,
@@ -98,18 +106,38 @@ pub async fn execute(command: Command, run_id: &str) -> Result<ExitCode, Error> 
             );
         }
         Command::Backup(BackupCommand::RestoreTest(args)) => {
-            let scratch_database = format!("restore_test_{run_id}");
+            let run_id = &backup::run_id(now)?;
+            let scratch_database = backup::scratch_database(run_id);
+            let mut failed = 0;
             for repo in &args.repos {
-                let tables = backup::restore_test(&backup::RestoreTest {
+                let result = backup::restore_test(&backup::RestoreTest {
                     repo,
                     password_file: &args.password_file,
                     admin_url: &args.database_url,
                     scratch_database: &scratch_database,
+                    max_age: args.max_age,
+                    now,
                 })
-                .await?;
-                println!(
-                    "restore test passed for {repo}: {tables} tables match the manifest, migrations applied"
-                );
+                .await;
+                match result {
+                    Ok(verified) => {
+                        println!(
+                            "restore test passed for {repo}: run {} ({:#} old), {} tables match the manifest, migrations applied",
+                            verified.run, verified.age, verified.tables
+                        );
+                    }
+                    Err(error) => {
+                        failed += 1;
+                        eprintln!("error: restore test failed for {repo}: {error}");
+                    }
+                }
+            }
+            if failed > 0 {
+                return Err(backup::Error::RestoreTestsFailed {
+                    failed,
+                    total: args.repos.len(),
+                }
+                .into());
             }
         }
     }
@@ -165,6 +193,29 @@ mod tests {
             panic!("expected restore-test, got {cli:?}");
         };
         assert_eq!(args.repos, ["/backup/local"]);
+        assert_eq!(args.max_age, jiff::SignedDuration::from_hours(26));
+    }
+
+    #[test]
+    fn parses_restore_test_max_age() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "backup",
+            "restore-test",
+            "--repo",
+            "/backup/local",
+            "--password-file",
+            "/pw",
+            "--database-url",
+            "postgres://db/postgres",
+            "--max-age",
+            "2h 30m",
+        ])
+        .expect("valid arguments");
+        let Command::Backup(BackupCommand::RestoreTest(args)) = cli.command else {
+            panic!("expected restore-test, got {cli:?}");
+        };
+        assert_eq!(args.max_age, jiff::SignedDuration::from_mins(150));
     }
 
     #[test]

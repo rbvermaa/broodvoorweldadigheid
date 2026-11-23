@@ -1,6 +1,6 @@
 # Gate 1: back up a seeded database with `cli backup run`, verify it with
-# `cli backup restore-test`, then prove the restore test fails on a forged manifest
-# and on a repository with missing pack files.
+# `cli backup restore-test`, then prove the restore test fails on a forged manifest,
+# on a backup older than --max-age and on a repository with missing pack files.
 {
   pkgs,
   cli,
@@ -29,17 +29,31 @@ pkgs.runCommand "restore-check"
     printf 'check-only-password\n' > "$work/password"
     printf 'not really a photo\n' > "$work/uploads/photo.txt"
 
-    cli backup run --repo "$work/local" --repo "$work/offsite" \
-      --password-file "$work/password" --database-url "$DATABASE_URL" --uploads "$work/uploads"
+    # Trust auth ignores the password; it is there to prove it never reaches a snapshot.
+    dbPassword=check-only-db-secret
+    sourceUrl="''${DATABASE_URL/postgres@/postgres:$dbPassword@}"
+    [[ "$sourceUrl" == *"$dbPassword"* ]]
+    cli backup run --repo "$work/local" --repo "$work/offsite" --password-file "$work/password" \
+      --database-url "$sourceUrl" --uploads "$work/uploads"
     cli backup restore-test --repo "$work/local" --repo "$work/offsite" \
       --password-file "$work/password" --database-url "$DATABASE_URL" \
       | tee "$work/restore-test.out"
     grep -c "migrations applied" "$work/restore-test.out" | grep -qx 2
 
+    for repo in local offsite; do
+      snapshots=$(rustic --repository "$work/$repo" --password-file "$work/password" \
+        --no-cache --no-progress snapshots --json)
+      if [[ "$snapshots" == *"$dbPassword"* ]]; then
+        echo "the database password is stored in a snapshot in $repo" >&2
+        exit 1
+      fi
+    done
+
     expectFailure() {
       local what="$1" expected="$2" repo="$3"
+      shift 3
       if cli backup restore-test --repo "$repo" --password-file "$work/password" \
-        --database-url "$DATABASE_URL" 2> "$work/stderr"; then
+        --database-url "$DATABASE_URL" "$@" 2> "$work/stderr"; then
         echo "restore-test passed despite $what" >&2
         exit 1
       fi
@@ -61,8 +75,11 @@ pkgs.runCommand "restore-check"
       | "''${rustic[@]}" backup --force --tag "manifest,$run" --stdin-filename manifest.json -
     expectFailure "a forged manifest" "public.loaves: expected 4 rows, restored 3" "$work/local"
 
+    sleep 2
+    expectFailure "an old backup" "old; the limit is 1s" "$work/offsite" --max-age 1s
+
     rm -r "$work/offsite/data"
-    expectFailure "missing pack files" "error: rustic failed" "$work/offsite"
+    expectFailure "missing pack files" "Failed to open the file \`$work/offsite/data/" "$work/offsite"
 
     if psql --quiet --tuples-only -c "SELECT datname FROM pg_database" | grep -q restore_test_; then
       echo "restore-test left a scratch database behind" >&2
