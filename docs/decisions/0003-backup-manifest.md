@@ -23,3 +23,7 @@ Table names come from `pg_class` and go into SQL as quoted identifiers
 spec's "parameterised queries only" rule ("Security, backup and operations"): Postgres
 can bind values but not identifiers. The names come from the database itself, never
 from user input.
+
+The manifest format changed during Phase 0 (fingerprint, uploads flag). Manifests from
+before that change don't parse; make a fresh backup after upgrading. Version the
+manifest before the first production backup.
