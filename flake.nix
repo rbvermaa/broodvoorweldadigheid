@@ -54,6 +54,17 @@
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          postgres = import ./nix/postgres.nix { postgresql = pkgs.postgresql_17; };
+          cli = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "cli";
+              cargoExtraArgs = "--locked --package cli";
+              doCheck = false;
+              meta.mainProgram = "cli";
+            }
+          );
         in
         {
           inherit
@@ -63,6 +74,8 @@
             src
             commonArgs
             cargoArtifacts
+            postgres
+            cli
             ;
         };
     in
@@ -74,6 +87,8 @@
           src,
           commonArgs,
           cargoArtifacts,
+          postgres,
+          cli,
           ...
         }:
         {
@@ -93,12 +108,11 @@
               inherit cargoArtifacts;
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
               doInstallCargoArtifacts = false;
+              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              preCheck = postgres.start;
+              postCheck = postgres.stop;
               # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
               __darwinAllowLocalNetworking = true;
-            }
-            // import ./nix/postgres-check.nix {
-              postgresql = pkgs.postgresql_17;
-              phase = "Check";
             }
           );
 
@@ -145,13 +159,14 @@
             // {
               inherit cargoArtifacts;
               cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
+              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              preBuild = postgres.start;
+              postBuild = postgres.stop;
               __darwinAllowLocalNetworking = true;
             }
-            // import ./nix/postgres-check.nix {
-              postgresql = pkgs.postgresql_17;
-              phase = "Build";
-            }
           );
+
+          restore = import ./nix/restore-check.nix { inherit pkgs cli postgres; };
 
           coverage = craneLib.mkCargoDerivation (
             commonArgs
@@ -172,6 +187,7 @@
           craneLib,
           commonArgs,
           cargoArtifacts,
+          cli,
           ...
         }:
         rec {
@@ -185,6 +201,7 @@
               meta.mainProgram = "server";
             }
           );
+          inherit cli;
           default = server;
         }
       );

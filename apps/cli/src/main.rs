@@ -1,3 +1,23 @@
 #![forbid(unsafe_code)]
 
-fn main() {}
+use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use clap::Parser;
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+    let args = cli::Cli::parse();
+    let run_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default()
+        .to_string();
+    match cli::execute(args, &run_id).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
