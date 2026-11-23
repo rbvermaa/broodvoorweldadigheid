@@ -38,8 +38,15 @@
             overlays = [ (import rust-overlay) ];
           };
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
-          src = craneLib.cleanCargoSource ./.;
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              (craneLib.fileset.commonCargoSources ./.)
+              ./crates/db/migrations
+            ];
+          };
           commonArgs = {
             inherit src;
             pname = "bakflow";
@@ -102,6 +109,8 @@
               nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
               preCheck = postgres.start;
               postCheck = postgres.stop;
+              # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
+              __darwinAllowLocalNetworking = true;
             }
           );
 
@@ -151,6 +160,7 @@
               nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
               preBuild = postgres.start;
               postBuild = postgres.stop;
+              __darwinAllowLocalNetworking = true;
             }
           );
 
@@ -167,6 +177,28 @@
               doInstallCargoArtifacts = false;
             }
           );
+        }
+      );
+
+      packages = forAllSystems (
+        {
+          craneLib,
+          commonArgs,
+          cargoArtifacts,
+          ...
+        }:
+        rec {
+          server = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "server";
+              cargoExtraArgs = "--locked --package server";
+              doCheck = false;
+              meta.mainProgram = "server";
+            }
+          );
+          default = server;
         }
       );
 

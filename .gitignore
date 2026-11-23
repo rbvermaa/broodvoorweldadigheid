@@ -4,3 +4,4 @@ result
 result-*
 deploy/secrets/
 .direnv/
+.pg/

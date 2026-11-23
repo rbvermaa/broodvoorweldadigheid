@@ -25,12 +25,20 @@ const TOP_LAYER: u8 = 6;
 const TESTKIT: &str = "testkit";
 const EXCLUDED: &[&str] = &["xtask"];
 const HTTP_CRATES: &[&str] = &[
+    "actix-web",
     "axum",
-    "hyper",
+    "axum-core",
+    "axum-extra",
+    "headers",
     "http",
+    "http-body",
+    "http-body-util",
+    "hyper",
+    "hyper-util",
+    "poem",
     "tower-http",
     "tower-sessions",
-    "axum-extra",
+    "warp",
 ];
 
 fn layer(name: &str) -> Option<u8> {
@@ -69,6 +77,17 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
             ));
             continue;
         }
+        if name == "server"
+            && krate
+                .default_features
+                .iter()
+                .any(|feature| feature == "ai" || feature == "dep:ai")
+        {
+            violations.push(format!(
+                "{}: the default features enable ai; ai must stay opt-in",
+                label(name)
+            ));
+        }
         for dep in &krate.deps {
             if dep.workspace {
                 check_workspace_dep(name, dep, &mut violations);
@@ -87,15 +106,16 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
 
 fn check_workspace_dep(name: &str, dep: &Dep, violations: &mut Vec<String>) {
     let dep_name = dep.name.as_str();
-    if EXCLUDED.contains(&dep_name) {
-        return;
-    }
     let edge = format!(
         "{} has {} {}",
         label(name),
         kind_name(dep.kind),
         label(dep_name)
     );
+    if EXCLUDED.contains(&dep_name) {
+        violations.push(format!("{edge}; no crate may depend on {dep_name}"));
+        return;
+    }
     if dep_name == TESTKIT {
         if dep.kind != DepKind::Dev {
             violations.push(format!("{edge}; testkit may only be a dev-dependency"));
@@ -113,9 +133,7 @@ fn check_workspace_dep(name: &str, dep: &Dep, violations: &mut Vec<String>) {
         }
         return;
     }
-    if name == "pos-core" && dep_name != "domain" {
-        violations.push(format!("{edge}; pos-core may only depend on domain"));
-    } else if layer(name).is_some_and(|own| dep_layer >= own) {
+    if layer(name).is_some_and(|own| dep_layer >= own) {
         violations.push(format!(
             "{edge}; a crate may only depend on crates in a lower layer"
         ));
@@ -154,6 +172,7 @@ mod tests {
         Crate {
             name: name.to_string(),
             deps,
+            default_features: Vec::new(),
         }
     }
 
@@ -239,17 +258,6 @@ mod tests {
     }
 
     #[test]
-    fn rule_b_pos_core_depending_on_other_than_domain_fails() {
-        let mut crates = clean_workspace();
-        crates.push(krate("db", vec![]));
-        crates[1].deps.push(ws("db", DepKind::Normal));
-        let violations = check(&crates);
-        assert_eq!(violations.len(), 1, "{violations:?}");
-        assert!(violations[0].contains("pos-core"), "{violations:?}");
-        assert!(violations[0].contains("db (layer 1)"), "{violations:?}");
-    }
-
-    #[test]
     fn rule_c_http_crate_outside_server_fails() {
         let mut crates = clean_workspace();
         crates[2].deps.push(ext("tower-http"));
@@ -268,6 +276,41 @@ mod tests {
         assert!(violations[0].contains("server (layer 6)"), "{violations:?}");
         assert!(violations[0].contains("ai (layer 5)"), "{violations:?}");
         assert!(violations[0].contains("optional"), "{violations:?}");
+    }
+
+    #[test]
+    fn nothing_may_depend_on_xtask() {
+        let mut crates = clean_workspace();
+        crates[0].deps.push(ws("xtask", DepKind::Normal));
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("domain (layer 0)"), "{violations:?}");
+        assert!(violations[0].contains("xtask"), "{violations:?}");
+    }
+
+    #[test]
+    fn rule_c_axum_core_outside_server_fails() {
+        let mut crates = clean_workspace();
+        crates[0].deps.push(ext("axum-core"));
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("axum-core"), "{violations:?}");
+    }
+
+    #[test]
+    fn rule_d_server_dev_dependency_on_ai_passes() {
+        let mut crates = clean_workspace();
+        crates[5].deps.push(ws("ai", DepKind::Dev));
+        assert_eq!(check(&crates), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rule_d_ai_in_server_default_features_fails() {
+        let mut crates = clean_workspace();
+        crates[5].default_features = vec!["ai".to_string()];
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("default"), "{violations:?}");
     }
 
     #[test]
