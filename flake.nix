@@ -125,6 +125,26 @@
               doInstallCargoArtifacts = false;
             }
           );
+
+          coverage-report = craneLib.cargoLlvmCov (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoLlvmCovExtraArgs = "--workspace --remap-path-prefix --lcov --summary-only --output-path $out";
+            }
+          );
+
+          coverage = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-coverage";
+              coverageReport = self.checks.${pkgs.stdenv.hostPlatform.system}.coverage-report;
+              buildPhaseCargoCommand = "cargo xtask coverage $coverageReport";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
         }
       );
 
