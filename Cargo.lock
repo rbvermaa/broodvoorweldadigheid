@@ -3,5 +3,84 @@
 version = 4
 
 [[package]]
+name = "ai"
+version = "0.1.0"
+
+[[package]]
+name = "auth"
+version = "0.1.0"
+
+[[package]]
+name = "bakedays"
+version = "0.1.0"
+
+[[package]]
+name = "catalog"
+version = "0.1.0"
+
+[[package]]
+name = "cli"
+version = "0.1.0"
+
+[[package]]
+name = "db"
+version = "0.1.0"
+
+[[package]]
 name = "domain"
+version = "0.1.0"
+
+[[package]]
+name = "i18n"
+version = "0.1.0"
+
+[[package]]
+name = "jobs"
+version = "0.1.0"
+
+[[package]]
+name = "labels"
+version = "0.1.0"
+
+[[package]]
+name = "notify"
+version = "0.1.0"
+
+[[package]]
+name = "orders"
+version = "0.1.0"
+
+[[package]]
+name = "payments"
+version = "0.1.0"
+
+[[package]]
+name = "pos"
+version = "0.1.0"
+
+[[package]]
+name = "pos-core"
+version = "0.1.0"
+
+[[package]]
+name = "production"
+version = "0.1.0"
+
+[[package]]
+name = "recipes"
+version = "0.1.0"
+
+[[package]]
+name = "reports"
+version = "0.1.0"
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "ai",
+]
+
+[[package]]
+name = "testkit"
 version = "0.1.0"
