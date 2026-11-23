@@ -100,6 +100,12 @@ pub enum Error {
     },
     #[error("migrations failed on the restored database: {0}")]
     Migrate(db::Error),
+    #[error("backup failed for {failed} of {total} repositories:\n  {details}")]
+    BackupsFailed {
+        failed: usize,
+        total: usize,
+        details: String,
+    },
     #[error("restore test failed for {failed} of {total} repositories")]
     RestoreTestsFailed { failed: usize, total: usize },
 }
@@ -152,29 +158,59 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
     let source = postgres::Libpq::parse(backup.database_url)?;
     let dump = postgres::pg_dump(&source.url, &snapshot);
 
+    let mut failures = Vec::new();
     for location in backup.repos {
         let repo = Repo {
             location,
             password_file: backup.password_file,
         };
-        let stored = (|| {
-            let mut dump_command =
-                rustic::backup_command_output(&repo, &dump, DB_FILE, &[DB_TAG, &run_tag]);
-            source.apply(&mut dump_command);
-            process::run(dump_command)?;
-            process::run_with_input(
-                rustic::backup_stdin(&repo, MANIFEST_FILE, &[MANIFEST_TAG, &run_tag]),
-                &manifest_json,
-            )
-        })();
-        if let Err(error) = stored {
-            return Err(forget_partial_run(&repo, &run_tag, error));
-        }
-        if let Some(uploads) = backup.uploads {
-            process::run(rustic::backup_dir(&repo, uploads, &[UPLOADS_TAG, &run_tag]))?;
+        if let Err(error) = store_run(
+            &repo,
+            &source,
+            &dump,
+            &manifest_json,
+            &run_tag,
+            backup.uploads,
+        ) {
+            failures.push(format!("{location}: {error}"));
         }
     }
     tx.rollback().await?;
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::BackupsFailed {
+            failed: failures.len(),
+            total: backup.repos.len(),
+            details: failures.join("\n  "),
+        })
+    }
+}
+
+fn store_run(
+    repo: &Repo<'_>,
+    source: &postgres::Libpq,
+    dump: &[String],
+    manifest_json: &[u8],
+    run_tag: &str,
+    uploads: Option<&Path>,
+) -> Result<(), Error> {
+    let stored = (|| {
+        let mut dump_command =
+            rustic::backup_command_output(repo, dump, DB_FILE, &[DB_TAG, run_tag]);
+        source.apply(&mut dump_command);
+        process::run(dump_command)?;
+        process::run_with_input(
+            rustic::backup_stdin(repo, MANIFEST_FILE, &[MANIFEST_TAG, run_tag]),
+            manifest_json,
+        )
+    })();
+    if let Err(error) = stored {
+        return Err(forget_partial_run(repo, run_tag, error));
+    }
+    if let Some(uploads) = uploads {
+        process::run(rustic::backup_dir(repo, uploads, &[UPLOADS_TAG, run_tag]))?;
+    }
     Ok(())
 }
 

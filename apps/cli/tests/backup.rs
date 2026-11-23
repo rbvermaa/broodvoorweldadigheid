@@ -562,6 +562,41 @@ async fn restore_test_fails_when_the_newest_run_has_no_manifest() {
 }
 
 #[tokio::test]
+async fn backup_continues_with_the_next_repo_when_one_fails() {
+    let fixture = Fixture::new("next_repo", SEED).await;
+    let broken = fixture.repo("broken");
+    std::fs::write(&broken, "not a repository").expect("block the first repo");
+    let good = fixture.repo("good");
+    let repos = [broken.clone(), good.clone()];
+
+    let error = backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect_err("the broken repo must fail the run");
+    let message = error.to_string();
+    assert!(matches!(error, Error::BackupsFailed { .. }), "{message}");
+    assert!(
+        message.starts_with("backup failed for 1 of 2 repositories:\n  "),
+        "{message}"
+    );
+    assert!(message.contains(&format!("\n  {broken}: ")), "{message}");
+    assert!(!message.contains(&format!("{good}:")), "{message}");
+
+    let tags = snapshot_tags(&good, &fixture.password_file);
+    for kind in ["db", "manifest", "uploads"] {
+        assert!(
+            tags.iter()
+                .any(|tags| tags.iter().any(|tag| tag == kind)
+                    && tags.iter().any(|tag| tag == "run-1")),
+            "{kind} snapshot missing in {good}: {tags:?}"
+        );
+    }
+    let admin = admin_url();
+    backup::restore_test(&fixture.restore_test(&good, &admin))
+        .await
+        .expect("the good repo still verifies");
+}
+
+#[tokio::test]
 async fn restore_test_fails_when_no_db_snapshot_has_a_manifest() {
     let fixture = Fixture::new("only_orphans", SEED).await;
     let location = fixture.repo("local");
