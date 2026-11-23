@@ -62,6 +62,7 @@
     {
       checks = forAllSystems (
         {
+          pkgs,
           craneLib,
           src,
           commonArgs,
@@ -86,6 +87,22 @@
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
             }
           );
+
+          deny = craneLib.cargoDeny {
+            inherit (commonArgs) pname version;
+            src = pkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = pkgs.lib.fileset.unions [
+                (craneLib.fileset.commonCargoSources ./.)
+                ./deny.toml
+              ];
+            };
+          };
+
+          audit = craneLib.cargoAudit {
+            inherit (commonArgs) src pname version;
+            inherit advisory-db;
+          };
 
           layers = craneLib.mkCargoDerivation (
             commonArgs
