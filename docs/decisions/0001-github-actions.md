@@ -12,3 +12,7 @@ CI stays a thin wrapper: the workflow installs Nix and runs `make check`, which 
 This conflicts with the spec's rule that external services are limited to Mollie, the
 SMTP relay and the off-site backup. GitHub holds code only, never customer data or
 secrets. Tracked in `docs/open-questions.md` until the spec is updated.
+
+Branch protection is not available for private repositories on GitHub's free plan, so
+"no merge without a green pipeline" (spec, "Rules that keep it safe") is a working rule,
+not enforced by GitHub. PRs are merged only with green CI and a Claude and Codex review.

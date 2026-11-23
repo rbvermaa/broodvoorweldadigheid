@@ -1,0 +1,26 @@
+{
+	admin off
+	skip_install_trust
+	auto_https disable_redirects
+}
+
+# Caddy's own redirect would point at port 443 inside the container, not the published port.
+http://localhost, http://idm.localhost {
+	redir https://{host}:{$BVW_HTTPS_PORT:8443}{uri}
+}
+
+localhost {
+	tls internal
+	reverse_proxy server:8080
+}
+
+idm.localhost {
+	tls internal
+	# Kanidm always serves TLS itself, with the self-signed cert from cert-generate.
+	reverse_proxy https://kanidm:8443 {
+		header_up Host {host}
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}

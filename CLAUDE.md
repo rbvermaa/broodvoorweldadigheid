@@ -63,10 +63,11 @@ If this file and the spec disagree, stop and ask.
 
 ## Local testing
 
-Docker Desktop runs on this Mac (Apple Silicon) and expects `aarch64-linux` images.
-Build them with Nix (`nix build .#packages.aarch64-linux.server-image`); the remote
-`aarch64-linux` builder in the Nix config does the Linux build. Load the result with
-`docker load < result` and run the stack with `deploy/compose.yaml`.
+Docker Desktop on this Mac runs the `x86_64-linux` images under emulation; `aarch64-linux`
+images are built and tested in CI only (ADR 0002). `make images` builds the images on a
+Linux builder (`LINUX_BUILDER` / `LINUX_STORE` in the Makefile) and loads them.
+`make up` / `make down` run the stack from `deploy/compose.yaml`; `make smoke` runs a
+throwaway stack next to it and checks health, Kanidm, backup and restore.
 
 ## Commands
 

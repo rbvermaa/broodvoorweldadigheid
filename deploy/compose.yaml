@@ -1,0 +1,127 @@
+# Images come from `make images` (nix/images.nix). Secrets come from `cli dev-secrets`.
+# Overrides for local runs, with defaults: BVW_IMAGE_TAG (dev), BVW_SECRETS_DIR (./secrets),
+# BVW_BIND_ADDRESS (127.0.0.1), BVW_HTTP_PORT (8080), BVW_HTTPS_PORT (8443),
+# BVW_SUBNET (10.89.0.0/24) and BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET).
+name: bvw
+
+services:
+  postgres:
+    image: bvw-postgres:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    init: true
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kanidm:
+    image: bvw-kanidm:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      KANIDM_CONFIG: /etc/kanidm/server.toml
+    configs:
+      - source: kanidm_server
+        target: /etc/kanidm/server.toml
+    volumes:
+      - kanidm:/data
+    networks: [internal]
+
+  server:
+    image: bvw-server:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  caddy:
+    image: bvw-caddy:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      BVW_HTTPS_PORT: ${BVW_HTTPS_PORT:-8443}
+    ports:
+      - "${BVW_BIND_ADDRESS:-127.0.0.1}:${BVW_HTTP_PORT:-8080}:80"
+      - "${BVW_BIND_ADDRESS:-127.0.0.1}:${BVW_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on:
+      server:
+        condition: service_healthy
+      kanidm:
+        condition: service_started
+    networks:
+      internal:
+        ipv4_address: ${BVW_CADDY_IP:-10.89.0.10}
+
+  backup:
+    image: bvw-backup:${BVW_IMAGE_TAG:-dev}
+    profiles: [backup]
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    command:
+      - backup
+      - run
+      - --repo=/backup/repo
+      - --password-file=/run/secrets/rustic_password
+    secrets:
+      - rustic_password
+    volumes:
+      - backup:/backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+secrets:
+  postgres_password:
+    file: ${BVW_SECRETS_DIR:-./secrets}/postgres-password
+  rustic_password:
+    file: ${BVW_SECRETS_DIR:-./secrets}/rustic-password
+
+# Inline so the origin follows the published HTTPS port and only Caddy's address is
+# trusted for X-Forwarded-For.
+configs:
+  kanidm_server:
+    content: |
+      version = "2"
+      bindaddress = "0.0.0.0:8443"
+      domain = "idm.localhost"
+      origin = "https://idm.localhost:${BVW_HTTPS_PORT:-8443}"
+      db_path = "/data/kanidm.db"
+      tls_chain = "/data/chain.pem"
+      tls_key = "/data/key.pem"
+      # The default socket path is not writable by the container user.
+      adminbindpath = "/data/kanidmd.sock"
+
+      [http_client_address_info]
+      x-forward-for = ["${BVW_CADDY_IP:-10.89.0.10}/32"]
+
+volumes:
+  pgdata:
+  kanidm:
+  caddy:
+  backup:
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: ${BVW_SUBNET:-10.89.0.0/24}

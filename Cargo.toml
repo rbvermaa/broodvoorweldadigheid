@@ -1,12 +1,24 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*"]
+members = ["crates/*", "apps/*", "xtask"]
 
 [workspace.package]
 edition = "2024"
 publish = false
 
 [workspace.dependencies]
+axum = "0.8"
+cargo_metadata = "0.23.1"
+clap = { version = "4", features = ["derive", "env"] }
+jiff = { version = "0.2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "signal", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
