@@ -44,6 +44,23 @@ pub fn run(mut command: Command) -> Result<Vec<u8>, Error> {
     wait(&command, child)
 }
 
+/// Like `run`, but returns what the command wrote to stderr; its stdout is discarded.
+pub fn run_stderr(mut command: Command) -> Result<String, Error> {
+    let child = spawn(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )?;
+    let output = child.wait_with_output().map_err(|source| Error::Spawn {
+        program: program(&command),
+        source,
+    })?;
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    checked(&command, output)?;
+    Ok(stderr)
+}
+
 pub fn run_with_input(mut command: Command, input: &[u8]) -> Result<Vec<u8>, Error> {
     let mut child = spawn(
         command
@@ -124,6 +141,17 @@ mod tests {
                 .starts_with("could not start no-such-program-for-tests: "),
             "{error}"
         );
+    }
+
+    #[test]
+    fn run_stderr_returns_stderr_of_a_successful_command() {
+        assert_eq!(
+            run_stderr(command("sh", &["-c", "echo out; echo warning >&2"])).expect("sh"),
+            "warning"
+        );
+        let error =
+            run_stderr(command("sh", &["-c", "echo broken >&2; exit 2"])).expect_err("sh fails");
+        assert_eq!(error.to_string(), "sh failed (exit status: 2): broken");
     }
 
     #[test]
