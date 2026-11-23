@@ -42,6 +42,8 @@
           src = craneLib.cleanCargoSource ./.;
           commonArgs = {
             inherit src;
+            pname = "bakflow";
+            version = "0.1.0";
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -67,13 +69,13 @@
           ...
         }:
         {
-          fmt = craneLib.cargoFmt { inherit src; };
+          fmt = craneLib.cargoFmt { inherit (commonArgs) src pname version; };
 
           clippy = craneLib.cargoClippy (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoClippyExtraArgs = "--workspace --all-targets -- --deny warnings";
+              cargoClippyExtraArgs = "--workspace --all-targets --all-features -- --deny warnings";
             }
           );
 

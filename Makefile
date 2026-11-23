@@ -3,6 +3,9 @@
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
+ifeq ($(HOST_SYSTEM),)
+$(error Could not get the Nix system. Is nix on PATH and the daemon running?)
+endif
 ifeq ($(findstring darwin,$(HOST_SYSTEM)),darwin)
 ARCH ?= $(subst darwin,linux,$(HOST_SYSTEM))
 else
