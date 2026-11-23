@@ -1,0 +1,6 @@
+.work/
+target/
+result
+result-*
+deploy/secrets/
+.direnv/
