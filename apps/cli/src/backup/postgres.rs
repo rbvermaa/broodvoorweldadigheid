@@ -82,14 +82,71 @@ pub fn pg_dump(database_url: &str, snapshot: &str) -> Vec<String> {
     ]
 }
 
-pub fn pg_restore(database_url: &str) -> Command {
+/// A connection URL for libpq tools with the password moved out of it: a password on a
+/// command line shows up in `ps` and in rustic's snapshot metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Libpq {
+    pub url: String,
+    password: Option<String>,
+}
+
+impl Libpq {
+    pub fn parse(url: &str) -> Result<Libpq, Error> {
+        let authority_start = url.find("://").ok_or(Error::DatabaseUrl)? + 3;
+        let rest = &url[authority_start..];
+        let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+        let authority = &rest[..authority_end];
+        let (path, query) = rest[authority_end..]
+            .split_once('?')
+            .unwrap_or((&rest[authority_end..], ""));
+
+        let mut password = None;
+        let authority = match authority.rsplit_once('@') {
+            Some((userinfo, host)) => match userinfo.split_once(':') {
+                Some((user, secret)) => {
+                    password = Some(percent_decode(secret)?);
+                    format!("{user}@{host}")
+                }
+                None => authority.to_string(),
+            },
+            None => authority.to_string(),
+        };
+        let mut kept = Vec::new();
+        for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            if percent_decode(key)?.eq_ignore_ascii_case("password") {
+                password = Some(percent_decode(value)?);
+            } else {
+                kept.push(pair);
+            }
+        }
+        let query = if kept.is_empty() {
+            String::new()
+        } else {
+            format!("?{}", kept.join("&"))
+        };
+        Ok(Libpq {
+            url: format!("{}{authority}{path}{query}", &url[..authority_start]),
+            password,
+        })
+    }
+
+    pub fn apply(&self, command: &mut Command) {
+        if let Some(password) = &self.password {
+            command.env("PGPASSWORD", password);
+        }
+    }
+}
+
+pub fn pg_restore(database: &Libpq) -> Command {
     let mut command = Command::new("pg_restore");
     command.args([
         "--exit-on-error",
         "--no-owner",
         "--no-privileges",
-        &format!("--dbname={database_url}"),
+        &format!("--dbname={}", database.url),
     ]);
+    database.apply(&mut command);
     command
 }
 
@@ -180,6 +237,82 @@ mod tests {
     }
 
     #[test]
+    fn libpq_moves_the_password_out_of_the_url() {
+        let cases = [
+            (
+                "postgres://app:s3cret@db:5432/bakflow",
+                "postgres://app@db:5432/bakflow",
+            ),
+            (
+                "postgres://app:p%40ss%3Aw@localhost/x?host=/sock",
+                "postgres://app@localhost/x?host=/sock",
+            ),
+            (
+                "postgres://app@db/x?sslmode=disable&password=s3cret&host=/s",
+                "postgres://app@db/x?sslmode=disable&host=/s",
+            ),
+            ("postgres://app@db/x?password=s3cret", "postgres://app@db/x"),
+        ];
+        for (url, stripped) in cases {
+            let libpq = Libpq::parse(url).expect(url);
+            assert_eq!(libpq.url, stripped);
+        }
+        assert_eq!(
+            Libpq::parse("postgres://app:p%40ss%3Aw@localhost/x")
+                .expect("valid")
+                .password
+                .as_deref(),
+            Some("p@ss:w")
+        );
+        assert_eq!(
+            Libpq::parse("postgres://app@db/x").expect("valid").password,
+            None
+        );
+    }
+
+    #[test]
+    fn libpq_rejects_broken_percent_encoding() {
+        let error = Libpq::parse("postgres://app:%zz@db/x").expect_err("invalid");
+        assert!(matches!(error, Error::DatabaseUrl), "{error}");
+    }
+
+    #[test]
+    fn libpq_passes_the_password_in_the_environment() {
+        let libpq = Libpq::parse("postgres://app:s3cret@db/x").expect("valid");
+        let mut command = Command::new("pg_dump");
+        libpq.apply(&mut command);
+        let envs: Vec<_> = command.get_envs().collect();
+        assert_eq!(
+            envs,
+            [(
+                std::ffi::OsStr::new("PGPASSWORD"),
+                Some(std::ffi::OsStr::new("s3cret"))
+            )]
+        );
+
+        let mut without = Command::new("pg_dump");
+        Libpq::parse("postgres://app@db/x")
+            .expect("valid")
+            .apply(&mut without);
+        assert_eq!(without.get_envs().count(), 0);
+    }
+
+    #[test]
+    fn pg_restore_keeps_the_password_off_the_command_line() {
+        let command = pg_restore(&Libpq::parse("postgres://app:s3cret@db/scratch").expect("valid"));
+        assert!(
+            command
+                .get_args()
+                .all(|arg| !arg.to_string_lossy().contains("s3cret"))
+        );
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "PGPASSWORD" && value == Some("s3cret".as_ref()))
+        );
+    }
+
+    #[test]
     fn pg_dump_uses_the_exported_snapshot() {
         assert_eq!(
             pg_dump("postgres://db/bakflow", "00000003-0000001B-1"),
@@ -194,7 +327,7 @@ mod tests {
 
     #[test]
     fn pg_restore_stops_on_the_first_error() {
-        let command = pg_restore("postgres://db/scratch");
+        let command = pg_restore(&Libpq::parse("postgres://db/scratch").expect("valid"));
         assert_eq!(command.get_program(), "pg_restore");
         let args: Vec<_> = command.get_args().collect();
         assert_eq!(

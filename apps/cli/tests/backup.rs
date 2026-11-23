@@ -132,6 +132,42 @@ async fn backup_then_restore_test_passes_for_every_repo() {
     assert!(!scratch_exists("scratch_round_trip").await);
 }
 
+fn with_password(url: &str, password: &str) -> String {
+    let with = url.replacen("://postgres@", &format!("://postgres:{password}@"), 1);
+    assert_ne!(with, url, "DATABASE_URL must use the postgres user: {url}");
+    with
+}
+
+#[tokio::test]
+async fn backup_keeps_the_database_password_out_of_snapshots() {
+    let password = "test-only-db-secret";
+    let fixture = Fixture::new("password", SEED).await;
+    let repos = [fixture.repo("local")];
+    let source_url = with_password(&fixture.source_url, password);
+    backup::run(&BackupRun {
+        database_url: &source_url,
+        ..fixture.backup(&repos, "1")
+    })
+    .await
+    .expect("backup");
+
+    let admin = with_password(&admin_url(), password);
+    backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+        .await
+        .expect("restore test");
+
+    let snapshots = Command::new("rustic")
+        .args(["--repository", &repos[0], "--password-file"])
+        .arg(&fixture.password_file)
+        .args(["--no-cache", "--no-progress", "snapshots", "--json"])
+        .output()
+        .expect("rustic snapshots");
+    assert!(snapshots.status.success());
+    let json = String::from_utf8_lossy(&snapshots.stdout);
+    assert!(json.contains("pg_dump"), "{json}");
+    assert!(!json.contains(password), "{json}");
+}
+
 #[tokio::test]
 async fn restore_test_uses_the_latest_backup_run() {
     let fixture = Fixture::new("latest_run", SEED).await;

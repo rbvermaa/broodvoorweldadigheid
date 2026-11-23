@@ -95,19 +95,18 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
             source,
         })?;
     let run_tag = format!("{RUN_TAG_PREFIX}{}", backup.run_id);
-    let dump = postgres::pg_dump(backup.database_url, &snapshot);
+    let source = postgres::Libpq::parse(backup.database_url)?;
+    let dump = postgres::pg_dump(&source.url, &snapshot);
 
     for location in backup.repos {
         let repo = Repo {
             location,
             password_file: backup.password_file,
         };
-        process::run(rustic::backup_command_output(
-            &repo,
-            &dump,
-            DB_FILE,
-            &[DB_TAG, &run_tag],
-        ))?;
+        let mut dump_command =
+            rustic::backup_command_output(&repo, &dump, DB_FILE, &[DB_TAG, &run_tag]);
+        source.apply(&mut dump_command);
+        process::run(dump_command)?;
         process::run_with_input(
             rustic::backup_stdin(&repo, MANIFEST_FILE, &[MANIFEST_TAG, &run_tag]),
             &manifest_json,
@@ -180,7 +179,7 @@ async fn restore_and_compare(
 ) -> Result<usize, Error> {
     process::pipe(
         rustic::dump(repo, snapshot_id, DB_FILE),
-        postgres::pg_restore(scratch_url),
+        postgres::pg_restore(&postgres::Libpq::parse(scratch_url)?),
     )?;
     let mut conn = PgConnection::connect(scratch_url).await?;
     let restored = postgres::read_manifest(&mut conn).await?;
