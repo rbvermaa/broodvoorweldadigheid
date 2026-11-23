@@ -9,3 +9,5 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Off-site backup target.** Which host or provider does the second rustic
   repository go to?
 - [ ] **Label fonts.** Which fonts go into the server image for PDFs and labels?
+- [ ] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
+  Left unenforced for now; revisit with GitHub Pro or a move to Forgejo.
