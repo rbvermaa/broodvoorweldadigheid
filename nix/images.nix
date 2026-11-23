@@ -9,7 +9,21 @@
 let
   inherit (pkgs) lib;
   uid = "1000";
-  kanidm = pkgs.kanidm_1_12;
+  # kanidmd and its web UI only: kanidm_unixd hard-codes a bash path, which would put a shell
+  # in the image. kanidmd embeds its own store path for the UI, so that path is rewritten to
+  # $out; the name is unchanged, so the rewrite keeps the binary's byte length.
+  kanidm =
+    let
+      upstream = pkgs.kanidm_1_12;
+    in
+    pkgs.runCommand upstream.name { meta.mainProgram = "kanidmd"; } ''
+      mkdir -p $out/bin
+      cp -r ${upstream}/ui $out/ui
+      cp ${upstream}/bin/kanidmd $out/bin/kanidmd
+      chmod u+w $out/bin/kanidmd
+      LC_ALL=C sed -i "s|${builtins.baseNameOf upstream}|$(basename $out)|g" $out/bin/kanidmd
+      if grep -q ${builtins.baseNameOf upstream} $out/bin/kanidmd; then exit 1; fi
+    '';
 
   nss = pkgs.dockerTools.fakeNss.override {
     extraPasswdLines = [ "app:x:${uid}:${uid}:app:/var/empty:/sbin/nologin" ];
@@ -179,39 +193,71 @@ in
     pkgs.runCommand "image-contents"
       {
         nativeBuildInputs = [ pkgs.jq ];
-        image = images.server-image;
+        images = lib.concatMapStringsSep " " (name: "${name}=${images."${name}-image"}") [
+          "server"
+          "postgres"
+          "kanidm"
+          "caddy"
+          "backup"
+        ];
       }
       ''
-        mkdir image root
-        tar -xf "$image" -C image
-        config=image/$(jq -r '.[0].Config' image/manifest.json)
-        for layer in $(jq -r '.[0].Layers[]' image/manifest.json); do
-          tar -xf "image/$layer" -C root
+        fail() {
+          echo "$1"
+          exit 1
+        }
+
+        for entry in $images; do
+          name=''${entry%%=*}
+          image=''${entry#*=}
+          dir="$TMPDIR/$name"
+          mkdir -p "$dir/tar" "$dir/root"
+          tar -xf "$image" -C "$dir/tar"
+          config="$dir/tar/$(jq -r '.[0].Config' "$dir/tar/manifest.json")"
+          for layer in $(jq -r '.[0].Layers[]' "$dir/tar/manifest.json"); do
+            tar -xf "$dir/tar/$layer" -C "$dir/root"
+          done
+          root="$dir/root"
+
+          user=$(jq -r '.config.User // ""' "$config")
+          case "$user" in
+            "" | 0 | 0:* | root | root:*) fail "$name image runs as root (User=\"$user\")" ;;
+          esac
+
+          found=$(find "$root" \( ${
+            lib.concatMapStringsSep " -o " (shell: "-name ${shell}") shells
+          } \) \( -type f -o -type l \) | sed "s|^$root||")
+          if [ "$name" = postgres ]; then
+            # initdb needs /bin/sh for popen() (ADR 0002); dash is the only shell allowed.
+            [ "$(readlink "$root/bin/sh")" = "${lib.getExe pkgs.dash}" ] \
+              || fail "postgres image: /bin/sh is not dash"
+            found=$(echo "$found" | grep -v -e '^/bin/sh$' -e '^${pkgs.dash}/' || true)
+          elif [ -e "$root/bin/sh" ] || [ -L "$root/bin/sh" ]; then
+            fail "$name image has /bin/sh"
+          fi
+          if [ -n "$found" ]; then
+            echo "$name image contains a shell:"
+            echo "$found"
+            exit 1
+          fi
+          echo "$name image: User=$user, $(find "$root" -type f | wc -l) files, shell check passed"
         done
 
-        user=$(jq -r '.config.User // ""' "$config")
-        case "$user" in
-          "" | 0 | 0:* | root | root:*)
-            echo "server image runs as root (User=\"$user\")"
-            exit 1
-            ;;
-        esac
-
-        if [ -e root/bin/sh ] || [ -L root/bin/sh ]; then
-          echo "server image has /bin/sh"
-          exit 1
-        fi
-
-        found=$(find root \( ${
-          lib.concatMapStringsSep " -o " (shell: "-name ${shell}") shells
-        } \) \( -type f -o -type l \))
-        if [ -n "$found" ]; then
-          echo "server image contains a shell:"
-          echo "$found"
-          exit 1
-        fi
-
-        echo "server image: User=$user, no shell in $(find root -type f | wc -l) files"
+        root="$TMPDIR/backup/root"
+        path=$(jq -r '.config.Env[] | select(startswith("PATH=")) | ltrimstr("PATH=")' \
+          "$TMPDIR/backup/tar/$(jq -r '.[0].Config' "$TMPDIR/backup/tar/manifest.json")")
+        for tool in rustic pg_dump pg_restore; do
+          located=""
+          for bin in ''${path//:/ }; do
+            if [ -x "$root$bin/$tool" ]; then located="$bin/$tool"; fi
+          done
+          [ -n "$located" ] || fail "backup image: $tool is not on PATH ($path)"
+        done
+        entry=$(jq -r '.config.Entrypoint[0]' \
+          "$TMPDIR/backup/tar/$(jq -r '.[0].Config' "$TMPDIR/backup/tar/manifest.json")")
+        "$root$entry" backup --help | grep -q restore-test \
+          || fail "backup image: cli backup --help does not list restore-test"
+        echo "backup image: rustic, pg_dump, pg_restore on PATH; cli backup --help runs"
         touch $out
       '';
 }
