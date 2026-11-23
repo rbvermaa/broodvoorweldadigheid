@@ -1,5 +1,8 @@
 # Thin wrappers around Nix. Build logic lives in flake.nix.
 # Usage: make help
+#   make db-up && make test     run the tests against a local PostgreSQL
+#   make db-down                stop it (data stays in .pg/)
+#   PG_PORT=54332 make db-up    use another port when one is taken
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
@@ -15,8 +18,13 @@ endif
 NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
+PG_DIR := $(CURDIR)/.pg
+PG_PORT ?= 54331
+DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
+export DATABASE_URL
+
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -24,7 +32,7 @@ help: ## List targets
 check: ## Everything CI runs (nix flake check)
 	nix flake check --print-build-logs
 
-test: ## Fast test loop in the dev shell
+test: ## Fast test loop in the dev shell (needs make db-up)
 	$(NIX_DEV) cargo nextest run --workspace --no-tests=pass
 
 fmt: ## Format the code
@@ -50,3 +58,19 @@ audit: ## Known-vulnerability check (cargo-audit)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
+
+server: ## Build the server binary
+	nix build --print-build-logs .\#server
+
+db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
+	@mkdir -p $(PG_DIR)/sock
+	@if [ ! -f $(PG_DIR)/data/PG_VERSION ]; then \
+		$(NIX_DEV) initdb --pgdata=$(PG_DIR)/data --auth=trust --username=postgres \
+			--no-instructions --encoding=UTF8 --locale=C >/dev/null; \
+	fi
+	$(NIX_DEV) pg_ctl --pgdata=$(PG_DIR)/data --wait --log=$(PG_DIR)/postgres.log \
+		-o "-c listen_addresses=127.0.0.1 -c port=$(PG_PORT) -c unix_socket_directories=$(PG_DIR)/sock -c max_connections=200" start
+	@echo "DATABASE_URL=$(DATABASE_URL)"
+
+db-down: ## Stop the local PostgreSQL
+	$(NIX_DEV) pg_ctl --pgdata=$(PG_DIR)/data --wait --mode=fast stop

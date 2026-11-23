@@ -9,6 +9,19 @@ workspace = true
 
 [dependencies]
 ai = { path = "../../crates/ai", optional = true }
+axum.workspace = true
+clap.workspace = true
+db = { path = "../../crates/db" }
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+sqlx.workspace = true
+tower.workspace = true
 
 [features]
 ai = ["dep:ai"]

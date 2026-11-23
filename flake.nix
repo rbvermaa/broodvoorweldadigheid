@@ -38,8 +38,15 @@
             overlays = [ (import rust-overlay) ];
           };
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
-          src = craneLib.cleanCargoSource ./.;
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              (craneLib.fileset.commonCargoSources ./.)
+              ./crates/db/migrations
+            ];
+          };
           commonArgs = {
             inherit src;
             pname = "bakflow";
@@ -85,6 +92,12 @@
             // {
               inherit cargoArtifacts;
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
+              # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
+              __darwinAllowLocalNetworking = true;
+            }
+            // import ./nix/postgres-check.nix {
+              postgresql = pkgs.postgresql_17;
+              phase = "Check";
             }
           );
 
@@ -131,6 +144,11 @@
             // {
               inherit cargoArtifacts;
               cargoLlvmCovExtraArgs = "--workspace --remap-path-prefix --lcov --summary-only --output-path $out";
+              __darwinAllowLocalNetworking = true;
+            }
+            // import ./nix/postgres-check.nix {
+              postgresql = pkgs.postgresql_17;
+              phase = "Build";
             }
           );
 
@@ -145,6 +163,28 @@
               doInstallCargoArtifacts = false;
             }
           );
+        }
+      );
+
+      packages = forAllSystems (
+        {
+          craneLib,
+          commonArgs,
+          cargoArtifacts,
+          ...
+        }:
+        rec {
+          server = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "server";
+              cargoExtraArgs = "--locked --package server";
+              doCheck = false;
+              meta.mainProgram = "server";
+            }
+          );
+          default = server;
         }
       );
 
