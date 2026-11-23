@@ -131,12 +131,13 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> Error {
 fn link_error(path: &Path, source: std::io::Error) -> Error {
     match source.kind() {
         ErrorKind::AlreadyExists => Error::Exists(path.to_path_buf()),
-        ErrorKind::Unsupported | ErrorKind::CrossesDevices | ErrorKind::TooManyLinks => {
-            Error::HardLink {
-                path: path.to_path_buf(),
-                source,
-            }
-        }
+        ErrorKind::Unsupported
+        | ErrorKind::CrossesDevices
+        | ErrorKind::TooManyLinks
+        | ErrorKind::PermissionDenied => Error::HardLink {
+            path: path.to_path_buf(),
+            source,
+        },
         _ => Error::Io {
             path: path.to_path_buf(),
             source,
@@ -297,6 +298,10 @@ mod tests {
         assert!(message.contains("hard link"), "{message}");
         assert!(message.contains("filesystem"), "{message}");
         assert!(message.contains("/secrets/database.env"), "{message}");
+        assert!(matches!(
+            link_error(path, std::io::Error::from(ErrorKind::PermissionDenied)),
+            Error::HardLink { .. }
+        ));
         assert!(matches!(
             link_error(path, std::io::Error::from(ErrorKind::AlreadyExists)),
             Error::Exists(_)
