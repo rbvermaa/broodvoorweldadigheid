@@ -782,6 +782,8 @@ async fn missing_uploads_forget_the_run_and_restore_test_uses_the_previous_run()
         )),
         "{message}"
     );
+    assert_eq!(message.lines().count(), 2, "{message}");
+    assert!(!message.contains('\u{1b}'), "{message}");
     assert_eq!(
         run_tags(&repo, &fixture.password_file, "run-2"),
         Vec::<Vec<String>>::new()

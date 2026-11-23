@@ -1,6 +1,7 @@
 pub mod manifest;
 pub mod postgres;
 mod process;
+mod report;
 pub mod rustic;
 pub mod select;
 
@@ -179,7 +180,11 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
             &run_tag,
             backup.uploads,
         ) {
-            failures.push(format!("{location}: {}: {}", error.step, error.error));
+            failures.push(format!(
+                "{location}: {}: {}",
+                error.step,
+                report::summary(&error.error)
+            ));
         }
     }
     tx.rollback().await?;
