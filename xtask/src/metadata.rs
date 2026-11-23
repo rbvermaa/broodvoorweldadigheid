@@ -25,7 +25,7 @@ pub fn crates(metadata: &Metadata) -> Vec<Crate> {
         .iter()
         .map(|package| Crate {
             name: package.name.to_string(),
-            default_features: package.features.get("default").cloned().unwrap_or_default(),
+            features: package.features.clone().into_iter().collect(),
             deps: package
                 .dependencies
                 .iter()
