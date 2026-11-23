@@ -12,3 +12,4 @@ Status: accepted, 2026-11-23
 | Root `Makefile` wraps every top-level command | One easy entry point; build logic stays in `flake.nix` |
 | Clippy's default lint set at `deny`, without `clippy::pedantic` | Pedantic lints such as `must_use_candidate` would need `#[allow]`s, which CLAUDE.md forbids. Individual pedantic lints can be added to `[workspace.lints.clippy]` later |
 | The HTTP-crate rule also applies to `testkit` and to dev-dependencies | The spec's fakes (Mollie, clock, printer) are in-process; revisit only if a fake needs a real HTTP server |
+| Inline `#[cfg(test)]` modules count toward line coverage | Simple and the same for every crate; revisit if large inline test modules start to inflate the strict-crate numbers |

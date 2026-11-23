@@ -11,3 +11,7 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Label fonts.** Which fonts go into the server image for PDFs and labels?
 - [ ] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
   Left unenforced for now; revisit with GitHub Pro or a move to Forgejo.
+- [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
+  It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
+- [ ] **advisory-db freshness.** cargo-audit is only as fresh as the pinned advisory-db.
+  The weekly dependency-update job (spec, "Nightly and weekly") should bump it.

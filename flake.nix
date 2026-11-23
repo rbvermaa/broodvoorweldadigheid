@@ -143,7 +143,7 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoLlvmCovExtraArgs = "--workspace --remap-path-prefix --lcov --summary-only --output-path $out";
+              cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
               __darwinAllowLocalNetworking = true;
             }
             // import ./nix/postgres-check.nix {
