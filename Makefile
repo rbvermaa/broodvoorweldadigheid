@@ -6,7 +6,7 @@
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
-#   make images                 build every image for ARCH and docker load it
+#   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
 
@@ -113,13 +113,14 @@ down: ## Stop the Compose stack (volumes stay)
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
 
-images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH and docker load it
+images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
 
 $(addprefix image-,$(IMAGES)): image-%:
-	@out=$$($(call IMAGE_BUILD,$*)) && echo "loading $$out" && $(IMAGE_CAT) $$out | docker load
+	@out=$$($(call IMAGE_BUILD,$*)) && echo "loading $$out" && $(IMAGE_CAT) $$out | docker load \
+		$(if $(filter-out dev,$(BVW_IMAGE_TAG)),&& docker tag bvw-$*:dev bvw-$*:$(BVW_IMAGE_TAG))
 
 db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 	@mkdir -p $(PG_DIR)/sock

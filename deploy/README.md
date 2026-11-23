@@ -13,7 +13,7 @@ subnet 10.89.0.0/24 and `make smoke` 10.89.1.0/24, so both can run at once; `BVW
 
 Caddy's local CA is in the `caddy` volume at /data/caddy/pki/authorities/local/root.crt.
 
-If postgres stops with "PG_VERSION but no .bvw-init-done and no global/pg_filenode.map", an
+If postgres stops with "PG_VERSION but no .bvw-init-done and no postmaster.opts", an
 earlier first start was interrupted or the volume holds something else. Remove only the
 postgres volume to start fresh (`bvw` is the `make up` project name):
 
