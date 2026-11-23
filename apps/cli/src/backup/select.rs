@@ -43,8 +43,6 @@ pub struct Choice {
     pub dump: Snapshot,
     pub manifest: Snapshot,
     pub run: String,
-    /// Newer db snapshots passed over, one line each.
-    pub skipped: Vec<String>,
 }
 
 fn run_of(snapshot: &Snapshot) -> Option<&str> {
@@ -54,8 +52,8 @@ fn run_of(snapshot: &Snapshot) -> Option<&str> {
         .find_map(|tag| tag.strip_prefix(RUN_TAG_PREFIX))
 }
 
-/// The newest db snapshot whose run also stored a manifest. With several manifests for one
-/// run, the newest wins.
+/// The newest db snapshot, which must have a manifest from the same run. With several
+/// manifests for one run, the newest wins.
 pub fn choose(repo: &str, dumps: &[Snapshot], manifests: &[Snapshot]) -> Result<Choice, Error> {
     let mut skipped = Vec::new();
     for dump in dumps.iter().rev() {
@@ -68,12 +66,18 @@ pub fn choose(repo: &str, dumps: &[Snapshot], manifests: &[Snapshot]) -> Result<
             .rev()
             .find(|manifest| run_of(manifest) == Some(run));
         match manifest {
+            Some(_) if !skipped.is_empty() => {
+                return Err(Error::NewestIncomplete {
+                    repo: repo.to_string(),
+                    complete_run: run.to_string(),
+                    skipped: skipped.join("\n  "),
+                });
+            }
             Some(manifest) => {
                 return Ok(Choice {
                     dump: dump.clone(),
                     manifest: manifest.clone(),
                     run: run.to_string(),
-                    skipped,
                 });
             }
             None => skipped.push(format!(
@@ -110,17 +114,11 @@ pub fn check_age(
         });
     }
     if age > max_age {
-        let mut skipped = String::new();
-        for line in &choice.skipped {
-            skipped.push_str("\n  ");
-            skipped.push_str(line);
-        }
         return Err(Error::TooOld {
             snapshot: choice.dump.id.clone(),
             run: choice.run.clone(),
             age,
             max_age,
-            skipped,
         });
     }
     Ok(age)
@@ -195,11 +193,10 @@ mod tests {
         assert_eq!(choice.dump.id, "d2");
         assert_eq!(choice.manifest.id, "m2b");
         assert_eq!(choice.run, "2");
-        assert_eq!(choice.skipped, Vec::<String>::new());
     }
 
     #[test]
-    fn choose_skips_runs_without_manifest_or_run_tag() {
+    fn choose_fails_when_a_newer_run_is_incomplete() {
         let dumps = [
             snapshot("d1", "2026-11-21T02:00:00Z", &["db", "run-1"]),
             snapshot("d2", "2026-11-22T02:00:00Z", &["db"]),
@@ -210,14 +207,12 @@ mod tests {
             "2026-11-21T02:00:01Z",
             &["manifest", "run-1"],
         )];
-        let choice = choose("/repo", &dumps, &manifests).expect("choice");
-        assert_eq!(choice.dump.id, "d1");
+        let error = choose("/repo", &dumps, &manifests).expect_err("newer run incomplete");
         assert_eq!(
-            choice.skipped,
-            [
-                "db snapshot d3 of run 3 has no manifest — backup failed?",
-                "db snapshot d2 has no run tag",
-            ]
+            error.to_string(),
+            "the newest backup in /repo is incomplete; the last complete one is run 1:\
+             \n  db snapshot d3 of run 3 has no manifest — backup failed?\
+             \n  db snapshot d2 has no run tag"
         );
     }
 
@@ -254,31 +249,6 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "the newest usable backup, db snapshot d1 of run 1, is 26h 1s old; the limit is 26h"
-        );
-    }
-
-    #[test]
-    fn check_age_mentions_skipped_newer_snapshots() {
-        let dumps = [
-            snapshot("d1", "2026-11-21T02:00:00Z", &["db", "run-1"]),
-            snapshot("d2", "2026-11-22T02:00:00Z", &["db", "run-2"]),
-        ];
-        let manifests = [snapshot(
-            "m1",
-            "2026-11-21T02:00:01Z",
-            &["manifest", "run-1"],
-        )];
-        let choice = choose("/repo", &dumps, &manifests).expect("choice");
-        let error = check_age(
-            &choice,
-            ts("2026-11-23T02:00:00Z"),
-            "26h".parse().expect("duration"),
-        )
-        .expect_err("old");
-        assert_eq!(
-            error.to_string(),
-            "the newest usable backup, db snapshot d1 of run 1, is 48h old; the limit is 26h\
-             \n  db snapshot d2 of run 2 has no manifest — backup failed?"
         );
     }
 

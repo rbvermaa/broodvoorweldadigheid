@@ -534,7 +534,7 @@ async fn failed_dump_forgets_the_partial_db_snapshot() {
 }
 
 #[tokio::test]
-async fn restore_test_skips_a_newer_db_snapshot_without_manifest() {
+async fn restore_test_fails_when_the_newest_run_has_no_manifest() {
     let fixture = Fixture::new("orphan_dump", SEED).await;
     let repos = [fixture.repo("local")];
     backup::run(&fixture.backup(&repos, "1"))
@@ -547,17 +547,18 @@ async fn restore_test_skips_a_newer_db_snapshot_without_manifest() {
         .expect("orphan snapshot");
 
     let admin = admin_url();
-    let verified = backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+    let error = backup::restore_test(&fixture.restore_test(&repos[0], &admin))
         .await
-        .expect("restore test falls back to run 1");
-    assert_eq!(verified.run, "1");
+        .expect_err("a failed last backup must not pass");
     assert_eq!(
-        verified.skipped,
-        [format!(
-            "db snapshot {} of run 2 has no manifest — backup failed?",
-            orphan.id
-        )]
+        error.to_string(),
+        format!(
+            "the newest backup in {} is incomplete; the last complete one is run 1:\
+             \n  db snapshot {} of run 2 has no manifest — backup failed?",
+            repos[0], orphan.id
+        )
     );
+    assert!(!scratch_exists("scratch_orphan_dump").await);
 }
 
 #[tokio::test]

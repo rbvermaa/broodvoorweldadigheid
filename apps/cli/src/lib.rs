@@ -121,9 +121,6 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
                 .await;
                 match result {
                     Ok(verified) => {
-                        for skipped in &verified.skipped {
-                            eprintln!("warning: {repo}: {skipped}");
-                        }
                         println!(
                             "restore test passed for {repo}: run {} ({:#} old), {} tables match the manifest, migrations applied",
                             verified.run, verified.age, verified.tables

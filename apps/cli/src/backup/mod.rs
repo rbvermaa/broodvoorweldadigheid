@@ -64,15 +64,22 @@ pub enum Error {
     #[error("no db snapshot in {repo} has a manifest:\n  {skipped}")]
     NoUsableSnapshot { repo: String, skipped: String },
     #[error(
+        "the newest backup in {repo} is incomplete; the last complete one is run {complete_run}:\n  {skipped}"
+    )]
+    NewestIncomplete {
+        repo: String,
+        complete_run: String,
+        skipped: String,
+    },
+    #[error(
         "the newest usable backup, db snapshot {snapshot} of run {run}, is {age:#} old; \
-         the limit is {max_age:#}{skipped}"
+         the limit is {max_age:#}"
     )]
     TooOld {
         snapshot: String,
         run: String,
         age: SignedDuration,
         max_age: SignedDuration,
-        skipped: String,
     },
     #[error(
         "db snapshot {snapshot} of run {run} is dated {ahead:#} in the future; the limit is {limit:#}. \
@@ -121,8 +128,6 @@ pub struct Verified {
     pub tables: usize,
     pub run: String,
     pub age: SignedDuration,
-    /// Newer db snapshots passed over because they cannot be verified.
-    pub skipped: Vec<String>,
 }
 
 /// Every repository gets the same database state: the manifest is read in the transaction
@@ -260,7 +265,6 @@ pub async fn restore_test(test: &RestoreTest<'_>) -> Result<Verified, Error> {
         tables,
         run: choice.run,
         age,
-        skipped: choice.skipped,
     })
 }
 
