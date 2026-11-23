@@ -54,7 +54,8 @@
             strictDeps = true;
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          postgres = import ./nix/postgres.nix { postgresql = pkgs.postgresql_17; };
+          postgresql = pkgs.postgresql_17;
+          postgres = import ./nix/postgres.nix { inherit postgresql; };
           cli = craneLib.buildPackage (
             commonArgs
             // {
@@ -74,10 +75,20 @@
             src
             commonArgs
             cargoArtifacts
+            postgresql
             postgres
             cli
             ;
         };
+
+      images =
+        { pkgs, postgresql, ... }:
+        pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+          import ./nix/images.nix {
+            inherit pkgs postgresql;
+            inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) server cli;
+          }
+        );
     in
     {
       checks = forAllSystems (
@@ -90,8 +101,9 @@
           postgres,
           cli,
           ...
-        }:
-        {
+        }@ctx:
+        (images ctx).checks or { }
+        // {
           fmt = craneLib.cargoFmt { inherit (commonArgs) src pname version; };
 
           clippy = craneLib.cargoClippy (
@@ -189,8 +201,9 @@
           cargoArtifacts,
           cli,
           ...
-        }:
-        rec {
+        }@ctx:
+        (images ctx).packages or { }
+        // rec {
           server = craneLib.buildPackage (
             commonArgs
             // {

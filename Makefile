@@ -5,20 +5,37 @@
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
+#   make images                 build every image for ARCH and docker load it
+#   make linux-check            run every x86_64-linux check on LINUX_BUILDER
+#   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
 ifeq ($(HOST_SYSTEM),)
 $(error Could not get the Nix system. Is nix on PATH and the daemon running?)
 endif
+# On macOS, images build on a remote Linux builder through the local Nix daemon and run in
+# Docker Desktop under x86_64 emulation (ADR 0002). The daemon uses its own SSH key, so no
+# YubiKey is needed. LINUX_STORE=ssh-ng://host builds in that store instead.
 ifeq ($(findstring darwin,$(HOST_SYSTEM)),darwin)
-ARCH ?= $(subst darwin,linux,$(HOST_SYSTEM))
+ARCH ?= x86_64-linux
+LINUX_BUILDER ?= ssh://dev1 x86_64-linux - 32 1 big-parallel,kvm
+LINUX_STORE ?=
 else
 ARCH ?= $(HOST_SYSTEM)
+LINUX_BUILDER ?=
+LINUX_STORE ?=
 endif
 
 NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
+
+IMAGES := server postgres kanidm caddy backup
+LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
+	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
+IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
+LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid coverage-report coverage restore image-contents
+IMAGE_CAT = $(if $(LINUX_STORE),nix store cat --store $(LINUX_STORE),cat)
 
 PG_DIR := $(CURDIR)/.pg
 PG_PORT ?= 54331
@@ -34,10 +51,17 @@ export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down restore-test up down smoke
+.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
+	restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+	@echo "  image-NAME     Build one image and docker load it; NAME is one of: $(IMAGES)"
+	@echo
+	@echo "Variables:"
+	@echo "  ARCH=$(ARCH)  system the images are built for"
+	@echo "  LINUX_BUILDER=$(LINUX_BUILDER)  remote builder for ARCH (empty: local)"
+	@echo "  LINUX_STORE=$(LINUX_STORE)  Nix store that builds instead of LINUX_BUILDER"
 
 check: ## Everything CI runs (nix flake check)
 	nix flake check --print-build-logs
@@ -83,6 +107,14 @@ down: ## Stop the Compose stack (volumes stay)
 
 smoke: ## Compose smoke test against the loaded images (Gate 1)
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(BVW_HTTP_PORT) --https-port $(BVW_HTTPS_PORT)
+
+images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH and docker load it
+
+linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
+	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
+
+$(addprefix image-,$(IMAGES)): image-%:
+	@out=$$($(call IMAGE_BUILD,$*)) && echo "loading $$out" && $(IMAGE_CAT) $$out | docker load
 
 db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 	@mkdir -p $(PG_DIR)/sock

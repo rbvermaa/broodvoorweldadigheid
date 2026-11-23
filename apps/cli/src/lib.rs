@@ -2,8 +2,10 @@
 
 pub mod backup;
 pub mod dev_secrets;
+pub mod entrypoint;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -20,6 +22,11 @@ pub enum Command {
     Backup(BackupCommand),
     #[command(about = "Write random secrets for deploy/compose.yaml into DIR; never overwrites")]
     DevSecrets { dir: PathBuf },
+    #[command(
+        subcommand,
+        about = "Container entrypoints: first-start setup, then exec the service"
+    )]
+    Entrypoint(entrypoint::Service),
 }
 
 #[derive(Debug, Subcommand)]
@@ -68,8 +75,9 @@ pub enum Error {
     DevSecrets(#[from] dev_secrets::Error),
 }
 
-pub async fn execute(cli: Cli, run_id: &str) -> Result<(), Error> {
-    match cli.command {
+pub async fn execute(command: Command, run_id: &str) -> Result<ExitCode, Error> {
+    match command {
+        Command::Entrypoint(service) => return Ok(entrypoint::run(service)),
         Command::DevSecrets { dir } => {
             for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
                 println!("wrote {}", path.display());
@@ -105,7 +113,7 @@ pub async fn execute(cli: Cli, run_id: &str) -> Result<(), Error> {
             }
         }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
