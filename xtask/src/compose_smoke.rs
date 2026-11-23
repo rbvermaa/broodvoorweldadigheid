@@ -1,8 +1,12 @@
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
-pub const USAGE: &str = "compose-smoke [--project NAME] [--tag TAG] [--http-port N] [--https-port N] [--keep-on-failure]";
+pub const USAGE: &str = "compose-smoke [--project NAME] [--tag TAG] [--http-port N] [--https-port N] [--subnet CIDR] [--keep-on-failure]";
+
+/// The project `make up` uses; the smoke test deletes its project's volumes.
+pub const MAIN_PROJECT: &str = "bvw";
 
 pub const IMAGES: [&str; 5] = [
     "bvw-server",
@@ -19,6 +23,9 @@ const SEED_SQL: &str = "CREATE TABLE IF NOT EXISTS smoke_check (id integer PRIMA
                         INSERT INTO smoke_check VALUES (1) ON CONFLICT DO NOTHING;";
 const ATTEMPTS: u32 = 60;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
+const DEFAULT_SUBNET: &str = "10.89.1.0/24";
+/// Caddy's fixed address is this many addresses into the compose subnet (deploy/compose.yaml).
+const CADDY_OFFSET: u32 = 10;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Options {
@@ -26,6 +33,8 @@ pub struct Options {
     pub tag: String,
     pub http_port: u16,
     pub https_port: u16,
+    pub subnet: String,
+    pub caddy_ip: Ipv4Addr,
     /// Leave the stack running after a failure so it can be inspected.
     pub keep_on_failure: bool,
 }
@@ -35,8 +44,10 @@ impl Default for Options {
         Self {
             project: "bvw-smoke".into(),
             tag: "dev".into(),
-            http_port: 8080,
-            https_port: 8443,
+            http_port: 18080,
+            https_port: 18443,
+            subnet: DEFAULT_SUBNET.into(),
+            caddy_ip: Ipv4Addr::new(10, 89, 1, 10),
             keep_on_failure: false,
         }
     }
@@ -60,11 +71,49 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             "--tag" => options.tag = value(arg)?,
             "--http-port" => options.http_port = port(arg, value(arg)?)?,
             "--https-port" => options.https_port = port(arg, value(arg)?)?,
+            "--subnet" => {
+                options.subnet = value(arg)?;
+                options.caddy_ip = caddy_ip(&options.subnet)?;
+            }
             "--keep-on-failure" => options.keep_on_failure = true,
             other => return Err(format!("unknown argument {other:?}; usage: {USAGE}")),
         }
     }
+    if options.project == MAIN_PROJECT {
+        return Err(format!(
+            "--project {MAIN_PROJECT} is the `make up` stack; the smoke test would delete its volumes"
+        ));
+    }
     Ok(options)
+}
+
+/// `subnet` is an IPv4 network in CIDR form, such as `10.89.1.0/24`.
+pub fn caddy_ip(subnet: &str) -> Result<Ipv4Addr, String> {
+    let bad = |why: &str| format!("--subnet {subnet:?}: {why}");
+    let (address, prefix) = subnet
+        .split_once('/')
+        .ok_or_else(|| bad("expected an address/prefix such as 10.89.1.0/24"))?;
+    let address: Ipv4Addr = address.parse().map_err(|_| bad("not an IPv4 address"))?;
+    let prefix: u32 = prefix.parse().map_err(|_| bad("not a prefix length"))?;
+    if prefix > 28 {
+        return Err(bad("the prefix must be /28 or shorter"));
+    }
+    let host_bits = u32::MAX >> prefix;
+    if u32::from(address) & host_bits != 0 {
+        return Err(bad("not a network address"));
+    }
+    Ok(Ipv4Addr::from(u32::from(address) + CADDY_OFFSET))
+}
+
+pub fn health_ok(body: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body).is_ok_and(|health| health["status"] == "ok")
+}
+
+/// `written` is curl's `--write-out "%{http_code} %{redirect_url}"`.
+pub fn redirect_ok(written: &str, location: &str) -> bool {
+    written.split_once(' ').is_some_and(|(status, url)| {
+        matches!(status, "301" | "302" | "307" | "308") && url == location
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -94,6 +143,8 @@ impl Stack {
             ("BVW_HTTP_PORT", self.options.http_port.to_string()),
             ("BVW_HTTPS_PORT", self.options.https_port.to_string()),
             ("BVW_IMAGE_TAG", self.options.tag.clone()),
+            ("BVW_SUBNET", self.options.subnet.clone()),
+            ("BVW_CADDY_IP", self.options.caddy_ip.to_string()),
         ]
     }
 
@@ -193,6 +244,26 @@ impl Stack {
             ],
         }
     }
+
+    pub fn curl_redirect(&self, host: &str, path: &str) -> Step {
+        let port = self.options.http_port;
+        Step {
+            program: "curl",
+            args: vec![
+                "--silent".into(),
+                "--show-error".into(),
+                "--max-time".into(),
+                "10".into(),
+                "--output".into(),
+                "/dev/null".into(),
+                "--resolve".into(),
+                format!("{host}:{port}:127.0.0.1"),
+                "--write-out".into(),
+                "%{http_code} %{redirect_url}".into(),
+                format!("http://{host}:{port}{path}"),
+            ],
+        }
+    }
 }
 
 pub fn image_inspect(tag: &str) -> Step {
@@ -244,7 +315,10 @@ pub fn run(args: &[String]) -> Result<Vec<String>, String> {
 
     let result = smoke(&stack);
     if result.is_err() {
-        let _ = execute(&stack, &stack.logs());
+        match execute(&stack, &stack.logs()) {
+            Ok(output) => eprint!("{}", String::from_utf8_lossy(&output.stdout)),
+            Err(error) => eprintln!("compose-smoke: {error}"),
+        }
     }
     if result.is_err() && stack.options.keep_on_failure {
         eprintln!(
@@ -269,17 +343,24 @@ fn smoke(stack: &Stack) -> Result<(), String> {
         execute(stack, &stack.copy_ca()).map(drop)
     })?;
     retry("https://localhost/health", || {
-        expect(stack, "localhost", "/health", |_| true)
+        expect(stack, "localhost", "/health", health_ok)
     })?;
     retry("https://idm.localhost/status", || {
         expect(stack, "idm.localhost", "/status", |body| {
             body.trim() == "true"
         })
     })?;
+    retry("https://idm.localhost/ui/login", || {
+        expect(stack, "idm.localhost", "/ui/login", |body| {
+            !body.trim().is_empty()
+        })
+    })?;
+    expect_redirect(stack, "localhost", "/health")?;
+    expect_redirect(stack, "idm.localhost", "/status")?;
     execute(stack, &stack.seed())?;
     execute(stack, &stack.backup_run())?;
     execute(stack, &stack.restore_test())?;
-    println!("compose-smoke: health, Kanidm, backup and restore test passed");
+    println!("compose-smoke: health, Kanidm, redirects, backup and restore test passed");
     Ok(())
 }
 
@@ -295,6 +376,20 @@ fn expect(stack: &Stack, host: &str, path: &str, body_ok: fn(&str) -> bool) -> R
         None => Err(format!(
             "https://{host}{path}: unexpected curl output {stdout:?}"
         )),
+    }
+}
+
+fn expect_redirect(stack: &Stack, host: &str, path: &str) -> Result<(), String> {
+    let location = format!("https://{host}:{}{path}", stack.options.https_port);
+    let output = execute(stack, &stack.curl_redirect(host, path))?;
+    let written = String::from_utf8_lossy(&output.stdout);
+    if redirect_ok(&written, &location) {
+        println!("compose-smoke: http://{host}{path} -> {location}");
+        Ok(())
+    } else {
+        Err(format!(
+            "http://{host}{path}: expected a redirect to {location}, got {written:?}"
+        ))
     }
 }
 
@@ -353,8 +448,10 @@ mod tests {
             options: Options {
                 project: "bvw-fix-b".into(),
                 tag: "s9".into(),
-                http_port: 18080,
-                https_port: 18443,
+                http_port: 28080,
+                https_port: 28443,
+                subnet: "10.89.7.0/24".into(),
+                caddy_ip: Ipv4Addr::new(10, 89, 7, 10),
                 keep_on_failure: false,
             },
             compose_file: PathBuf::from("/repo/deploy/compose.yaml"),
@@ -385,6 +482,80 @@ mod tests {
     }
 
     #[test]
+    fn defaults_do_not_clash_with_make_up() {
+        let options = Options::default();
+        assert_ne!(options.project, MAIN_PROJECT);
+        assert_eq!((options.http_port, options.https_port), (18080, 18443));
+        assert_eq!(options.subnet, "10.89.1.0/24");
+        assert_eq!(options.caddy_ip, Ipv4Addr::new(10, 89, 1, 10));
+    }
+
+    #[test]
+    fn parse_refuses_the_main_project() {
+        let error = parse(&strings(&["--project", "bvw"])).expect_err("must refuse");
+        assert!(error.contains("bvw"), "{error}");
+    }
+
+    #[test]
+    fn caddy_gets_the_tenth_address_of_the_subnet() {
+        assert_eq!(caddy_ip("10.89.0.0/24"), Ok(Ipv4Addr::new(10, 89, 0, 10)));
+        assert_eq!(
+            caddy_ip("172.30.16.0/20"),
+            Ok(Ipv4Addr::new(172, 30, 16, 10))
+        );
+        assert_eq!(caddy_ip("10.0.0.16/28"), Ok(Ipv4Addr::new(10, 0, 0, 26)));
+        for bad in [
+            "10.89.0.0",
+            "10.89.0.0/29",
+            "10.89.0.0/33",
+            "10.89.0.5/24",
+            "nope/24",
+            "10.89.0.0/x",
+        ] {
+            assert!(caddy_ip(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn health_must_report_ok() {
+        assert!(health_ok(r#"{"status":"ok","db":"ok"}"#));
+        assert!(!health_ok(r#"{"status":"degraded","db":"down"}"#));
+        assert!(!health_ok(r#"{"db":"ok"}"#));
+        assert!(!health_ok("ok"));
+    }
+
+    #[test]
+    fn http_redirects_to_the_published_https_port() {
+        let step = stack().curl_redirect("localhost", "/health");
+        assert_eq!(step.program, "curl");
+        assert_eq!(
+            step.args,
+            strings(&[
+                "--silent",
+                "--show-error",
+                "--max-time",
+                "10",
+                "--output",
+                "/dev/null",
+                "--resolve",
+                "localhost:28080:127.0.0.1",
+                "--write-out",
+                "%{http_code} %{redirect_url}",
+                "http://localhost:28080/health",
+            ])
+        );
+        assert!(redirect_ok(
+            "302 https://localhost:28443/health",
+            "https://localhost:28443/health"
+        ));
+        assert!(!redirect_ok(
+            "308 https://localhost/health",
+            "https://localhost:28443/health"
+        ));
+        assert!(!redirect_ok("200 ", "https://localhost:28443/health"));
+    }
+
+    #[test]
     fn parse_all_flags() {
         let options = parse(&strings(&[
             "--project",
@@ -392,9 +563,11 @@ mod tests {
             "--tag",
             "s9",
             "--http-port",
-            "18080",
+            "28080",
             "--https-port",
-            "18443",
+            "28443",
+            "--subnet",
+            "10.89.7.0/24",
             "--keep-on-failure",
         ]))
         .expect("valid");
@@ -421,9 +594,11 @@ mod tests {
             stack().env(),
             [
                 ("BVW_SECRETS_DIR", "/tmp/smoke/secrets".to_string()),
-                ("BVW_HTTP_PORT", "18080".to_string()),
-                ("BVW_HTTPS_PORT", "18443".to_string()),
+                ("BVW_HTTP_PORT", "28080".to_string()),
+                ("BVW_HTTPS_PORT", "28443".to_string()),
                 ("BVW_IMAGE_TAG", "s9".to_string()),
+                ("BVW_SUBNET", "10.89.7.0/24".to_string()),
+                ("BVW_CADDY_IP", "10.89.7.10".to_string()),
             ]
         );
     }
@@ -528,10 +703,10 @@ mod tests {
                 "--cacert",
                 "/tmp/smoke/caddy-root.crt",
                 "--resolve",
-                "idm.localhost:18443:127.0.0.1",
+                "idm.localhost:28443:127.0.0.1",
                 "--write-out",
                 "\n%{http_code}",
-                "https://idm.localhost:18443/status",
+                "https://idm.localhost:28443/status",
             ])
         );
         assert!(!step.args.contains(&"--insecure".to_string()));

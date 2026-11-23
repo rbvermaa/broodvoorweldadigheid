@@ -1,6 +1,12 @@
 {
 	admin off
 	skip_install_trust
+	auto_https disable_redirects
+}
+
+# Caddy's own redirect would point at port 443 inside the container, not the published port.
+http://localhost, http://idm.localhost {
+	redir https://{host}:{$BVW_HTTPS_PORT:8443}{uri}
 }
 
 localhost {
