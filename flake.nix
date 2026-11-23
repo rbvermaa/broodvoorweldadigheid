@@ -92,6 +92,7 @@
             // {
               inherit cargoArtifacts;
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
+              doInstallCargoArtifacts = false;
               # The tests bind 127.0.0.1; the macOS sandbox blocks that without this.
               __darwinAllowLocalNetworking = true;
             }

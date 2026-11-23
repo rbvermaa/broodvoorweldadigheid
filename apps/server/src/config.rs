@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_url: String,
@@ -12,8 +12,19 @@ pub struct Config {
 pub enum ConfigError {
     #[error("DATABASE_URL is not set")]
     MissingDatabaseUrl,
+    #[error("DATABASE_URL must start with postgres:// or postgresql://")]
+    NotPostgres,
     #[error("BIND_ADDR {0:?} is not a socket address like 0.0.0.0:8080")]
     InvalidBindAddr(String),
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("bind_addr", &self.bind_addr)
+            .field("database_url", &"<redacted>")
+            .finish()
+    }
 }
 
 impl Config {
@@ -29,6 +40,9 @@ impl Config {
         let database_url = lookup("DATABASE_URL")
             .filter(|url| !url.is_empty())
             .ok_or(ConfigError::MissingDatabaseUrl)?;
+        if !(database_url.starts_with("postgres://") || database_url.starts_with("postgresql://")) {
+            return Err(ConfigError::NotPostgres);
+        }
         Ok(Self {
             bind_addr,
             database_url,
@@ -76,6 +90,27 @@ mod tests {
             Config::from_lookup(lookup(&[("DATABASE_URL", "")])),
             Err(ConfigError::MissingDatabaseUrl)
         );
+    }
+
+    #[test]
+    fn non_postgres_database_url_is_an_error() {
+        assert_eq!(
+            Config::from_lookup(lookup(&[("DATABASE_URL", "mysql://db/bakery")])),
+            Err(ConfigError::NotPostgres)
+        );
+        assert!(Config::from_lookup(lookup(&[("DATABASE_URL", "postgresql://db/bakery")])).is_ok());
+    }
+
+    #[test]
+    fn debug_output_hides_the_database_url() {
+        let config = Config::from_lookup(lookup(&[(
+            "DATABASE_URL",
+            "postgres://bakery:s3cret@db/bakery",
+        )]))
+        .expect("config");
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("s3cret"), "{debug}");
+        assert!(debug.contains("0.0.0.0:8080"), "{debug}");
     }
 
     #[test]
