@@ -13,6 +13,14 @@ const USER_TABLES: &str = "
       AND n.nspname NOT LIKE 'pg\\_%'
     ORDER BY 1, 2";
 
+/// `row::text` depends on these; the live and scratch databases may have different defaults.
+const ROW_TEXT_SETTINGS: &str = "
+    SET DateStyle = 'ISO, MDY';
+    SET IntervalStyle = 'postgres';
+    SET TimeZone = 'UTC';
+    SET extra_float_digits = 1;
+    SET bytea_output = 'hex';";
+
 pub fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
@@ -64,10 +72,14 @@ pub fn with_database(url: &str, database: &str) -> Result<String, Error> {
     ))
 }
 
+/// Order-independent and constant memory: two sums of 64-bit halves of per-row md5s, so the
+/// table never has to fit in one text value.
 fn fingerprint_query(schema: &str, table: &str) -> String {
     format!(
-        "SELECT count(*), md5(coalesce(string_agg(t::text, E'\\n' ORDER BY t::text), '')) \
-         FROM {}.{} AS t",
+        "SELECT count(*), \
+         coalesce(sum(('x' || left(h, 16))::bit(64)::bigint::numeric), 0)::text || ':' || \
+         coalesce(sum(('x' || right(h, 16))::bit(64)::bigint::numeric), 0)::text \
+         FROM (SELECT md5(t::text) AS h FROM {}.{} AS t) AS hashes",
         quote_ident(schema),
         quote_ident(table)
     )
@@ -151,16 +163,18 @@ pub fn pg_restore(database: &Libpq) -> Command {
 }
 
 pub async fn read_manifest(conn: &mut PgConnection) -> Result<Manifest, Error> {
+    sqlx::raw_sql(ROW_TEXT_SETTINGS).execute(&mut *conn).await?;
     let tables: Vec<(String, String)> = sqlx::query_as(USER_TABLES).fetch_all(&mut *conn).await?;
     let mut manifest = Manifest::default();
     for (schema, table) in tables {
-        let (rows, md5): (i64, String) =
+        let (rows, fingerprint): (i64, String) =
             sqlx::query_as(AssertSqlSafe(fingerprint_query(&schema, &table)))
                 .fetch_one(&mut *conn)
                 .await?;
-        manifest
-            .tables
-            .insert(format!("{schema}.{table}"), TableFingerprint { rows, md5 });
+        manifest.tables.insert(
+            format!("{schema}.{table}"),
+            TableFingerprint { rows, fingerprint },
+        );
     }
     Ok(manifest)
 }
@@ -228,12 +242,34 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_query_quotes_names() {
+    fn fingerprint_query_sums_row_hashes_and_quotes_names() {
         assert_eq!(
             fingerprint_query("public", "Loaves"),
-            "SELECT count(*), md5(coalesce(string_agg(t::text, E'\\n' ORDER BY t::text), '')) \
-             FROM \"public\".\"Loaves\" AS t"
+            "SELECT count(*), \
+             coalesce(sum(('x' || left(h, 16))::bit(64)::bigint::numeric), 0)::text || ':' || \
+             coalesce(sum(('x' || right(h, 16))::bit(64)::bigint::numeric), 0)::text \
+             FROM (SELECT md5(t::text) AS h FROM \"public\".\"Loaves\" AS t) AS hashes"
         );
+    }
+
+    #[test]
+    fn fingerprint_query_never_aggregates_row_text() {
+        let query = fingerprint_query("public", "loaves");
+        assert!(!query.contains("string_agg"), "{query}");
+        assert!(!query.contains("ORDER BY"), "{query}");
+    }
+
+    #[test]
+    fn row_text_settings_pin_every_output_format() {
+        for setting in [
+            "DateStyle",
+            "IntervalStyle",
+            "TimeZone",
+            "extra_float_digits",
+            "bytea_output",
+        ] {
+            assert!(ROW_TEXT_SETTINGS.contains(setting), "{setting}");
+        }
     }
 
     #[test]

@@ -132,6 +132,72 @@ async fn backup_then_restore_test_passes_for_every_repo() {
     assert!(!scratch_exists("scratch_round_trip").await);
 }
 
+#[tokio::test]
+async fn manifest_fingerprint_ignores_row_order_but_not_contents() {
+    let first = Fixture::new(
+        "order_a",
+        "CREATE TABLE loaves (id integer, name text);
+         INSERT INTO loaves VALUES (1, 'sourdough'), (2, 'spelt'), (3, 'rye');",
+    )
+    .await;
+    let second = Fixture::new(
+        "order_b",
+        "CREATE TABLE loaves (id integer, name text);
+         INSERT INTO loaves VALUES (3, 'rye'), (1, 'sourdough'), (2, 'spelt');",
+    )
+    .await;
+    let read = |url: String| async move {
+        let mut conn = PgConnection::connect(&url).await.expect("connect");
+        backup::postgres::read_manifest(&mut conn)
+            .await
+            .expect("manifest")
+    };
+    let a = read(first.source_url.clone()).await;
+    let b = read(second.source_url.clone()).await;
+    assert_eq!(a, b);
+
+    let mut conn = PgConnection::connect(&second.source_url)
+        .await
+        .expect("connect");
+    conn.execute("UPDATE loaves SET name = 'Rye' WHERE id = 3")
+        .await
+        .expect("update");
+    let changed = read(second.source_url.clone()).await;
+    assert_eq!(changed.tables["public.loaves"].rows, 3);
+    assert_ne!(
+        changed.tables["public.loaves"].fingerprint,
+        a.tables["public.loaves"].fingerprint
+    );
+}
+
+#[tokio::test]
+async fn restore_test_ignores_database_level_output_settings() {
+    let seed = "
+        CREATE TABLE proofing (id integer PRIMARY KEY, rest interval, starter bytea);
+        INSERT INTO proofing VALUES (1, '14 hours 30 minutes', '\\x01ff');
+    ";
+    let fixture = Fixture::new("output_settings", seed).await;
+    let mut admin = PgConnection::connect(&admin_url())
+        .await
+        .expect("connect admin");
+    admin
+        .execute(
+            "ALTER DATABASE source_output_settings SET IntervalStyle = 'iso_8601';
+             ALTER DATABASE source_output_settings SET bytea_output = 'escape';",
+        )
+        .await
+        .expect("set database defaults");
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+
+    let admin = admin_url();
+    backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+        .await
+        .expect("restore test");
+}
+
 fn with_password(url: &str, password: &str) -> String {
     let with = url.replacen("://postgres@", &format!("://postgres:{password}@"), 1);
     assert_ne!(with, url, "DATABASE_URL must use the postgres user: {url}");
@@ -200,7 +266,7 @@ async fn restore_test_fails_when_the_manifest_disagrees_with_the_dump() {
         .await
         .expect("backup");
 
-    let forged = r#"{"tables":{"bakery.Sentinel":{"rows":1,"md5":"0"},"public.loaves":{"rows":4,"md5":"0"}}}"#;
+    let forged = r#"{"tables":{"bakery.Sentinel":{"rows":1,"fingerprint":"0"},"public.loaves":{"rows":4,"fingerprint":"0"}}}"#;
     let status = rustic::backup_stdin(
         &fixture.rustic_repo(&repos[0]),
         backup::MANIFEST_FILE,

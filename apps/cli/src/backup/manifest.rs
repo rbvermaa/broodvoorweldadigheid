@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableFingerprint {
     pub rows: i64,
-    pub md5: String,
+    pub fingerprint: String,
 }
 
 /// Keyed by `schema.table`.
@@ -64,7 +64,7 @@ pub fn compare(expected: &Manifest, restored: &Manifest) -> Vec<Mismatch> {
                 expected: want.rows,
                 restored: got.rows,
             }),
-            Some(got) if got.md5 != want.md5 => {
+            Some(got) if got.fingerprint != want.fingerprint => {
                 mismatches.push(Mismatch::Contents(table.clone()));
             }
             Some(_) => {}
@@ -86,12 +86,12 @@ mod tests {
         Manifest {
             tables: tables
                 .iter()
-                .map(|(name, rows, md5)| {
+                .map(|(name, rows, fingerprint)| {
                     (
                         name.to_string(),
                         TableFingerprint {
                             rows: *rows,
-                            md5: md5.to_string(),
+                            fingerprint: fingerprint.to_string(),
                         },
                     )
                 })
@@ -146,7 +146,7 @@ mod tests {
         let json = serde_json::to_string(&expected).expect("serialise");
         assert_eq!(
             json,
-            r#"{"tables":{"public.loaves":{"rows":3,"md5":"abc"}}}"#
+            r#"{"tables":{"public.loaves":{"rows":3,"fingerprint":"abc"}}}"#
         );
         let parsed: Manifest = serde_json::from_str(&json).expect("parse");
         assert_eq!(parsed, expected);
