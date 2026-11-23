@@ -3,10 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
-pub const USAGE: &str = "compose-smoke [--project NAME] [--tag TAG] [--http-port N] [--https-port N] [--subnet CIDR] [--keep-on-failure]";
-
-/// The project `make up` uses; the smoke test deletes its project's volumes.
-pub const MAIN_PROJECT: &str = "bvw";
+pub const USAGE: &str = "compose-smoke [--project NAME] [--main-project NAME] [--tag TAG] [--http-port N] [--https-port N] [--subnet CIDR] [--keep-on-failure]";
 
 pub const IMAGES: [&str; 5] = [
     "bvw-server",
@@ -30,6 +27,8 @@ const CADDY_OFFSET: u32 = 10;
 #[derive(Debug, PartialEq, Eq)]
 pub struct Options {
     pub project: String,
+    /// The `make up` project, which the smoke test must never use: it deletes its project's volumes.
+    pub main_project: String,
     pub tag: String,
     pub http_port: u16,
     pub https_port: u16,
@@ -43,6 +42,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             project: "bvw-smoke".into(),
+            main_project: "bvw".into(),
             tag: "dev".into(),
             http_port: 18080,
             https_port: 18443,
@@ -68,6 +68,7 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
         };
         match arg.as_str() {
             "--project" => options.project = value(arg)?,
+            "--main-project" => options.main_project = value(arg)?,
             "--tag" => options.tag = value(arg)?,
             "--http-port" => options.http_port = port(arg, value(arg)?)?,
             "--https-port" => options.https_port = port(arg, value(arg)?)?,
@@ -79,9 +80,10 @@ pub fn parse(args: &[String]) -> Result<Options, String> {
             other => return Err(format!("unknown argument {other:?}; usage: {USAGE}")),
         }
     }
-    if options.project == MAIN_PROJECT {
+    if options.project == options.main_project {
         return Err(format!(
-            "--project {MAIN_PROJECT} is the `make up` stack; the smoke test would delete its volumes"
+            "--project {} is the `make up` stack; the smoke test would delete its volumes",
+            options.project
         ));
     }
     Ok(options)
@@ -140,6 +142,7 @@ impl Stack {
     pub fn env(&self) -> Vec<(&'static str, String)> {
         vec![
             ("BVW_SECRETS_DIR", self.secrets_dir().display().to_string()),
+            ("BVW_BIND_ADDRESS", "127.0.0.1".into()),
             ("BVW_HTTP_PORT", self.options.http_port.to_string()),
             ("BVW_HTTPS_PORT", self.options.https_port.to_string()),
             ("BVW_IMAGE_TAG", self.options.tag.clone()),
@@ -447,6 +450,7 @@ mod tests {
         Stack {
             options: Options {
                 project: "bvw-fix-b".into(),
+                main_project: "bvw-main".into(),
                 tag: "s9".into(),
                 http_port: 28080,
                 https_port: 28443,
@@ -484,7 +488,8 @@ mod tests {
     #[test]
     fn defaults_do_not_clash_with_make_up() {
         let options = Options::default();
-        assert_ne!(options.project, MAIN_PROJECT);
+        assert_ne!(options.project, options.main_project);
+        assert_eq!(options.main_project, "bvw");
         assert_eq!((options.http_port, options.https_port), (18080, 18443));
         assert_eq!(options.subnet, "10.89.1.0/24");
         assert_eq!(options.caddy_ip, Ipv4Addr::new(10, 89, 1, 10));
@@ -494,6 +499,15 @@ mod tests {
     fn parse_refuses_the_main_project() {
         let error = parse(&strings(&["--project", "bvw"])).expect_err("must refuse");
         assert!(error.contains("bvw"), "{error}");
+    }
+
+    #[test]
+    fn parse_takes_the_main_project_from_make() {
+        let error = parse(&strings(&["--project", "mine", "--main-project", "mine"]))
+            .expect_err("must refuse");
+        assert!(error.contains("mine"), "{error}");
+        assert!(parse(&strings(&["--main-project", "mine", "--project", "bvw"])).is_ok());
+        assert!(parse(&strings(&["--main-project"])).is_err());
     }
 
     #[test]
@@ -560,6 +574,8 @@ mod tests {
         let options = parse(&strings(&[
             "--project",
             "bvw-fix-b",
+            "--main-project",
+            "bvw-main",
             "--tag",
             "s9",
             "--http-port",
@@ -594,6 +610,7 @@ mod tests {
             stack().env(),
             [
                 ("BVW_SECRETS_DIR", "/tmp/smoke/secrets".to_string()),
+                ("BVW_BIND_ADDRESS", "127.0.0.1".to_string()),
                 ("BVW_HTTP_PORT", "28080".to_string()),
                 ("BVW_HTTPS_PORT", "28443".to_string()),
                 ("BVW_IMAGE_TAG", "s9".to_string()),

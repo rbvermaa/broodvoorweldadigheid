@@ -111,7 +111,7 @@ down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
-	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
+	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
 
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH and docker load it
 
