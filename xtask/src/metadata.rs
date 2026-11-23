@@ -31,6 +31,7 @@ pub fn crates(metadata: &Metadata) -> Vec<Crate> {
                 .iter()
                 .map(|dependency| Dep {
                     name: dependency.name.clone(),
+                    rename: dependency.rename.clone(),
                     kind: match dependency.kind {
                         DependencyKind::Build => DepKind::Build,
                         DependencyKind::Development => DepKind::Dev,

@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
 pub mod backup;
+pub mod dev_secrets;
 pub mod entrypoint;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
@@ -18,6 +20,8 @@ pub struct Cli {
 pub enum Command {
     #[command(subcommand, about = "Encrypted backups with rustic")]
     Backup(BackupCommand),
+    #[command(about = "Write random secrets for deploy/compose.yaml into DIR; never overwrites")]
+    DevSecrets { dir: PathBuf },
     #[command(
         subcommand,
         about = "Container entrypoints: first-start setup, then exec the service"
@@ -70,10 +74,24 @@ pub struct RestoreTestArgs {
     pub max_age: jiff::SignedDuration,
 }
 
-pub async fn execute(command: BackupCommand, now: jiff::Timestamp) -> Result<(), backup::Error> {
-    let run_id = &backup::run_id(now)?;
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Backup(#[from] backup::Error),
+    #[error(transparent)]
+    DevSecrets(#[from] dev_secrets::Error),
+}
+
+pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode, Error> {
     match command {
-        BackupCommand::Run(args) => {
+        Command::Entrypoint(service) => return Ok(entrypoint::run(service)),
+        Command::DevSecrets { dir } => {
+            for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
+                println!("wrote {}", path.display());
+            }
+        }
+        Command::Backup(BackupCommand::Run(args)) => {
+            let run_id = &backup::run_id(now)?;
             backup::run(&backup::BackupRun {
                 repos: &args.repos,
                 password_file: &args.password_file,
@@ -87,7 +105,8 @@ pub async fn execute(command: BackupCommand, now: jiff::Timestamp) -> Result<(),
                 args.repos.len()
             );
         }
-        BackupCommand::RestoreTest(args) => {
+        Command::Backup(BackupCommand::RestoreTest(args)) => {
+            let run_id = &backup::run_id(now)?;
             let scratch_database = backup::scratch_database(run_id);
             let mut failed = 0;
             for repo in &args.repos {
@@ -120,11 +139,12 @@ pub async fn execute(command: BackupCommand, now: jiff::Timestamp) -> Result<(),
                 return Err(backup::Error::RestoreTestsFailed {
                     failed,
                     total: args.repos.len(),
-                });
+                }
+                .into());
             }
         }
     }
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 #[cfg(test)]
@@ -199,6 +219,16 @@ mod tests {
             panic!("expected restore-test, got {cli:?}");
         };
         assert_eq!(args.max_age, jiff::SignedDuration::from_mins(150));
+    }
+
+    #[test]
+    fn parses_dev_secrets() {
+        let cli =
+            Cli::try_parse_from(["cli", "dev-secrets", "deploy/secrets"]).expect("valid arguments");
+        let Command::DevSecrets { dir } = cli.command else {
+            panic!("expected dev-secrets, got {cli:?}");
+        };
+        assert_eq!(dir, PathBuf::from("deploy/secrets"));
     }
 
     #[test]

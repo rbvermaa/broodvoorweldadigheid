@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod compose_smoke;
 mod coverage;
 mod layers;
 mod metadata;
@@ -8,7 +9,8 @@ mod unsafe_forbid;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: cargo xtask <layers|unsafe-forbid|coverage <lcov-report>>";
+const USAGE: &str =
+    "usage: cargo xtask <layers|unsafe-forbid|coverage <lcov-report>|compose-smoke [options]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -33,6 +35,7 @@ fn main() -> ExitCode {
                 .map_err(|error| format!("cannot read {report}: {error}"))
                 .and_then(|contents| coverage::check(&contents)),
         ),
+        [task, rest @ ..] if task == "compose-smoke" => (task, compose_smoke::run(rest)),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(2);

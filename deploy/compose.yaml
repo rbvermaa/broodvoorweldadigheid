@@ -1,0 +1,98 @@
+# Images come from `make images` (nix/images.nix). Secrets come from `cli dev-secrets`.
+# BVW_IMAGE_TAG, BVW_SECRETS_DIR, BVW_HTTP_PORT and BVW_HTTPS_PORT override the defaults for local runs.
+name: bvw
+
+services:
+  postgres:
+    image: bvw-postgres:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kanidm:
+    image: bvw-kanidm:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      KANIDM_CONFIG: /etc/kanidm/server.toml
+    volumes:
+      - kanidm:/data
+      - ./kanidm/server.toml:/etc/kanidm/server.toml:ro
+    networks: [internal]
+
+  server:
+    image: bvw-server:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  caddy:
+    image: bvw-caddy:${BVW_IMAGE_TAG:-dev}
+    restart: unless-stopped
+    ports:
+      - "${BVW_HTTP_PORT:-8080}:80"
+      - "${BVW_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on:
+      server:
+        condition: service_healthy
+      kanidm:
+        condition: service_started
+    networks: [internal]
+
+  backup:
+    image: bvw-backup:${BVW_IMAGE_TAG:-dev}
+    profiles: [backup]
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    command:
+      - backup
+      - run
+      - --repo=/backup/repo
+      - --password-file=/run/secrets/rustic_password
+    secrets:
+      - rustic_password
+    volumes:
+      - backup:/backup
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+secrets:
+  postgres_password:
+    file: ${BVW_SECRETS_DIR:-./secrets}/postgres-password
+  rustic_password:
+    file: ${BVW_SECRETS_DIR:-./secrets}/rustic-password
+
+volumes:
+  pgdata:
+  kanidm:
+  caddy:
+  backup:
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24

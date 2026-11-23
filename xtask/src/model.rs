@@ -8,6 +8,7 @@ pub enum DepKind {
 #[derive(Debug, Clone)]
 pub struct Dep {
     pub name: String,
+    pub rename: Option<String>,
     pub kind: DepKind,
     pub optional: bool,
     pub workspace: bool,
