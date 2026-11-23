@@ -50,6 +50,8 @@ pub enum Error {
     EmptyManifest,
     #[error("the restored database does not match the manifest:{0}")]
     Mismatch(Mismatches),
+    #[error("migrations failed on the restored database: {0}")]
+    Migrate(db::Error),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -178,8 +180,20 @@ async fn restore_and_compare(
     conn.close().await?;
     let mismatches = manifest::compare(expected, &restored);
     if mismatches.is_empty() {
+        migrate_and_smoke_test(scratch_url).await?;
         Ok(expected.tables.len())
     } else {
         Err(Error::Mismatch(Mismatches(mismatches)))
     }
+}
+
+async fn migrate_and_smoke_test(scratch_url: &str) -> Result<(), Error> {
+    let pool = db::connect(scratch_url).await.map_err(Error::Migrate)?;
+    let result = async {
+        db::migrate(&pool).await?;
+        db::ping(&pool).await
+    }
+    .await;
+    pool.close().await;
+    result.map_err(Error::Migrate)
 }

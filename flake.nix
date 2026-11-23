@@ -62,6 +62,7 @@
               pname = "cli";
               cargoExtraArgs = "--locked --package cli";
               doCheck = false;
+              meta.mainProgram = "cli";
             }
           );
         in
@@ -185,6 +186,7 @@
           craneLib,
           commonArgs,
           cargoArtifacts,
+          cli,
           ...
         }:
         rec {
@@ -198,6 +200,7 @@
               meta.mainProgram = "server";
             }
           );
+          inherit cli;
           default = server;
         }
       );

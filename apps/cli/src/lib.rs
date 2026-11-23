@@ -79,7 +79,9 @@ pub async fn execute(cli: Cli, run_id: &str) -> Result<(), backup::Error> {
                     scratch_database: &scratch_database,
                 })
                 .await?;
-                println!("restore test passed for {repo}: {tables} tables match the manifest");
+                println!(
+                    "restore test passed for {repo}: {tables} tables match the manifest, migrations applied"
+                );
             }
         }
     }

@@ -32,7 +32,9 @@ pkgs.runCommand "restore-check"
     cli backup run --repo "$work/local" --repo "$work/offsite" \
       --password-file "$work/password" --database-url "$DATABASE_URL" --uploads "$work/uploads"
     cli backup restore-test --repo "$work/local" --repo "$work/offsite" \
-      --password-file "$work/password" --database-url "$DATABASE_URL"
+      --password-file "$work/password" --database-url "$DATABASE_URL" \
+      | tee "$work/restore-test.out"
+    grep -c "migrations applied" "$work/restore-test.out" | grep -qx 2
 
     expectFailure() {
       local what="$1" expected="$2" repo="$3"

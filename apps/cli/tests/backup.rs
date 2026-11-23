@@ -286,3 +286,24 @@ fn binary_reports_restore_test_failure_with_non_zero_exit() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.starts_with("error: rustic failed"), "{stderr}");
 }
+
+#[tokio::test]
+async fn restore_test_fails_when_migrations_do_not_apply_to_the_backup() {
+    let seed = "
+        CREATE TABLE loaves (id integer PRIMARY KEY);
+        INSERT INTO loaves VALUES (1);
+        CREATE TABLE schema_info (note text);
+    ";
+    let fixture = Fixture::new("bad_migration", seed).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+
+    let admin = admin_url();
+    let error = backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+        .await
+        .expect_err("conflicting schema must fail the migrations");
+    assert!(matches!(error, Error::Migrate(_)), "{error}");
+    assert!(!scratch_exists("scratch_bad_migration").await);
+}
