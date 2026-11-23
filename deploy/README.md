@@ -1,4 +1,5 @@
 Docker Compose stack for local runs and the Gate 1 smoke test (spec "Architecture").
+Needs Docker Compose 2.23.1 or newer, for `configs.content` in compose.yaml.
 
     make images                      # build and load the bvw-*:dev images
     nix develop -c cargo run -p cli -- dev-secrets deploy/secrets
@@ -12,5 +13,13 @@ subnet 10.89.0.0/24 and `make smoke` 10.89.1.0/24, so both can run at once; `BVW
 
 Caddy's local CA is in the `caddy` volume at /data/caddy/pki/authorities/local/root.crt.
 
-If postgres stops with "PG_VERSION but no .bvw-init-done", an earlier first start was
-interrupted. Remove the `pgdata` volume (`docker compose down --volumes`) to start fresh.
+If postgres stops with "PG_VERSION but no .bvw-init-done and no global/pg_filenode.map", an
+earlier first start was interrupted or the volume holds something else. Remove only the
+postgres volume to start fresh (`bvw` is the `make up` project name):
+
+    docker compose --file deploy/compose.yaml --project-name bvw stop postgres
+    docker compose --file deploy/compose.yaml --project-name bvw rm -f postgres
+    docker volume rm bvw_pgdata
+
+Do not use `docker compose down --volumes`: it also deletes Kanidm, the Caddy CA and the
+backup repository.
