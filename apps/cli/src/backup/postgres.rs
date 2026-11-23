@@ -17,6 +17,34 @@ pub fn quote_ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
+fn percent_decode(text: &str) -> Result<String, Error> {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text.get(i + 1..i + 3).ok_or(Error::DatabaseUrl)?;
+            decoded.push(u8::from_str_radix(hex, 16).map_err(|_| Error::DatabaseUrl)?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| Error::DatabaseUrl)
+}
+
+/// libpq lets these query parameters override the database in the URL path.
+fn names_a_database(query: &str) -> Result<bool, Error> {
+    for pair in query.trim_start_matches('?').split('&') {
+        let key = percent_decode(pair.split('=').next().unwrap_or_default())?;
+        if key.eq_ignore_ascii_case("dbname") || key.eq_ignore_ascii_case("database") {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Swaps the database name in a `postgres://` URL, keeping user, host and query parameters.
 pub fn with_database(url: &str, database: &str) -> Result<String, Error> {
     let authority_start = url.find("://").ok_or(Error::DatabaseUrl)? + 3;
@@ -25,6 +53,9 @@ pub fn with_database(url: &str, database: &str) -> Result<String, Error> {
     let query = rest.find('?').map_or("", |start| &rest[start..]);
     if rest[..authority_end].is_empty() {
         return Err(Error::DatabaseUrl);
+    }
+    if names_a_database(query)? {
+        return Err(Error::DatabaseInQuery);
     }
     Ok(format!(
         "{}{}/{database}{query}",
@@ -119,6 +150,22 @@ mod tests {
             assert_eq!(
                 error.to_string(),
                 "the database URL must look like postgres://user@host/database"
+            );
+        }
+    }
+
+    #[test]
+    fn with_database_rejects_a_database_in_the_query() {
+        for url in [
+            "postgres://db/postgres?dbname=live",
+            "postgres://db/postgres?host=/s&database=live",
+            "postgres://db/postgres?sslmode=disable&DBNAME=live",
+            "postgres://db/postgres?db%6Eame=live",
+        ] {
+            let error = with_database(url, "scratch").expect_err(url);
+            assert_eq!(
+                error.to_string(),
+                "the database URL must not name a database in its query (dbname=, database=)"
             );
         }
     }

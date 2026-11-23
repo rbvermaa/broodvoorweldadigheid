@@ -35,6 +35,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
     #[error("the database URL must look like postgres://user@host/database")]
     DatabaseUrl,
+    #[error("the database URL must not name a database in its query (dbname=, database=)")]
+    DatabaseInQuery,
     #[error("could not read the rustic snapshot list: {0}")]
     SnapshotList(serde_json::Error),
     #[error("manifest of {snapshot} is not valid: {source}")]
@@ -122,6 +124,7 @@ fn require_latest(repo: &Repo<'_>, tags: &[&str]) -> Result<rustic::Snapshot, Er
 
 /// Returns the number of tables verified.
 pub async fn restore_test(test: &RestoreTest<'_>) -> Result<usize, Error> {
+    let scratch_url = with_database(test.admin_url, test.scratch_database)?;
     let repo = Repo {
         location: test.repo,
         password_file: test.password_file,
@@ -143,7 +146,6 @@ pub async fn restore_test(test: &RestoreTest<'_>) -> Result<usize, Error> {
         return Err(Error::EmptyManifest);
     }
 
-    let scratch_url = with_database(test.admin_url, test.scratch_database)?;
     let scratch = postgres::quote_ident(test.scratch_database);
     let mut admin = PgConnection::connect(test.admin_url).await?;
     admin
