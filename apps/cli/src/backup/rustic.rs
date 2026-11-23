@@ -112,6 +112,7 @@ pub fn latest_snapshot(repo: &Repo<'_>, tags: &[&str]) -> Result<Option<Snapshot
 }
 
 /// rustic logs files it could not read as `[WARN] ignoring error...` and still succeeds.
+/// Missing extended attributes (common on Linux filesystems) are metadata, not content.
 pub fn skipped_files(stderr: &str) -> bool {
     first_skipped_file(stderr).is_some()
 }
@@ -120,7 +121,7 @@ pub fn first_skipped_file(stderr: &str) -> Option<&str> {
     stderr
         .lines()
         .map(str::trim)
-        .find(|line| line.starts_with("[WARN] ignoring error"))
+        .find(|line| line.starts_with("[WARN] ignoring error") && !line.contains("obtaining xargs"))
 }
 
 /// rustic splits `--stdin-command` with POSIX shell word rules.
@@ -268,9 +269,17 @@ mod tests {
             "[WARN] ignoring error: Error: Failed to get next entry from walk iterator.\n\
              caused by: /data/uploads/sub: Permission denied (os error 13)"
         ));
-        assert!(skipped_files(
-            "[WARN] ignoring error obtaining xargs: Error getting xattrs for `/data/uploads/a`"
+        assert!(!skipped_files(
+            "[WARN] ignoring error obtaining xargs: Error getting xattrs for `/data/uploads/a`: \
+             `Os { code: 95, kind: Unsupported, message: \"Operation not supported\" }`"
         ));
+        assert_eq!(
+            first_skipped_file(
+                "[WARN] ignoring error obtaining xargs: Error getting xattrs for `/data/uploads/a`\n\
+                 [WARN] ignoring error: Error: Failed to open `/data/uploads/a`"
+            ),
+            Some("[WARN] ignoring error: Error: Failed to open `/data/uploads/a`")
+        );
     }
 
     #[test]

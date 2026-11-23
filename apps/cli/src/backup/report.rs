@@ -48,6 +48,15 @@ fn cause(text: &str) -> String {
         first
     };
     let line = lines[chosen];
+    if line.contains("Command error status: stdin-command") {
+        return match lines
+            .iter()
+            .find(|line| !line.starts_with('[') && !is_noise(line))
+        {
+            Some(command_output) => format!("{line}: {command_output}"),
+            None => line.to_string(),
+        };
+    }
     if !line.contains("`rustic_core` experienced an error") {
         return line.to_string();
     }
@@ -218,6 +227,18 @@ mod tests {
         assert_eq!(
             summary(&failed("[WARN] unrelated: cache dir not found\n")),
             "rustic failed (exit status: 1): [WARN] unrelated: cache dir not found"
+        );
+    }
+
+    #[test]
+    fn failed_stdin_command_keeps_its_own_message_in_any_order() {
+        let linux_order = "[ERROR] Command error status: stdin-command:call : exit status: 3\n\
+            fake pg_dump fails\n\
+            [ERROR] error backing up -: `rustic_core` experienced an error.\n";
+        assert_eq!(
+            summary(&failed(linux_order)),
+            "rustic failed (exit status: 1): [ERROR] Command error status: stdin-command:call : \
+             exit status: 3: fake pg_dump fails"
         );
     }
 
