@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cli::backup::{self, BackupRun, Error, Repo, RestoreTest, rustic};
+use jiff::{SignedDuration, Timestamp};
 use sqlx::{AssertSqlSafe, Connection, Executor, PgConnection};
 
 fn admin_url() -> String {
@@ -80,6 +81,8 @@ impl Fixture {
             password_file: &self.password_file,
             admin_url,
             scratch_database: &self.scratch_database,
+            max_age: SignedDuration::from_hours(26),
+            now: Timestamp::now(),
         }
     }
 
@@ -123,7 +126,8 @@ async fn backup_then_restore_test_passes_for_every_repo() {
         let verified = backup::restore_test(&fixture.restore_test(repo, &admin))
             .await
             .expect("restore test");
-        assert_eq!(verified, 2);
+        assert_eq!(verified.tables, 2);
+        assert_eq!(verified.run, "1");
 
         let uploads = rustic::latest_snapshot(&fixture.rustic_repo(repo), &["uploads", "run-1"])
             .expect("list uploads snapshots");
@@ -291,7 +295,11 @@ async fn restore_test_fails_when_the_manifest_disagrees_with_the_dump() {
         .await
         .expect_err("forged manifest must fail");
     let message = error.to_string();
-    assert!(matches!(error, Error::Mismatch(_)), "{message}");
+    assert!(matches!(error, Error::Mismatch { .. }), "{message}");
+    assert!(
+        message.contains(&format!("restored from {} does not match", repos[0])),
+        "{message}"
+    );
     assert!(
         message.contains("public.loaves: expected 4 rows, restored 3"),
         "{message}"
@@ -317,6 +325,12 @@ async fn restore_test_fails_when_pack_files_are_missing() {
         .await
         .expect_err("missing packs must fail");
     assert!(matches!(error, Error::Failed { .. }), "{error}");
+    let message = error.to_string();
+    assert!(message.starts_with("rustic failed"), "{message}");
+    assert!(
+        message.contains(&format!("Failed to open the file `{}/data/", repos[0])),
+        "{message}"
+    );
     assert!(!scratch_exists("scratch_missing_packs").await);
 }
 
@@ -386,7 +400,18 @@ fn binary_reports_restore_test_failure_with_non_zero_exit() {
         .expect("run cli");
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.starts_with("error: rustic failed"), "{stderr}");
+    let missing = dir.join("does-not-exist");
+    assert!(
+        stderr.starts_with(&format!(
+            "error: restore test failed for {}: rustic failed",
+            missing.display()
+        )),
+        "{stderr}"
+    );
+    assert!(
+        stderr.ends_with("error: restore test failed for 1 of 1 repositories\n"),
+        "{stderr}"
+    );
 }
 
 #[tokio::test]
@@ -408,4 +433,258 @@ async fn restore_test_fails_when_migrations_do_not_apply_to_the_backup() {
         .expect_err("conflicting schema must fail the migrations");
     assert!(matches!(error, Error::Migrate(_)), "{error}");
     assert!(!scratch_exists("scratch_bad_migration").await);
+}
+
+fn store(repo: &Repo<'_>, filename: &str, tags: &[&str], contents: &[u8]) {
+    use std::io::Write;
+    let mut child = rustic::backup_stdin(repo, filename, tags)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("start rustic backup");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(contents)
+        .expect("write snapshot contents");
+    assert!(child.wait().expect("rustic backup").success());
+}
+
+fn snapshot_tags(repo: &str, password_file: &Path) -> Vec<Vec<String>> {
+    let output = Command::new("rustic")
+        .args(["--repository", repo, "--password-file"])
+        .arg(password_file)
+        .args(["--no-cache", "--no-progress", "snapshots", "--json"])
+        .args(["--group-by", ""])
+        .output()
+        .expect("rustic snapshots");
+    assert!(output.status.success());
+    rustic::parse_snapshots(&output.stdout)
+        .expect("snapshot list")
+        .into_iter()
+        .map(|snapshot| snapshot.tags)
+        .collect()
+}
+
+#[tokio::test]
+async fn failed_dump_forgets_the_partial_db_snapshot() {
+    let fixture = Fixture::new("failed_dump", SEED).await;
+    let repo = fixture.repo("local");
+    let fake_bin = fixture.dir.join("fake-bin");
+    std::fs::create_dir_all(&fake_bin).expect("create fake bin");
+    let fake_pg_dump = fake_bin.join("pg_dump");
+    std::fs::write(
+        &fake_pg_dump,
+        "#!/bin/sh\necho 'fake pg_dump fails' >&2\nexit 3\n",
+    )
+    .expect("write fake pg_dump");
+    std::fs::set_permissions(
+        &fake_pg_dump,
+        std::os::unix::fs::PermissionsExt::from_mode(0o755),
+    )
+    .expect("make fake pg_dump executable");
+    let path = format!(
+        "{}:{}",
+        fake_bin.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cli"))
+        .args(["backup", "run", "--repo", &repo, "--password-file"])
+        .arg(&fixture.password_file)
+        .args(["--database-url", &fixture.source_url])
+        .env("PATH", path)
+        .output()
+        .expect("run cli");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("fake pg_dump fails"), "{stderr}");
+
+    let tags = snapshot_tags(&repo, &fixture.password_file);
+    assert!(
+        tags.iter().all(|tags| !tags.iter().any(|tag| tag == "db")),
+        "{tags:?}"
+    );
+}
+
+#[tokio::test]
+async fn restore_test_skips_a_newer_db_snapshot_without_manifest() {
+    let fixture = Fixture::new("orphan_dump", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+    let repo = fixture.rustic_repo(&repos[0]);
+    store(&repo, backup::DB_FILE, &["db", "run-2"], b"");
+    let orphan = rustic::latest_snapshot(&repo, &["db", "run-2"])
+        .expect("list")
+        .expect("orphan snapshot");
+
+    let admin = admin_url();
+    let verified = backup::restore_test(&fixture.restore_test(&repos[0], &admin))
+        .await
+        .expect("restore test falls back to run 1");
+    assert_eq!(verified.run, "1");
+    assert_eq!(
+        verified.skipped,
+        [format!(
+            "db snapshot {} of run 2 has no manifest — backup failed?",
+            orphan.id
+        )]
+    );
+}
+
+#[tokio::test]
+async fn restore_test_fails_when_no_db_snapshot_has_a_manifest() {
+    let fixture = Fixture::new("only_orphans", SEED).await;
+    let location = fixture.repo("local");
+    let repo = fixture.rustic_repo(&location);
+    store(&repo, backup::DB_FILE, &["db", "run-5"], b"");
+    let orphan = rustic::latest_snapshot(&repo, &["db"])
+        .expect("list")
+        .expect("orphan snapshot");
+
+    let admin = admin_url();
+    let error = backup::restore_test(&fixture.restore_test(&location, &admin))
+        .await
+        .expect_err("nothing to verify");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "no db snapshot in {location} has a manifest:\
+             \n  db snapshot {} of run 5 has no manifest — backup failed?",
+            orphan.id
+        )
+    );
+}
+
+#[tokio::test]
+async fn restore_test_fails_when_the_newest_backup_is_too_old() {
+    let fixture = Fixture::new("too_old", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+
+    let admin = admin_url();
+    let later = Timestamp::now() + SignedDuration::from_hours(27);
+    let error = backup::restore_test(&RestoreTest {
+        now: later,
+        ..fixture.restore_test(&repos[0], &admin)
+    })
+    .await
+    .expect_err("27h old backup");
+    assert!(matches!(error, Error::TooOld { .. }), "{error}");
+    let message = error.to_string();
+    assert!(message.contains("of run 1, is 2"), "{message}");
+    assert!(message.ends_with("old; the limit is 26h"), "{message}");
+    assert!(!scratch_exists("scratch_too_old").await);
+}
+
+#[tokio::test]
+async fn restore_test_drops_only_stale_scratch_databases() {
+    let fixture = Fixture::new("stale_scratch", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+
+    let now = Timestamp::now();
+    let name_at = |at: Timestamp| backup::scratch_database(&at.as_nanosecond().to_string());
+    let stale = name_at(now - SignedDuration::from_hours(2));
+    let young = name_at(now - SignedDuration::from_mins(10));
+    let other = "restore_test_keep_me".to_string();
+    let mut admin = PgConnection::connect(&admin_url())
+        .await
+        .expect("connect admin");
+    for name in [&stale, &young, &other] {
+        admin
+            .execute(AssertSqlSafe(format!(
+                "DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"
+            )))
+            .await
+            .expect("drop leftover");
+        admin
+            .execute(AssertSqlSafe(format!("CREATE DATABASE \"{name}\"")))
+            .await
+            .expect("create leftover");
+    }
+
+    let admin_url = admin_url();
+    backup::restore_test(&RestoreTest {
+        now,
+        ..fixture.restore_test(&repos[0], &admin_url)
+    })
+    .await
+    .expect("restore test");
+
+    assert!(!scratch_exists(&stale).await);
+    assert!(scratch_exists(&young).await);
+    assert!(scratch_exists(&other).await);
+    for name in [&young, &other] {
+        admin
+            .execute(AssertSqlSafe(format!(
+                "DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)"
+            )))
+            .await
+            .expect("clean up");
+    }
+}
+
+#[tokio::test]
+async fn backup_keeps_its_snapshot_open_past_idle_in_transaction_timeout() {
+    let fixture = Fixture::new("idle_timeout", SEED).await;
+    let mut admin = PgConnection::connect(&admin_url())
+        .await
+        .expect("connect admin");
+    admin
+        .execute(
+            "ALTER DATABASE source_idle_timeout SET idle_in_transaction_session_timeout = '100ms'",
+        )
+        .await
+        .expect("set timeout");
+    let repos = [fixture.repo("local"), fixture.repo("offsite")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup outlives the idle timeout");
+}
+
+#[tokio::test]
+async fn binary_checks_every_repo_before_failing() {
+    let fixture = Fixture::new("every_repo", SEED).await;
+    let good = fixture.repo("good");
+    backup::run(&fixture.backup(std::slice::from_ref(&good), "1"))
+        .await
+        .expect("backup");
+    let missing = fixture.repo("missing");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cli"))
+        .args([
+            "backup",
+            "restore-test",
+            "--repo",
+            &missing,
+            "--repo",
+            &good,
+        ])
+        .arg("--password-file")
+        .arg(&fixture.password_file)
+        .args(["--database-url", &admin_url()])
+        .output()
+        .expect("run cli");
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains(&format!("restore test passed for {good}: run 1 (")),
+        "{stdout}"
+    );
+    assert!(
+        stderr.contains(&format!("error: restore test failed for {missing}: ")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.ends_with("error: restore test failed for 1 of 2 repositories\n"),
+        "{stderr}"
+    );
 }

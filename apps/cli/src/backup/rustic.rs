@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use jiff::Timestamp;
 use serde::Deserialize;
 
 use super::{Error, process};
@@ -16,6 +17,7 @@ pub struct Repo<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Snapshot {
     pub id: String,
+    pub time: Timestamp,
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -88,14 +90,25 @@ pub fn dump(repo: &Repo<'_>, snapshot_id: &str, filename: &str) -> Command {
     command
 }
 
-/// rustic lists snapshots oldest first.
-pub fn parse_latest(json: &[u8]) -> Result<Option<Snapshot>, Error> {
-    let snapshots: Vec<Snapshot> = serde_json::from_slice(json).map_err(Error::SnapshotList)?;
-    Ok(snapshots.into_iter().last())
+pub fn forget(repo: &Repo<'_>, snapshot_ids: &[String]) -> Command {
+    let mut command = rustic(repo);
+    command.arg("forget").args(snapshot_ids);
+    command
+}
+
+/// Oldest first.
+pub fn parse_snapshots(json: &[u8]) -> Result<Vec<Snapshot>, Error> {
+    let mut snapshots: Vec<Snapshot> = serde_json::from_slice(json).map_err(Error::SnapshotList)?;
+    snapshots.sort_by_key(|snapshot| snapshot.time);
+    Ok(snapshots)
+}
+
+pub fn list_snapshots(repo: &Repo<'_>, tags: &[&str]) -> Result<Vec<Snapshot>, Error> {
+    parse_snapshots(&process::run(snapshots(repo, tags))?)
 }
 
 pub fn latest_snapshot(repo: &Repo<'_>, tags: &[&str]) -> Result<Option<Snapshot>, Error> {
-    parse_latest(&process::run(snapshots(repo, tags))?)
+    Ok(list_snapshots(repo, tags)?.pop())
 }
 
 /// rustic splits `--stdin-command` with POSIX shell word rules.
@@ -236,35 +249,53 @@ mod tests {
     }
 
     #[test]
-    fn parse_latest_takes_the_last_snapshot() {
+    fn forget_names_every_snapshot() {
+        assert_eq!(
+            args(&forget(&repo(), &["aaa".into(), "bbb".into()])),
+            with_global(&["forget", "aaa", "bbb"])
+        );
+    }
+
+    #[test]
+    fn parse_snapshots_sorts_oldest_first_and_reads_time() {
         let json = br#"[
-            {"id": "aaa", "time": "2026-11-23T01:00:00+01:00", "tags": ["db", "run-1"]},
-            {"id": "bbb", "time": "2026-11-24T01:00:00+01:00", "tags": ["db", "run-2"]}
+            {"id": "bbb", "time": "2026-11-24T01:00:00.123456789+01:00", "tags": ["db", "run-2"]},
+            {"id": "aaa", "time": "2026-11-23T01:00:00+01:00", "tags": ["db", "run-1"]}
         ]"#;
         assert_eq!(
-            parse_latest(json).expect("valid"),
-            Some(Snapshot {
-                id: "bbb".into(),
-                tags: vec!["db".into(), "run-2".into()],
-            })
+            parse_snapshots(json).expect("valid"),
+            [
+                Snapshot {
+                    id: "aaa".into(),
+                    time: "2026-11-23T00:00:00Z".parse().expect("time"),
+                    tags: vec!["db".into(), "run-1".into()],
+                },
+                Snapshot {
+                    id: "bbb".into(),
+                    time: "2026-11-24T00:00:00.123456789Z".parse().expect("time"),
+                    tags: vec!["db".into(), "run-2".into()],
+                },
+            ]
         );
     }
 
     #[test]
-    fn parse_latest_handles_empty_list_and_missing_tags() {
-        assert_eq!(parse_latest(b"[]").expect("valid"), None);
+    fn parse_snapshots_handles_empty_list_and_missing_tags() {
+        assert_eq!(parse_snapshots(b"[]").expect("valid"), []);
         assert_eq!(
-            parse_latest(br#"[{"id": "ccc"}]"#).expect("valid"),
-            Some(Snapshot {
+            parse_snapshots(br#"[{"id": "ccc", "time": "2026-11-23T01:00:00+01:00"}]"#)
+                .expect("valid"),
+            [Snapshot {
                 id: "ccc".into(),
+                time: "2026-11-23T00:00:00Z".parse().expect("time"),
                 tags: vec![],
-            })
+            }]
         );
     }
 
     #[test]
-    fn parse_latest_rejects_garbage() {
-        let error = parse_latest(b"not json").expect_err("invalid");
+    fn parse_snapshots_rejects_garbage() {
+        let error = parse_snapshots(b"not json").expect_err("invalid");
         assert!(
             error
                 .to_string()

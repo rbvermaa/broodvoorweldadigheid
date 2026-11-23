@@ -43,7 +43,7 @@ pub struct RunArgs {
     pub repos: Vec<String>,
     #[arg(long)]
     pub password_file: PathBuf,
-    #[arg(long)]
+    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     pub database_url: String,
     #[arg(long)]
     pub uploads: Option<PathBuf>,
@@ -55,11 +55,23 @@ pub struct RestoreTestArgs {
     pub repos: Vec<String>,
     #[arg(long)]
     pub password_file: PathBuf,
-    #[arg(long, help = "connection with the right to create and drop databases")]
+    #[arg(
+        long,
+        env = "DATABASE_URL",
+        hide_env_values = true,
+        help = "connection with the right to create and drop databases"
+    )]
     pub database_url: String,
+    #[arg(
+        long,
+        default_value = "26h",
+        help = "fail if the newest backup is older"
+    )]
+    pub max_age: jiff::SignedDuration,
 }
 
-pub async fn execute(command: BackupCommand, run_id: &str) -> Result<(), backup::Error> {
+pub async fn execute(command: BackupCommand, now: jiff::Timestamp) -> Result<(), backup::Error> {
+    let run_id = &backup::run_id(now)?;
     match command {
         BackupCommand::Run(args) => {
             backup::run(&backup::BackupRun {
@@ -76,18 +88,39 @@ pub async fn execute(command: BackupCommand, run_id: &str) -> Result<(), backup:
             );
         }
         BackupCommand::RestoreTest(args) => {
-            let scratch_database = format!("restore_test_{run_id}");
+            let scratch_database = backup::scratch_database(run_id);
+            let mut failed = 0;
             for repo in &args.repos {
-                let tables = backup::restore_test(&backup::RestoreTest {
+                let result = backup::restore_test(&backup::RestoreTest {
                     repo,
                     password_file: &args.password_file,
                     admin_url: &args.database_url,
                     scratch_database: &scratch_database,
+                    max_age: args.max_age,
+                    now,
                 })
-                .await?;
-                println!(
-                    "restore test passed for {repo}: {tables} tables match the manifest, migrations applied"
-                );
+                .await;
+                match result {
+                    Ok(verified) => {
+                        for skipped in &verified.skipped {
+                            eprintln!("warning: {repo}: {skipped}");
+                        }
+                        println!(
+                            "restore test passed for {repo}: run {} ({:#} old), {} tables match the manifest, migrations applied",
+                            verified.run, verified.age, verified.tables
+                        );
+                    }
+                    Err(error) => {
+                        failed += 1;
+                        eprintln!("error: restore test failed for {repo}: {error}");
+                    }
+                }
+            }
+            if failed > 0 {
+                return Err(backup::Error::RestoreTestsFailed {
+                    failed,
+                    total: args.repos.len(),
+                });
             }
         }
     }
@@ -143,6 +176,29 @@ mod tests {
             panic!("expected restore-test, got {cli:?}");
         };
         assert_eq!(args.repos, ["/backup/local"]);
+        assert_eq!(args.max_age, jiff::SignedDuration::from_hours(26));
+    }
+
+    #[test]
+    fn parses_restore_test_max_age() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "backup",
+            "restore-test",
+            "--repo",
+            "/backup/local",
+            "--password-file",
+            "/pw",
+            "--database-url",
+            "postgres://db/postgres",
+            "--max-age",
+            "2h 30m",
+        ])
+        .expect("valid arguments");
+        let Command::Backup(BackupCommand::RestoreTest(args)) = cli.command else {
+            panic!("expected restore-test, got {cli:?}");
+        };
+        assert_eq!(args.max_age, jiff::SignedDuration::from_mins(150));
     }
 
     #[test]
