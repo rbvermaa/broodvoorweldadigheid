@@ -65,6 +65,15 @@
             cargoArtifacts
             ;
         };
+
+      images =
+        { pkgs, ... }:
+        pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+          import ./nix/images.nix {
+            inherit pkgs;
+            inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) server cli;
+          }
+        );
     in
     {
       checks = forAllSystems (
@@ -75,8 +84,9 @@
           commonArgs,
           cargoArtifacts,
           ...
-        }:
-        {
+        }@ctx:
+        (images ctx).checks or { }
+        // {
           fmt = craneLib.cargoFmt { inherit (commonArgs) src pname version; };
 
           clippy = craneLib.cargoClippy (
@@ -172,8 +182,9 @@
           commonArgs,
           cargoArtifacts,
           ...
-        }:
-        rec {
+        }@ctx:
+        (images ctx).packages or { }
+        // rec {
           server = craneLib.buildPackage (
             commonArgs
             // {
@@ -182,6 +193,16 @@
               cargoExtraArgs = "--locked --package server";
               doCheck = false;
               meta.mainProgram = "server";
+            }
+          );
+          cli = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "cli";
+              cargoExtraArgs = "--locked --package cli";
+              doCheck = false;
+              meta.mainProgram = "cli";
             }
           );
           default = server;
