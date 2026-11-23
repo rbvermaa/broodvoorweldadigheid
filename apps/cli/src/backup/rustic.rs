@@ -118,10 +118,10 @@ pub fn skipped_files(stderr: &str) -> bool {
 }
 
 pub fn first_skipped_file(stderr: &str) -> Option<&str> {
-    stderr
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("[WARN] ignoring error") && !line.contains("obtaining xargs"))
+    stderr.lines().map(str::trim).find(|line| {
+        line.starts_with("[WARN] ignoring error")
+            && !line.starts_with("[WARN] ignoring error obtaining xargs:")
+    })
 }
 
 /// rustic splits `--stdin-command` with POSIX shell word rules.
@@ -263,6 +263,9 @@ mod tests {
 
     #[test]
     fn skipped_files_spots_read_errors_only() {
+        assert!(skipped_files(
+            "[WARN] ignoring error: Error: Failed to open `/data/uploads/obtaining xargs.txt`"
+        ));
         assert!(!skipped_files(""));
         assert!(!skipped_files("[WARN] some other warning"));
         assert!(skipped_files(
