@@ -160,7 +160,7 @@ fn ts(s: &str) -> Timestamp {
 
 #[test]
 fn timestamps_are_shown_in_amsterdam_time() {
-    let ams = Amsterdam::load().expect("tzdb has Europe/Amsterdam");
+    let ams = Amsterdam::new();
     let t = nl();
     let start = ts("2026-12-05T10:00:00Z");
     let end = ts("2026-12-05T11:00:00Z");
@@ -173,7 +173,7 @@ fn timestamps_are_shown_in_amsterdam_time() {
 
 #[test]
 fn amsterdam_time_range_must_stay_on_one_local_day() {
-    let ams = Amsterdam::load().unwrap();
+    let ams = Amsterdam::new();
     assert!(matches!(
         ams.time_range(ts("2026-12-05T21:00:00Z"), ts("2026-12-05T23:30:00Z")),
         Err(I18nError::TimeRange { .. })
@@ -186,7 +186,7 @@ fn amsterdam_time_range_must_stay_on_one_local_day() {
 
 #[test]
 fn autumn_clock_change_on_25_october_2026() {
-    let ams = Amsterdam::load().unwrap();
+    let ams = Amsterdam::new();
     assert_eq!(ams.time(ts("2026-10-24T09:00:00Z")), "11:00");
     assert_eq!(ams.time(ts("2026-10-25T09:00:00Z")), "10:00");
     assert_eq!(ams.time(ts("2026-10-25T00:30:00Z")), "02:30");
@@ -204,7 +204,7 @@ fn autumn_clock_change_on_25_october_2026() {
 
 #[test]
 fn autumn_repeated_hour_range_is_rejected_when_local_end_is_earlier() {
-    let ams = Amsterdam::load().unwrap();
+    let ams = Amsterdam::new();
     assert!(matches!(
         ams.time_range(ts("2026-10-25T00:45:00Z"), ts("2026-10-25T01:15:00Z")),
         Err(I18nError::TimeRange { .. })
@@ -213,7 +213,7 @@ fn autumn_repeated_hour_range_is_rejected_when_local_end_is_earlier() {
 
 #[test]
 fn spring_clock_change_on_29_march_2026() {
-    let ams = Amsterdam::load().unwrap();
+    let ams = Amsterdam::new();
     let t = nl();
     assert_eq!(ams.time(ts("2026-03-29T00:59:00Z")), "01:59");
     assert_eq!(ams.time(ts("2026-03-29T01:00:00Z")), "03:00");

@@ -9,7 +9,7 @@ mod format;
 mod translator;
 
 pub use fluent_bundle::{FluentArgs, FluentValue};
-pub use format::{Amsterdam, TIME_ZONE, decimal, money, numeric_date, time, time_range};
+pub use format::{Amsterdam, decimal, money, numeric_date, time, time_range};
 pub use translator::{LOCALE, Translator, resource_files};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -28,8 +28,6 @@ pub enum I18nError {
     Format { id: String, details: String },
     #[error("Fluent message {id} gives the same name for different values")]
     DuplicateName { id: String },
-    #[error("cannot load time zone {zone}: {details}")]
-    TimeZone { zone: String, details: String },
     #[error("time range ends before it starts or spans days: {start} to {end}")]
     TimeRange { start: String, end: String },
 }

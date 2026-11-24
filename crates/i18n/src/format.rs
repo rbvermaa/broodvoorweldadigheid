@@ -4,8 +4,6 @@ use jiff::{Timestamp, Zoned};
 
 use crate::I18nError;
 
-pub const TIME_ZONE: &str = "Europe/Amsterdam";
-
 const NBSP: char = '\u{a0}';
 
 /// Formats `scaled / 10^fraction_digits` with `.` for thousands and `,` for decimals:
@@ -71,18 +69,16 @@ pub fn time_range(start: Time, end: Time) -> Result<String, I18nError> {
 #[derive(Clone, Debug)]
 pub struct Amsterdam(TimeZone);
 
+impl Default for Amsterdam {
+    fn default() -> Self {
+        Self(domain::bakery_time_zone())
+    }
+}
+
 impl Amsterdam {
-    /// Loads Europe/Amsterdam from the system time zone database (`TZDIR` in the images).
-    ///
-    /// # Errors
-    /// Fails when the time zone database is missing or has no Europe/Amsterdam.
-    pub fn load() -> Result<Self, I18nError> {
-        TimeZone::get(TIME_ZONE)
-            .map(Self)
-            .map_err(|e| I18nError::TimeZone {
-                zone: TIME_ZONE.to_owned(),
-                details: e.to_string(),
-            })
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     #[must_use]
