@@ -179,7 +179,7 @@ Everything we write is Rust. The few services we run but do not write are C, C++
 | Reverse proxy, TLS | Caddy (Traefik) | Go |
 | Backups | rustic (restic) | Rust (Go) |
 | Monitoring | tracing logs, Prometheus and Grafana, Gatus health checks (plus one Gatus outside the bakery), ntfy alerts | Rust, Go |
-| Code hosting, CI | GitHub, public repo rbvermaa/broodvoorweldadigheid; GitHub Actions on x86_64 runners with Nix; branch protection requires the ci-ok check; PRs merge by auto-merge through a merge queue (Forgejo with Forgejo Actions) | Hosted |
+| Code hosting, CI | GitHub, public repo rbvermaa/broodvoorweldadigheid; GitHub Actions on x86_64 runners with Nix; branch protection requires the ci-ok check; PRs merge by auto-merge once ci-ok passes (no merge queue on a personal-account repo) (Forgejo with Forgejo Actions) | Hosted |
 | Deployment | Nix flake: crane builds the Rust binary, nix2container (or dockerTools) builds minimal OCI images, Docker Compose runs them | Nix |
 | Label printer | The labels crate makes a PNG per label and a CSV of the label text; the official Niimbot app prints them | Rust |
 | Dynamic DNS | inadyn, only if the bakery has no fixed IP address | C |
