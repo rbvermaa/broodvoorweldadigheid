@@ -22,6 +22,9 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
   **Answered 2026-11-24:** "2 days before in the evening": the deadline is at the latest
   20:00 local two days before the bake date (company.sourdough_deadline_*, ADR 0006).
+- [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
+  balance transactions, which need an organization access token with `balances.read`,
+  not the website API key (ADR 0013). OK to add that token to the sops secrets?
 - [ ] **Cancelled drops on the public calendar.** F1a lists planned, menu announced, open,
   sold out and closed. A cancelled (sick-day) drop is shown as "cancelled" for now
   (ADR 0008). OK?
