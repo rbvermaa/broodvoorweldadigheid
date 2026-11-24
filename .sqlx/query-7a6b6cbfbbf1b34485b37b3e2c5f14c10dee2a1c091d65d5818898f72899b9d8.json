@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bake_day SET online_ordering = $2,\n            menu_publish_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            opens_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond',\n            cutoff_at = timestamptz 'epoch' + $5::bigint * interval '1 microsecond',\n            bake_starts_at = timestamptz 'epoch' + $6::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a6b6cbfbbf1b34485b37b3e2c5f14c10dee2a1c091d65d5818898f72899b9d8"
+}

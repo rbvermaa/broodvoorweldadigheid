@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pickup_slot (bake_day_id, location_id, starts_at, ends_at, max_orders)\n        VALUES ($1, $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $4::bigint * interval '1 microsecond', $5)\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9cd9dd0563e6089e27e16a6bcf410194c5661fd9d582ec4839502b46d63bb4c2"
+}
