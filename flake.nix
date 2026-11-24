@@ -61,10 +61,12 @@
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
               ./.sqlx
+              ./.cargo/audit.toml
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
               (lib.fileset.fileFilter (file: file.hasExt "snap") ./crates)
               ./design
               ./templates
+              ./typst
               ./apps/server/tests/snapshots
               ./crates/notify/tests/snapshots
             ];

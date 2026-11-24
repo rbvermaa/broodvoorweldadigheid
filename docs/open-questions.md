@@ -69,6 +69,8 @@ Questions about the spec. The spec is only changed when the owner asks.
   Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
   keys), or verify ID tokens without openidconnect? Until then staff can only sign in
   through the local dev login.
+- [ ] **Typst advisories.** On the next Typst release, check whether quick-xml < 0.41 is
+  gone and drop the two ignores in `.cargo/audit.toml` (ADR 0016).
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers

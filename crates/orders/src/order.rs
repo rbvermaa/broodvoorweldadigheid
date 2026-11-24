@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt;
 
 use db::time::from_micros;
@@ -246,6 +247,55 @@ pub async fn get(conn: &mut PgConnection, id: OrderId) -> Result<Order, Error> {
     .map(line_from_row)
     .collect::<Result<_, _>>()?;
     order_from_row(row, lines)
+}
+
+/// A bake day's orders that the bakery bakes and hands out: paid, confirmed or picked
+/// up (F7, F8). Orders waiting for payment are left out, also within their hold. By id.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn list_firm(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<Order>, Error> {
+    let rows = sqlx::query_as!(
+        Row,
+        r#"SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,
+            marketing_opt_in, bake_day_id, pickup_slot_id,
+            channel, payment_mode, status, cancel_reason, total_cents,
+            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,
+            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,
+            (extract(epoch FROM created_at) * 1000000)::bigint AS "created_at_us!"
+        FROM "order"
+        WHERE bake_day_id = $1 AND status IN ('paid', 'confirmed', 'picked_up')
+        ORDER BY id"#,
+        day.get(),
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
+    let mut lines: BTreeMap<i64, Vec<OrderLine>> = BTreeMap::new();
+    for row in sqlx::query!(
+        "SELECT id, order_id, product_id, qty, unit_price_cents, suggested_price_cents, vat_rate
+        FROM order_line WHERE order_id = ANY($1) ORDER BY order_id, id",
+        &ids,
+    )
+    .fetch_all(conn)
+    .await?
+    {
+        let line = line_from_row(LineRow {
+            id: row.id,
+            product_id: row.product_id,
+            qty: row.qty,
+            unit_price_cents: row.unit_price_cents,
+            suggested_price_cents: row.suggested_price_cents,
+            vat_rate: row.vat_rate,
+        })?;
+        lines.entry(row.order_id).or_default().push(line);
+    }
+    rows.into_iter()
+        .map(|row| {
+            let order_lines = lines.remove(&row.id).unwrap_or_default();
+            order_from_row(row, order_lines)
+        })
+        .collect()
 }
 
 /// The fields an audit entry keeps of an order's state.

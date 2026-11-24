@@ -1,5 +1,5 @@
 //! Cart, checkout with capacity holds, payment status and the audit log (F3, F4, F4b,
-//! F4c). See ADR 0012.
+//! F4c), and ticking orders off at pickup (F8). See ADR 0012.
 #![forbid(unsafe_code)]
 
 pub mod audit;
@@ -12,6 +12,7 @@ mod holds;
 pub mod manage;
 pub mod order;
 mod payment;
+mod pickup;
 mod source;
 
 pub use cart::{Cart, CartError, CartLine, PricedLine};
@@ -25,4 +26,5 @@ pub use payment::{
     DonationAllocation, PaidOutcome, Payment, PaymentReceived, RefundReason, allocations,
     latest_payment_status, mark_paid, payment_started, record_payment_status, refunds_due,
 };
+pub use pickup::{mark_picked_up, undo_picked_up};
 pub use source::Orders;

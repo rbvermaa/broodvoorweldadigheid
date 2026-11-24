@@ -5,4 +5,5 @@ mod common;
 mod holds;
 mod manage;
 mod payment;
+mod pickup;
 mod tracking;
