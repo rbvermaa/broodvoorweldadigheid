@@ -1,5 +1,5 @@
 //! Customer login by email magic link and the customer's order overview (spec, Security;
-//! ADR 0028). The base for F4d, F11a and F12.
+//! ADR 0029). The base for F4d, F11a and F12.
 
 use std::time::Duration;
 

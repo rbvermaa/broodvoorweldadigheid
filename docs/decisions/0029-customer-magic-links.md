@@ -1,4 +1,4 @@
-# 0028 Customer magic links and "Mijn bestellingen"
+# 0029 Customer magic links and "Mijn bestellingen"
 
 Status: proposed, 2026-11-24
 

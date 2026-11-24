@@ -1,4 +1,4 @@
-# Customer login by email link and the order overview (ADR 0028).
+# Customer login by email link and the order overview (ADR 0029).
 account-login-title = Inloggen
 account-login-intro = Vul het e-mailadres in waarmee je bestelt. Je krijgt een mail met een link om in te loggen. Een wachtwoord heb je niet nodig.
 account-email = E-mailadres

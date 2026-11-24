@@ -1,4 +1,4 @@
-//! Customer magic links over HTTP (spec, Security; ADR 0028): asking for a link, signing
+//! Customer magic links over HTTP (spec, Security; ADR 0029): asking for a link, signing
 //! in with it, the order overview and signing out.
 #![forbid(unsafe_code)]
 
