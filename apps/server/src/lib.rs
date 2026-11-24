@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
 
+pub mod assets;
 pub mod clock;
 pub mod config;
 pub mod healthcheck;
+#[cfg(test)]
+mod tokens;
 
 use std::future::Future;
 use std::io;
