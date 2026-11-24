@@ -9,7 +9,7 @@ use jiff::civil::{Time, time};
 use jiff::{SignedDuration, Timestamp};
 use notify::{
     Company, ComposeError, Composer, Donation, Email, Item, OrderCancelled, OrderConfirmation,
-    OutboxError, OutboxId, Pickup, PickupReminder, Recipient, SickDayCancelled,
+    OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder, Recipient, SickDayCancelled,
 };
 use orders::{OrderDetails, Payment};
 use sqlx::{Acquire, PgConnection};
@@ -260,6 +260,29 @@ pub async fn enqueue_sick_day(
     })
     .await?;
     Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
+}
+
+/// Queues the email that tells the customer the order's ophaalmoment changed (F1, F4a),
+/// with the time and place the order has now. Call it in the transaction that changes the
+/// slot. Each change sends its own email, so it has no dedupe key.
+///
+/// # Errors
+/// [`EmailError`].
+pub async fn enqueue_pickup_moved(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    emails: &OrderEmails,
+    order: OrderId,
+) -> Result<Option<OutboxId>, EmailError> {
+    let email = compose(conn, emails, order, |composer, details| {
+        composer.pickup_moved(&PickupMoved {
+            to: recipient(details),
+            order_number: details.order.number.to_string(),
+            pickup: pickup(details),
+        })
+    })
+    .await?;
+    Ok(notify::enqueue(conn, clock, &email, None).await?)
 }
 
 /// Withdraws the order's pickup reminder if it is not sent yet, after the order moved to

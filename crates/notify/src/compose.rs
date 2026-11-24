@@ -105,6 +105,14 @@ pub struct PickupReminder {
     pub items: Vec<Item>,
 }
 
+/// F1, F4a: staff moved the ophaalmoment of an order; `pickup` is the new one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickupMoved {
+    pub to: Recipient,
+    pub order_number: String,
+    pub pickup: Pickup,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderCancelled {
     pub to: Recipient,
@@ -332,6 +340,32 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::PickupReminder, &reminder.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn pickup_moved(&self, moved: &PickupMoved) -> Result<Email, ComposeError> {
+        let number = moved.order_number.as_str();
+        let blocks = vec![
+            Block::Paragraph(self.t("email-pickup-moved-intro", &[("number", number.to_owned())])?),
+            Block::Facts(vec![
+                self.fact("email-label-order", number.to_owned())?,
+                self.fact("email-label-pickup", self.moment(&moved.pickup)?)?,
+                self.fact("email-label-location", self.place(&moved.pickup)?)?,
+            ]),
+            Block::Paragraph(self.t("email-pickup-moved-sorry", &[])?),
+        ];
+        let parts = Parts {
+            subject: self.t(
+                "email-pickup-moved-subject",
+                &[("number", number.to_owned())],
+            )?,
+            heading: self.t("email-pickup-moved-heading", &[])?,
+            greeting: self.greeting(moved.to.name.as_deref())?,
+            blocks,
+            unsubscribe: None,
+        };
+        self.email(EmailKind::PickupMoved, &moved.to.email, parts)
     }
 
     /// # Errors

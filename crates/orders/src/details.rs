@@ -1,5 +1,5 @@
 use db::time::{from_epoch_days, from_micros, to_micros};
-use domain::OrderId;
+use domain::{OrderId, PickupSlotId};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use sqlx::PgConnection;
@@ -120,6 +120,27 @@ pub async fn awaiting_pickup(
     rows.into_iter()
         .map(|row| Ok((OrderId::new(row.id), from_micros(row.starts_us)?)))
         .collect()
+}
+
+/// Paid or confirmed orders with this pickup slot, by id.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn awaiting_pickup_in_slot(
+    conn: &mut PgConnection,
+    slot: PickupSlotId,
+) -> Result<Vec<OrderId>, Error> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT id FROM "order"
+        WHERE pickup_slot_id = $1 AND status IN ('paid', 'confirmed')
+        ORDER BY id"#,
+        slot.get(),
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(OrderId::new)
+    .collect())
 }
 
 /// Locks the order's bake day `FOR SHARE`, then the order row, as ADR 0012 orders them,

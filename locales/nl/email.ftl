@@ -42,6 +42,11 @@ email-pickup-reminder-heading = Je brood ligt bijna klaar
 email-pickup-reminder-intro = Je kunt je bestelling ophalen op { $day } tussen { $start } en { $end }.
 email-pickup-reminder-items = Dit haal je op:
 
+email-pickup-moved-subject = Nieuw ophaalmoment voor je bestelling { $number }
+email-pickup-moved-heading = Je ophaalmoment is veranderd
+email-pickup-moved-intro = We hebben het ophaalmoment van je bestelling { $number } veranderd. Dit is het nieuwe moment:
+email-pickup-moved-sorry = Past dit niet? Beantwoord deze mail, dan zoeken we samen een oplossing.
+
 email-order-cancelled-subject = Je bestelling { $number } is geannuleerd
 email-order-cancelled-heading = Je bestelling is geannuleerd
 email-order-cancelled-intro = Je bestelling { $number } voor de drop van { $date } is geannuleerd.
