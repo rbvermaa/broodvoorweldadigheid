@@ -2,8 +2,6 @@
 //! links that work without a login. Tokens are random and only their SHA-256 hash is
 //! stored.
 
-use std::str::FromStr;
-
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use domain::{BakeDayId, Clock};
@@ -89,7 +87,7 @@ impl Links {
 /// [`SubscriberError::Address`] when it is not an email address.
 pub fn parse_address(raw: &str) -> Result<String, SubscriberError> {
     let email = raw.trim();
-    if email.len() > MAX_EMAIL_LEN || lettre::Address::from_str(email).is_err() {
+    if email.len() > MAX_EMAIL_LEN || !crate::is_address(email) {
         return Err(SubscriberError::Address);
     }
     Ok(email.to_owned())

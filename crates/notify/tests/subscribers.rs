@@ -256,15 +256,17 @@ async fn unknown_tokens_and_bad_addresses_change_nothing(mut conn: PoolConnectio
     }
     let i18n = Translator::dutch().unwrap();
     let company = company();
-    let result = subscribers::subscribe(
-        &mut conn,
-        &clock,
-        &Composer::new(&i18n, &company),
-        &links(),
-        "geen adres",
-    )
-    .await;
-    assert!(matches!(result, Err(SubscriberError::Address)));
+    for bad in ["geen adres", "sanne@[192.0.2.1]"] {
+        let result = subscribers::subscribe(
+            &mut conn,
+            &clock,
+            &Composer::new(&i18n, &company),
+            &links(),
+            bad,
+        )
+        .await;
+        assert!(matches!(result, Err(SubscriberError::Address)), "{bad}");
+    }
     let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM subscriber")
         .fetch_one(&mut *conn)
         .await
