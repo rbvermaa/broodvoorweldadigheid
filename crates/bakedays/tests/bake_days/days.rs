@@ -1,10 +1,9 @@
-use bakedays::schedule::{LeadTimeRule, LeadTimeWarning};
+use bakedays::schedule::LeadTimeWarning;
 use bakedays::status::TransitionRefused;
 use bakedays::{
     BakeDayProduct, BakeDayStatus, Error, ExtraInput, NewBakeDay, NoOrders, PickupSlotInput,
     PickupWindowInput, PublicStatus, Purpose, Schedule, Transition, days, extras, pickup, range,
 };
-use catalog::SourdoughDeadline;
 use domain::{BakeDayId, Clock, PickupLocationId};
 use jiff::civil::{Weekday, time};
 use sqlx::pool::PoolConnection;
@@ -22,7 +21,6 @@ fn schedule_of(day: &bakedays::BakeDay) -> Schedule {
         menu_publish_at: day.menu_publish_at,
         opens_at: day.opens_at,
         cutoff_at: day.cutoff_at,
-        bake_starts_at: day.bake_starts_at,
     }
 }
 
@@ -33,7 +31,8 @@ async fn new_day_takes_pickup_and_deadline_from_the_window(mut conn: PoolConnect
     assert_eq!(day.status, BakeDayStatus::Draft);
     assert!(day.online_ordering);
     assert_eq!(day.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
-    assert_eq!(day.bake_starts_at, ts("2026-10-31T03:00:00Z"));
+    // Baking starts at 05:00 CET.
+    assert_eq!(day.bake_starts_at, ts("2026-10-31T04:00:00Z"));
     assert_eq!(
         (day.menu_publish_at, day.opens_at, day.charity_id),
         (None, None, None)
@@ -156,7 +155,7 @@ async fn schedule_changes_per_drop(mut conn: PoolConnection<Postgres>) {
             ..changed
         },
         Schedule {
-            bake_starts_at: ts("2026-10-29T10:59:59Z"),
+            cutoff_at: Some(ts("2026-10-31T04:00:01Z")),
             ..changed
         },
         Schedule {
@@ -228,7 +227,6 @@ async fn a_day_without_pickup_slots_never_sells_online(mut conn: PoolConnection<
         &mut conn,
         &NewBakeDay {
             date: date("2026-10-30"),
-            bake_starts_at: ts("2026-10-30T03:00:00Z"),
             online_ordering: false,
             ..saturday()
         },
@@ -470,7 +468,6 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
         &mut conn,
         &NewBakeDay {
             date: date("2026-10-24"),
-            bake_starts_at: ts("2026-10-24T02:00:00Z"),
             charity_id: Some(archived_later),
             ..saturday()
         },
@@ -542,7 +539,7 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
     assert_eq!(copy.menu_publish_at, Some(ts("2026-10-28T07:00:00Z")));
     assert_eq!(copy.opens_at, Some(ts("2026-10-28T07:00:00Z")));
     assert_eq!(copy.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
-    assert_eq!(copy.bake_starts_at, ts("2026-10-31T03:00:00Z"));
+    assert_eq!(copy.bake_starts_at, ts("2026-10-31T04:00:00Z"));
     let slots = days::list_slots(&mut conn, copy.id).await.unwrap();
     assert_eq!(slots.len(), 1);
     assert_eq!(slots[0].starts_at, ts("2026-10-31T10:00:00Z"));
@@ -626,10 +623,6 @@ async fn set_cutoff(conn: &mut PgConnection, day: &bakedays::BakeDay, cutoff: &s
 
 fn sourdough_warning(cutoff: &str, latest: &str) -> Option<LeadTimeWarning> {
     Some(LeadTimeWarning {
-        rule: LeadTimeRule::Sourdough(SourdoughDeadline {
-            days_before: 2,
-            at: time(20, 0, 0, 0),
-        }),
         cutoff_at: ts(cutoff),
         latest_cutoff: ts(latest),
     })
@@ -663,7 +656,6 @@ async fn summer_time_saturday_after_the_march_change(mut conn: PoolConnection<Po
         &mut conn,
         &NewBakeDay {
             date: date("2026-04-04"),
-            bake_starts_at: ts("2026-04-04T02:00:00Z"),
             ..saturday()
         },
     )
@@ -695,42 +687,63 @@ async fn the_rule_comes_from_the_company_settings(mut conn: PoolConnection<Postg
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_product_with_a_longer_lead_time_is_stricter(mut conn: PoolConnection<Postgres>) {
+async fn a_product_lead_time_does_not_warn(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let add = |product_id| BakeDayProduct {
-        product_id,
-        max_qty: None,
-        capacity_pool_id: None,
-        units_per_item: 1,
-    };
-    let rolls = product(&mut conn, "Bolletjes", Some(12)).await;
-    let bread = product(&mut conn, "Desem", None).await;
-    for product_id in [rolls, bread] {
-        range::set_product(&mut conn, day.id, &add(product_id))
-            .await
-            .unwrap();
-    }
+    let rye = product(&mut conn, "Rogge", Some(168)).await;
+    range::set_product(
+        &mut conn,
+        day.id,
+        &BakeDayProduct {
+            product_id: rye,
+            max_qty: None,
+            capacity_pool_id: None,
+            units_per_item: 1,
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(
         days::lead_time_warning(&mut conn, day.id).await.unwrap(),
         None
     );
+}
 
-    // 60 h before Saturday 04:00 CET is Wednesday 16:00 CET.
-    let rye = product(&mut conn, "Rogge", Some(60)).await;
-    range::set_product(&mut conn, day.id, &add(rye))
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn baking_starts_at_five_on_the_bake_date(mut conn: PoolConnection<Postgres>) {
+    // The clocks jump forward on Sunday 29 March: 05:00 is summer time.
+    let spring = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-03-29"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(spring.bake_starts_at, ts("2026-03-29T03:00:00Z"));
+    // They fall back on Sunday 25 October: 05:00 is winter time.
+    let autumn = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-10-25"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(autumn.bake_starts_at, ts("2026-10-25T04:00:00Z"));
+
+    let day = create_day(&mut conn, &saturday()).await;
+    sqlx::query("UPDATE bake_day SET bake_starts_at = $2::timestamptz WHERE id = $1")
+        .bind(day.id.get())
+        .bind("2026-10-31T02:00:00Z")
+        .execute(&mut *conn)
         .await
         .unwrap();
-    assert_eq!(
-        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
-        Some(LeadTimeWarning {
-            rule: LeadTimeRule::Product {
-                product_id: rye,
-                lead_time_hours: 60,
-            },
-            cutoff_at: ts("2026-10-29T19:00:00Z"),
-            latest_cutoff: ts("2026-10-28T15:00:00Z"),
-        })
-    );
+    let saved = days::update_schedule(&mut conn, day.id, &schedule_of(&day))
+        .await
+        .unwrap();
+    assert_eq!(saved.bake_starts_at, ts("2026-10-31T04:00:00Z"));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -847,7 +860,6 @@ async fn a_cancelled_day_does_not_block_a_copy(mut conn: PoolConnection<Postgres
         &mut conn,
         &NewBakeDay {
             date: date("2026-11-07"),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
     )

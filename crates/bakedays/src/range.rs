@@ -260,8 +260,8 @@ pub async fn set_product(
     Ok(())
 }
 
-/// Changes the maximum and units per item of a product already on the day's range. Its
-/// capacity pool stays as it is.
+/// Changes the maximum of a product already on the day's range. Its capacity pool and
+/// units per item stay as they are.
 ///
 /// # Errors
 /// [`Error::NotFound`] when the day or the product on it does not exist, [`Error::Final`],
@@ -271,23 +271,20 @@ pub async fn update_product(
     day: BakeDayId,
     product: ProductId,
     max_qty: Option<u32>,
-    units_per_item: u32,
 ) -> Result<(), Error> {
     let input = BakeDayProduct {
         product_id: product,
         max_qty,
         capacity_pool_id: None,
-        units_per_item,
+        units_per_item: 1,
     };
     let mut tx = conn.begin().await?;
-    let (max_qty, units) = checked_limits(&mut tx, day, &input).await?;
+    let (max_qty, _) = checked_limits(&mut tx, day, &input).await?;
     let updated = sqlx::query!(
-        "UPDATE bake_day_product SET max_qty = $3, units_per_item = $4
-        WHERE bake_day_id = $1 AND product_id = $2",
+        "UPDATE bake_day_product SET max_qty = $3 WHERE bake_day_id = $1 AND product_id = $2",
         day.get(),
         product.get(),
         max_qty,
-        units,
     )
     .execute(&mut *tx)
     .await?

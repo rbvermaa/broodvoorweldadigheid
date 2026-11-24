@@ -22,7 +22,6 @@ fn saturday() -> NewBakeDay {
     NewBakeDay {
         date: "2026-10-31".parse().unwrap(),
         location_id: PickupLocationId::new(1),
-        bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: true,
         charity_id: None,
     }
@@ -38,7 +37,6 @@ async fn day_opening_at(conn: &mut PgConnection, input: &NewBakeDay, opens_at: &
             menu_publish_at: None,
             opens_at: Some(ts(opens_at)),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -100,7 +98,6 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
         &mut conn,
         &NewBakeDay {
             date: "2026-11-14".parse().unwrap(),
-            bake_starts_at: ts("2026-11-14T03:00:00Z"),
             online_ordering: false,
             ..saturday()
         },
@@ -111,7 +108,6 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
         &mut conn,
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
         "2026-11-02T08:00:00Z",
@@ -138,7 +134,6 @@ async fn a_day_without_pickup_slots_is_refused_and_the_rest_still_opens(
         &mut conn,
         &NewBakeDay {
             date: "2026-10-30".parse().unwrap(),
-            bake_starts_at: ts("2026-10-30T03:00:00Z"),
             online_ordering: false,
             ..saturday()
         },

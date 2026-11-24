@@ -30,7 +30,6 @@ fn saturday() -> NewBakeDay {
     NewBakeDay {
         date: "2026-10-31".parse().unwrap(),
         location_id: PickupLocationId::new(1),
-        bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: true,
         charity_id: None,
     }
@@ -77,7 +76,6 @@ async fn shop(conn: &mut PgConnection) -> Shop {
             menu_publish_at: None,
             opens_at: Some(ts("2026-10-01T00:00:00Z")),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await

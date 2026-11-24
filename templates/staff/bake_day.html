@@ -37,7 +37,6 @@
 {% call f::field("datetime-local", "menu_publish_at", layout.t("day-menu-publish")?, value = forms.menu_publish_at, hint = layout.t("day-menu-publish-hint")?, error = errors.get("menu_publish_at")) %}{% endcall %}
 {% call f::field("datetime-local", "opens_at", layout.t("day-opens")?, value = forms.opens_at, hint = layout.t("day-opens-hint")?, error = errors.get("opens_at")) %}{% endcall %}
 {% call f::field("datetime-local", "cutoff_at", layout.t("day-cutoff")?, value = forms.cutoff_at, error = errors.get("cutoff_at")) %}{% endcall %}
-{% call f::field("datetime-local", "bake_starts_at", layout.t("day-bake-starts")?, value = forms.bake_starts_at, error = errors.get("bake_starts_at"), required = true) %}{% endcall %}
 {% call f::checkbox("production_only", layout.t("day-production-only-label")?, checked = forms.production_only, error = errors.get("production_only")) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
 </form>
@@ -59,7 +58,6 @@
 <fieldset class="field-group">
 <legend class="field-label">{{ row.name }}</legend>
 {% call f::field("number", row.max_field, layout.t("range-max-qty")?, value = row.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get(row.max_field)) %}{% endcall %}
-{% call f::field("number", row.units_field, layout.t("range-units")?, value = row.units, error = errors.get(row.units_field), required = true) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
 </fieldset>
 </form>
@@ -73,7 +71,6 @@
 {% call s::csrf() %}{% endcall %}
 {% call f::select("product_id", layout.t("range-product")?, product_options, hint = layout.t("range-product-hint")?, error = errors.get("product_id"), required = true) %}{% endcall %}
 {% call f::field("number", "max_qty", layout.t("range-max-qty")?, value = forms.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get("max_qty")) %}{% endcall %}
-{% call f::field("number", "units", layout.t("range-units")?, value = forms.units, hint = layout.t("range-units-hint")?, error = errors.get("units"), required = true) %}{% endcall %}
 {% call b::button(layout.t("range-add")?, kind = "submit") %}{% endcall %}
 </form>
 

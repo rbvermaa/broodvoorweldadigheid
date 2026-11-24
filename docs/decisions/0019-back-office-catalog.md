@@ -23,6 +23,7 @@ live in `apps/server/src/backoffice/` and join the router in one place
 | The design-system check also reads ids passed as `t(state, "…")`, `t_with` and `t_count` | The back office builds texts in Rust; a missing id must fail the check, not render as the id |
 | Availability, extra production and the charity rule count orders through `orders::Orders` with the app clock, so a pending order holds capacity until its hold expires | ADR 0008, ADR 0012 |
 | The lead-time warning names the rule that sets the latest deadline: the bakery's sourdough deadline (`company.sourdough_deadline_*`) or a product's own lead time | Staff know what to change |
+| Update (ADR 0027): only the sourdough rule warns; per-product lead times are gone | Owner, 2026-11-24 |
 
 Open:
 

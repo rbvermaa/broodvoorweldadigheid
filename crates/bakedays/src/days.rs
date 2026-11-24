@@ -1,5 +1,5 @@
 use db::time::{from_epoch_days, from_micros, to_epoch_days, to_micros};
-use domain::{BakeDayId, CharityId, Clock, PickupLocationId, PickupSlotId, ProductId};
+use domain::{BakeDayId, CharityId, Clock, PickupLocationId, PickupSlotId};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use sqlx::{Acquire, PgConnection};
@@ -52,12 +52,12 @@ impl BakeDay {
 }
 
 /// A new bake day at a pickup location. Pickup slots and the order deadline come from the
-/// location's active windows for the date's weekday (F1, F4a).
+/// location's active windows for the date's weekday (F1, F4a). Baking starts at
+/// [`schedule::BAKE_STARTS`] on the date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NewBakeDay {
     pub date: Date,
     pub location_id: PickupLocationId,
-    pub bake_starts_at: Timestamp,
     pub online_ordering: bool,
     pub charity_id: Option<CharityId>,
 }
@@ -69,7 +69,6 @@ pub struct Schedule {
     pub menu_publish_at: Option<Timestamp>,
     pub opens_at: Option<Timestamp>,
     pub cutoff_at: Option<Timestamp>,
-    pub bake_starts_at: Timestamp,
 }
 
 /// A copied bake day. `charity_dropped` is set when the source's charity was archived.
@@ -160,7 +159,7 @@ fn micros(timestamp: Option<Timestamp>) -> Option<i64> {
     timestamp.map(to_micros)
 }
 
-fn validate_schedule(schedule: &Schedule) -> Result<(), Error> {
+fn validate_schedule(schedule: &Schedule, bake_starts_at: Timestamp) -> Result<(), Error> {
     if schedule.online_ordering && schedule.cutoff_at.is_none() {
         return Err(Error::Invalid("deadline"));
     }
@@ -179,7 +178,7 @@ fn validate_schedule(schedule: &Schedule) -> Result<(), Error> {
     }
     if schedule
         .cutoff_at
-        .is_some_and(|cutoff| cutoff > schedule.bake_starts_at)
+        .is_some_and(|cutoff| cutoff > bake_starts_at)
     {
         return Err(Error::Invalid("deadline after bake start"));
     }
@@ -310,7 +309,6 @@ pub async fn create(conn: &mut PgConnection, input: &NewBakeDay) -> Result<BakeD
             menu_publish_at: None,
             opens_at: None,
             cutoff_at: cutoff,
-            bake_starts_at: input.bake_starts_at,
         },
     )
     .await?;
@@ -329,7 +327,8 @@ async fn insert_day(
     charity_id: Option<CharityId>,
     schedule: &Schedule,
 ) -> Result<BakeDayId, Error> {
-    validate_schedule(schedule)?;
+    let bake_starts_at = schedule::bake_starts_at(date)?;
+    validate_schedule(schedule, bake_starts_at)?;
     let id = sqlx::query_scalar!(
         r#"INSERT INTO bake_day (date, online_ordering, charity_id, menu_publish_at, opens_at,
             cutoff_at, bake_starts_at)
@@ -345,7 +344,7 @@ async fn insert_day(
         micros(schedule.menu_publish_at),
         micros(schedule.opens_at),
         micros(schedule.cutoff_at),
-        to_micros(schedule.bake_starts_at),
+        to_micros(bake_starts_at),
     )
     .fetch_one(conn)
     .await?;
@@ -442,7 +441,8 @@ async fn has_slots(conn: &mut PgConnection, id: BakeDayId) -> Result<bool, Error
     .await?)
 }
 
-/// Changes the times of one drop and whether it sells online.
+/// Changes the times of one drop and whether it sells online. Baking starts at
+/// [`schedule::BAKE_STARTS`] on the bake date; the deadline may not be later.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Final`], [`Error::NoPickupSlot`] for an online day without
@@ -453,9 +453,10 @@ pub async fn update_schedule(
     id: BakeDayId,
     schedule: &Schedule,
 ) -> Result<BakeDay, Error> {
-    validate_schedule(schedule)?;
     let mut tx = conn.begin().await?;
     let day = get_for_update(&mut tx, id).await?;
+    let bake_starts_at = schedule::bake_starts_at(day.date)?;
+    validate_schedule(schedule, bake_starts_at)?;
     day.ensure_editable()?;
     if !schedule.online_ordering && day.status == BakeDayStatus::Open {
         return Err(Error::Invalid("production-only while open"));
@@ -475,7 +476,7 @@ pub async fn update_schedule(
         micros(schedule.menu_publish_at),
         micros(schedule.opens_at),
         micros(schedule.cutoff_at),
-        to_micros(schedule.bake_starts_at),
+        to_micros(bake_starts_at),
     )
     .execute(&mut *tx)
     .await?;
@@ -727,7 +728,6 @@ pub async fn copy_to(
             menu_publish_at: shift_opt(source.menu_publish_at)?,
             opens_at: shift_opt(source.opens_at)?,
             cutoff_at: shift_opt(source.cutoff_at)?,
-            bake_starts_at: shift(source.bake_starts_at)?,
         },
     )
     .await?;
@@ -788,8 +788,7 @@ pub async fn repeat_weekly(
 }
 
 /// Warns when the deadline is later than the bakery's sourdough deadline for the bake
-/// date, or than a product's own lead time on the drop allows (F1). Production-only days
-/// take no orders, so they never warn.
+/// date (F1). Production-only days take no orders, so they never warn.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Invalid`], [`Error::Catalog`] or [`Error::Db`].
@@ -801,22 +800,6 @@ pub async fn lead_time_warning(
     if !day.online_ordering {
         return Ok(None);
     }
-    let products: Vec<ProductId> = sqlx::query_scalar!(
-        "SELECT product_id FROM bake_day_product WHERE bake_day_id = $1",
-        id.get(),
-    )
-    .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(ProductId::new)
-    .collect();
-    let lead_times = catalog::products::lead_times(conn, &products).await?;
     let sourdough = catalog::company::sourdough_deadline(conn).await?;
-    schedule::lead_time_warning(
-        day.cutoff_at,
-        day.date,
-        day.bake_starts_at,
-        sourdough,
-        &lead_times,
-    )
+    schedule::lead_time_warning(day.cutoff_at, day.date, sourdough)
 }

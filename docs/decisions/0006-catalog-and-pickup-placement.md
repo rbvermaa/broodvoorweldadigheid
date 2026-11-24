@@ -31,7 +31,7 @@ default deadline. A product that sets its own `lead_time_hours` still adds a che
 without one has no lead time of its own: there is no fallback any more.
 `company.default_lead_time_hours` is no longer read and is dropped in a later release
 (migrations only add). The warning applies to every online drop, also one without
-products yet.
+products yet. Per-product lead times were dropped later the same day (ADR 0027).
 
 Smaller choices in the same change:
 

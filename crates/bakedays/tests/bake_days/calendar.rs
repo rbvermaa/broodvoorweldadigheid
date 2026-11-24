@@ -22,7 +22,6 @@ fn schedule_of(day: &BakeDay) -> Schedule {
         menu_publish_at: day.menu_publish_at,
         opens_at: day.opens_at,
         cutoff_at: day.cutoff_at,
-        bake_starts_at: day.bake_starts_at,
     }
 }
 
@@ -201,7 +200,6 @@ async fn production_only_days_and_days_outside_the_range_are_left_out(
         &mut conn,
         &NewBakeDay {
             date: date("2027-01-02"),
-            bake_starts_at: ts("2027-01-02T03:00:00Z"),
             ..saturday()
         },
     )

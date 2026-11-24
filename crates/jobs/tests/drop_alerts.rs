@@ -39,7 +39,6 @@ async fn saturday(
         &NewBakeDay {
             date: "2026-10-31".parse().unwrap(),
             location_id: PickupLocationId::new(1),
-            bake_starts_at: ts("2026-10-31T03:00:00Z"),
             online_ordering: true,
             charity_id: None,
         },
@@ -63,7 +62,6 @@ async fn schedule(
             menu_publish_at: menu_at.map(ts),
             opens_at: opens_at.map(ts),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -367,7 +365,6 @@ async fn production_only_cancelled_and_past_deadline_drops_never_alert(pool: PgP
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
             location_id: PickupLocationId::new(1),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             online_ordering: false,
             charity_id: None,
         },
@@ -380,7 +377,6 @@ async fn production_only_cancelled_and_past_deadline_drops_never_alert(pool: PgP
         &NewBakeDay {
             date: "2026-10-24".parse().unwrap(),
             location_id: PickupLocationId::new(1),
-            bake_starts_at: ts("2026-10-24T03:00:00Z"),
             online_ordering: true,
             charity_id: None,
         },

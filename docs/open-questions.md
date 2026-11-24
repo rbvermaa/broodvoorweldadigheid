@@ -89,5 +89,12 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
   **Answered 2026-11-24:** not needed; the owner dropped them.
 - [ ] **Spec F3 wording.** F3 still says "limits per product and per dough or oven-load
-  pool". The owner dropped pools on 2026-11-24 (ADR 0025). Update F3 to "a maximum per
+  pool". The owner dropped pools on 2026-11-24 (ADR 0026). Update F3 to "a maximum per
   product per bake day"?
+- [ ] **Spec wording on bake start and lead time** (ADR 0027). The data model lists
+  `bake_starts_at` as a per-day field, and "Recipe versions and batches" plus the
+  deadline rule speak of a lead time per recipe ("bake_starts_at minus the longest recipe
+  lead time"). The owner decided on 2026-11-24 that baking always starts at 05:00 on the
+  bake date (derived, not entered) and that only the sourdough rule (20:00 two days
+  before) warns. Update the spec to match, and drop `lead_time_hours` from
+  `RecipeVersion`?

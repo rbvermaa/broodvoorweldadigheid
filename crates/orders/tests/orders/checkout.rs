@@ -258,7 +258,6 @@ async fn the_deadline_follows_local_time_in_summer(mut conn: PoolConnection<Post
     let clock = FakeClock::new(ts("2026-10-20T12:00:00Z"));
     let summer = NewBakeDay {
         date: "2026-10-24".parse().unwrap(),
-        bake_starts_at: ts("2026-10-24T02:00:00Z"),
         ..saturday()
     };
     let shop = open_day(&mut conn, &clock, &summer).await;
@@ -344,7 +343,6 @@ async fn refusals(mut conn: PoolConnection<Postgres>) {
         &clock,
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
     )
@@ -377,7 +375,6 @@ async fn refusals(mut conn: PoolConnection<Postgres>) {
         &mut conn,
         &NewBakeDay {
             date: "2026-11-14".parse().unwrap(),
-            bake_starts_at: ts("2026-11-14T03:00:00Z"),
             ..saturday()
         },
     )
@@ -399,7 +396,6 @@ async fn refusals(mut conn: PoolConnection<Postgres>) {
         &mut conn,
         &NewBakeDay {
             date: "2026-11-15".parse().unwrap(),
-            bake_starts_at: ts("2026-11-15T03:00:00Z"),
             online_ordering: false,
             ..saturday()
         },
@@ -667,7 +663,6 @@ async fn order_numbers_start_again_at_new_year_in_local_time(mut conn: PoolConne
         &clock,
         &NewBakeDay {
             date: "2027-01-02".parse().unwrap(),
-            bake_starts_at: ts("2027-01-02T03:00:00Z"),
             ..saturday()
         },
     )

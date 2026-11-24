@@ -288,7 +288,6 @@ async fn saturday(pool: &PgPool) -> BakeDayId {
         &NewBakeDay {
             date: date(2026, 12, 5),
             location_id: DE_PROEF,
-            bake_starts_at: ts("2026-12-05T03:00:00Z"),
             online_ordering: true,
             charity_id: None,
         },
@@ -306,7 +305,6 @@ fn product_form<'a>(extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
         ("price", "5,25"),
         ("vat_rate", "9"),
         ("unit_weight", "750"),
-        ("lead_time", ""),
         ("sold_online", "ja"),
         ("active", "ja"),
         ("allergen_cereals_containing_gluten", "ja"),
@@ -357,7 +355,7 @@ async fn counter_cannot_open_the_catalogue_or_bake_days(pool: PgPool) {
     let schedule = counter
         .post(
             &format!("/staff/bake-days/{}/schedule", day.get()),
-            &[("bake_starts_at", "2026-12-05T05:00")],
+            &[("cutoff_at", "2026-12-03T20:00")],
         )
         .await;
     assert_eq!(schedule.status, StatusCode::FORBIDDEN);
@@ -407,6 +405,7 @@ async fn a_new_product_is_saved_but_not_approved(pool: PgPool) {
     assert_eq!(page.status, StatusCode::OK);
     page.shows(&dutch("allergen-cereals_containing_gluten"));
     page.shows("name=\"may_molluscs\"");
+    page.lacks("name=\"lead_time\"");
 
     let reply = baker.post("/staff/products/new", &product_form(&[])).await;
     let location = reply.header("location").to_owned();
@@ -805,15 +804,12 @@ async fn a_new_bake_day_gets_its_slots_and_deadline_from_the_location(pool: PgPo
 
     let page = baker.get("/staff/bake-days/new").await;
     page.shows("De Proef");
+    page.lacks("name=\"bake_starts_at\"");
 
     let friday = baker
         .post(
             "/staff/bake-days/new",
-            &[
-                ("date", "2026-12-04"),
-                ("location_id", "1"),
-                ("bake_starts_at", "2026-12-04T04:00"),
-            ],
+            &[("date", "2026-12-04"), ("location_id", "1")],
         )
         .await;
     assert_eq!(friday.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -825,11 +821,7 @@ async fn a_new_bake_day_gets_its_slots_and_deadline_from_the_location(pool: PgPo
     let created = baker
         .post(
             "/staff/bake-days/new",
-            &[
-                ("date", "2026-12-05"),
-                ("location_id", "1"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-            ],
+            &[("date", "2026-12-05"), ("location_id", "1")],
         )
         .await;
     assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
@@ -838,17 +830,13 @@ async fn a_new_bake_day_gets_its_slots_and_deadline_from_the_location(pool: PgPo
     day.shows(&dutch("saved"));
     day.shows("11:00–12:00, De Proef");
     day.shows("value=\"2026-12-03T20:00\"");
-    day.shows("value=\"2026-12-05T04:00\"");
+    day.lacks("name=\"bake_starts_at\"");
     day.shows(&dutch("day-status-draft"));
 
     let taken = baker
         .post(
             "/staff/bake-days/new",
-            &[
-                ("date", "2026-12-05"),
-                ("location_id", "1"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-            ],
+            &[("date", "2026-12-05"), ("location_id", "1")],
         )
         .await;
     assert_eq!(taken.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -890,11 +878,7 @@ async fn the_only_pickup_location_is_chosen_for_a_new_bake_day(pool: PgPool) {
     let created = baker
         .post(
             "/staff/bake-days/new",
-            &[
-                ("date", "2026-12-05"),
-                ("location_id", "1"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-            ],
+            &[("date", "2026-12-05"), ("location_id", "1")],
         )
         .await;
     assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
@@ -949,12 +933,7 @@ async fn the_only_charity_is_suggested_for_a_new_bake_day_but_can_be_left_out(po
     let refused = baker
         .post(
             "/staff/bake-days/new",
-            &[
-                ("date", "2026-12-05"),
-                ("location_id", "1"),
-                ("bake_starts_at", ""),
-                ("charity_id", ""),
-            ],
+            &[("date", ""), ("location_id", "1"), ("charity_id", "")],
         )
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -963,7 +942,7 @@ async fn the_only_charity_is_suggested_for_a_new_bake_day_but_can_be_left_out(po
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: PgPool) {
+async fn the_schedule_warns_only_for_the_sourdough_rule_and_refuses_bad_times(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;
@@ -991,12 +970,7 @@ async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: Pg
             baker
                 .post(
                     &format!("{path}/range"),
-                    &[
-                        ("product_id", product.as_str()),
-                        ("max_qty", ""),
-                        ("pool_id", ""),
-                        ("units", "1"),
-                    ],
+                    &[("product_id", product.as_str()), ("max_qty", "")],
                 )
                 .await
                 .redirects_to(&format!("{path}?opgeslagen=1"));
@@ -1013,7 +987,6 @@ async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: Pg
                         ("menu_publish_at", "2026-12-01T12:00"),
                         ("opens_at", "2026-12-01T12:00"),
                         ("cutoff_at", cutoff),
-                        ("bake_starts_at", "2026-12-05T04:00"),
                     ],
                 )
                 .await
@@ -1037,15 +1010,7 @@ async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: Pg
     baker.get(&path).await.lacks("zuurdesem");
 
     add(rye).await;
-    baker.get(&path).await.shows(&dutch_with(
-        "day-lead-time-warning-product",
-        &[
-            ("product", "Roggebrood"),
-            ("hours", "48"),
-            ("cutoff", "do 3 dec om 15:00"),
-            ("latest", "do 3 dec om 04:00"),
-        ],
-    ));
+    baker.get(&path).await.lacks("zuurdesem");
 
     schedule("2026-12-03T03:00").await;
     let page = baker.get(&path).await;
@@ -1055,24 +1020,20 @@ async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: Pg
     let wrong = baker
         .post(
             &format!("{path}/schedule"),
-            &[
-                ("cutoff_at", "2026-12-05T06:00"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-            ],
+            &[("cutoff_at", "2026-12-05T05:01")],
         )
         .await;
     assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
-    wrong.shows(&dutch("day-error-deadline-after-bake"));
-    wrong.shows("value=\"2026-12-05T06:00\"");
+    wrong.shows(&dutch_with(
+        "day-error-deadline-after-bake",
+        &[("time", "05:00")],
+    ));
+    wrong.shows("value=\"2026-12-05T05:01\"");
 
     let production_only = baker
         .post(
             &format!("{path}/schedule"),
-            &[
-                ("opens_at", "2026-12-01T12:00"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-                ("production_only", "ja"),
-            ],
+            &[("opens_at", "2026-12-01T12:00"), ("production_only", "ja")],
         )
         .await;
     assert_eq!(production_only.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -1148,26 +1109,13 @@ async fn the_range_editor_sets_limits(pool: PgPool) {
     let set = baker
         .post(
             &format!("{path}/range"),
-            &[
-                ("product_id", &bread.get().to_string()),
-                ("max_qty", "12"),
-                ("units", "1"),
-            ],
+            &[("product_id", &bread.get().to_string()), ("max_qty", "12")],
         )
         .await;
     set.redirects_to(&format!("{path}?opgeslagen=1"));
     let page = baker.get(&path).await;
     page.shows(&dutch_count("range-max", 12));
     page.shows(&dutch_count("range-remaining", 12));
-
-    let wrong_units = baker
-        .post(
-            &format!("{path}/range"),
-            &[("product_id", &bread.get().to_string()), ("units", "0")],
-        )
-        .await;
-    assert_eq!(wrong_units.status, StatusCode::UNPROCESSABLE_ENTITY);
-    wrong_units.shows(&dutch("range-error-units"));
 
     let removed = baker
         .htmx(&format!("{path}/range/{}/remove", bread.get()), &[])
@@ -1229,21 +1177,15 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
     page.shows(&format!(
         "id=\"max_qty_{id}\" name=\"max_qty_{id}\" value=\"12\""
     ));
-    page.shows(&format!(
-        "id=\"units_{id}\" name=\"units_{id}\" value=\"2\""
-    ));
+    page.lacks(&format!("units_{id}"));
     page.lacks("Oven 1");
     page.lacks("pool_id");
     page.lacks(">Desembrood wit</option>");
     page.shows(">Speltbrood</option>");
 
     let max = format!("max_qty_{id}");
-    let units = format!("units_{id}");
     let changed = baker
-        .post(
-            &format!("{path}/range/{id}"),
-            &[(&max, "20"), (&units, "2")],
-        )
+        .post(&format!("{path}/range/{id}"), &[(&max, "20")])
         .await;
     changed.redirects_to(&format!("{path}?opgeslagen=1"));
     let mut conn = pool.acquire().await.expect("conn");
@@ -1261,11 +1203,7 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
     let stale_add = baker
         .post(
             &format!("{path}/range"),
-            &[
-                ("product_id", &id.to_string()),
-                ("max_qty", "8"),
-                ("units", "2"),
-            ],
+            &[("product_id", &id.to_string()), ("max_qty", "8")],
         )
         .await;
     stale_add.redirects_to(&format!("{path}?opgeslagen=1"));
@@ -1276,25 +1214,10 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
     );
     drop(conn);
 
-    let wrong = baker
-        .post(
-            &format!("{path}/range/{id}"),
-            &[(&max, "20"), (&units, "0")],
-        )
-        .await;
-    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
-    wrong.shows(&dutch("range-error-units"));
-    wrong.shows(&format!(
-        "id=\"units_{id}\" name=\"units_{id}\" value=\"0\""
-    ));
-
     let absent = baker
         .post(
             &format!("{path}/range/{}", spelt.get()),
-            &[
-                (&format!("max_qty_{}", spelt.get()), "5"),
-                (&format!("units_{}", spelt.get()), "1"),
-            ],
+            &[(&format!("max_qty_{}", spelt.get()), "5")],
         )
         .await;
     assert_eq!(absent.status, StatusCode::NOT_FOUND);
@@ -1318,7 +1241,6 @@ async fn a_day_without_pickup_slots_cannot_go_online(pool: PgPool) {
             &NewBakeDay {
                 date: date(2026, 12, 4),
                 location_id: DE_PROEF,
-                bake_starts_at: ts("2026-12-04T03:00:00Z"),
                 online_ordering: false,
                 charity_id: None,
             },
@@ -1333,10 +1255,7 @@ async fn a_day_without_pickup_slots_cannot_go_online(pool: PgPool) {
     let online = baker
         .post(
             &format!("{path}/schedule"),
-            &[
-                ("cutoff_at", "2026-12-02T20:00"),
-                ("bake_starts_at", "2026-12-04T04:00"),
-            ],
+            &[("cutoff_at", "2026-12-02T20:00")],
         )
         .await;
     assert_eq!(online.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -1604,9 +1523,9 @@ async fn counter_cannot_change_anything(pool: PgPool) {
         ),
         (
             format!("{path}/range"),
-            vec![("product_id", bread_id.as_str()), ("units", "1")],
+            vec![("product_id", bread_id.as_str()), ("max_qty", "1")],
         ),
-        (format!("{path}/range/{bread_id}"), vec![("units", "1")]),
+        (format!("{path}/range/{bread_id}"), vec![("max_qty", "1")]),
         (format!("{path}/open"), vec![]),
         (format!("{path}/close"), vec![]),
         (format!("{path}/copy"), vec![("copy_date", "2026-12-12")]),
@@ -1728,7 +1647,6 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
             menu_publish_at: None,
             opens_at: Some(ts("2026-11-20T08:00:00Z")),
             cutoff_at: stored.cutoff_at,
-            bake_starts_at: stored.bake_starts_at,
         },
     )
     .await
@@ -1840,7 +1758,6 @@ async fn paid_order(app: &App) -> PaidOrder {
             menu_publish_at: None,
             opens_at: Some(ts("2026-11-20T08:00:00Z")),
             cutoff_at: stored.cutoff_at,
-            bake_starts_at: stored.bake_starts_at,
         },
     )
     .await

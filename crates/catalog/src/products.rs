@@ -450,42 +450,6 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
     .collect()
 }
 
-/// The product's own sourdough lead time, if it sets one.
-///
-/// # Errors
-/// [`Error::NotFound`] when there is no such product.
-pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<Option<i32>, Error> {
-    sqlx::query_scalar!(
-        "SELECT lead_time_hours FROM product WHERE id = $1",
-        id.get()
-    )
-    .fetch_optional(conn)
-    .await?
-    .ok_or(Error::NotFound)
-}
-
-/// [`lead_time_hours`] for several products in one query, by product id. Unknown ids and
-/// products without their own lead time are left out.
-///
-/// # Errors
-/// [`Error::Db`].
-pub async fn lead_times(
-    conn: &mut PgConnection,
-    ids: &[ProductId],
-) -> Result<Vec<(ProductId, i32)>, Error> {
-    let ids: Vec<i64> = ids.iter().map(|id| id.get()).collect();
-    Ok(sqlx::query!(
-        r#"SELECT id, lead_time_hours AS "hours!" FROM product
-        WHERE id = ANY($1) AND lead_time_hours IS NOT NULL ORDER BY id"#,
-        &ids,
-    )
-    .fetch_all(conn)
-    .await?
-    .into_iter()
-    .map(|row| (ProductId::new(row.id), row.hours))
-    .collect())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

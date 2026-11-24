@@ -240,7 +240,6 @@ fn saturday(charity: Option<CharityId>, online: bool) -> NewBakeDay {
     NewBakeDay {
         date: "2026-10-31".parse().unwrap(),
         location_id: PickupLocationId::new(1),
-        bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: online,
         charity_id: charity,
     }
@@ -256,7 +255,6 @@ async fn open_drop(conn: &mut PgConnection, clock: &FakeClock, input: &NewBakeDa
             menu_publish_at: None,
             opens_at: Some(ts("2026-10-01T00:00:00Z")),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -395,7 +393,6 @@ async fn the_calendar_shows_public_drops_only(pool: PgPool) {
         &mut conn,
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T04:00:00Z"),
             ..saturday(None, true)
         },
     )
@@ -405,7 +402,6 @@ async fn the_calendar_shows_public_drops_only(pool: PgPool) {
         &mut conn,
         &NewBakeDay {
             date: "2026-11-14".parse().unwrap(),
-            bake_starts_at: ts("2026-11-14T04:00:00Z"),
             ..saturday(None, false)
         },
     )
@@ -1021,7 +1017,6 @@ async fn removing_from_another_drop_keeps_the_cart(pool: PgPool) {
         &shop.clock,
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T04:00:00Z"),
             ..saturday(None, true)
         },
     )

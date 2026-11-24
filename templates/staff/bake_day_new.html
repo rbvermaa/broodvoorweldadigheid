@@ -12,7 +12,6 @@
 {% call s::csrf() %}{% endcall %}
 {% call f::field("date", "date", layout.t("day-date")?, value = form.date, error = errors.get("date"), required = true) %}{% endcall %}
 {% call f::select("location_id", layout.t("day-location")?, locations, error = errors.get("location_id"), required = true) %}{% endcall %}
-{% call f::field("datetime-local", "bake_starts_at", layout.t("day-bake-starts")?, value = form.bake_starts_at, hint = layout.t("day-bake-starts-hint")?, error = errors.get("bake_starts_at"), required = true) %}{% endcall %}
 {% call f::select("charity_id", layout.t("day-charity")?, charities, hint = layout.t("day-charity-hint")?, error = errors.get("charity_id"), choose_only = errors.is_empty()) %}{% endcall %}
 {% call f::checkbox("production_only", layout.t("day-production-only-label")?, checked = form.production_only) %}{% endcall %}
 {% call b::button(layout.t("day-create")?, kind = "submit") %}{% endcall %}

@@ -23,7 +23,6 @@ use crate::staff::Staff;
 use crate::state::AppState;
 
 const CHECK: &str = "/staff/products/check";
-const MAX_LEAD_TIME_HOURS: i32 = 168;
 /// The highest price a product may have, so that a Dutch thousands dot typed as a decimal
 /// point (`4.500`) is caught.
 const MAX_PRICE_CENTS: i64 = 100_000;
@@ -44,7 +43,6 @@ pub struct ProductForm {
     pub min_price: String,
     pub max_price: String,
     pub unit_weight: String,
-    pub lead_time: String,
     pub sold_online: bool,
     pub active: bool,
     pub allergens: Vec<AllergenBox>,
@@ -74,7 +72,6 @@ impl ProductForm {
             min_price: String::new(),
             max_price: String::new(),
             unit_weight: String::new(),
-            lead_time: String::new(),
             sold_online: true,
             active: true,
             allergens: boxes("allergen", |_| false),
@@ -101,10 +98,6 @@ impl ProductForm {
             min_price: min,
             max_price: max,
             unit_weight: product.unit_weight_g.to_string(),
-            lead_time: product
-                .lead_time_hours
-                .map(|hours| hours.to_string())
-                .unwrap_or_default(),
             sold_online: product.sold_online,
             active: product.active,
             allergens: boxes("allergen", |a| info.allergens.contains(&a)),
@@ -123,7 +116,6 @@ impl ProductForm {
             min_price: fields.text("min_price").to_owned(),
             max_price: fields.text("max_price").to_owned(),
             unit_weight: fields.text("unit_weight").to_owned(),
-            lead_time: fields.text("lead_time").to_owned(),
             sold_online: fields.checked("sold_online"),
             active: fields.checked("active"),
             allergens: boxes("allergen", |a| {
@@ -216,22 +208,8 @@ impl ProductForm {
         if unit_weight.is_none() {
             errors.add("unit_weight", t(state, "product-error-weight"));
         }
-        let lead_time = if self.lead_time.is_empty() {
-            Some(None)
-        } else {
-            self.lead_time
-                .parse::<i32>()
-                .ok()
-                .filter(|hours| (0..=MAX_LEAD_TIME_HOURS).contains(hours))
-                .map(Some)
-        };
-        if lead_time.is_none() {
-            errors.add("lead_time", t(state, "product-error-lead-time"));
-        }
-        match (price, vat_rate, unit_weight, lead_time) {
-            (Some(price_incl), Some(vat_rate), Some(unit_weight_g), Some(lead_time_hours))
-                if errors.is_empty() =>
-            {
+        match (price, vat_rate, unit_weight) {
+            (Some(price_incl), Some(vat_rate), Some(unit_weight_g)) if errors.is_empty() => {
                 Ok(ProductInput {
                     name_nl: self.name.clone(),
                     description_nl: self.description.trim().to_owned(),
@@ -242,7 +220,7 @@ impl ProductForm {
                     unit_weight_g,
                     dough_g_per_piece: existing.map_or(0, |p| p.dough_g_per_piece),
                     freezer_days: existing.and_then(|p| p.freezer_days),
-                    lead_time_hours,
+                    lead_time_hours: existing.and_then(|p| p.lead_time_hours),
                     allergen_info: self.allergen_info(),
                     packaged: existing.is_some_and(|p| p.packaged),
                     sold_online: self.sold_online,

@@ -14,20 +14,9 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
       "Bakken"
     ],
     "empty": "Nog niets te bakken.",
-    "max": "Maximum",
-    "pool": "Groep",
-    "pools": "Capaciteit",
     "product": "Product",
-    "sum": "Totaal",
-    "used": "Bakken"
+    "sum": "Totaal"
   },
-  "pools": [
-    {
-      "max": "1.500",
-      "name": "Oven",
-      "used": "1.212"
-    }
-  ],
   "products": [
     {
       "cells": [

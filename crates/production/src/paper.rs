@@ -48,17 +48,6 @@ pub(crate) fn production(list: &ProductionList, t: &Translator) -> Result<Value,
             json!({ "name": p.name, "cells": row(p.ordered, &p.extras, p.to_bake()) })
         })
         .collect();
-    let pools: Vec<Value> = list
-        .pools
-        .iter()
-        .map(|pool| {
-            json!({
-                "name": pool.name,
-                "used": count(pool.units),
-                "max": count(u64::from(pool.max_units)),
-            })
-        })
-        .collect();
     Ok(json!({
         "title": t.t("production-title", None)?,
         "date": t.long_date(list.day.date),
@@ -67,14 +56,9 @@ pub(crate) fn production(list: &ProductionList, t: &Translator) -> Result<Value,
             "columns": columns,
             "sum": t.t("production-sum", None)?,
             "empty": t.t("production-empty", None)?,
-            "pools": t.t("production-pools", None)?,
-            "pool": t.t("production-pool", None)?,
-            "used": t.t("production-pool-used", None)?,
-            "max": t.t("production-pool-max", None)?,
         },
         "products": products,
         "sum": row(ordered, &sum, ordered + sum.total()),
-        "pools": pools,
     }))
 }
 

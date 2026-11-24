@@ -26,13 +26,3 @@
   )
 }
 
-#if data.pools.len() > 0 [
-  == #l.pools
-  #table(
-    columns: (1fr, auto, auto),
-    align: (left, right, right),
-    stroke: 0.5pt,
-    table.header(strong(l.pool), strong(l.used), strong(l.max)),
-    ..data.pools.map(p => (p.name, p.used, p.max)).flatten(),
-  )
-]

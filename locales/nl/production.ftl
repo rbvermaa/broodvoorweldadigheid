@@ -9,10 +9,6 @@ production-extra-other = Overig
 production-to-bake = Bakken
 production-sum = Totaal
 production-empty = Nog niets te bakken.
-production-pools = Capaciteit
-production-pool = Groep
-production-pool-used = Bakken
-production-pool-max = Maximum
 
 pickup-list-title = Ophaallijst
 # $day: za 31 okt, $range: 11:00–12:00, $location: De Proef

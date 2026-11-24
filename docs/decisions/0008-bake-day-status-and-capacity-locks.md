@@ -99,4 +99,5 @@ Smaller choices in the same change:
   both pass the check. Days without slots (production-only, no window) use location 0,
   so there is at most one such day per date. A violation is `DateTaken`.
 - Dates travel as days since 1970-01-01 (`db::time`), like the other jiff types.
-- `bake_starts_at` is entered per day. The spec has no default rule for it.
+- `bake_starts_at` is entered per day. The spec has no default rule for it. Replaced by
+  ADR 0027: the server derives it (05:00 on the bake date).
