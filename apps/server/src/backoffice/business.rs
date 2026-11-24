@@ -962,7 +962,8 @@ async fn render_order(
                 .map(|s| SelectOption {
                     value: s.id.get().to_string(),
                     label: format!(
-                        "{}, {}",
+                        "{} {}, {}",
+                        state.i18n.long_date(amsterdam.date(s.starts_at)),
                         amsterdam
                             .time_range(s.starts_at, s.ends_at)
                             .unwrap_or_default(),
