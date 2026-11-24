@@ -9,7 +9,7 @@ Owner can do everything. The other roles get what their work needs.
 | Permission | What it covers | owner | baker | counter |
 |---|---|---|---|---|
 | ViewOrders | order list and order details | ✓ | ✓ | ✓ |
-| EditOrders | moving an order to another pickup slot, cancelling an unpaid order (F6) | ✓ | ✓ | |
+| EditOrders | moving an order to another pickup slot, cancelling an unpaid order (F6), placing an order on account (F11a) | ✓ | ✓ | |
 | PickupList | pickup list, marking orders picked up | ✓ | ✓ | ✓ |
 | Production | production list, recipes, batches, labels | ✓ | ✓ | |
 | EditAllergens | allergens, ingredient text, nutrition approval | ✓ | ✓ | |
@@ -17,6 +17,7 @@ Owner can do everything. The other roles get what their work needs.
 | CloseBakeDay | sick-day cancel (F2), including that day's refunds (ADR 0028) | ✓ | | |
 | Refund | cancelling a paid order with its refund, retrying a refund (F6, ADR 0028) | ✓ | ✓ | |
 | ViewReports | sales, donation and contribution reports (F11c, F11e) | ✓ | | |
+| Invoicing | business accounts, the invoice overview, marking orders invoiced (F11a) | ✓ | | |
 | ManageCharities | charities and payouts | ✓ | | |
 | ManageStaff | adding staff and changing roles | ✓ | | |
 

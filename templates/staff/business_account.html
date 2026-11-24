@@ -1,0 +1,34 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="/staff/business-accounts">{{ layout.t("b2b-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if let Some((invoice, order)) = links %}
+<ul>
+<li><a href="{{ invoice }}">{{ layout.t("b2b-links-invoice")? }}</a></li>
+<li><a href="{{ order }}">{{ layout.t("b2b-links-order")? }}</a></li>
+</ul>
+{% endif %}
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% if new %}
+{% call f::field("email", "contact_email", layout.t("b2b-contact-email")?, value = form.contact_email, hint = layout.t("b2b-contact-email-hint")?, error = errors.get("contact_email"), required = true) %}{% endcall %}
+{% call f::field("text", "contact_name", layout.t("b2b-contact-name")?, value = form.contact_name, error = errors.get("contact_name"), required = true) %}{% endcall %}
+{% else %}
+<p>{{ contact }}</p>
+{% endif %}
+{% call f::field("text", "company_name", layout.t("b2b-company")?, value = form.company_name, error = errors.get("company_name"), required = true) %}{% endcall %}
+{% call f::field("text", "kvk", layout.t("b2b-kvk")?, value = form.kvk, hint = layout.t("b2b-kvk-hint")?, error = errors.get("kvk"), required = true) %}{% endcall %}
+{% call f::field("text", "btw_id", layout.t("b2b-btw-id")?, value = form.btw_id) %}{% endcall %}
+{% call f::field("textarea", "invoice_address", layout.t("b2b-invoice-address")?, value = form.invoice_address, error = errors.get("invoice_address"), required = true) %}{% endcall %}
+{% call f::field("email", "invoice_email", layout.t("b2b-invoice-email")?, value = form.invoice_email, error = errors.get("invoice_email"), required = true) %}{% endcall %}
+{% call f::checkbox("on_account_allowed", layout.t("b2b-on-account")?, checked = form.on_account_allowed) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

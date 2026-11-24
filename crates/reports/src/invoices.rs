@@ -27,6 +27,8 @@ pub struct NewBusinessAccount {
 pub struct BusinessAccount {
     pub id: BusinessAccountId,
     pub customer_id: CustomerId,
+    /// The customer's email, which orders on account are placed under.
+    pub contact_email: String,
     pub company_name: String,
     pub kvk: String,
     pub btw_id: Option<String>,
@@ -52,14 +54,7 @@ pub async fn create_account(
     conn: &mut PgConnection,
     input: &NewBusinessAccount,
 ) -> Result<BusinessAccount, Error> {
-    let AccountDetails {
-        company_name,
-        kvk,
-        btw_id,
-        invoice_address,
-        invoice_email,
-        on_account_allowed: _,
-    } = AccountDetails {
+    let details = AccountDetails {
         company_name: input.company_name.clone(),
         kvk: input.kvk.clone(),
         btw_id: input.btw_id.clone(),
@@ -68,32 +63,23 @@ pub async fn create_account(
         on_account_allowed: input.on_account_allowed,
     }
     .checked()?;
-    let id = sqlx::query_scalar!(
+    sqlx::query_scalar!(
         "INSERT INTO business_account (customer_id, company_name, kvk, btw_id, invoice_address,
             invoice_email, on_account_allowed)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (customer_id) DO NOTHING RETURNING id",
         input.customer_id.get(),
-        company_name,
-        kvk,
-        btw_id,
-        invoice_address,
-        invoice_email,
-        input.on_account_allowed,
+        details.company_name,
+        details.kvk,
+        details.btw_id,
+        details.invoice_address,
+        details.invoice_email,
+        details.on_account_allowed,
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or(Error::Invalid("customer already has a business account"))?;
-    Ok(BusinessAccount {
-        id: BusinessAccountId::new(id),
-        customer_id: input.customer_id,
-        company_name,
-        kvk,
-        btw_id,
-        invoice_address,
-        invoice_email,
-        on_account_allowed: input.on_account_allowed,
-    })
+    account(conn, input.customer_id).await
 }
 
 /// # Errors
@@ -103,9 +89,10 @@ pub async fn account(
     customer: CustomerId,
 ) -> Result<BusinessAccount, Error> {
     let row = sqlx::query!(
-        "SELECT id, customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,
-            on_account_allowed
-        FROM business_account WHERE customer_id = $1",
+        "SELECT a.id, a.customer_id, c.email, a.company_name, a.kvk, a.btw_id,
+            a.invoice_address, a.invoice_email, a.on_account_allowed
+        FROM business_account a JOIN customer c ON c.id = a.customer_id
+        WHERE a.customer_id = $1",
         customer.get(),
     )
     .fetch_optional(conn)
@@ -114,6 +101,7 @@ pub async fn account(
     Ok(BusinessAccount {
         id: BusinessAccountId::new(row.id),
         customer_id: CustomerId::new(row.customer_id),
+        contact_email: row.email,
         company_name: row.company_name,
         kvk: row.kvk,
         btw_id: row.btw_id,
@@ -312,17 +300,9 @@ pub async fn update_account(
         },
     )
     .await?;
+    let changed = account(&mut tx, before.customer_id).await?;
     tx.commit().await?;
-    Ok(BusinessAccount {
-        id,
-        customer_id: before.customer_id,
-        company_name: details.company_name,
-        kvk: details.kvk,
-        btw_id: details.btw_id,
-        invoice_address: details.invoice_address,
-        invoice_email: details.invoice_email,
-        on_account_allowed: details.on_account_allowed,
-    })
+    Ok(changed)
 }
 
 /// # Errors
@@ -347,9 +327,10 @@ pub async fn account_by_id(
 /// [`Error::Db`].
 pub async fn list_accounts(conn: &mut PgConnection) -> Result<Vec<BusinessAccount>, Error> {
     Ok(sqlx::query!(
-        "SELECT id, customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,
-            on_account_allowed
-        FROM business_account ORDER BY lower(company_name), id",
+        "SELECT a.id, a.customer_id, c.email, a.company_name, a.kvk, a.btw_id,
+            a.invoice_address, a.invoice_email, a.on_account_allowed
+        FROM business_account a JOIN customer c ON c.id = a.customer_id
+        ORDER BY lower(a.company_name), a.id",
     )
     .fetch_all(conn)
     .await?
@@ -357,6 +338,7 @@ pub async fn list_accounts(conn: &mut PgConnection) -> Result<Vec<BusinessAccoun
     .map(|row| BusinessAccount {
         id: BusinessAccountId::new(row.id),
         customer_id: CustomerId::new(row.customer_id),
+        contact_email: row.email,
         company_name: row.company_name,
         kvk: row.kvk,
         btw_id: row.btw_id,

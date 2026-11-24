@@ -12,7 +12,8 @@ pub enum Role {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Permission {
     ViewOrders,
-    /// Moving an order to another pickup slot and cancelling an unpaid one (F6).
+    /// Moving an order to another pickup slot, cancelling an unpaid one (F6) and placing
+    /// an order on account for a business customer (F11a).
     EditOrders,
     PickupList,
     Production,
@@ -23,12 +24,14 @@ pub enum Permission {
     /// Cancelling a paid order with its refund, and retrying a refund (F6).
     Refund,
     ViewReports,
+    /// Business accounts, the invoice overview and marking orders invoiced (F11a).
+    Invoicing,
     ManageCharities,
     ManageStaff,
 }
 
 impl Permission {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::ViewOrders,
         Self::EditOrders,
         Self::PickupList,
@@ -38,6 +41,7 @@ impl Permission {
         Self::CloseBakeDay,
         Self::Refund,
         Self::ViewReports,
+        Self::Invoicing,
         Self::ManageCharities,
         Self::ManageStaff,
     ];
@@ -103,7 +107,7 @@ mod tests {
     #[test]
     fn permission_table_matches_adr_0010() {
         use Permission as P;
-        let expected: [(P, bool, bool, bool); 11] = [
+        let expected: [(P, bool, bool, bool); 12] = [
             // permission, owner, baker, counter
             (P::ViewOrders, true, true, true),
             (P::EditOrders, true, true, false),
@@ -114,6 +118,7 @@ mod tests {
             (P::CloseBakeDay, true, false, false),
             (P::Refund, true, true, false),
             (P::ViewReports, true, false, false),
+            (P::Invoicing, true, false, false),
             (P::ManageCharities, true, false, false),
             (P::ManageStaff, true, false, false),
         ];

@@ -274,6 +274,7 @@ async fn accounts_are_opened_listed_and_changed_with_an_audit_entry(
     )
     .await
     .unwrap();
+    assert_eq!(opened.contact_email, "inkoop@dehoek.example");
     let (email, name): (String, String) =
         sqlx::query_as("SELECT email, name FROM customer WHERE id = $1")
             .bind(opened.customer_id.get())

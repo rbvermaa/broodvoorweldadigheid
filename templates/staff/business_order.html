@@ -1,0 +1,36 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("b2b-back")? }}</a></p>
+<p>{{ layout.t("b2b-order-intro")? }}</p>
+{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+{% if days.is_empty() %}
+<p>{{ layout.t("b2b-order-no-days")? }}</p>
+{% else %}
+<form method="get" action="{{ choose_action }}">
+{% call f::select("dag", layout.t("b2b-order-day")?, days, required = true) %}{% endcall %}
+{% call b::button(layout.t("b2b-order-choose-day")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% if let Some(form) = form %}
+{% if form.pieces.is_empty() %}
+<p>{{ layout.t("b2b-order-no-products")? }}</p>
+{% else %}
+{% if !form.errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ form.action }}">
+{% call s::csrf() %}{% endcall %}
+<input type="hidden" name="dag" value="{{ form.day }}">
+{% call f::select("slot", layout.t("b2b-order-slot")?, slots, required = true) %}{% endcall %}
+{%- for piece in form.pieces %}
+{% call f::field("number", piece.name, piece.label, value = piece.value, error = form.errors.get(piece.name)) %}{% endcall %}
+{%- endfor %}
+{% call b::button(layout.t("b2b-order-place")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}
