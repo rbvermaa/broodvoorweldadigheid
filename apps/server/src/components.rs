@@ -44,6 +44,8 @@ pub struct Cell {
     pub text: String,
     /// Right-aligned with tabular figures: amounts and counts.
     pub numeric: bool,
+    /// Makes the text a link to this path.
+    pub href: Option<String>,
 }
 
 impl Cell {
@@ -51,6 +53,7 @@ impl Cell {
         Self {
             text: text.into(),
             numeric: false,
+            href: None,
         }
     }
 
@@ -58,6 +61,15 @@ impl Cell {
         Self {
             text: text.into(),
             numeric: true,
+            href: None,
+        }
+    }
+
+    pub fn link(text: impl Into<String>, href: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            numeric: false,
+            href: Some(href.into()),
         }
     }
 }

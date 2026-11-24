@@ -586,10 +586,20 @@ fn template_classes(source: &str) -> Result<Vec<String>, String> {
     Ok(classes)
 }
 
-/// Ids passed literally to `t("…")` or `t_count("…")`.
+/// Ids passed literally to `t("…")` or `t_count("…")`, or as the second argument after
+/// `state` (the back office helpers `t`, `t_with` and `t_count`).
 fn message_ids_used(source: &str) -> Vec<String> {
     let mut ids = Vec::new();
-    for call in ["t(\"", "t_count(\""] {
+    for call in [
+        "t(\"",
+        "t_count(\"",
+        "t(state, \"",
+        "t(&state, \"",
+        "t_with(state, \"",
+        "t_with(&state, \"",
+        "t_count(state, \"",
+        "t_count(&state, \"",
+    ] {
         for (at, _) in source.match_indices(call) {
             let before = source[..at].chars().next_back();
             if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -822,5 +832,11 @@ fn message_scanner_finds_literal_ids() {
              i18n.t(\"c\", None) t_count(\"d\", n) format!(\"e\") assert(\"f\")"
         ),
         ["a-b", "c", "d"]
+    );
+    assert_eq!(
+        message_ids_used(
+            "t(&state, \"g\") t_with(state, \"h\", &[]) t_count(state, \"i\", 2) at(state, \"j\")"
+        ),
+        ["g", "h", "i"]
     );
 }
