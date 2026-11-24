@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use bakedays::{NewBakeDay, Schedule, days};
-use domain::{CharityId, OrderId, PickupLocationId, ProductId};
+use domain::{BakeDayId, CharityId, OrderId, PickupLocationId, ProductId};
 use i18n::Translator;
 use jiff::{SignedDuration, Timestamp};
 use jobs::OrderEmails;
@@ -61,17 +61,9 @@ async fn bread(conn: &mut PgConnection) -> ProductId {
     ProductId::new(id)
 }
 
-/// A paid order on a charity drop whose donation the customer saved, with its
-/// confirmation queued as the webhook does.
-async fn saved_order(conn: &mut PgConnection, clock: &FakeClock) -> (OrderId, SavedDonation) {
-    sqlx::query("UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    let voedselbank = charity(conn, "Voedselbank").await;
-    let day = days::create(conn, &saturday("2026-10-31", Some(voedselbank)))
-        .await
-        .unwrap();
+/// A drop open for orders at the clock's time.
+async fn open_drop(conn: &mut PgConnection, clock: &FakeClock, input: &NewBakeDay) -> BakeDayId {
+    let day = days::create(conn, input).await.unwrap();
     days::update_schedule(
         conn,
         day.id,
@@ -85,11 +77,23 @@ async fn saved_order(conn: &mut PgConnection, clock: &FakeClock) -> (OrderId, Sa
     .await
     .unwrap();
     days::open(conn, clock, day.id).await.unwrap();
-    let slot = days::list_slots(conn, day.id).await.unwrap()[0].id;
+    day.id
+}
+
+/// A paid order on a charity drop whose donation the customer saved, with its
+/// confirmation queued as the webhook does.
+async fn saved_order(conn: &mut PgConnection, clock: &FakeClock) -> (OrderId, SavedDonation) {
+    sqlx::query("UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let voedselbank = charity(conn, "Voedselbank").await;
+    let day = open_drop(conn, clock, &saturday("2026-10-31", Some(voedselbank))).await;
+    let slot = days::list_slots(conn, day).await.unwrap()[0].id;
     let product = bread(conn).await;
     bakedays::range::set_product(
         conn,
-        day.id,
+        day,
         &bakedays::BakeDayProduct {
             product_id: product,
             max_qty: None,
@@ -99,7 +103,7 @@ async fn saved_order(conn: &mut PgConnection, clock: &FakeClock) -> (OrderId, Sa
     )
     .await
     .unwrap();
-    let mut cart = Cart::new(day.id);
+    let mut cart = Cart::new(day);
     cart.set(product, 2, None).unwrap();
     let order = orders::checkout(
         conn,
@@ -194,9 +198,7 @@ async fn the_tick_moves_an_unchosen_donation_once_and_mails_the_customer(
     let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
     let (order, saved) = saved_order(&mut conn, &clock).await;
     let hospice = charity(&mut conn, "Hospice").await;
-    days::create(&mut conn, &saturday("2027-02-06", Some(hospice)))
-        .await
-        .unwrap();
+    open_drop(&mut conn, &clock, &saturday("2027-02-06", Some(hospice))).await;
 
     clock.set(saved.choose_by - SignedDuration::from_secs(1));
     let report = tick(&mut conn, &clock, &emails()).await.unwrap();

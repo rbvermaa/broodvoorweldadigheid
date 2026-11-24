@@ -12,7 +12,7 @@ use domain::{
 use i18n::{Amsterdam, FluentArgs};
 use orders::donations::{self, DonationChoice};
 use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 use tower_sessions::Session;
 
 use super::{
@@ -361,6 +361,9 @@ async fn refusal(
         }
         OrderError::SlotNotOnDay => form.slot_error = text(state, "checkout-error-pickup", None),
         OrderError::SlotFull => form.slot_error = text(state, "checkout-error-slot-full", None),
+        OrderError::Invalid("charity" | "donation") => {
+            form.donation_error = text(state, "checkout-error-donation", None);
+        }
         OrderError::PastDeadline => return Some(error_text("checkout-error-deadline")),
         OrderError::CapacityExceeded {
             product_id,
@@ -459,6 +462,28 @@ async fn payment_unavailable(
     .await
 }
 
+/// Places the order, replacing `old` if given, and stores the donation choice in the same
+/// transaction, so a refused choice leaves no order, hold or cancelled order behind.
+async fn place(
+    conn: &mut PgConnection,
+    clock: &dyn domain::Clock,
+    (cart, customer, slot): (&Cart, &CustomerInput, PickupSlotId),
+    old: Option<OrderId>,
+    choice: DonationChoice,
+) -> Result<Order, OrderError> {
+    let mut tx = conn.begin().await?;
+    let order = match old {
+        Some(old) => {
+            orders::checkout_replacing(&mut tx, clock, cart, customer, slot, OrderedBy::Guest, old)
+                .await?
+        }
+        None => orders::checkout(&mut tx, clock, cart, customer, slot, OrderedBy::Guest).await?,
+    };
+    donations::choose_at_checkout(&mut tx, order.id, choice).await?;
+    tx.commit().await?;
+    Ok(order)
+}
+
 /// Places the order (F4, F4b, F4c) and sends the customer to Mollie (F5). The deadline,
 /// stock and prices are checked again here, never trusted from the page (ADR 0011).
 pub async fn submit(
@@ -520,9 +545,31 @@ pub async fn submit(
     if let Some(unpaid) = &unpaid {
         match orders::same_as_order(&mut conn, unpaid, &cart, &customer, slot).await {
             Ok(true) => {
-                if let Err(err) = donations::choose_at_checkout(&mut conn, unpaid.id, choice).await
-                {
-                    return server_error(&state, "cannot store the donation choice", &err);
+                match donations::choose_at_checkout(&mut conn, unpaid.id, choice).await {
+                    Ok(()) => {}
+                    Err(OrderError::WrongStatus(_)) => {
+                        return to_status_page(&state, &mut conn, &session, unpaid).await;
+                    }
+                    Err(OrderError::Invalid(_)) => {
+                        form.donation_error = text(&state, "checkout-error-donation", None);
+                        let message = Some(Message {
+                            kind: "error",
+                            text: text(&state, "checkout-error-form", None),
+                        });
+                        return render_page(
+                            &state,
+                            &mut conn,
+                            &session,
+                            (&drop, &cart),
+                            form,
+                            message,
+                            unprocessable,
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        return server_error(&state, "cannot store the donation choice", &err);
+                    }
                 }
                 std::mem::drop(conn);
                 return retry_payment(&state, &session, (&drop, &cart), unpaid, form).await;
@@ -532,21 +579,14 @@ pub async fn submit(
         }
     }
     let clock = state.clock.as_ref();
-    let placed = match &unpaid {
-        Some(old) => {
-            orders::checkout_replacing(
-                &mut conn,
-                clock,
-                &cart,
-                &customer,
-                slot,
-                OrderedBy::Guest,
-                old.id,
-            )
-            .await
-        }
-        None => orders::checkout(&mut conn, clock, &cart, &customer, slot, OrderedBy::Guest).await,
-    };
+    let placed = place(
+        &mut conn,
+        clock,
+        (&cart, &customer, slot),
+        unpaid.as_ref().map(|old| old.id),
+        choice,
+    )
+    .await;
     let order = match placed {
         Ok(order) => order,
         Err(OrderError::NotReplaceable) => {
@@ -593,9 +633,6 @@ pub async fn submit(
         && let Err(err) = session.remove::<i64>(UNPAID_KEY).await
     {
         tracing::warn!(error = %err, "cannot forget the replaced order");
-    }
-    if let Err(err) = donations::choose_at_checkout(&mut conn, order.id, choice).await {
-        return server_error(&state, "cannot store the donation choice", &err);
     }
     std::mem::drop(conn);
     if let Err(err) = save_cart(&session, &Cart::new(day)).await {

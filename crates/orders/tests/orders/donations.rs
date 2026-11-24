@@ -414,17 +414,18 @@ async fn a_signed_in_customer_chooses_only_their_own_donations(mut conn: PoolCon
     );
 }
 
+/// A published drop, open for orders.
 async fn drop_on(conn: &mut PgConnection, date: &str, charity: Option<CharityId>) {
-    days::create(
+    open_day(
         conn,
+        &wednesday(),
         &NewBakeDay {
             date: date.parse().unwrap(),
             charity_id: charity,
             ..saturday()
         },
     )
-    .await
-    .unwrap();
+    .await;
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -436,8 +437,18 @@ async fn an_unchosen_donation_moves_to_the_next_drops_charity(mut conn: PoolConn
     let dierenasiel = charity(&mut conn, "Dierenasiel").await;
     drop_on(&mut conn, "2027-01-23", Some(dierenasiel)).await;
     drop_on(&mut conn, "2027-01-30", None).await;
-    drop_on(&mut conn, "2027-02-06", Some(hospice)).await;
-    drop_on(&mut conn, "2027-02-13", Some(dierenasiel)).await;
+    days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: "2027-02-06".parse().unwrap(),
+            charity_id: Some(dierenasiel),
+            ..saturday()
+        },
+    )
+    .await
+    .unwrap();
+    drop_on(&mut conn, "2027-02-13", Some(hospice)).await;
+    drop_on(&mut conn, "2027-02-20", Some(dierenasiel)).await;
 
     clock.set(saved.choose_by - SignedDuration::from_secs(1));
     assert_eq!(
@@ -456,7 +467,7 @@ async fn an_unchosen_donation_moves_to_the_next_drops_charity(mut conn: PoolConn
         "the next drop with a charity from today"
     );
     assert_eq!(moved.charity_name, "Hospice");
-    assert_eq!(moved.drop_date, "2027-02-06".parse().unwrap());
+    assert_eq!(moved.drop_date, "2027-02-13".parse().unwrap());
     assert_eq!(moved.amount, order.total);
     assert!(moved.notify);
     assert_eq!(

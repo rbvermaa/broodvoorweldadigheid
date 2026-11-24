@@ -384,7 +384,7 @@ pub async fn choose(
             AND o.status IN ('paid', 'confirmed', 'picked_up')
             AND ($2::bytea IS NULL OR a.choose_token_hash = $2)
             AND ($3::bigint IS NULL OR (o.customer_id = $3 AND a.id = $4))
-        FOR UPDATE OF a"#,
+        FOR UPDATE OF a FOR SHARE OF o"#,
         to_micros(now),
         token_hash,
         customer,
@@ -445,8 +445,8 @@ async fn earmark(
 }
 
 /// Moves one saved donation whose date has passed to the charity of the next drop: the
-/// first drop from today (Amsterdam) that is not cancelled or done, takes orders online
-/// and has an active charity. Call it in the transaction that queues the customer's email;
+/// first drop from today (Amsterdam) that is open or closed for orders (published, not
+/// draft), takes orders online and has an active charity. Call it in the transaction that queues the customer's email;
 /// the allocation stays locked until then, and other workers skip it.
 ///
 /// # Errors
@@ -472,7 +472,7 @@ pub async fn move_next_expired(conn: &mut PgConnection, now: Timestamp) -> Resul
         r#"SELECT d.date - date 'epoch' AS "date_days!", c.id, c.name
         FROM bake_day d JOIN charity c ON c.id = d.charity_id
         WHERE c.archived_at IS NULL AND d.online_ordering
-            AND d.status NOT IN ('cancelled', 'done')
+            AND d.status IN ('open', 'closed')
             AND d.date >= date 'epoch' + $1::integer
         ORDER BY d.date, d.id
         LIMIT 1"#,
