@@ -2,7 +2,7 @@
 
 use domain::Clock;
 use jiff::Timestamp;
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
 use crate::markdown::{self, Block};
@@ -92,7 +92,12 @@ pub async fn create(
     input: &FaqInput,
 ) -> Result<Faq, Error> {
     validate(input)?;
-    sqlx::query_as!(
+    let mut tx = conn.begin().await?;
+    // Two writers would otherwise read the same max(position).
+    sqlx::query("LOCK TABLE faq_entry IN SHARE ROW EXCLUSIVE MODE")
+        .execute(&mut *tx)
+        .await?;
+    let faq = sqlx::query_as!(
         Row,
         r#"INSERT INTO faq_entry (question, answer_md, position, created_at, updated_at)
         VALUES ($1, $2, (SELECT coalesce(max(position) + 1, 0) FROM faq_entry),
@@ -105,9 +110,11 @@ pub async fn create(
         input.answer_md.trim(),
         db::time::to_micros(clock.now()),
     )
-    .fetch_one(conn)
+    .fetch_one(&mut *tx)
     .await?
-    .try_into()
+    .try_into()?;
+    tx.commit().await?;
+    Ok(faq)
 }
 
 /// # Errors

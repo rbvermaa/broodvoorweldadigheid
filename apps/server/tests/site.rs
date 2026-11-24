@@ -350,10 +350,19 @@ async fn a_message_queues_one_email_to_the_bakery_with_reply_to(pool: PgPool) {
     let again = submit(&site, &visitor, &GOOD).await;
     assert_eq!(
         again.status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "a resend needs the form again"
+        StatusCode::OK,
+        "a resend of the same form looks sent"
     );
     assert_eq!(queued(&site.pool).await.len(), 1);
+
+    let next = open_form(&site).await;
+    wait(&site);
+    assert_eq!(submit(&site, &next, &GOOD).await.status, StatusCode::OK);
+    assert_eq!(
+        queued(&site.pool).await.len(),
+        2,
+        "a newly shown form is a new message"
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

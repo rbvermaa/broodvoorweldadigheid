@@ -167,7 +167,7 @@ async fn send(
     };
     if !form.website.trim().is_empty() {
         tracing::info!("contact form: spam trap filled in, nothing sent");
-        return sent(&state, &session).await;
+        return sent(&state);
     }
     let shown = match session.get::<i64>(FORM_SHOWN_AT).await {
         Ok(shown) => shown,
@@ -210,7 +210,7 @@ async fn send(
         tracing::error!(%error, "contact form: message not queued");
         return pages::error(&state, StatusCode::INTERNAL_SERVER_ERROR);
     }
-    sent(&state, &session).await
+    sent(&state)
 }
 
 /// Queues the message for the bakery. Nothing is stored apart from the outbox row.
@@ -304,10 +304,7 @@ async fn mark_shown(
         .await
 }
 
-async fn sent(state: &AppState, session: &Session) -> Response {
-    if let Err(error) = session.remove::<i64>(FORM_SHOWN_AT).await {
-        return session_error(state, &error);
-    }
+fn sent(state: &AppState) -> Response {
     pages::render(
         state,
         StatusCode::OK,

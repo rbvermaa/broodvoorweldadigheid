@@ -205,3 +205,32 @@ async fn empty_text_and_unknown_ids_are_refused(mut conn: PoolConnection<Postgre
         Err(Error::NotFound)
     ));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn concurrent_creates_get_distinct_positions(pool: sqlx::PgPool) {
+    let clock = FakeClock::new(ts("2026-12-01T09:00:00Z"));
+    let create = |question: &'static str| {
+        let pool = pool.clone();
+        let clock = &clock;
+        async move {
+            let mut conn = pool.acquire().await.unwrap();
+            faq::create(&mut conn, clock, &input(question)).await
+        }
+    };
+    let results = futures_join(create("A"), create("B"), create("C")).await;
+    let mut positions: Vec<i32> = results
+        .into_iter()
+        .map(|result| result.unwrap().position)
+        .collect();
+    positions.sort_unstable();
+    assert_eq!(positions, [4, 5, 6]);
+}
+
+async fn futures_join<T>(
+    a: impl Future<Output = T>,
+    b: impl Future<Output = T>,
+    c: impl Future<Output = T>,
+) -> Vec<T> {
+    let (a, b, c) = tokio::join!(a, b, c);
+    vec![a, b, c]
+}
