@@ -7,6 +7,10 @@ publish.workspace = true
 [dependencies]
 domain = { path = "../domain" }
 jiff.workspace = true
+notify = { path = "../notify", optional = true }
+
+[features]
+email = ["dep:notify"]
 
 [lints]
 workspace = true

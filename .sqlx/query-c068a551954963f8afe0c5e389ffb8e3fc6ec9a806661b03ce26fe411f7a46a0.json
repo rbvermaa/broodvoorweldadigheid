@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_outbox SET attempts = $2, last_error = $3,\n                        next_attempt_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n                    WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c068a551954963f8afe0c5e389ffb8e3fc6ec9a806661b03ce26fe411f7a46a0"
+}
