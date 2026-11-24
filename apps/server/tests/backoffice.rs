@@ -2192,6 +2192,38 @@ async fn moving_an_order_withdraws_its_unsent_reminder(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn bake_day_page_links_the_sick_day_cancel_for_the_owner_only(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let page = format!("/staff/bake-days/{}", day.get());
+    let link = format!("href=\"/staff/bake-days/{}/cancel\"", day.get());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+
+    let shown = owner.get(&page).await;
+    shown.shows(&dutch("staff-day-cancel-sick"));
+    shown.shows(&link);
+    let hidden = baker.get(&page).await;
+    assert_eq!(hidden.status, StatusCode::OK);
+    hidden.lacks(&dutch("staff-day-cancel-sick"));
+    hidden.lacks(&link);
+
+    let mut conn = pool.acquire().await.expect("conn");
+    days::cancel(&mut conn, app.clock.as_ref(), day, "Ziek")
+        .await
+        .expect("cancel");
+    owner.get(&page).await.lacks(&link);
+
+    sqlx::query("UPDATE bake_day SET status = 'done', cancel_message = NULL WHERE id = $1")
+        .bind(day.get())
+        .execute(&mut *conn)
+        .await
+        .expect("done");
+    drop(conn);
+    owner.get(&page).await.lacks(&link);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn only_the_owner_cancels_a_bake_day_and_can_run_it_again(pool: PgPool) {
     let app = app(pool.clone());
     company_details(&pool).await;

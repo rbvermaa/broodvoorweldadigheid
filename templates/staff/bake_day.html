@@ -19,6 +19,7 @@
 {% call b::button(action.label, opens = action.dialog) %}{% endcall %}
 {% call d::confirm_dialog(action.dialog, action.label, action.text, action.label, action.action) %}{% endcall %}
 {%- endfor %}
+{% if let Some(cancel) = cancel_day %}<p><a class="button button-danger" href="{{ cancel }}">{{ layout.t("staff-day-cancel-sick")? }}</a></p>{% endif %}
 <p><a href="{{ path }}/extras">{{ layout.t("extras-title")? }}</a></p>
 
 <h2>{{ layout.t("day-slots")? }}</h2>
