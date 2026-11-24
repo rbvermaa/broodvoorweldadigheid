@@ -207,10 +207,13 @@ dependencies = [
 name = "bakedays"
 version = "0.1.0"
 dependencies = [
+ "catalog",
  "db",
  "domain",
  "jiff",
+ "proptest",
  "sqlx",
+ "testkit",
  "thiserror 2.0.21",
  "tokio",
 ]

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, bake_day_id, location_id,\n            (extract(epoch FROM starts_at) * 1000000)::bigint AS \"starts_at_us!\",\n            (extract(epoch FROM ends_at) * 1000000)::bigint AS \"ends_at_us!\",\n            max_orders\n        FROM pickup_slot WHERE bake_day_id = $1 ORDER BY starts_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "location_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "location_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "starts_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "ends_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "max_orders",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "max_orders"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "337595211e7c801e6388a012895d994baef5a1a734a2409b22e8aef1f7eded48"
+}

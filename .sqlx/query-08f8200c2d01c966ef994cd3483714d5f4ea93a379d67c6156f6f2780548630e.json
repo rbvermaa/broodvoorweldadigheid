@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT product_id, max_qty, capacity_pool_id, units_per_item FROM bake_day_product\n        WHERE bake_day_id = $1 ORDER BY product_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "max_qty"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "capacity_pool_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "capacity_pool_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "units_per_item",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "units_per_item"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "08f8200c2d01c966ef994cd3483714d5f4ea93a379d67c6156f6f2780548630e"
+}

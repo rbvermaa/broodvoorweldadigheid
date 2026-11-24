@@ -219,7 +219,7 @@ async fn the_database_refuses_to_truncate_charities(mut conn: PoolConnection<Pos
     charities::create(&mut conn, &charity("Voedselbank"))
         .await
         .unwrap();
-    let err = sqlx::query("TRUNCATE charity")
+    let err = sqlx::query("TRUNCATE charity CASCADE")
         .execute(&mut *conn)
         .await
         .expect_err("truncate must be refused");

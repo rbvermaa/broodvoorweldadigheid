@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, bake_day_id, product_id, qty, purpose, note FROM production_extra\n        WHERE bake_day_id = $1 ORDER BY product_id, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "qty"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "purpose",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "purpose"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "note",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "production_extra",
+            "name": "note"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0462f39538f7e6c2e68581b6df45c982b3bece3e661b34d3df09789f774017f0"
+}
