@@ -7,8 +7,7 @@
 <h1>{{ heading }}</h1>
 <p><a href="{{ back }}">{{ layout.t("lists-back-orders")? }}</a></p>
 <p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
-{% call s::status(saved) %}{% endcall %}
-{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+<div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}</div>
 {%- for slot in slots %}
 <section>
 <h2>{{ slot.heading }}</h2>

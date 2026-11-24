@@ -4,7 +4,8 @@
 use askama::Template;
 use auth::Permission;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::HeaderValue;
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HeaderName};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use bakedays::{BakeDay, Purpose};
@@ -167,6 +168,7 @@ where
         [
             (CONTENT_TYPE, "application/pdf".to_owned()),
             (CONTENT_DISPOSITION, format!("inline; filename=\"{file}\"")),
+            (CACHE_CONTROL, "private, no-store".to_owned()),
         ],
         bytes,
     )
@@ -281,6 +283,7 @@ async fn render_pickups(
     day: &BakeDay,
     saved: bool,
     answer: Option<Answer>,
+    htmx: bool,
 ) -> Outcome {
     let list = load_pickups(state, day).await?;
     let path = pickup_path(day);
@@ -319,7 +322,8 @@ async fn render_pickups(
         .filter(|a| !shown(a.order))
         .map(|a| a.error)
         .unwrap_or_default();
-    Ok(pages::render(
+    let retarget = htmx && !problem.is_empty();
+    let mut response = pages::render(
         state,
         status,
         &PickupPage {
@@ -335,7 +339,22 @@ async fn render_pickups(
             problem,
             slots,
         },
-    ))
+    );
+    if retarget {
+        // The order left the list meanwhile, so its card cannot show the refusal.
+        let headers = response.headers_mut();
+        for name in ["hx-retarget", "hx-reselect"] {
+            headers.insert(
+                HeaderName::from_static(name),
+                HeaderValue::from_static("#status"),
+            );
+        }
+        headers.insert(
+            HeaderName::from_static("hx-reswap"),
+            HeaderValue::from_static("outerHTML"),
+        );
+    }
+    Ok(response)
 }
 
 pub async fn pickup_page(
@@ -348,7 +367,16 @@ pub async fn pickup_page(
     let run = async {
         require(&state, &staff, Permission::PickupList)?;
         let day = bake_days::load(&state, &id).await?;
-        render_pickups(&state, &session, StatusCode::OK, &day, flash.saved(), None).await
+        render_pickups(
+            &state,
+            &session,
+            StatusCode::OK,
+            &day,
+            flash.saved(),
+            None,
+            false,
+        )
+        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -430,7 +458,16 @@ async fn tick(
                     saved: true,
                     error: String::new(),
                 };
-                render_pickups(&state, &session, StatusCode::OK, &day, false, Some(answer)).await
+                render_pickups(
+                    &state,
+                    &session,
+                    StatusCode::OK,
+                    &day,
+                    false,
+                    Some(answer),
+                    true,
+                )
+                .await
             }
             Some(error) => {
                 let answer = Answer {
@@ -439,7 +476,16 @@ async fn tick(
                     error,
                 };
                 let status = invalid_status(&headers);
-                render_pickups(&state, &session, status, &day, false, Some(answer)).await
+                render_pickups(
+                    &state,
+                    &session,
+                    status,
+                    &day,
+                    false,
+                    Some(answer),
+                    is_htmx(&headers),
+                )
+                .await
             }
         }
     };

@@ -161,10 +161,18 @@ impl Client<'_> {
         let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
             .await
             .expect("body");
+        let pdf = headers
+            .get(CONTENT_TYPE)
+            .is_some_and(|v| v == "application/pdf");
+        let text = if pdf {
+            String::from_utf8_lossy(&bytes).into_owned()
+        } else {
+            decode(std::str::from_utf8(&bytes).expect("utf-8"))
+        };
         Reply {
             status,
             headers,
-            text: decode(&String::from_utf8_lossy(&bytes)),
+            text,
         }
     }
 
@@ -2477,4 +2485,60 @@ async fn saturday_after(pool: &PgPool) -> BakeDayId {
     .await
     .expect("bake day")
     .id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn refused_pickup_ticks_say_why(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let mut cart = orders::Cart::new(paid.day);
+    cart.set(paid.order.lines[0].product_id, 1, None)
+        .expect("cart");
+    let pending = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "later@example.org".to_owned(),
+            name: "Late Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        paid.order.pickup_slot_id,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    drop(conn);
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let off_list = counter
+        .htmx(&format!("{list}/{}/picked-up", pending.id.get()), &[])
+        .await;
+    assert_eq!(off_list.status, StatusCode::OK);
+    assert_eq!(off_list.header("hx-retarget"), "#status");
+    assert_eq!(off_list.header("hx-reselect"), "#status");
+    off_list.shows(&dutch("staff-order-error-status"));
+
+    let n = paid.order.id.get();
+    counter
+        .post(&format!("{list}/{n}/picked-up"), &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#bestelling-{n}"));
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .post(
+            &format!("/staff/bake-days/{}/cancel", paid.day.get()),
+            &[("bericht", "Ik ben ziek, sorry!")],
+        )
+        .await;
+    let undo = counter.post(&format!("{list}/{n}/undo"), &[]).await;
+    assert_eq!(undo.status, StatusCode::UNPROCESSABLE_ENTITY);
+    undo.shows(&dutch("staff-order-error-day"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
 }
