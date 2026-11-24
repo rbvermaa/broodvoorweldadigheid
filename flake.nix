@@ -45,6 +45,7 @@
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
+              ./design/tokens.toml
             ];
           };
           commonArgs = {

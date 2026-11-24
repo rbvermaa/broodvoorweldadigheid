@@ -1,0 +1,148 @@
+# Design tokens (spec: "Design system and UX"). apps/server/build.rs turns this file into
+# CSS variables (--color-black, --space-2, ...) and fails the build on invalid tokens.
+# Colours are #rrggbb only. Every [[pair]] is checked against WCAG 2.2 AA contrast:
+# 4.5:1, or 3:1 with large-text = true.
+
+[color]
+black = "#000000"
+white = "#ffffff"
+grey-50 = "#fafafa"
+grey-100 = "#f5f5f5"
+grey-200 = "#e5e5e5"
+grey-400 = "#a3a3a3"
+grey-600 = "#525252"
+grey-800 = "#262626"
+
+text = "#000000"
+text-muted = "#525252"
+surface = "#ffffff"
+surface-muted = "#f5f5f5"
+border = "#767676"
+
+# PLACEHOLDER: the accent colour is not chosen yet (spec: "one accent colour still to
+# choose"). Replace accent and on-accent together; the pairs below keep them accessible.
+accent = "#9a3412"
+on-accent = "#ffffff"
+
+success = "#166534"
+success-surface = "#f0fdf4"
+warning = "#854d0e"
+warning-surface = "#fefce8"
+error = "#b91c1c"
+error-surface = "#fef2f2"
+info = "#1e40af"
+info-surface = "#eff6ff"
+
+[font]
+heading = ["Oswald", "Arial Narrow", "Roboto Condensed", "sans-serif"]
+body = ["Inter", "system-ui", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"]
+
+[font-size]
+xs = "0.75rem"
+sm = "0.875rem"
+md = "1rem"
+lg = "1.125rem"
+xl = "1.25rem"
+2xl = "1.5rem"
+3xl = "2rem"
+4xl = "2.5rem"
+
+[font-weight]
+regular = 400
+medium = 500
+bold = 700
+
+[line-height]
+tight = "1.2"
+normal = "1.5"
+
+[space]
+0 = "0"
+1 = "0.25rem"
+2 = "0.5rem"
+3 = "0.75rem"
+4 = "1rem"
+5 = "1.5rem"
+6 = "2rem"
+7 = "3rem"
+8 = "4rem"
+
+[radius]
+none = "0"
+sm = "0.25rem"
+md = "0.5rem"
+lg = "1rem"
+full = "9999px"
+
+[shadow]
+sm = "0 1px 2px rgb(0 0 0 / 0.08)"
+md = "0 4px 12px rgb(0 0 0 / 0.12)"
+lg = "0 12px 32px rgb(0 0 0 / 0.16)"
+
+# Mobile-first min-width breakpoints. CSS variables cannot be used inside @media, so these
+# document the values the stylesheets must use.
+[breakpoint]
+sm = "36rem"
+md = "48rem"
+lg = "64rem"
+xl = "80rem"
+
+[[pair]]
+foreground = "text"
+background = "surface"
+
+[[pair]]
+foreground = "text"
+background = "surface-muted"
+
+[[pair]]
+foreground = "text-muted"
+background = "surface"
+
+[[pair]]
+foreground = "text-muted"
+background = "surface-muted"
+
+[[pair]]
+foreground = "white"
+background = "black"
+
+[[pair]]
+foreground = "on-accent"
+background = "accent"
+
+[[pair]]
+foreground = "accent"
+background = "surface"
+
+[[pair]]
+foreground = "success"
+background = "surface"
+
+[[pair]]
+foreground = "success"
+background = "success-surface"
+
+[[pair]]
+foreground = "warning"
+background = "surface"
+
+[[pair]]
+foreground = "warning"
+background = "warning-surface"
+
+[[pair]]
+foreground = "error"
+background = "surface"
+
+[[pair]]
+foreground = "error"
+background = "error-surface"
+
+[[pair]]
+foreground = "info"
+background = "surface"
+
+[[pair]]
+foreground = "info"
+background = "info-surface"
