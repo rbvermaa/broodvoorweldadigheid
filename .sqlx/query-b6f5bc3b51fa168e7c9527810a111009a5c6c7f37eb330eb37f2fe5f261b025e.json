@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT company_name, kvk, btw_id, invoice_address, invoice_email\n        FROM business_account WHERE customer_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "company_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "company_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kvk",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "kvk"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "btw_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "btw_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "invoice_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "invoice_address"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "invoice_email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "invoice_email"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b6f5bc3b51fa168e7c9527810a111009a5c6c7f37eb330eb37f2fe5f261b025e"
+}

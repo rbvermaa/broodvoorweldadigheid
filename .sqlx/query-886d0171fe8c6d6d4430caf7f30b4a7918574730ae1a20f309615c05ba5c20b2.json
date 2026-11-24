@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE customer_login l\n         SET last_seen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n         FROM customer c\n         WHERE l.id = $1 AND c.id = l.customer_id\n           AND l.created_at > timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n           AND l.last_seen_at > timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n         RETURNING c.id, c.email, c.name",
+  "query": "SELECT c.id, c.email, c.name,\n            (SELECT count(*) FROM \"order\" o WHERE o.customer_id = c.id) AS \"orders!\"\n        FROM customer c WHERE c.email = $1 AND c.erased_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -35,21 +35,25 @@
             "name": "name"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "orders!",
+        "type_info": "Int8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8",
-        "Int8",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
-      false
+      false,
+      null
     ]
   },
-  "hash": "7f39b4c5a66a08c8f069936766b6dca18827c054e33c91572604fae4c89ee9ce"
+  "hash": "886d0171fe8c6d6d4430caf7f30b4a7918574730ae1a20f309615c05ba5c20b2"
 }

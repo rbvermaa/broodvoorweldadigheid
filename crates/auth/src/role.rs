@@ -25,10 +25,12 @@ pub enum Permission {
     ViewReports,
     ManageCharities,
     ManageStaff,
+    /// Exporting and erasing a customer's data on their request (F12, ADR 0031). Owner only.
+    Privacy,
 }
 
 impl Permission {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::ViewOrders,
         Self::EditOrders,
         Self::PickupList,
@@ -40,6 +42,7 @@ impl Permission {
         Self::ViewReports,
         Self::ManageCharities,
         Self::ManageStaff,
+        Self::Privacy,
     ];
 }
 
@@ -103,7 +106,7 @@ mod tests {
     #[test]
     fn permission_table_matches_adr_0010() {
         use Permission as P;
-        let expected: [(P, bool, bool, bool); 11] = [
+        let expected: [(P, bool, bool, bool); 12] = [
             // permission, owner, baker, counter
             (P::ViewOrders, true, true, true),
             (P::EditOrders, true, true, false),
@@ -116,6 +119,7 @@ mod tests {
             (P::ViewReports, true, false, false),
             (P::ManageCharities, true, false, false),
             (P::ManageStaff, true, false, false),
+            (P::Privacy, true, false, false),
         ];
         assert_eq!(
             expected.map(|(permission, ..)| permission),

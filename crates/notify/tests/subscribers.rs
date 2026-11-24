@@ -1,6 +1,7 @@
 //! F9a: double opt-in and unsubscribe links.
 #![forbid(unsafe_code)]
 
+use domain::Clock;
 use i18n::Translator;
 use jiff::{SignedDuration, Timestamp};
 use notify::subscribers::{self, CONFIRM_VALID, Links, RESEND_AFTER, Subscribed, SubscriberError};
@@ -272,4 +273,101 @@ async fn unknown_tokens_and_bad_addresses_change_nothing(mut conn: PoolConnectio
         .await
         .unwrap();
     assert_eq!(rows, 0);
+}
+
+async fn pending_alert(conn: &mut PgConnection, to: &str) {
+    sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body,
+            next_attempt_at, created_at)
+        VALUES ('drop_alert', $1, 'Drop', 't', 'h', now(), now())",
+    )
+    .bind(to)
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
+async fn alerts(conn: &mut PgConnection) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM email_outbox WHERE kind = 'drop_alert'")
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_signed_in_customer_subscribes_without_a_confirmation_and_withdraws(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = now();
+    assert_eq!(
+        subscribers::of_address(&mut conn, "klant@example.nl")
+            .await
+            .unwrap(),
+        None
+    );
+    subscribe(&mut conn, &clock, "Klant@Example.nl").await;
+    subscribers::subscribe_verified(&mut conn, &clock, "klant@example.nl")
+        .await
+        .unwrap();
+    assert_eq!(active(&mut conn).await, ["Klant@Example.nl"]);
+    let open: Option<Vec<u8>> = sqlx::query_scalar("SELECT confirm_token_hash FROM subscriber")
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(open, None, "the open confirmation link is void");
+    let subscription = subscribers::of_address(&mut conn, "klant@example.nl")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(subscription.is_active());
+    assert_eq!(subscription.confirmed_at, Some(clock.now()));
+
+    pending_alert(&mut conn, "Klant@Example.nl").await;
+    pending_alert(&mut conn, "ander@example.nl").await;
+    clock.advance(SignedDuration::from_mins(1));
+    subscribers::withdraw(&mut conn, &clock, "klant@example.nl")
+        .await
+        .unwrap();
+    assert!(active(&mut conn).await.is_empty());
+    assert_eq!(alerts(&mut conn).await, 1);
+    let subscription = subscribers::of_address(&mut conn, "klant@example.nl")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(subscription.unsubscribed_at, Some(clock.now()));
+
+    subscribers::subscribe_verified(&mut conn, &clock, "klant@example.nl")
+        .await
+        .unwrap();
+    assert_eq!(active(&mut conn).await, ["Klant@Example.nl"]);
+    subscribers::withdraw(&mut conn, &clock, "niemand@example.nl")
+        .await
+        .unwrap();
+    assert!(matches!(
+        subscribers::subscribe_verified(&mut conn, &clock, "geen adres").await,
+        Err(SubscriberError::Address)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn forgetting_deletes_the_subscriber_tokens_and_pending_alerts(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = now();
+    subscribers::subscribe_verified(&mut conn, &clock, "Klant@Example.nl")
+        .await
+        .unwrap();
+    unsubscribe_token(&mut conn, &clock).await;
+    pending_alert(&mut conn, "Klant@Example.nl").await;
+    subscribers::forget(&mut conn, "klant@example.nl")
+        .await
+        .unwrap();
+    for sql in [
+        "SELECT count(*) FROM subscriber",
+        "SELECT count(*) FROM subscriber_unsubscribe_token",
+        "SELECT count(*) FROM email_outbox",
+    ] {
+        let left: i64 = sqlx::query_scalar(sql).fetch_one(&mut *conn).await.unwrap();
+        assert_eq!(left, 0, "{sql}");
+    }
 }

@@ -1,6 +1,6 @@
 //! Cart, checkout with capacity holds, payment status and the audit log (F3, F4, F4b,
 //! F4c), the donation choice and saved donations (F4d), and ticking orders off at pickup
-//! (F8). See ADRs 0012 and 0030.
+//! (F8), and a customer's data export and erasure (F12). See ADRs 0012, 0030 and 0031.
 #![forbid(unsafe_code)]
 
 pub mod audit;
@@ -15,6 +15,7 @@ pub mod manage;
 pub mod order;
 mod payment;
 mod pickup;
+pub mod privacy;
 mod refunds;
 mod source;
 
