@@ -59,6 +59,7 @@ struct Shop {
     clock: FakeClock,
     cart: Cart,
     slot: domain::PickupSlotId,
+    day: domain::BakeDayId,
 }
 
 /// An open Saturday with one bread on the range, on the Wednesday before.
@@ -96,7 +97,12 @@ async fn shop(conn: &mut PgConnection) -> Shop {
     .unwrap();
     let mut cart = Cart::new(day.id);
     cart.set(product, 2, None).unwrap();
-    Shop { clock, cart, slot }
+    Shop {
+        clock,
+        cart,
+        slot,
+        day: day.id,
+    }
 }
 
 async fn order(conn: &mut PgConnection, shop: &Shop, email: &str, pay: bool) -> OrderId {
@@ -293,7 +299,6 @@ async fn without_kvk_details_nothing_is_queued(pool: PgPool) {
         .await
         .unwrap_err();
     assert!(matches!(error, jobs::EmailError::CompanyIncomplete));
-    assert!(!error.is_transient());
     assert!(
         enqueue_due_reminders(&mut conn, &shop.clock, &emails())
             .await
@@ -304,5 +309,21 @@ async fn without_kvk_details_nothing_is_queued(pool: PgPool) {
         enqueue_due_reminders(&mut conn, &shop.clock, &emails()).await,
         Err(jobs::EmailError::CompanyIncomplete)
     ));
+    assert!(outbox(&pool).await.is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn no_reminder_when_the_drop_is_cancelled_after_payment(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = shop(&mut conn).await;
+    order(&mut conn, &shop, "klant@example.org", true).await;
+    days::cancel(&mut conn, &shop.clock, shop.day, "De oven is stuk")
+        .await
+        .unwrap();
+    assert!(
+        remind_at(&mut conn, &shop.clock, "2026-10-30T17:00:00Z")
+            .await
+            .is_empty()
+    );
     assert!(outbox(&pool).await.is_empty());
 }

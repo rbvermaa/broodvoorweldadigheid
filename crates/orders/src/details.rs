@@ -93,8 +93,8 @@ pub async fn details(conn: &mut PgConnection, id: OrderId) -> Result<OrderDetail
     })
 }
 
-/// Paid or confirmed orders whose pickup starts after `after` and no later than `until`,
-/// with that start, by pickup start.
+/// Paid or confirmed orders on a bake day that is not cancelled, whose pickup starts after
+/// `after` and no later than `until`, with that start, by pickup start.
 ///
 /// # Errors
 /// [`Error::Db`].
@@ -105,8 +105,10 @@ pub async fn awaiting_pickup(
 ) -> Result<Vec<(OrderId, Timestamp)>, Error> {
     let rows = sqlx::query!(
         r#"SELECT o.id, (extract(epoch FROM s.starts_at) * 1000000)::bigint AS "starts_us!"
-        FROM "order" o JOIN pickup_slot s ON s.id = o.pickup_slot_id
-        WHERE o.status IN ('paid', 'confirmed')
+        FROM "order" o
+        JOIN pickup_slot s ON s.id = o.pickup_slot_id
+        JOIN bake_day d ON d.id = o.bake_day_id
+        WHERE o.status IN ('paid', 'confirmed') AND d.status <> 'cancelled'
             AND s.starts_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
             AND s.starts_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
         ORDER BY s.starts_at, o.id"#,

@@ -66,20 +66,6 @@ pub enum EmailError {
     CompanyIncomplete,
 }
 
-impl EmailError {
-    /// Whether trying again later can help. The others need a fix in data or setup, so the
-    /// change the email reports should go ahead without it.
-    #[must_use]
-    pub fn is_transient(&self) -> bool {
-        matches!(
-            self,
-            Self::Orders(orders::Error::Db(_))
-                | Self::Catalog(catalog::Error::Db(_))
-                | Self::Outbox(OutboxError::Db(_))
-        )
-    }
-}
-
 /// `order-confirmation:42`
 #[must_use]
 pub fn confirmation_key(order: OrderId) -> String {
@@ -161,7 +147,7 @@ async fn compose(
 /// the order paid. Queued at most once per order.
 ///
 /// # Errors
-/// [`EmailError`]; see [`EmailError::is_transient`].
+/// [`EmailError`].
 pub async fn enqueue_confirmation(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -223,7 +209,7 @@ async fn enqueue_cancelled(
 /// once per order.
 ///
 /// # Errors
-/// [`EmailError`]; see [`EmailError::is_transient`].
+/// [`EmailError`].
 pub async fn enqueue_cancellation(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -240,7 +226,7 @@ pub async fn enqueue_cancellation(
 /// once per payment.
 ///
 /// # Errors
-/// [`EmailError`]; see [`EmailError::is_transient`].
+/// [`EmailError`].
 pub async fn enqueue_refund_notice(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -290,7 +276,14 @@ pub async fn enqueue_due_reminders(
         if queued.contains(&key) {
             continue;
         }
-        let details = orders::details(conn, order).await?;
+        let details = match orders::details(conn, order).await {
+            Ok(details) => details,
+            Err(orders::Error::Db(error)) => return Err(orders::Error::Db(error).into()),
+            Err(error) => {
+                tracing::error!(order = order.get(), %error, "cannot read the order for its reminder");
+                continue;
+            }
+        };
         let email = composer.pickup_reminder(&PickupReminder {
             to: recipient(&details),
             order_number: details.order.number.to_string(),

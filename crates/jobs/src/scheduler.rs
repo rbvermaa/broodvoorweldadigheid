@@ -120,6 +120,10 @@ pub async fn handle_tick(
     ));
     let reminded = match reminders.await {
         Ok(reminded) => reminded,
+        Err(error @ order_emails::EmailError::CompanyIncomplete) => {
+            tracing::warn!(minute = %tick.minute, %error, "no pickup reminders");
+            Vec::new()
+        }
         Err(error) => {
             tracing::error!(minute = %tick.minute, %error, "cannot queue pickup reminders");
             Vec::new()

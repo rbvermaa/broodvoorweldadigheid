@@ -93,7 +93,8 @@ fn order_failure(
 
 /// Marks the order paid and queues its confirmation in one transaction (ADR 0022), or,
 /// for a payment that came in for a cancelled order, the cancellation with its refund.
-/// An email that cannot be composed is logged; the payment is recorded anyway.
+/// The email is queued in a savepoint: when that fails, it is logged and rolled back on
+/// its own, and the payment is recorded anyway.
 async fn paid(
     state: &AppState,
     conn: &mut PgConnection,
@@ -111,10 +112,11 @@ async fn paid(
         Ok(outcome) => outcome,
         Err(err) => return order_failure(err, id, order),
     };
+    let mut email_tx = tx.begin().await.map_err(|err| TryAgain(err.to_string()))?;
     let (settled, email) = match outcome {
         PaidOutcome::Paid { .. } => (
             Settled::Paid,
-            Some(order_emails::enqueue_confirmation(&mut tx, clock, emails, order).await),
+            Some(order_emails::enqueue_confirmation(&mut email_tx, clock, emails, order).await),
         ),
         PaidOutcome::AlreadyPaid(_) => (Settled::AlreadyPaid, None),
         PaidOutcome::RefundDue {
@@ -134,7 +136,10 @@ async fn paid(
                     RefundReason::HoldExpired | RefundReason::OrderCancelled
                 );
             let email = if cancelled {
-                Some(order_emails::enqueue_refund_notice(&mut tx, clock, emails, &payment).await)
+                Some(
+                    order_emails::enqueue_refund_notice(&mut email_tx, clock, emails, &payment)
+                        .await,
+                )
             } else {
                 None
             };
@@ -142,10 +147,16 @@ async fn paid(
         }
     };
     if let Some(Err(error)) = email {
-        if error.is_transient() {
-            return Err(TryAgain(error.to_string()));
-        }
         tracing::error!(payment = %id, order = order.get(), %error, "payment recorded without its email");
+        email_tx
+            .rollback()
+            .await
+            .map_err(|err| TryAgain(err.to_string()))?;
+    } else {
+        email_tx
+            .commit()
+            .await
+            .map_err(|err| TryAgain(err.to_string()))?;
     }
     tx.commit().await.map_err(|err| TryAgain(err.to_string()))?;
     Ok(settled)

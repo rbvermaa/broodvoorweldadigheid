@@ -30,6 +30,11 @@ impl Shutdown {
         (Self(rx), trigger)
     }
 
+    /// Whether shutdown has been asked for.
+    pub fn requested(&self) -> bool {
+        *self.0.borrow()
+    }
+
     /// Completes once shutdown has been asked for, also when it was asked before.
     pub fn wait(&self) -> impl Future<Output = ()> + Send + 'static {
         let mut rx = self.0.clone();
@@ -101,8 +106,8 @@ pub async fn run_jobs(
 /// How many outbox emails one round sends at most; the rest wait for the next round.
 const MAIL_BATCH: u32 = 20;
 
-/// Sends due emails from the outbox (ADR 0014) every `every` until `shutdown`. A round
-/// in progress finishes first, so an email that went out is also recorded as sent.
+/// Sends due emails from the outbox (ADR 0014) every `every` until `shutdown`. Shutdown is
+/// checked between emails, so an email that went out is also recorded as sent.
 pub async fn run_mail(
     pool: PgPool,
     sender: Arc<dyn EmailSender>,
@@ -117,7 +122,7 @@ pub async fn run_mail(
             () = shutdown.wait() => return,
             _ = rounds.tick() => {}
         }
-        match send_round(&pool, sender.as_ref(), clock.as_ref()).await {
+        match send_round(&pool, sender.as_ref(), clock.as_ref(), &shutdown).await {
             Ok(report) if report == SendReport::default() => {}
             Ok(report) => tracing::info!(
                 sent = report.sent,
@@ -134,7 +139,21 @@ async fn send_round(
     pool: &PgPool,
     sender: &dyn EmailSender,
     clock: &dyn Clock,
+    shutdown: &Shutdown,
 ) -> Result<SendReport, Box<dyn std::error::Error + Send + Sync>> {
     let mut conn = pool.acquire().await?;
-    Ok(notify::send_pending(&mut conn, sender, clock, MAIL_BATCH).await?)
+    let mut total = SendReport::default();
+    for _ in 0..MAIL_BATCH {
+        if shutdown.requested() {
+            break;
+        }
+        let one = notify::send_pending(&mut conn, sender, clock, 1).await?;
+        if one == SendReport::default() {
+            break;
+        }
+        total.sent += one.sent;
+        total.retrying += one.retrying;
+        total.failed += one.failed;
+    }
+    Ok(total)
 }
