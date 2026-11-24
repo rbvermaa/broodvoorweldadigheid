@@ -8,7 +8,9 @@ use bakedays::calendar::PublicDrop;
 use bakedays::{BakeDayStatus, PublicStatus, days};
 use domain::{BakeDayId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId};
 use i18n::{Amsterdam, FluentArgs};
-use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
+use orders::{
+    CancelReason, Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy,
+};
 use sqlx::PgConnection;
 use tower_sessions::Session;
 
@@ -378,10 +380,7 @@ pub async fn submit(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    if let Some(order) = unpaid_order(&state, &mut conn, &session, &drop).await {
-        std::mem::drop(conn);
-        return retry_payment(&state, &session, (&drop, &cart), &order).await;
-    }
+    let unpaid = unpaid_order(&state, &mut conn, &session, &drop).await;
     let mut form = Fields::from_form(&raw);
     let slot = check_fields(&state, &mut form);
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
@@ -407,6 +406,30 @@ pub async fn submit(
         phone: Some(form.phone.clone()).filter(|p| !p.trim().is_empty()),
         marketing_opt_in: form.marketing,
     };
+    if let Some(unpaid) = unpaid {
+        match orders::same_as_order(&mut conn, &unpaid, &cart, &customer, slot).await {
+            Ok(true) => {
+                std::mem::drop(conn);
+                return retry_payment(&state, &session, (&drop, &cart), &unpaid, form).await;
+            }
+            Ok(false) => {
+                let cancelled = orders::cancel_pending(
+                    &mut conn,
+                    state.clock.as_ref(),
+                    unpaid.id,
+                    CancelReason::ReplacedByCustomer,
+                )
+                .await;
+                if let Err(err) = cancelled {
+                    return server_error(&state, "cannot replace the unpaid order", &err);
+                }
+                if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
+                    tracing::warn!(error = %err, "cannot forget the unpaid order");
+                }
+            }
+            Err(err) => return server_error(&state, "cannot compare the unpaid order", &err),
+        }
+    }
     let placed = orders::checkout(
         &mut conn,
         state.clock.as_ref(),
@@ -508,13 +531,15 @@ async fn unpaid_order(
     order
 }
 
-/// Tries the payment of an unpaid order again. The idempotency key makes Mollie return
+/// Pays an unpaid order again, when the customer sent the same checkout
+/// ([`orders::same_as_order`]). The idempotency key makes Mollie return
 /// the same payment if the first try did reach it.
 async fn retry_payment(
     state: &AppState,
     session: &Session,
     (drop, cart): (&PublicDrop, &Cart),
     order: &Order,
+    form: Fields,
 ) -> Response {
     match start_payment(state, order).await {
         Ok(checkout_url) => {
@@ -528,7 +553,7 @@ async fn retry_payment(
         }
         Err(err) => {
             tracing::error!(error = %err, order = order.id.get(), "cannot start the payment");
-            payment_unavailable(state, session, (drop, cart), Fields::default()).await
+            payment_unavailable(state, session, (drop, cart), form).await
         }
     }
 }

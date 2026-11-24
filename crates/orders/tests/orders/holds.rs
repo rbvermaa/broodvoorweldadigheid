@@ -1,11 +1,18 @@
 use bakedays::{OrderSource, days};
+use domain::{OrderId, PickupSlotId, ProductId};
 use jiff::SignedDuration;
 use orders::audit;
-use orders::{CancelReason, Error, HOLD, OrderStatus, Orders, release_expired_holds};
+use orders::{
+    CancelReason, CustomerInput, Error, HOLD, OrderStatus, Orders, PaidOutcome, PaymentReceived,
+    RefundReason, cancel_pending, mark_paid, release_expired_holds, same_as_order,
+};
 use sqlx::pool::PoolConnection;
 use sqlx::{PgPool, Postgres};
 
-use crate::common::{BREAD, on_range, open_day, order_as_guest, product, saturday, wednesday};
+use crate::common::{
+    BREAD, DONATION_LOAF, cart, guest, on_range, open_day, order_as_guest, product, saturday,
+    wednesday,
+};
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn an_expired_hold_frees_the_loaf_and_the_job_cancels_the_order(
@@ -120,4 +127,202 @@ async fn the_audit_log_is_append_only(pool: PgPool) {
         let err = sqlx::query(sql).execute(&mut *conn).await.unwrap_err();
         assert!(err.to_string().contains("append-only"), "{sql}: {err}");
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_replaced_order_frees_its_hold_and_a_late_payment_is_refunded(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    orders::payment_started(&mut conn, &clock, held.id, "tr_replaced", held.total)
+        .await
+        .unwrap();
+
+    assert!(
+        cancel_pending(&mut conn, &clock, held.id, CancelReason::ReplacedByCustomer)
+            .await
+            .unwrap()
+    );
+    let cancelled = orders::order::get(&mut conn, held.id).await.unwrap();
+    assert_eq!(cancelled.status, OrderStatus::Cancelled);
+    assert_eq!(
+        cancelled.cancel_reason,
+        Some(CancelReason::ReplacedByCustomer)
+    );
+    let history = audit::history(&mut conn, "order", held.id.get())
+        .await
+        .unwrap();
+    assert_eq!(history.last().unwrap().action, "cancelled");
+    order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .expect("the hold gave its loaf back");
+    assert!(
+        !cancel_pending(&mut conn, &clock, held.id, CancelReason::ReplacedByCustomer)
+            .await
+            .unwrap(),
+        "only a pending order is cancelled"
+    );
+
+    let late = PaymentReceived {
+        reference: "tr_replaced".to_owned(),
+        amount: held.total,
+    };
+    assert!(matches!(
+        mark_paid(&mut conn, &clock, held.id, &late).await.unwrap(),
+        PaidOutcome::RefundDue {
+            reason: RefundReason::OrderCancelled,
+            ..
+        }
+    ));
+    assert_eq!(
+        orders::order::get(&mut conn, held.id).await.unwrap().status,
+        OrderStatus::Cancelled
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_paid_or_unknown_order_is_not_cancelled_as_pending(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    let payment = PaymentReceived {
+        reference: "tr_paid".to_owned(),
+        amount: order.total,
+    };
+    mark_paid(&mut conn, &clock, order.id, &payment)
+        .await
+        .unwrap();
+    assert!(
+        !cancel_pending(
+            &mut conn,
+            &clock,
+            order.id,
+            CancelReason::ReplacedByCustomer
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        orders::order::get(&mut conn, order.id)
+            .await
+            .unwrap()
+            .status,
+        OrderStatus::Paid
+    );
+    assert!(matches!(
+        cancel_pending(
+            &mut conn,
+            &clock,
+            OrderId::new(999_999),
+            CancelReason::ReplacedByCustomer
+        )
+        .await,
+        Err(Error::NotFound)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_same_checkout_matches_its_order_and_any_change_does_not(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    let loaf = product(&mut conn, &DONATION_LOAF).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, loaf, None, None).await;
+    let lines = [(bread, 1, None), (loaf, 1, Some(800))];
+    let order = order_as_guest(&mut conn, &clock, &shop, &lines)
+        .await
+        .unwrap();
+    let customer = guest("klant@example.org");
+
+    let same = |cart_lines: &[(ProductId, u32, Option<i64>)], input: &CustomerInput| {
+        (cart(&shop, cart_lines), input.clone())
+    };
+    let cases: Vec<(&str, (orders::Cart, CustomerInput), bool)> = vec![
+        ("unchanged", same(&lines, &customer), true),
+        (
+            "email in other case",
+            same(&lines, &guest(" Klant@Example.org ")),
+            true,
+        ),
+        (
+            "qty",
+            same(&[(bread, 2, None), (loaf, 1, Some(800))], &customer),
+            false,
+        ),
+        ("line removed", same(&[(bread, 1, None)], &customer), false),
+        (
+            "chosen price",
+            same(&[(bread, 1, None), (loaf, 1, Some(900))], &customer),
+            false,
+        ),
+        ("email", same(&lines, &guest("ander@example.org")), false),
+        ("invalid email", same(&lines, &guest("geen-mail")), false),
+        (
+            "name",
+            same(
+                &lines,
+                &CustomerInput {
+                    name: "Andere Klant".to_owned(),
+                    ..customer.clone()
+                },
+            ),
+            false,
+        ),
+        (
+            "phone",
+            same(
+                &lines,
+                &CustomerInput {
+                    phone: Some("0612345678".to_owned()),
+                    ..customer.clone()
+                },
+            ),
+            false,
+        ),
+        (
+            "marketing",
+            same(
+                &lines,
+                &CustomerInput {
+                    marketing_opt_in: true,
+                    ..customer.clone()
+                },
+            ),
+            false,
+        ),
+    ];
+    for (case, (cart, input), expected) in cases {
+        assert_eq!(
+            same_as_order(&mut conn, &order, &cart, &input, shop.slot)
+                .await
+                .unwrap(),
+            expected,
+            "{case}"
+        );
+    }
+    let other_slot = PickupSlotId::new(shop.slot.get() + 1000);
+    assert!(
+        !same_as_order(
+            &mut conn,
+            &order,
+            &cart(&shop, &lines),
+            &customer,
+            other_slot
+        )
+        .await
+        .unwrap()
+    );
 }

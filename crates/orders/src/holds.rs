@@ -4,7 +4,7 @@ use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
 use crate::audit::{self, Actor, Entry};
-use crate::order::{self, CancelReason};
+use crate::order::{self, CancelReason, OrderStatus};
 
 /// Cancels orders still waiting for payment after their hold, so their pieces go back to
 /// the shop. The capacity is already free once the hold passes ([`crate::Orders`]); this
@@ -59,4 +59,63 @@ pub async fn release_expired_holds(
     }
     tx.commit().await?;
     Ok(released)
+}
+
+/// Cancels an order still waiting for payment with `reason`, so its hold gives its pieces
+/// and slot place back at once. Nothing happens, and `false` comes back, when the order
+/// is no longer pending or a payment for it is paid or authorized: that payment decides
+/// ([`crate::mark_paid`]). A payment that still completes later is refunded. No email.
+///
+/// Takes only the order row lock, like [`release_expired_holds`].
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Db`] or [`Error::Corrupt`].
+pub async fn cancel_pending(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    id: OrderId,
+    reason: CancelReason,
+) -> Result<bool, Error> {
+    let mut tx = conn.begin().await?;
+    let status = sqlx::query_scalar!(
+        r#"SELECT status FROM "order" WHERE id = $1 FOR UPDATE"#,
+        id.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let settling = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM payment
+            WHERE order_id = $1 AND status IN ('paid', 'authorized')) AS "settling!""#,
+        id.get()
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if status != OrderStatus::PendingPayment.as_str() || settling {
+        return Ok(false);
+    }
+    let before = order::get(&mut tx, id).await?;
+    sqlx::query!(
+        r#"UPDATE "order" SET status = 'cancelled', cancel_reason = $2 WHERE id = $1"#,
+        id.get(),
+        reason.as_str(),
+    )
+    .execute(&mut *tx)
+    .await?;
+    let after = order::get(&mut tx, id).await?;
+    audit::record(
+        &mut tx,
+        &Entry {
+            entity: "order",
+            entity_id: id.get(),
+            action: "cancelled",
+            before: Some(order::snapshot(&before)),
+            after: Some(order::snapshot(&after)),
+            actor: Actor::Customer(before.customer_id),
+            at: clock.now(),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(true)
 }

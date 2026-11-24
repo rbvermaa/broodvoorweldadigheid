@@ -72,6 +72,7 @@ text_enum!(CancelReason {
     Staff => "staff",
     Customer => "customer",
     DayCancelled => "day_cancelled",
+    ReplacedByCustomer => "replaced_by_customer",
 });
 
 /// `2026-0042`: the 42nd order of 2026, by the order's creation date in the bakery's

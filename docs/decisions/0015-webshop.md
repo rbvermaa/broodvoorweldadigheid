@@ -39,10 +39,25 @@ Known limits, from review:
 - When the payment cannot be started, the session remembers the order (`unpaid_order`) and
   saves itself explicitly, since tower-sessions does not save on a 5xx answer. The next
   checkout of that drop pays that order again with the same idempotency key, so Mollie
-  returns the same payment when the first create did reach it. This works while the hold
-  runs, also after the deadline (spec: an order counts if checkout started before the
-  deadline and payment completes within its hold); only a cancelled or finished bake day
-  or a passed hold ends it. The second try keeps the first order's details.
+  returns the same payment when the first create did reach it, as long as the cart and
+  the form still match the order (`orders::same_as_order`: lines, quantities, prices,
+  email, name, phone, pickup slot and marketing wish). This works while the hold runs,
+  also after the deadline (spec: an order counts if checkout started before the deadline
+  and payment completes within its hold); only a cancelled or finished bake day or a
+  passed hold ends it.
+- When the customer changed anything before the retry, what they see wins (decision of
+  the owner's coordinator, 2026-11-24). `orders::cancel_pending` cancels the held order
+  with reason `replaced_by_customer` (a new migration extends the check on
+  `cancel_reason`), which frees its hold at once, with an audit entry and no email. Then
+  a normal checkout places the new order. The cancel and the new checkout are separate
+  transactions, so a refused new checkout (for example past the deadline) leaves the old
+  order cancelled; the customer sees why and their cart stays. A Mollie payment created
+  for the old order stays open: its link never reached the customer, and should it be
+  paid anyway, `mark_paid` records it as refund due and the cancellation email goes out.
+  Not chosen: a read-only "Opnieuw betalen" page for the held order (new page state, and
+  the customer cannot fix a mistake until the hold ends) and refusing changed edits with
+  a message (the customer would be stuck for up to 15 minutes). The charity choice is
+  not part of the comparison yet; checkout has no charity choice until F4d.
 - Two checkout posts of one session at the same moment (a double click past the browser)
   both read the cart and make two orders with two holds. A claim per session would need a
   lock or a column; the rate limit and the 303 make it rare. The second order's hold runs

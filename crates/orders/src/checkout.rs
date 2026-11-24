@@ -275,6 +275,62 @@ pub async fn checkout(
     Ok(order)
 }
 
+/// Whether checking out `cart` for `customer` and `slot` now would place `order` again:
+/// the same lines at the same prices, email, name, phone, pickup slot and marketing wish.
+/// Details or a cart that checkout would refuse count as different. A display read
+/// without locks; checkout decides under its own.
+///
+/// # Errors
+/// [`Error::Db`], [`Error::Catalog`] or [`Error::BakeDays`].
+pub async fn same_as_order(
+    conn: &mut PgConnection,
+    order: &Order,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+) -> Result<bool, Error> {
+    let Ok(details) = customer::validate(customer) else {
+        return Ok(false);
+    };
+    if order.bake_day_id != cart.bake_day()
+        || order.pickup_slot_id != slot
+        || order.customer_name != details.name
+        || order.customer_phone != details.phone
+        || order.marketing_opt_in != customer.marketing_opt_in
+    {
+        return Ok(false);
+    }
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM customer WHERE id = $1",
+        order.customer_id.get()
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if email != details.email {
+        return Ok(false);
+    }
+    let mut catalog = Vec::new();
+    for id in cart.products() {
+        match catalog::products::get(&mut *conn, id).await {
+            Ok(product) => catalog.push(product),
+            Err(catalog::Error::NotFound) => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+    let on_range = range::list_products(&mut *conn, cart.bake_day()).await?;
+    let Ok(lines) = cart.price(&catalog, &on_range) else {
+        return Ok(false);
+    };
+    Ok(lines.len() == order.lines.len()
+        && lines.iter().all(|line| {
+            order.lines.iter().any(|placed| {
+                placed.product_id == line.product_id
+                    && placed.qty == line.qty
+                    && placed.unit_price == line.unit_price
+            })
+        }))
+}
+
 /// Orders that take a place in the slot at `now`: paid, confirmed, picked up, or pending
 /// within their hold. A display read without locks, for the pickup picker; checkout checks
 /// again under the slot lock.

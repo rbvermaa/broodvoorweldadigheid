@@ -14,11 +14,11 @@ mod payment;
 mod source;
 
 pub use cart::{Cart, CartError, CartLine, PricedLine};
-pub use checkout::{HOLD, OrderedBy, checkout, slot_orders};
+pub use checkout::{HOLD, OrderedBy, checkout, same_as_order, slot_orders};
 pub use customer::CustomerInput;
 pub use details::{OrderDetails, PickupDetails, awaiting_pickup, details, lock_awaiting_pickup};
 pub use error::Error;
-pub use holds::release_expired_holds;
+pub use holds::{cancel_pending, release_expired_holds};
 pub use order::{CancelReason, Channel, Order, OrderLine, OrderNumber, OrderStatus, PaymentMode};
 pub use payment::{
     DonationAllocation, PaidOutcome, Payment, PaymentReceived, RefundReason, allocations,

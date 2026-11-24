@@ -1357,3 +1357,159 @@ async fn the_status_page_finds_a_late_payment_after_the_hold(pool: PgPool) {
     assert!(again.body.contains(&dutch("order-status-late-payment")));
     assert_eq!(outbox(&shop.pool).await.len(), 1);
 }
+
+async fn failed_first_payment(shop: &Shop, browser: &Browser<'_>, drop: &Drop) {
+    shop.mollie.set_down(true);
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+    shop.mollie.set_down(false);
+}
+
+async fn order_statuses(pool: &PgPool) -> Vec<(String, Option<String>)> {
+    sqlx::query_as(r#"SELECT status, cancel_reason FROM "order" ORDER BY id"#)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_changed_cart_replaces_the_unpaid_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, Some(3)).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+
+    browser.add(drop.day, bread, "2", None).await;
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    assert_eq!(
+        order_statuses(&shop.pool).await,
+        vec![
+            (
+                "cancelled".to_owned(),
+                Some("replaced_by_customer".to_owned())
+            ),
+            ("pending_payment".to_owned(), None),
+        ]
+    );
+    let created = shop.mollie.created();
+    assert_eq!(created.len(), 1);
+    assert_eq!(created[0].amount, Money::from_cents(900));
+    let left = bakedays::range::availability(
+        &mut conn,
+        drop.day,
+        &orders::Orders::new(shop.clock.as_ref()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        left[0].remaining,
+        bakedays::capacity::Remaining::Pieces(1),
+        "the replaced order's hold is free"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_changed_email_replaces_the_unpaid_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+
+    let reply = browser
+        .post(
+            &format!("/drops/{}/bestellen", drop.day.get()),
+            &[
+                ("naam", "Test Klant"),
+                ("email", "ander@example.org"),
+                ("telefoon", ""),
+                ("ophaalmoment", &drop.slot),
+            ],
+            false,
+            true,
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    let statuses = order_statuses(&shop.pool).await;
+    assert_eq!(statuses.len(), 2);
+    assert_eq!(statuses[0].1.as_deref(), Some("replaced_by_customer"));
+    let email: String = sqlx::query_scalar(
+        r#"SELECT c.email FROM "order" o JOIN customer c ON c.id = o.customer_id
+        WHERE o.status = 'pending_payment'"#,
+    )
+    .fetch_one(&shop.pool)
+    .await
+    .unwrap();
+    assert_eq!(email, "ander@example.org");
+    assert_eq!(shop.mollie.created().len(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unchanged_checkout_pays_the_same_unpaid_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    assert_eq!(
+        order_statuses(&shop.pool).await,
+        vec![("pending_payment".to_owned(), None)]
+    );
+    assert_eq!(
+        shop.mollie.created()[0].order,
+        only_order(&shop.pool).await.id
+    );
+}
+
+/// The replaced order's Mollie payment exists but its link never reached the customer.
+/// Should it be paid anyway, it is refunded with the usual cancellation email.
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_late_payment_of_a_replaced_order_is_refunded(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    assert_eq!(
+        browser.checkout(drop.day, &drop.slot).await.status,
+        StatusCode::SEE_OTHER
+    );
+    let replaced = only_order(&shop.pool).await;
+    assert!(
+        orders::cancel_pending(
+            &mut conn,
+            shop.clock.as_ref(),
+            replaced.id,
+            orders::CancelReason::ReplacedByCustomer
+        )
+        .await
+        .unwrap()
+    );
+
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    let due = orders::refunds_due(&mut conn).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].refund_reason, Some(RefundReason::OrderCancelled));
+    let queued = outbox(&shop.pool).await;
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0].kind, "order_cancelled");
+}
