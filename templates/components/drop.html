@@ -1,0 +1,25 @@
+{# drop: components::Drop. The facts of one drop on the calendar (F1a). #}
+{% macro drop_facts(drop) %}
+<p class="drop-status{% if drop.open %} drop-status-open{% endif %}">{{ drop.status }}</p>
+<ul class="drop-facts">
+{%- for pickup in drop.pickups %}
+<li>{{ layout.icon("map-pin")? }}<span>{{ pickup }}</span></li>
+{%- endfor %}
+{%- if !drop.deadline.is_empty() %}
+<li>{{ layout.icon("clock")? }}<span>{{ drop.deadline }}</span></li>
+{%- endif %}
+</ul>
+{%- if let Some(charity) = drop.charity %}
+<p class="drop-charity">{{ layout.icon("heart")? }}<span>{{ charity.text }}{% if !charity.url.is_empty() %} <a href="{{ charity.url }}" rel="noopener">{{ charity.link }}</a>{% endif %}</span></p>
+{%- else %}
+<p class="drop-charity">{{ layout.icon("info")? }}<span>{{ layout.t("drop-normal-sale")? }}</span></p>
+{%- endif %}
+{% endmacro %}
+
+{# A drop in the calendar list; the date links to its page when `link` is set. #}
+{% macro drop_card(drop) %}
+<article class="drop">
+<h2 class="drop-date">{% if drop.link.is_empty() %}{{ drop.date }}{% else %}<a href="{{ drop.link }}">{{ drop.date }}</a>{% endif %}</h2>
+{% call drop_facts(drop) %}{% endcall %}
+</article>
+{% endmacro %}

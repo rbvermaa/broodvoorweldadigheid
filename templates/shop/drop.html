@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "components/drop.html" as dr %}
+{% import "components/product.html" as p %}
+{% import "components/cart.html" as c %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ drop.date }}{% endblock %}
+{% block content %}
+<p><a href="/drops">{{ layout.t("drop-back")? }}</a></p>
+<h1>{{ drop.date }}</h1>
+{% call dr::drop_facts(drop) %}{% endcall %}
+<h2>{{ layout.t("drop-menu")? }}</h2>
+{%- if let Some(products) = menu %}
+{%- if !orderable %}
+{% call fb::alert("info", layout.t("drop-not-open")?) %}{% endcall %}
+{%- endif %}
+<div class="product-grid">
+{%- for product in products %}
+{% call p::product_tile(product) %}{% endcall %}
+{%- endfor %}
+</div>
+{%- else %}
+<p>{{ layout.t("drop-menu-later")? }}</p>
+{%- endif %}
+{% call c::cart_panel(cart) %}{% endcall %}
+{% endblock %}

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.id, (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\"\n        FROM \"order\" o\n        JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        JOIN bake_day d ON d.id = o.bake_day_id\n        WHERE o.status IN ('paid', 'confirmed') AND d.status <> 'cancelled'\n            AND s.starts_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            AND s.starts_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        ORDER BY s.starts_at, o.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "starts_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "f0a6a547e94d6866b190f0d97a89f4c471334df2a624123452a23861d806063e"
+}

@@ -5,10 +5,10 @@ use axum::http::header::{
 use axum::response::Response;
 
 /// No inline scripts or styles: that also enforces the "no inline styles" rule from
-/// "Design system and UX" in the browser. `form-action 'self'` needs the Mollie host
-/// added once checkout redirects there.
+/// "Design system and UX" in the browser. The checkout form redirects to Mollie's hosted
+/// checkout, and browsers apply `form-action` to that redirect too.
 pub const CSP: &str = "default-src 'self'; base-uri 'none'; object-src 'none'; \
-    frame-ancestors 'none'; form-action 'self'";
+    frame-ancestors 'none'; form-action 'self' https://www.mollie.com";
 
 pub async fn headers(mut response: Response) -> Response {
     let headers = response.headers_mut();

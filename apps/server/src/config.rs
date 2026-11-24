@@ -1,4 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
+
+use jiff::civil::Time;
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 pub const DEFAULT_PUBLIC_URL: &str = "https://broodvoorweldadigheid.nl";
@@ -17,8 +20,15 @@ pub struct Config {
     /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR` and no
     /// `TRUSTED_PROXY`.
     pub dev_staff_login: bool,
-    /// Where customers reach the site, without a trailing slash. Links in emails use it.
+    /// Where customers reach the shop, without a trailing slash. Mollie sends customers
+    /// back and posts webhooks here, links in emails use it, and the iCal UIDs use its host.
     pub public_url: String,
+    /// Without it the shop shows drops but cannot take payments.
+    pub mollie_api_key_file: Option<PathBuf>,
+    /// Mollie's API base URL; tests point it at a local mock.
+    pub mollie_api_url: Option<String>,
+    /// Local time on the day before pickup when pickup reminders go out (F9).
+    pub pickup_reminder_at: Time,
     /// Where the contact form (F4f) sends messages. Without it the form shows the 500 page.
     pub contact_email: Option<String>,
 }
@@ -47,6 +57,8 @@ pub enum ConfigError {
         "PUBLIC_URL {0:?} must be an https URL without path, like https://broodvoorweldadigheid.nl; http only for localhost or 127.0.0.1"
     )]
     InvalidPublicUrl(String),
+    #[error("PICKUP_REMINDER_AT {0:?} must be a time like 18:00")]
+    InvalidPickupReminderAt(String),
     #[error("BAKERY_CONTACT_EMAIL {0:?} is not an email address")]
     InvalidContactEmail(String),
 }
@@ -61,6 +73,9 @@ impl std::fmt::Debug for Config {
             .field("gallery", &self.gallery)
             .field("dev_staff_login", &self.dev_staff_login)
             .field("public_url", &self.public_url)
+            .field("mollie_api_key_file", &self.mollie_api_key_file)
+            .field("mollie_api_url", &self.mollie_api_url)
+            .field("pickup_reminder_at", &self.pickup_reminder_at)
             .field("contact_email", &self.contact_email)
             .finish()
     }
@@ -114,6 +129,14 @@ impl Config {
         if !is_origin(&public_url) {
             return Err(ConfigError::InvalidPublicUrl(public_url));
         }
+        let mollie_api_key_file = lookup("MOLLIE_API_KEY_FILE")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+        let mollie_api_url = lookup("MOLLIE_API_URL").filter(|url| !url.is_empty());
+        let pickup_reminder_at = match lookup("PICKUP_REMINDER_AT").filter(|raw| !raw.is_empty()) {
+            None => jobs::order_emails::DEFAULT_REMINDER_AT,
+            Some(raw) => parse_hh_mm(&raw).ok_or(ConfigError::InvalidPickupReminderAt(raw))?,
+        };
         let contact_email = lookup("BAKERY_CONTACT_EMAIL")
             .filter(|raw| !raw.is_empty())
             .map(|raw| {
@@ -132,9 +155,31 @@ impl Config {
             gallery,
             dev_staff_login,
             public_url,
+            mollie_api_key_file,
+            mollie_api_url,
+            pickup_reminder_at,
             contact_email,
         })
     }
+
+    /// The host of [`Config::public_url`], such as `broodvoorweldadigheid.nl`.
+    pub fn public_host(&self) -> &str {
+        let rest = self
+            .public_url
+            .split_once("://")
+            .map_or(self.public_url.as_str(), |(_, rest)| rest);
+        rest.split([':', '/']).next().unwrap_or(rest)
+    }
+}
+
+/// `HH:MM`, 24-hour.
+fn parse_hh_mm(raw: &str) -> Option<Time> {
+    let (hour, minute) = raw.split_once(':')?;
+    let digits = |part: &str| part.len() == 2 && part.bytes().all(|b| b.is_ascii_digit());
+    if !digits(hour) || !digits(minute) {
+        return None;
+    }
+    Time::new(hour.parse().ok()?, minute.parse().ok()?, 0, 0).ok()
 }
 
 /// `https://`, a host of letters, digits, dots and dashes, an optional port, and nothing
@@ -211,6 +256,23 @@ mod tests {
             Err(ConfigError::NotPostgres)
         );
         assert!(Config::from_lookup(lookup(&[("DATABASE_URL", "postgresql://db/bakery")])).is_ok());
+    }
+
+    #[test]
+    fn pickup_reminders_default_to_six_in_the_evening() {
+        let db = ("DATABASE_URL", "postgres://db/bakery");
+        let config = Config::from_lookup(lookup(&[db])).expect("config");
+        assert_eq!(config.pickup_reminder_at, jiff::civil::time(18, 0, 0, 0));
+        let config =
+            Config::from_lookup(lookup(&[db, ("PICKUP_REMINDER_AT", "07:30")])).expect("config");
+        assert_eq!(config.pickup_reminder_at, jiff::civil::time(7, 30, 0, 0));
+        for bad in ["18", "24:00", "7:30", "+1:00", "18:00:00"] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[db, ("PICKUP_REMINDER_AT", bad)])),
+                Err(ConfigError::InvalidPickupReminderAt(bad.to_owned())),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
@@ -397,5 +459,40 @@ mod tests {
             ])),
             Err(ConfigError::DevStaffLoginBehindProxy)
         );
+    fn public_url_is_an_origin_and_gives_the_host() {
+        let config = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(config.public_url, "https://broodvoorweldadigheid.nl");
+        assert_eq!(config.public_host(), "broodvoorweldadigheid.nl");
+        assert_eq!(config.mollie_api_key_file, None);
+        let local = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("PUBLIC_URL", "https://localhost:8443"),
+            ("MOLLIE_API_KEY_FILE", "/run/secrets/mollie"),
+        ]))
+        .expect("config");
+        assert_eq!(local.public_host(), "localhost");
+        assert_eq!(
+            local.mollie_api_key_file,
+            Some(PathBuf::from("/run/secrets/mollie"))
+        );
+        for bad in [
+            "broodvoorweldadigheid.nl",
+            "https://broodvoorweldadigheid.nl/",
+            "https://broodvoorweldadigheid.nl/shop",
+            "https://user@host",
+            "https://host:",
+            "https://host:99999",
+            "ftp://host",
+        ] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("PUBLIC_URL", bad),
+                ])),
+                Err(ConfigError::InvalidPublicUrl(bad.to_string())),
+                "{bad}"
+            );
+        }
     }
 }

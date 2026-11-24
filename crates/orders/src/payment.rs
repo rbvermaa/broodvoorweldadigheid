@@ -1,7 +1,8 @@
 use bakedays::range;
 use db::time::{from_micros, to_micros};
 use domain::{
-    BakeDayId, CharityId, Clock, DonationAllocationId, Money, OrderId, PaymentId, PickupSlotId,
+    BakeDayId, CharityId, Clock, DonationAllocationId, Money, OrderId, PaymentId, PaymentStatus,
+    PickupSlotId,
 };
 use jiff::Timestamp;
 use sqlx::{Acquire, PgConnection};
@@ -220,37 +221,59 @@ pub async fn mark_paid(
     .await?;
     let before = order::get(&mut tx, id).await?;
 
-    if let Some(known) = find_payment(&mut tx, &payment.reference).await? {
-        if known.order_id != id {
+    let started = find_status(&mut tx, &payment.reference).await?;
+    if let Some((order_id, status)) = started {
+        if order_id != id {
             return Err(Error::PaymentOfOtherOrder);
         }
-        tx.commit().await?;
-        return Ok(match known.refund_reason {
-            None => PaidOutcome::AlreadyPaid(before),
-            Some(reason) => PaidOutcome::RefundDue {
-                order: before,
-                payment: known,
-                reason,
-            },
-        });
+        if status == PaymentStatus::Paid {
+            let known = find_payment(&mut tx, &payment.reference)
+                .await?
+                .ok_or(Error::NotFound)?;
+            tx.commit().await?;
+            return Ok(match known.refund_reason {
+                None => PaidOutcome::AlreadyPaid(before),
+                Some(reason) => PaidOutcome::RefundDue {
+                    order: before,
+                    payment: known,
+                    reason,
+                },
+            });
+        }
     }
 
     let now = clock.now();
     let reason = refusal(&before, &day, payment.amount, now);
-    sqlx::query!(
-        "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, refund_due,
-            refund_reason, received_at)
-        VALUES ($1, $2, $3, 'paid', $4, $5,
-            timestamptz 'epoch' + $6::bigint * interval '1 microsecond')",
-        id.get(),
-        payment.reference,
-        payment.amount.cents(),
-        reason.is_some(),
-        reason.map(RefundReason::as_str),
-        to_micros(now),
-    )
-    .execute(&mut *tx)
-    .await?;
+    if started.is_some() {
+        sqlx::query!(
+            "UPDATE payment SET status = 'paid', amount_cents = $2, refund_due = $3,
+                refund_reason = $4,
+                received_at = timestamptz 'epoch' + $5::bigint * interval '1 microsecond'
+            WHERE provider_payment_id = $1",
+            payment.reference,
+            payment.amount.cents(),
+            reason.is_some(),
+            reason.map(RefundReason::as_str),
+            to_micros(now),
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, refund_due,
+                refund_reason, received_at)
+            VALUES ($1, $2, $3, 'paid', $4, $5,
+                timestamptz 'epoch' + $6::bigint * interval '1 microsecond')",
+            id.get(),
+            payment.reference,
+            payment.amount.cents(),
+            reason.is_some(),
+            reason.map(RefundReason::as_str),
+            to_micros(now),
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     let recorded = find_payment(&mut tx, &payment.reference)
         .await?
         .ok_or(Error::NotFound)?;
@@ -419,6 +442,208 @@ pub async fn allocations(
         })
     })
     .collect()
+}
+
+const fn status_to_db(status: PaymentStatus) -> &'static str {
+    match status {
+        PaymentStatus::Open => "open",
+        PaymentStatus::Pending => "pending",
+        PaymentStatus::Authorized => "authorized",
+        PaymentStatus::Paid => "paid",
+        PaymentStatus::Failed => "failed",
+        PaymentStatus::Canceled => "canceled",
+        PaymentStatus::Expired => "expired",
+    }
+}
+
+fn status_from_db(text: &str) -> Result<PaymentStatus, Error> {
+    [
+        PaymentStatus::Open,
+        PaymentStatus::Pending,
+        PaymentStatus::Authorized,
+        PaymentStatus::Paid,
+        PaymentStatus::Failed,
+        PaymentStatus::Canceled,
+        PaymentStatus::Expired,
+    ]
+    .into_iter()
+    .find(|s| status_to_db(*s) == text)
+    .ok_or_else(|| Error::Corrupt(format!("payment status {text:?}")))
+}
+
+async fn find_status(
+    conn: &mut PgConnection,
+    reference: &str,
+) -> Result<Option<(OrderId, PaymentStatus)>, Error> {
+    sqlx::query!(
+        "SELECT order_id, status FROM payment WHERE provider_payment_id = $1",
+        reference,
+    )
+    .fetch_optional(conn)
+    .await?
+    .map(|row| Ok((OrderId::new(row.order_id), status_from_db(&row.status)?)))
+    .transpose()
+}
+
+/// Records a payment the provider has just created for `order`, as `open` (F5). A
+/// payment that is already recorded for this order is left as it is, so a replayed
+/// create changes nothing.
+///
+/// # Errors
+/// [`Error::PaymentOfOtherOrder`] when the reference belongs to another order.
+pub async fn payment_started(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    order: OrderId,
+    reference: &str,
+    amount: Money,
+) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    sqlx::query_scalar!(
+        r#"SELECT id FROM "order" WHERE id = $1 FOR UPDATE"#,
+        order.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let now = clock.now();
+    let inserted = sqlx::query!(
+        "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, received_at)
+        VALUES ($1, $2, $3, 'open', timestamptz 'epoch' + $4::bigint * interval '1 microsecond')
+        ON CONFLICT (provider_payment_id) DO NOTHING",
+        order.get(),
+        reference,
+        amount.cents(),
+        to_micros(now),
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    match find_status(&mut tx, reference).await? {
+        Some((owner, _)) if owner != order => return Err(Error::PaymentOfOtherOrder),
+        _ => {}
+    }
+    if inserted == 1 {
+        payment_audit(&mut tx, order, reference, None, PaymentStatus::Open, now).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Records a status the provider reported for a payment that is not paid (F5): open,
+/// pending, authorized, failed, canceled or expired. The order itself does not change: an
+/// unpaid order keeps its hold until it runs out. A payment in a final status (paid,
+/// failed, canceled, expired) never goes back to open, pending or authorized, so a stale
+/// report cannot reopen it; use [`mark_paid`] for paid.
+///
+/// Returns whether anything changed.
+///
+/// # Errors
+/// [`Error::Invalid`] for [`PaymentStatus::Paid`], [`Error::NotFound`] for an unknown
+/// order, [`Error::PaymentOfOtherOrder`] when the reference belongs to another order.
+pub async fn record_payment_status(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    order: OrderId,
+    reference: &str,
+    amount: Money,
+    status: PaymentStatus,
+) -> Result<bool, Error> {
+    if status == PaymentStatus::Paid {
+        return Err(Error::Invalid("payment status"));
+    }
+    let mut tx = conn.begin().await?;
+    sqlx::query_scalar!(
+        r#"SELECT id FROM "order" WHERE id = $1 FOR UPDATE"#,
+        order.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let now = clock.now();
+    let before = match find_status(&mut tx, reference).await? {
+        Some((owner, _)) if owner != order => return Err(Error::PaymentOfOtherOrder),
+        Some((_, known))
+            if known == status
+                || known == PaymentStatus::Paid
+                || (known.is_final() && !status.is_final()) =>
+        {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        Some((_, known)) => {
+            sqlx::query!(
+                "UPDATE payment SET status = $2 WHERE provider_payment_id = $1",
+                reference,
+                status_to_db(status),
+            )
+            .execute(&mut *tx)
+            .await?;
+            Some(known)
+        }
+        None => {
+            sqlx::query!(
+                "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status,
+                    received_at)
+                VALUES ($1, $2, $3, $4,
+                    timestamptz 'epoch' + $5::bigint * interval '1 microsecond')",
+                order.get(),
+                reference,
+                amount.cents(),
+                status_to_db(status),
+                to_micros(now),
+            )
+            .execute(&mut *tx)
+            .await?;
+            None
+        }
+    };
+    payment_audit(&mut tx, order, reference, before, status, now).await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
+async fn payment_audit(
+    conn: &mut PgConnection,
+    order: OrderId,
+    reference: &str,
+    before: Option<PaymentStatus>,
+    after: PaymentStatus,
+    now: Timestamp,
+) -> Result<(), Error> {
+    let snapshot = |status: PaymentStatus| serde_json::json!({ "reference": reference, "status": status_to_db(status) });
+    audit::record(
+        conn,
+        &Entry {
+            entity: "order",
+            entity_id: order.get(),
+            action: "payment_status",
+            before: before.map(snapshot),
+            after: Some(snapshot(after)),
+            actor: ACTOR,
+            at: now,
+        },
+    )
+    .await
+}
+
+/// The status of the order's most recently started or reported payment, if any.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn latest_payment_status(
+    conn: &mut PgConnection,
+    order: OrderId,
+) -> Result<Option<(String, PaymentStatus)>, Error> {
+    sqlx::query!(
+        "SELECT provider_payment_id, status FROM payment WHERE order_id = $1
+        ORDER BY received_at DESC, id DESC LIMIT 1",
+        order.get(),
+    )
+    .fetch_optional(conn)
+    .await?
+    .map(|row| Ok((row.provider_payment_id, status_from_db(&row.status)?)))
+    .transpose()
 }
 
 #[cfg(test)]

@@ -284,9 +284,13 @@ async fn a_day_that_opens_with_its_menu_gets_only_the_ordering_alert(pool: PgPoo
     .await;
     let sender = Arc::new(FakeEmailSender::new());
     let mail = Mail {
-        sender: Arc::clone(&sender) as Arc<dyn EmailSender>,
+        sender: Some(Arc::clone(&sender) as Arc<dyn EmailSender>),
         i18n: Arc::new(i18n()),
         links: links(),
+        orders: Arc::new(jobs::OrderEmails::new(
+            Arc::new(i18n()),
+            "https://shop.example.org",
+        )),
     };
     // The confirmation emails of setup() go out on the first tick too.
     clock.set(ts("2026-10-26T08:00:00Z"));

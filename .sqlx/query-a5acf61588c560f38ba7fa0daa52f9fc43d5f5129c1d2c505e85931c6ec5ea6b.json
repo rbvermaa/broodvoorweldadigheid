@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.status, (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\"\n        FROM \"order\" o JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        WHERE o.id = $1 FOR SHARE OF o",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "starts_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "a5acf61588c560f38ba7fa0daa52f9fc43d5f5129c1d2c505e85931c6ec5ea6b"
+}
