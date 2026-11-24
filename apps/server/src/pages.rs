@@ -2,10 +2,28 @@ use askama::Template;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use i18n::Translator;
+use i18n::{FluentArgs, Translator};
 
 use crate::assets;
+use crate::icons::Icon;
 use crate::state::AppState;
+
+/// An `i64`, however many references deep askama passes it.
+pub trait Whole {
+    fn whole(&self) -> i64;
+}
+
+impl Whole for i64 {
+    fn whole(&self) -> i64 {
+        *self
+    }
+}
+
+impl<T: Whole + ?Sized> Whole for &T {
+    fn whole(&self) -> i64 {
+        (**self).whole()
+    }
+}
 
 /// What every page passes to `base.html`.
 pub struct Layout<'a> {
@@ -31,6 +49,36 @@ impl<'a> Layout<'a> {
 
     pub fn t(&self, id: &str) -> askama::Result<String> {
         self.i18n.t(id, None).map_err(askama::Error::custom)
+    }
+
+    /// For messages that select on a count, such as plurals.
+    pub fn t_count(&self, id: &str, n: impl Whole) -> askama::Result<String> {
+        let mut args = FluentArgs::new();
+        args.set("n", n.whole());
+        self.i18n.t(id, Some(&args)).map_err(askama::Error::custom)
+    }
+
+    pub fn money(&self, cents: impl Whole) -> String {
+        i18n::money(cents.whole())
+    }
+
+    /// The Dutch name of a domain allergen code.
+    pub fn allergen(&self, code: &str) -> askama::Result<String> {
+        self.t(&format!("allergen-{code}"))
+    }
+
+    pub fn allergen_icon(&self, code: &str) -> askama::Result<Icon> {
+        Icon::allergen(code).map_err(askama::Error::custom)
+    }
+
+    /// A decorative icon, hidden from screen readers.
+    pub fn icon(&self, name: &str) -> askama::Result<Icon> {
+        Icon::named(name).map_err(askama::Error::custom)
+    }
+
+    /// An icon that stands alone, read out as `label`.
+    pub fn icon_labelled(&self, name: &str, label: &str) -> askama::Result<Icon> {
+        Ok(self.icon(name)?.labelled(label))
     }
 
     pub fn asset(&self, name: &str) -> String {

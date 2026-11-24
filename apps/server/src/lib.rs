@@ -1,9 +1,14 @@
 #![forbid(unsafe_code)]
 
 pub mod assets;
+pub mod components;
 pub mod config;
 pub mod csrf;
+pub mod gallery;
 pub mod healthcheck;
+#[cfg(test)]
+mod icon_set;
+pub mod icons;
 pub mod pages;
 pub mod rate_limit;
 pub mod security;
@@ -33,7 +38,11 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
-    with_shell(Router::new().route("/", get(pages::home)), state)
+    let mut routes = Router::new().route("/", get(pages::home));
+    if state.config.gallery {
+        routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
+    }
+    with_shell(routes, state)
 }
 
 /// Wraps `routes` with what every page needs: the Dutch 404 and 405 pages, CSRF checks,
@@ -48,7 +57,7 @@ pub fn with_shell(routes: Router<AppState>, state: AppState) -> Router {
         .layer(sessions);
     Router::new()
         .route("/health", get(health))
-        .route("/static/{name}", get(assets::serve))
+        .route("/static/{*name}", get(assets::serve))
         .merge(sessioned)
         .layer(middleware::map_response(security::headers))
         .with_state(state)

@@ -10,6 +10,8 @@ pub struct Config {
     pub cookie_secure: bool,
     /// The reverse proxy whose X-Forwarded-For is believed for rate limiting.
     pub trusted_proxy: Option<IpAddr>,
+    /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
+    pub gallery: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -24,6 +26,8 @@ pub enum ConfigError {
     InvalidCookieSecure(String),
     #[error("TRUSTED_PROXY {0:?} is not an IP address like 10.89.0.10")]
     InvalidTrustedProxy(String),
+    #[error("GALLERY {0:?} must be true or false")]
+    InvalidGallery(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -33,6 +37,7 @@ impl std::fmt::Debug for Config {
             .field("database_url", &"<redacted>")
             .field("cookie_secure", &self.cookie_secure)
             .field("trusted_proxy", &self.trusted_proxy)
+            .field("gallery", &self.gallery)
             .finish()
     }
 }
@@ -65,11 +70,17 @@ impl Config {
                     .map_err(|_| ConfigError::InvalidTrustedProxy(raw))
             })
             .transpose()?;
+        let gallery = match lookup("GALLERY").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(other) => return Err(ConfigError::InvalidGallery(other.to_string())),
+        };
         Ok(Self {
             bind_addr,
             database_url,
             cookie_secure,
             trusted_proxy,
+            gallery,
         })
     }
 }
@@ -94,6 +105,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://db/bakery");
         assert!(config.cookie_secure);
         assert_eq!(config.trusted_proxy, None);
+        assert!(!config.gallery);
     }
 
     #[test]
@@ -184,6 +196,23 @@ mod tests {
                 ("TRUSTED_PROXY", "caddy"),
             ])),
             Err(ConfigError::InvalidTrustedProxy("caddy".to_string()))
+        );
+    }
+
+    #[test]
+    fn gallery_is_off_unless_turned_on() {
+        let on = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("GALLERY", "true"),
+        ]))
+        .expect("config");
+        assert!(on.gallery);
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("GALLERY", "ja"),
+            ])),
+            Err(ConfigError::InvalidGallery("ja".to_string()))
         );
     }
 }

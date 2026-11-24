@@ -1,0 +1,54 @@
+{# Form fields. kind: text, email, number, money or textarea. #}
+{% macro label(name, label, required) %}
+<label class="field-label" for="{{ name }}">{{ label }}
+{%- if required %} <span class="field-required">({{ layout.t("field-required")? }})</span>{% endif %}</label>
+{% endmacro %}
+
+{% macro help(name, hint, error) %}
+{%- if !hint.is_empty() %}<p class="field-hint" id="{{ name }}-hint">{{ hint }}</p>{% endif %}
+{%- if !error.is_empty() %}<p class="field-error" id="{{ name }}-error">{{ layout.icon("circle-alert")? }}<span class="visually-hidden">{{ layout.t("field-error-label")? }}</span> {{ error }}</p>{% endif %}
+{% endmacro %}
+
+{% macro described(name, hint, error, required, disabled) %}
+{%- if !hint.is_empty() || !error.is_empty() %} aria-describedby="{% if !hint.is_empty() %}{{ name }}-hint{% endif %}{% if !hint.is_empty() && !error.is_empty() %} {% endif %}{% if !error.is_empty() %}{{ name }}-error{% endif %}"{% endif %}
+{%- if !error.is_empty() %} aria-invalid="true"{% endif %}
+{%- if required %} required{% endif %}
+{%- if disabled %} disabled{% endif %}
+{%- endmacro %}
+
+{% macro field(kind, name, label, value = "", hint = "", error = "", required = false, disabled = false) %}
+<div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
+{% call label(name, label, required) %}{% endcall %}
+{% call help(name, hint, error) %}{% endcall %}
+{%- if kind == "textarea" %}
+<textarea class="field-input" id="{{ name }}" name="{{ name }}" rows="3"{% call described(name, hint, error, required, disabled) %}{% endcall %}>{{ value }}</textarea>
+{%- else if kind == "money" %}
+<div class="field-money"><span class="field-prefix" aria-hidden="true">€</span><input class="field-input" type="text" inputmode="decimal" autocomplete="off" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}></div>
+{%- else if kind == "number" %}
+<input class="field-input field-input-number" type="number" inputmode="numeric" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
+{%- else %}
+<input class="field-input" type="{{ kind }}" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
+{%- endif %}
+</div>
+{% endmacro %}
+
+{% macro select(name, label, options, hint = "", error = "", required = false, disabled = false) %}
+<div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
+{% call label(name, label, required) %}{% endcall %}
+{% call help(name, hint, error) %}{% endcall %}
+<select class="field-input" id="{{ name }}" name="{{ name }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
+<option value="">{{ layout.t("select-placeholder")? }}</option>
+{%- for option in options %}
+<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+{%- endfor %}
+</select>
+</div>
+{% endmacro %}
+
+{% macro checkbox(name, label, checked = false, error = "", required = false, disabled = false) %}
+<div class="field field-check{% if !error.is_empty() %} field-invalid{% endif %}">
+{% call help(name, "", error) %}{% endcall %}
+<input class="field-checkbox" type="checkbox" id="{{ name }}" name="{{ name }}" value="ja"{% if checked %} checked{% endif %}{% call described(name, "", error, required, disabled) %}{% endcall %}>
+{% call label(name, label, required) %}{% endcall %}
+</div>
+{% endmacro %}

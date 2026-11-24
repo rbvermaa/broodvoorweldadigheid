@@ -41,6 +41,13 @@
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
           htmx = pkgs.callPackage ./nix/htmx.nix { };
+          fonts = pkgs.callPackage ./nix/fonts.nix { };
+          lucide = pkgs.callPackage ./nix/lucide.nix { };
+          assetEnv = {
+            HTMX_JS = "${htmx}";
+            FONTS_DIR = "${fonts}";
+            LUCIDE_DIR = "${lucide}";
+          };
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -49,6 +56,7 @@
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
               ./design
               ./templates
+              ./apps/server/tests/snapshots
             ];
           };
           commonArgs = {
@@ -56,8 +64,8 @@
             pname = "bakflow";
             version = "0.1.0";
             strictDeps = true;
-            HTMX_JS = "${htmx}";
-          };
+          }
+          // assetEnv;
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           postgresql = pkgs.postgresql_17;
           postgres = import ./nix/postgres.nix { inherit postgresql; };
@@ -82,7 +90,7 @@
             cargoArtifacts
             postgresql
             postgres
-            htmx
+            assetEnv
             cli
             ;
         };
@@ -228,26 +236,33 @@
       );
 
       devShells = forAllSystems (
-        { pkgs, craneLib, htmx, ... }:
         {
-          default = craneLib.devShell {
-            HTMX_JS = "${htmx}";
-            checks = self.checks.${pkgs.stdenv.hostPlatform.system};
-            packages = with pkgs; [
-              gnumake
-              postgresql_17
-              sqlx-cli
-              cargo-nextest
-              cargo-llvm-cov
-              cargo-deny
-              cargo-audit
-              rustic
-              curl
-              sops
-              age
-              typst
-            ];
-          };
+          pkgs,
+          craneLib,
+          assetEnv,
+          ...
+        }:
+        {
+          default = craneLib.devShell (
+            assetEnv
+            // {
+              checks = self.checks.${pkgs.stdenv.hostPlatform.system};
+              packages = with pkgs; [
+                gnumake
+                postgresql_17
+                sqlx-cli
+                cargo-nextest
+                cargo-llvm-cov
+                cargo-deny
+                cargo-audit
+                rustic
+                curl
+                sops
+                age
+                typst
+              ];
+            }
+          );
         }
       );
 

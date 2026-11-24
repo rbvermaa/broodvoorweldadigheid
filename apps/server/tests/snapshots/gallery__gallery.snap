@@ -1,0 +1,559 @@
+---
+source: apps/server/tests/gallery.rs
+expression: without_asset_hashes(&gallery_html(&state))
+---
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Componenten · Brood voor Weldadigheid</title>
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
+<meta name="csrf-token" content="test-token">
+<link rel="stylesheet" href="/static/fonts.css?v=HASH">
+<link rel="stylesheet" href="/static/tokens.css?v=HASH">
+<link rel="stylesheet" href="/static/app.css?v=HASH">
+<link rel="stylesheet" href="/static/components.css?v=HASH">
+<script src="/static/htmx.min.js?v=HASH" defer></script>
+<script src="/static/app.js?v=HASH" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#inhoud">Naar de inhoud</a>
+<header class="site-header">
+<a class="site-name" href="/">Brood voor Weldadigheid</a>
+</header>
+<main id="inhoud" class="site-main">
+
+<h1>Componenten</h1>
+<p>Elke component in elke toestand: normaal, uitgeschakeld, fout, leeg en met lange woorden.</p>
+
+<section class="gallery-section" aria-labelledby="gallery-buttons">
+<h2 id="gallery-buttons">Knoppen</h2>
+<div class="gallery-row">
+
+<button type="button" class="button button-primary"><span class="button-label">Opslaan</span></button>
+
+
+<button type="button" class="button button-secondary"><span class="button-label">Terug</span></button>
+
+
+<button type="button" class="button button-danger"><span class="button-label">Bakdag annuleren</span></button>
+
+
+<button type="button" class="button button-primary" disabled><span class="button-label">Niet beschikbaar</span></button>
+
+
+<button type="button" class="button button-secondary" disabled><span class="button-label">Niet beschikbaar</span></button>
+
+
+<button type="button" class="button button-primary" disabled aria-busy="true"><span class="button-spinner"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Bezig…"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg></span><span class="button-label">Opslaan</span></button>
+
+
+<button type="button" class="button button-primary"><span class="button-label">Ophaalmomentvoorkeursinstellingen opslaan</span></button>
+
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-fields">
+<h2 id="gallery-fields">Formuliervelden</h2>
+<form class="gallery-form" action="/gallery" method="post">
+
+<div class="field">
+
+<label class="field-label" for="naam">Naam <span class="field-required">(verplicht)</span></label>
+
+<p class="field-hint" id="naam-hint">Zoals op je bestelling komt te staan.</p>
+
+<input class="field-input" type="text" id="naam" name="naam" value="" aria-describedby="naam-hint" required>
+</div>
+
+
+<div class="field field-invalid">
+
+<label class="field-label" for="email">E-mailadres <span class="field-required">(verplicht)</span></label>
+
+<p class="field-error" id="email-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Vul een geldig e-mailadres in, zoals naam@voorbeeld.nl.</p>
+
+<input class="field-input" type="email" id="email" name="email" value="naam@" aria-describedby="email-error" aria-invalid="true" required>
+</div>
+
+
+<div class="field field-invalid">
+
+<label class="field-label" for="aantal">Aantal broden</label>
+
+<p class="field-error" id="aantal-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Kies minstens 1 brood.</p>
+
+<input class="field-input field-input-number" type="number" inputmode="numeric" id="aantal" name="aantal" value="0" aria-describedby="aantal-error" aria-invalid="true">
+</div>
+
+
+<div class="field">
+
+<label class="field-label" for="prijs">Prijs</label>
+
+<p class="field-hint" id="prijs-hint">Inclusief btw.</p>
+
+<div class="field-money"><span class="field-prefix" aria-hidden="true">€</span><input class="field-input" type="text" inputmode="decimal" autocomplete="off" id="prijs" name="prijs" value="4,50" aria-describedby="prijs-hint"></div>
+</div>
+
+
+<div class="field">
+
+<label class="field-label" for="opmerking">Opmerking</label>
+
+<p class="field-hint" id="opmerking-hint">Bijvoorbeeld: graag gesneden.</p>
+
+<textarea class="field-input" id="opmerking" name="opmerking" rows="3" aria-describedby="opmerking-hint"></textarea>
+</div>
+
+
+<div class="field">
+
+<label class="field-label" for="lang">Zuurdesemvolkorenbrood met zonnebloempitten</label>
+
+
+
+<input class="field-input" type="text" id="lang" name="lang" value="Zuurdesemvolkorenbrood met zonnebloempitten">
+</div>
+
+
+<div class="field">
+
+<label class="field-label" for="uit">Uitgeschakeld veld</label>
+
+
+
+<input class="field-input" type="text" id="uit" name="uit" value="Niet beschikbaar" disabled>
+</div>
+
+
+<div class="field">
+
+<label class="field-label" for="doel">Goed doel <span class="field-required">(verplicht)</span></label>
+
+
+
+<select class="field-input" id="doel" name="doel" required>
+<option value="">Kies…</option>
+<option value="voedselbank">Voedselbank Westerveld</option>
+<option value="kinderhulp" selected>Stichting Kinderhulp Frederiksoord</option>
+</select>
+</div>
+
+
+<div class="field field-invalid">
+
+<label class="field-label" for="doel-fout">Goed doel</label>
+
+<p class="field-error" id="doel-fout-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Kies een goed doel.</p>
+
+<select class="field-input" id="doel-fout" name="doel-fout" aria-describedby="doel-fout-error" aria-invalid="true">
+<option value="">Kies…</option>
+<option value="voedselbank">Voedselbank Westerveld</option>
+<option value="kinderhulp" selected>Stichting Kinderhulp Frederiksoord</option>
+</select>
+</div>
+
+
+<div class="field field-check">
+
+
+<input class="field-checkbox" type="checkbox" id="akkoord" name="akkoord" value="ja" required>
+
+<label class="field-label" for="akkoord">Ik ga akkoord met de voorwaarden <span class="field-required">(verplicht)</span></label>
+
+</div>
+
+
+<div class="field field-check field-invalid">
+<p class="field-error" id="akkoord-fout-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Je moet akkoord gaan om te bestellen.</p>
+
+<input class="field-checkbox" type="checkbox" id="akkoord-fout" name="akkoord-fout" value="ja" aria-describedby="akkoord-fout-error" aria-invalid="true" required>
+
+<label class="field-label" for="akkoord-fout">Ik ga akkoord met de voorwaarden <span class="field-required">(verplicht)</span></label>
+
+</div>
+
+
+<div class="field field-check">
+
+
+<input class="field-checkbox" type="checkbox" id="akkoord-uit" name="akkoord-uit" value="ja" checked disabled>
+
+<label class="field-label" for="akkoord-uit">Ik ga akkoord met de voorwaarden</label>
+
+</div>
+
+</form>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-products">
+<h2 id="gallery-products">Producttegels</h2>
+<div class="product-grid">
+
+<article class="product-tile">
+<h3 class="product-name">Zuurdesemvolkorenbrood met zonnebloempitten</h3>
+<p class="product-description">Langzaam gerezen, met een krokante korst.</p>
+
+<span class="price">€ 6,50</span>
+
+
+<p class="allergen-heading">Bevat</p>
+<ul class="allergen-list">
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg><span>Glutenbevattende granen</span></li>
+
+</ul>
+
+
+<p class="allergen-heading">Kan sporen bevatten van</p>
+<ul class="allergen-list">
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="12" r="10" /></svg><span>Sesamzaad</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M16.847 5.847 20 9a7.23 7.23 0 011.551 7.516C21.241 17.352 21 17.932 21 19v1a1 1 0 01-1 1h-1c-1.069 0-1.648.242-2.485.552A7.2 7.2 0 019.002 20l-3.155-3.153" /><path d="M18.21 5.43c-1.71.69-5.07 1.07-6.71 1.07.46 1.38.91 2.74.61 4.88a.88.88 0 01-.73.74c-1.78.28-3.54-.17-4.88-.62 0 1.64-.38 5-1.07 6.71-.21.52-.82.55-1.17.12A10 10 0 0118.33 4.26c.43.35.4.97-.12 1.17" /><path d="M4.93 4.93 3 3a.7.7 0 010-1" /></svg><span>Noten</span></li>
+
+</ul>
+
+
+<button type="button" class="button button-primary"><span class="button-label">In je mandje</span></button>
+
+</article>
+
+
+<article class="product-tile product-tile-sold-out">
+<h3 class="product-name">Desem wit</h3>
+<p class="product-description">Licht en luchtig.</p>
+
+<span class="price">€ 4,50</span>
+
+
+<p class="allergen-heading">Bevat</p>
+<ul class="allergen-list">
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg><span>Glutenbevattende granen</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2h8" /><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2" /><path d="M7 15a6.472 6.472 0 0 1 5 0 6.47 6.47 0 0 0 5 0" /></svg><span>Melk</span></li>
+
+</ul>
+
+
+
+<p class="product-status">Uitverkocht</p>
+
+<button type="button" class="button button-primary" disabled><span class="button-label">In je mandje</span></button>
+
+</article>
+
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-allergens">
+<h2 id="gallery-allergens">Allergenen</h2>
+
+<p class="allergen-heading">Bevat</p>
+<ul class="allergen-list">
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22c1.25-.987 2.27-1.975 3.9-2.2a5.56 5.56 0 0 1 3.8 1.5 4 4 0 0 0 6.187-2.353 3.5 3.5 0 0 0 3.69-5.116A3.5 3.5 0 0 0 20.95 8 3.5 3.5 0 1 0 16 3.05a3.5 3.5 0 0 0-5.831 1.373 3.5 3.5 0 0 0-5.116 3.69 4 4 0 0 0-2.348 6.155C3.499 15.42 4.409 16.712 4.2 18.1 3.926 19.743 3.014 20.732 2 22" /><path d="M2 22 17 7" /></svg><span>Selderij</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg><span>Glutenbevattende granen</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10 2a3.28 3.28 0 003.227 1.798l6.17-.561A1 1 0 1119.614 8H8.5a6.44 6.44 0 00-5.63 9.75A6.5 6.5 0 008.5 21c1.38 0 2-.5 2.5-1" /><path d="M10 8a8.5 8.5 0 000 8" /><path d="M11 22c-.5-.5-1.12-1-2.5-1a1 1 0 010-5H12a7 7 0 007-7V8" /><path d="M13 12h.01" /><path d="M8 16c-2 0-4.5-4-4-6" /></svg><span>Schaaldieren</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 2C8 2 4 8 4 14a8 8 0 0 0 16 0c0-6-4-12-8-12" /></svg><span>Eieren</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z" /><path d="M18 12v.5" /><path d="M16 17.93a9.77 9.77 0 0 1 0-11.86" /><path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33" /><path d="M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4" /><path d="m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98" /></svg><span>Vis</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1" /><circle cx="12" cy="8" r="2" /><path d="M12 10v12" /><path d="M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z" /><path d="M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z" /></svg><span>Lupine</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2h8" /><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2" /><path d="M7 15a6.472 6.472 0 0 1 5 0 6.47 6.47 0 0 0 5 0" /></svg><span>Melk</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 11a2 2 0 1 1-4 0 4 4 0 0 1 8 0 6 6 0 0 1-12 0 8 8 0 0 1 16 0 10 10 0 1 1-20 0 11.93 11.93 0 0 1 2.42-7.22 2 2 0 1 1 3.16 2.44" /></svg><span>Weekdieren</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></svg><span>Mosterd</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M16.847 5.847 20 9a7.23 7.23 0 011.551 7.516C21.241 17.352 21 17.932 21 19v1a1 1 0 01-1 1h-1c-1.069 0-1.648.242-2.485.552A7.2 7.2 0 019.002 20l-3.155-3.153" /><path d="M18.21 5.43c-1.71.69-5.07 1.07-6.71 1.07.46 1.38.91 2.74.61 4.88a.88.88 0 01-.73.74c-1.78.28-3.54-.17-4.88-.62 0 1.64-.38 5-1.07 6.71-.21.52-.82.55-1.17.12A10 10 0 0118.33 4.26c.43.35.4.97-.12 1.17" /><path d="M4.93 4.93 3 3a.7.7 0 010-1" /></svg><span>Noten</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10.165 6.598C9.954 7.478 9.64 8.36 9 9c-.64.64-1.521.954-2.402 1.165A6 6 0 0 0 8 22c7.732 0 14-6.268 14-14a6 6 0 0 0-11.835-1.402Z" /><path d="M5.341 10.62a4 4 0 1 0 5.279-5.28" /></svg><span>Pinda&#39;s</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="12" r="10" /></svg><span>Sesamzaad</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3" /><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4" /><path d="M5 21h14" /></svg><span>Soja</span></li>
+
+
+<li class="allergen-badge"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 22h8" /><path d="M7 10h10" /><path d="M12 15v7" /><path d="M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z" /></svg><span>Zwaveldioxide en sulfieten</span></li>
+
+</ul>
+
+
+<p class="allergen-heading">Kan sporen bevatten van</p>
+<ul class="allergen-list">
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22c1.25-.987 2.27-1.975 3.9-2.2a5.56 5.56 0 0 1 3.8 1.5 4 4 0 0 0 6.187-2.353 3.5 3.5 0 0 0 3.69-5.116A3.5 3.5 0 0 0 20.95 8 3.5 3.5 0 1 0 16 3.05a3.5 3.5 0 0 0-5.831 1.373 3.5 3.5 0 0 0-5.116 3.69 4 4 0 0 0-2.348 6.155C3.499 15.42 4.409 16.712 4.2 18.1 3.926 19.743 3.014 20.732 2 22" /><path d="M2 22 17 7" /></svg><span>Selderij</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg><span>Glutenbevattende granen</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10 2a3.28 3.28 0 003.227 1.798l6.17-.561A1 1 0 1119.614 8H8.5a6.44 6.44 0 00-5.63 9.75A6.5 6.5 0 008.5 21c1.38 0 2-.5 2.5-1" /><path d="M10 8a8.5 8.5 0 000 8" /><path d="M11 22c-.5-.5-1.12-1-2.5-1a1 1 0 010-5H12a7 7 0 007-7V8" /><path d="M13 12h.01" /><path d="M8 16c-2 0-4.5-4-4-6" /></svg><span>Schaaldieren</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 2C8 2 4 8 4 14a8 8 0 0 0 16 0c0-6-4-12-8-12" /></svg><span>Eieren</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z" /><path d="M18 12v.5" /><path d="M16 17.93a9.77 9.77 0 0 1 0-11.86" /><path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33" /><path d="M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4" /><path d="m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98" /></svg><span>Vis</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1" /><circle cx="12" cy="8" r="2" /><path d="M12 10v12" /><path d="M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z" /><path d="M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z" /></svg><span>Lupine</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2h8" /><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2" /><path d="M7 15a6.472 6.472 0 0 1 5 0 6.47 6.47 0 0 0 5 0" /></svg><span>Melk</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 11a2 2 0 1 1-4 0 4 4 0 0 1 8 0 6 6 0 0 1-12 0 8 8 0 0 1 16 0 10 10 0 1 1-20 0 11.93 11.93 0 0 1 2.42-7.22 2 2 0 1 1 3.16 2.44" /></svg><span>Weekdieren</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></svg><span>Mosterd</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M16.847 5.847 20 9a7.23 7.23 0 011.551 7.516C21.241 17.352 21 17.932 21 19v1a1 1 0 01-1 1h-1c-1.069 0-1.648.242-2.485.552A7.2 7.2 0 019.002 20l-3.155-3.153" /><path d="M18.21 5.43c-1.71.69-5.07 1.07-6.71 1.07.46 1.38.91 2.74.61 4.88a.88.88 0 01-.73.74c-1.78.28-3.54-.17-4.88-.62 0 1.64-.38 5-1.07 6.71-.21.52-.82.55-1.17.12A10 10 0 0118.33 4.26c.43.35.4.97-.12 1.17" /><path d="M4.93 4.93 3 3a.7.7 0 010-1" /></svg><span>Noten</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10.165 6.598C9.954 7.478 9.64 8.36 9 9c-.64.64-1.521.954-2.402 1.165A6 6 0 0 0 8 22c7.732 0 14-6.268 14-14a6 6 0 0 0-11.835-1.402Z" /><path d="M5.341 10.62a4 4 0 1 0 5.279-5.28" /></svg><span>Pinda&#39;s</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="12" r="10" /></svg><span>Sesamzaad</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3" /><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4" /><path d="M5 21h14" /></svg><span>Soja</span></li>
+
+
+<li class="allergen-badge allergen-badge-may"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 22h8" /><path d="M7 10h10" /><path d="M12 15v7" /><path d="M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z" /></svg><span>Zwaveldioxide en sulfieten</span></li>
+
+</ul>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-prices">
+<h2 id="gallery-prices">Prijzen</h2>
+<div class="gallery-row">
+
+<span class="price">€ 0,00</span>
+
+
+<span class="price">€ 4,50</span>
+
+
+<span class="price">€ 1.234,56</span>
+
+
+<span class="price">€ -4,50</span>
+
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-pickup">
+<h2 id="gallery-pickup">Ophaalmoment kiezen</h2>
+
+<fieldset class="pickup">
+<legend class="field-label">Wanneer haal je je bestelling op?</legend>
+<ul class="pickup-list">
+<li>
+<input class="pickup-input" type="radio" id="ophaal-1" name="ophaal" value="vr-middag">
+<label class="pickup-option" for="ophaal-1">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>vrijdag 4 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>14:00–16:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Nog 1 plek</span>
+</label>
+</li>
+<li>
+<input class="pickup-input" type="radio" id="ophaal-2" name="ophaal" value="za-ochtend" checked>
+<label class="pickup-option" for="ophaal-2">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>zaterdag 5 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>10:00–12:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Nog 12 plekken</span>
+</label>
+</li>
+<li>
+<input class="pickup-input" type="radio" id="ophaal-3" name="ophaal" value="zo-ochtend" disabled>
+<label class="pickup-option" for="ophaal-3">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>zondag 6 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>10:00–12:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Vol</span>
+</label>
+</li>
+</ul>
+</fieldset>
+
+
+<fieldset class="pickup field-invalid" aria-describedby="ophaal-fout-error">
+<legend class="field-label">Wanneer haal je je bestelling op?</legend>
+<p class="field-error" id="ophaal-fout-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Kies een ophaalmoment.</p>
+<ul class="pickup-list">
+<li>
+<input class="pickup-input" type="radio" id="ophaal-fout-1" name="ophaal-fout" value="vr-middag">
+<label class="pickup-option" for="ophaal-fout-1">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>vrijdag 4 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>14:00–16:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Nog 1 plek</span>
+</label>
+</li>
+<li>
+<input class="pickup-input" type="radio" id="ophaal-fout-2" name="ophaal-fout" value="za-ochtend" checked>
+<label class="pickup-option" for="ophaal-fout-2">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>zaterdag 5 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>10:00–12:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Nog 12 plekken</span>
+</label>
+</li>
+<li>
+<input class="pickup-input" type="radio" id="ophaal-fout-3" name="ophaal-fout" value="zo-ochtend" disabled>
+<label class="pickup-option" for="ophaal-fout-3">
+<span class="pickup-day"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg>zondag 6 december</span>
+<span class="pickup-time"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg>10:00–12:00</span>
+<span class="pickup-place">Kerkweg, Frederiksoord</span>
+<span class="pickup-note">Vol</span>
+</label>
+</li>
+</ul>
+</fieldset>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-tables">
+<h2 id="gallery-tables">Tabellen</h2>
+
+<div class="table-wrap" role="region" aria-labelledby="bakdag-caption" tabindex="0">
+<table class="table">
+<caption class="table-caption" id="bakdag-caption">Bestellingen voor de bakdag</caption>
+<thead><tr><th scope="col">Product</th><th scope="col" class="table-number">Aantal</th><th scope="col" class="table-number">Totaal</th></tr></thead>
+<tbody>
+<tr><td>Zuurdesemvolkorenbrood met zonnebloempitten</td><td class="table-number">12</td><td class="table-number">€ 78,00</td></tr>
+<tr><td>Desem wit</td><td class="table-number">3</td><td class="table-number">€ 13,50</td></tr>
+</tbody>
+</table>
+</div>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-alerts">
+<h2 id="gallery-alerts">Meldingen</h2>
+
+<div class="alert alert-info" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Info"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg><p class="alert-text">De bestel-deadline is vrijdag om 20:00.</p>
+</div>
+
+
+<div class="alert alert-success" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Gelukt"><circle cx="12" cy="12" r="10" /><path d="m16 9-5.5 5.5L8 12" /></svg><p class="alert-text">Je bestelling is geplaatst.</p>
+</div>
+
+
+<div class="alert alert-warning" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Let op"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg><p class="alert-text">Nog maar 2 broden over voor deze bakdag.</p>
+</div>
+
+
+<div class="alert alert-error" role="alert"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Fout"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><p class="alert-text">Betalen lukte niet. Probeer het nog eens.</p>
+</div>
+
+
+<div class="alert alert-info" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Info"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg><p class="alert-text">Zuurdesemvolkorenbrood met zonnebloempitten</p>
+</div>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-empty">
+<h2 id="gallery-empty">Lege toestand</h2>
+
+<div class="empty-state">
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+<p class="empty-state-title">Nog geen bestellingen</p>
+<p class="empty-state-text">Zodra iemand bestelt, zie je de bestelling hier.</p>
+</div>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-dialog">
+<h2 id="gallery-dialog">Bevestigen</h2>
+
+<button type="button" class="button button-danger" data-dialog-open="bakdag-annuleren" aria-haspopup="dialog"><span class="button-label">Bakdag annuleren</span></button>
+
+
+<dialog class="dialog" id="bakdag-annuleren" aria-labelledby="bakdag-annuleren-title" aria-describedby="bakdag-annuleren-text">
+<form class="dialog-form" method="post" action="/gallery" hx-post="/gallery" hx-target="#bakdag-annuleren-result">
+<input type="hidden" name="_csrf" value="test-token">
+<h2 class="dialog-title" id="bakdag-annuleren-title">Bakdag van zaterdag annuleren?</h2>
+<p class="dialog-text" id="bakdag-annuleren-text">Alle 12 bestellingen worden geannuleerd en 12 klanten krijgen hun geld terug. Dit kun je niet ongedaan maken.</p>
+<div class="dialog-actions">
+<button type="button" class="button button-secondary" data-dialog-close>Annuleren</button>
+<button type="submit" class="button button-danger">Ja, annuleer de bakdag</button>
+</div>
+</form>
+</dialog>
+<div id="bakdag-annuleren-result"></div>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-saved">
+<h2 id="gallery-saved">Opslaan</h2>
+
+<p class="saved" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg><span>Opgeslagen</span></p>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-icons">
+<h2 id="gallery-icons">Iconen</h2>
+<ul class="icon-list">
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10.165 6.598C9.954 7.478 9.64 8.36 9 9c-.64.64-1.521.954-2.402 1.165A6 6 0 0 0 8 22c7.732 0 14-6.268 14-14a6 6 0 0 0-11.835-1.402Z" /><path d="M5.341 10.62a4 4 0 1 0 5.279-5.28" /></svg><code>bean</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2v3" /><path d="M16 2v3" /><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /></svg><code>calendar</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg><code>check</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><code>circle-alert</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="m16 9-5.5 5.5L8 12" /></svg><code>circle-check</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="1" /><circle cx="12" cy="12" r="10" /></svg><code>circle-dot</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></svg><code>clock</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 2C8 2 4 8 4 14a8 8 0 0 0 16 0c0-6-4-12-8-12" /></svg><code>egg</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z" /><path d="M18 12v.5" /><path d="M16 17.93a9.77 9.77 0 0 1 0-11.86" /><path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33" /><path d="M10.46 7.26C10.2 5.88 9.17 4.24 8 3h5.8a2 2 0 0 1 1.98 1.67l.23 1.4" /><path d="m16.01 17.93-.23 1.4A2 2 0 0 1 13.8 21H9.5a5.96 5.96 0 0 0 1.49-3.98" /></svg><code>fish</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 3q1 4 4 6.5t3 5.5a1 1 0 0 1-14 0 5 5 0 0 1 1-3 1 1 0 0 0 5 0c0-2-1.5-3-1.5-5q0-2 2.5-4" /></svg><code>flame</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1" /><circle cx="12" cy="8" r="2" /><path d="M12 10v12" /><path d="M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z" /><path d="M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z" /></svg><code>flower-2</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg><code>inbox</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg><code>info</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22c1.25-.987 2.27-1.975 3.9-2.2a5.56 5.56 0 0 1 3.8 1.5 4 4 0 0 0 6.187-2.353 3.5 3.5 0 0 0 3.69-5.116A3.5 3.5 0 0 0 20.95 8 3.5 3.5 0 1 0 16 3.05a3.5 3.5 0 0 0-5.831 1.373 3.5 3.5 0 0 0-5.116 3.69 4 4 0 0 0-2.348 6.155C3.499 15.42 4.409 16.712 4.2 18.1 3.926 19.743 3.014 20.732 2 22" /><path d="M2 22 17 7" /></svg><code>leafy-green</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg><code>loader-circle</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 2h8" /><path d="M9 2v2.789a4 4 0 0 1-.672 2.219l-.656.984A4 4 0 0 0 7 10.212V20a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9.789a4 4 0 0 0-.672-2.219l-.656-.984A4 4 0 0 1 15 4.788V2" /><path d="M7 15a6.472 6.472 0 0 1 5 0 6.47 6.47 0 0 0 5 0" /></svg><code>milk</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M16.847 5.847 20 9a7.23 7.23 0 011.551 7.516C21.241 17.352 21 17.932 21 19v1a1 1 0 01-1 1h-1c-1.069 0-1.648.242-2.485.552A7.2 7.2 0 019.002 20l-3.155-3.153" /><path d="M18.21 5.43c-1.71.69-5.07 1.07-6.71 1.07.46 1.38.91 2.74.61 4.88a.88.88 0 01-.73.74c-1.78.28-3.54-.17-4.88-.62 0 1.64-.38 5-1.07 6.71-.21.52-.82.55-1.17.12A10 10 0 0118.33 4.26c.43.35.4.97-.12 1.17" /><path d="M4.93 4.93 3 3a.7.7 0 010-1" /></svg><code>nut</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 11a2 2 0 1 1-4 0 4 4 0 0 1 8 0 6 6 0 0 1-12 0 8 8 0 0 1 16 0 10 10 0 1 1-20 0 11.93 11.93 0 0 1 2.42-7.22 2 2 0 1 1 3.16 2.44" /></svg><code>shell</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="m15 11-1 9" /><path d="m19 11-4-7" /><path d="M2 11h20" /><path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6l1.7-7.4" /><path d="M4.5 15.5h15" /><path d="m5 11 4-7" /><path d="m9 11 1 9" /></svg><code>shopping-basket</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10 2a3.28 3.28 0 003.227 1.798l6.17-.561A1 1 0 1119.614 8H8.5a6.44 6.44 0 00-5.63 9.75A6.5 6.5 0 008.5 21c1.38 0 2-.5 2.5-1" /><path d="M10 8a8.5 8.5 0 000 8" /><path d="M11 22c-.5-.5-1.12-1-2.5-1a1 1 0 010-5H12a7 7 0 007-7V8" /><path d="M13 12h.01" /><path d="M8 16c-2 0-4.5-4-4-6" /></svg><code>shrimp</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3" /><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4" /><path d="M5 21h14" /></svg><code>sprout</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10 11v6" /><path d="M14 11v6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M3 6h18" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg><code>trash-2</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg><code>triangle-alert</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg><code>wheat</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 22h8" /><path d="M7 10h10" /><path d="M12 15v7" /><path d="M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z" /></svg><code>wine</code></li>
+<li class="icon-item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg><code>x</code></li>
+</ul>
+</section>
+
+</main>
+<footer class="site-footer">
+<p>Brood voor Weldadigheid #payitforward</p>
+</footer>
+</body>
+</html>
