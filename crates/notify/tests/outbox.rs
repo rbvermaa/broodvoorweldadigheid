@@ -359,3 +359,19 @@ async fn reply_to_survives_the_outbox(pool: PgPool) {
     assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
     assert_eq!(sender.sent()[0].email, contact);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn company_details_come_from_the_settings_row(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let seeded = notify::Company::load(&mut conn).await.unwrap();
+    assert_eq!(seeded.name, "Brood voor Weldadigheid");
+    assert_eq!((seeded.address.as_str(), seeded.kvk.as_str()), ("", ""));
+
+    sqlx::query("UPDATE company SET address = 'Dorpsstraat 1, 1234 AB Ergens', kvk = '12345678'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let filled = notify::Company::load(&mut conn).await.unwrap();
+    assert_eq!(filled.address, "Dorpsstraat 1, 1234 AB Ergens");
+    assert_eq!(filled.kvk, "12345678");
+}

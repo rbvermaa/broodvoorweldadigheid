@@ -19,6 +19,26 @@ pub struct Company {
     pub kvk: String,
 }
 
+impl Company {
+    /// The company settings row. Address and KvK number are empty until staff fill them in.
+    ///
+    /// # Errors
+    /// When the database fails.
+    pub async fn load(conn: &mut sqlx::PgConnection) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"SELECT name, coalesce(address, '') AS "address!", coalesce(kvk, '') AS "kvk!"
+            FROM company WHERE id = 1"#
+        )
+        .fetch_one(conn)
+        .await?;
+        Ok(Self {
+            name: row.name,
+            address: row.address,
+            kvk: row.kvk,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
     pub email: String,
