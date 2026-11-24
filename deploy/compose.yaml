@@ -1,7 +1,8 @@
 # Images come from `make images` (nix/images.nix). Secrets come from `cli dev-secrets`.
 # Overrides for local runs, with defaults: BVW_IMAGE_TAG (dev), BVW_SECRETS_DIR (./secrets),
 # BVW_BIND_ADDRESS (127.0.0.1), BVW_HTTP_PORT (8080), BVW_HTTPS_PORT (8443),
-# BVW_SUBNET (10.89.0.0/24) and BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET).
+# BVW_SUBNET (10.89.0.0/24), BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET) and
+# BVW_PUBLIC_URL (https://localhost:$BVW_HTTPS_PORT).
 name: bvw
 
 services:
@@ -54,7 +55,7 @@ services:
     environment:
       TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
       GALLERY: "false"
-      PUBLIC_URL: ${BVW_PUBLIC_URL:-https://localhost:8443}
+      PUBLIC_URL: ${BVW_PUBLIC_URL:-https://localhost:${BVW_HTTPS_PORT:-8443}}
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:

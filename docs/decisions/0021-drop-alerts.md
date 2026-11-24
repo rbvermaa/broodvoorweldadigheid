@@ -32,4 +32,4 @@ Open:
 - `PUBLIC_URL` (default `https://broodvoorweldadigheid.nl`) builds the links. The server refuses
   to start with an `http://` value, except for `localhost` and `127.0.0.1`. Email links must be
   https (ADR 0014), so such a loopback run cannot send sign-up or alert emails. The compose
-  stack sets `https://localhost:8443` (override with `BVW_PUBLIC_URL`).
+  stack sets `https://localhost:$BVW_HTTPS_PORT` (override with `BVW_PUBLIC_URL`).
