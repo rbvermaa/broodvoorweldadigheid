@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use domain::{OrderId, PaymentError, PaymentStatus, ProviderPaymentId};
 use jobs::order_emails;
-use orders::{Error as OrderError, OrderStatus, PaidOutcome, PaymentReceived, RefundReason};
+use orders::{Error as OrderError, OrderStatus, PaidOutcome, PaymentReceived};
 use sqlx::{Acquire, PgConnection};
 
 use crate::state::AppState;
@@ -130,11 +130,10 @@ async fn paid(
                 reason = reason.as_str(),
                 "payment recorded, refund due"
             );
-            let cancelled = refused.status == OrderStatus::Cancelled
-                && matches!(
-                    reason,
-                    RefundReason::HoldExpired | RefundReason::OrderCancelled
-                );
+            let cancelled = matches!(
+                refused.status,
+                OrderStatus::Cancelled | OrderStatus::Refunded
+            );
             let email = if cancelled {
                 Some(
                     order_emails::enqueue_refund_notice(&mut email_tx, clock, emails, &payment)

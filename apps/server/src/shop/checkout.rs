@@ -8,9 +8,7 @@ use bakedays::calendar::PublicDrop;
 use bakedays::{BakeDayStatus, PublicStatus, days};
 use domain::{BakeDayId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId};
 use i18n::{Amsterdam, FluentArgs};
-use orders::{
-    CancelReason, Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy,
-};
+use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
 use sqlx::PgConnection;
 use tower_sessions::Session;
 
@@ -380,7 +378,14 @@ pub async fn submit(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    let unpaid = unpaid_order(&state, &mut conn, &session, &drop).await;
+    let unpaid = match remembered_order(&state, &mut conn, &session, &drop).await {
+        Ok(Remembered::Nothing) => None,
+        Ok(Remembered::Unpaid(order)) => Some(order),
+        Ok(Remembered::Settled(order)) => {
+            return to_status_page(&state, &mut conn, &session, &order).await;
+        }
+        Err(response) => return *response,
+    };
     let mut form = Fields::from_form(&raw);
     let slot = check_fields(&state, &mut form);
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
@@ -406,41 +411,43 @@ pub async fn submit(
         phone: Some(form.phone.clone()).filter(|p| !p.trim().is_empty()),
         marketing_opt_in: form.marketing,
     };
-    if let Some(unpaid) = unpaid {
-        match orders::same_as_order(&mut conn, &unpaid, &cart, &customer, slot).await {
+    if let Some(unpaid) = &unpaid {
+        match orders::same_as_order(&mut conn, unpaid, &cart, &customer, slot).await {
             Ok(true) => {
                 std::mem::drop(conn);
-                return retry_payment(&state, &session, (&drop, &cart), &unpaid, form).await;
+                return retry_payment(&state, &session, (&drop, &cart), unpaid, form).await;
             }
-            Ok(false) => {
-                let cancelled = orders::cancel_pending(
-                    &mut conn,
-                    state.clock.as_ref(),
-                    unpaid.id,
-                    CancelReason::ReplacedByCustomer,
-                )
-                .await;
-                if let Err(err) = cancelled {
-                    return server_error(&state, "cannot replace the unpaid order", &err);
-                }
-                if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
-                    tracing::warn!(error = %err, "cannot forget the unpaid order");
-                }
-            }
+            Ok(false) => {}
             Err(err) => return server_error(&state, "cannot compare the unpaid order", &err),
         }
     }
-    let placed = orders::checkout(
-        &mut conn,
-        state.clock.as_ref(),
-        &cart,
-        &customer,
-        slot,
-        OrderedBy::Guest,
-    )
-    .await;
+    let clock = state.clock.as_ref();
+    let placed = match &unpaid {
+        Some(old) => {
+            orders::checkout_replacing(
+                &mut conn,
+                clock,
+                &cart,
+                &customer,
+                slot,
+                OrderedBy::Guest,
+                old.id,
+            )
+            .await
+        }
+        None => orders::checkout(&mut conn, clock, &cart, &customer, slot, OrderedBy::Guest).await,
+    };
     let order = match placed {
         Ok(order) => order,
+        Err(OrderError::NotReplaceable) => {
+            let Some(old) = &unpaid else {
+                return server_error(&state, "checkout failed", &OrderError::NotReplaceable);
+            };
+            if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
+                tracing::warn!(error = %err, "cannot forget the unpaid order");
+            }
+            return to_status_page(&state, &mut conn, &session, old).await;
+        }
         Err(OrderError::Db(err)) => return server_error(&state, "checkout failed", &err),
         Err(OrderError::NotFound) => return pages::error(&state, StatusCode::NOT_FOUND),
         Err(
@@ -452,7 +459,14 @@ pub async fn submit(
         ) => return server_error(&state, "checkout failed", &err),
         Err(err) => {
             tracing::info!(error = %err, "checkout refused");
-            let message = refusal(&state, &mut conn, &err, &mut form).await;
+            let message = if unpaid.is_some() && matches!(err, OrderError::PastDeadline) {
+                Some(Message {
+                    kind: "error",
+                    text: text(&state, "checkout-error-replace-deadline", None),
+                })
+            } else {
+                refusal(&state, &mut conn, &err, &mut form).await
+            };
             return render_page(
                 &state,
                 &mut conn,
@@ -465,6 +479,11 @@ pub async fn submit(
             .await;
         }
     };
+    if unpaid.is_some()
+        && let Err(err) = session.remove::<i64>(UNPAID_KEY).await
+    {
+        tracing::warn!(error = %err, "cannot forget the replaced order");
+    }
     std::mem::drop(conn);
     if let Err(err) = save_cart(&session, &Cart::new(day)).await {
         tracing::warn!(error = %err, "cannot empty the cart");
@@ -493,42 +512,99 @@ pub async fn submit(
 /// of placing another one and holding the stock twice.
 const UNPAID_KEY: &str = "unpaid_order";
 
-/// The order the session remembers for this drop, while its payment did not start and its
-/// hold still runs. The deadline and stock play no part: the order was placed in time and
-/// its hold keeps its stock (spec, payment within the hold). Only a cancelled or finished
-/// bake day ends it early. Otherwise the session forgets it.
-async fn unpaid_order(
+/// What became of the order the session remembers.
+enum Remembered {
+    Nothing,
+    /// Still waiting for payment within its hold: the next checkout pays or replaces it.
+    Unpaid(Order),
+    /// Paid meanwhile, for example in another tab.
+    Settled(Order),
+}
+
+/// The order the session remembers for this drop. It stays payable while its hold runs;
+/// the deadline and stock play no part, since the order was placed in time and its hold
+/// keeps its stock (spec, payment within the hold). Only a cancelled or finished bake day
+/// ends it early. The session forgets an order that can no longer be paid; a database
+/// error is a 500 and forgets nothing.
+async fn remembered_order(
     state: &AppState,
     conn: &mut PgConnection,
     session: &Session,
     drop: &PublicDrop,
-) -> Option<Order> {
+) -> Result<Remembered, Box<Response>> {
     let id = match session.get::<i64>(UNPAID_KEY).await {
         Ok(Some(id)) => OrderId::new(id),
-        Ok(None) => return None,
+        Ok(None) => return Ok(Remembered::Nothing),
         Err(err) => {
             tracing::warn!(error = %err, "cannot read the unpaid order");
-            return None;
+            return Ok(Remembered::Nothing);
+        }
+    };
+    let order = match orders::order::get(conn, id).await {
+        Ok(order) if order.bake_day_id == drop.bake_day_id => Some(order),
+        Ok(_) | Err(OrderError::NotFound) => None,
+        Err(err) => {
+            return Err(Box::new(server_error(
+                state,
+                "cannot load the unpaid order",
+                &err,
+            )));
         }
     };
     let now = state.clock.now();
-    let mut order = orders::order::get(conn, id).await.ok().filter(|order| {
-        order.bake_day_id == drop.bake_day_id
-            && order.status == OrderStatus::PendingPayment
-            && order.hold_expires_at.is_some_and(|hold| now < hold)
-    });
-    if order.is_some() {
-        let live = days::get(conn, drop.bake_day_id)
-            .await
-            .is_ok_and(|day| !matches!(day.status, BakeDayStatus::Cancelled | BakeDayStatus::Done));
-        order = order.filter(|_| live);
-    }
-    if order.is_none()
-        && let Err(err) = session.remove::<i64>(UNPAID_KEY).await
-    {
+    let remembered = match order {
+        Some(order)
+            if matches!(
+                order.status,
+                OrderStatus::Paid | OrderStatus::Confirmed | OrderStatus::PickedUp
+            ) =>
+        {
+            Remembered::Settled(order)
+        }
+        Some(order)
+            if order.status == OrderStatus::PendingPayment
+                && order.hold_expires_at.is_some_and(|hold| now < hold) =>
+        {
+            let day = match days::get(conn, drop.bake_day_id).await {
+                Ok(day) => day,
+                Err(err) => {
+                    return Err(Box::new(server_error(
+                        state,
+                        "cannot load the bake day",
+                        &err,
+                    )));
+                }
+            };
+            if matches!(day.status, BakeDayStatus::Cancelled | BakeDayStatus::Done) {
+                Remembered::Nothing
+            } else {
+                return Ok(Remembered::Unpaid(order));
+            }
+        }
+        _ => Remembered::Nothing,
+    };
+    if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
         tracing::warn!(error = %err, "cannot forget the unpaid order");
     }
-    order
+    Ok(remembered)
+}
+
+/// Sends the customer to the status page of an order that was paid meanwhile, instead of
+/// placing a second one.
+async fn to_status_page(
+    state: &AppState,
+    conn: &mut PgConnection,
+    session: &Session,
+    order: &Order,
+) -> Response {
+    let token = match orders::order::status_token(conn, order.id).await {
+        Ok(token) => token,
+        Err(err) => return server_error(state, "cannot load the status token", &err),
+    };
+    if let Err(err) = save_cart(session, &Cart::new(order.bake_day_id)).await {
+        tracing::warn!(error = %err, "cannot empty the cart");
+    }
+    Redirect::to(&format!("/bestelling/{token}")).into_response()
 }
 
 /// Pays an unpaid order again, when the customer sent the same checkout

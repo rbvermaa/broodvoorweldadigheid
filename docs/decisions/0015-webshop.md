@@ -17,7 +17,7 @@ Status: proposed, 2026-11-24
 | A cart line whose product left the menu (archived, not sold online, unapproved or off the range) stays in the cart panel as "Niet meer beschikbaar", outside the total and with its remove button. Checkout keeps refusing it | The customer sees why checkout refuses and can remove it |
 | No Mollie `expiresAt`: Mollie's create-payment API has no request field for it (`expiresAt` is read-only; `dueDate` is a date, not a time). A payment that completes after the hold is recorded as refund due by `mark_paid` | ADR 0012 assumed the field exists |
 | The status page uses `order.status_token`, a `uuid` from `gen_random_uuid()` in a new migration, never the order number | Order numbers are sequential |
-| The status page polls itself over htmx every 3 s while waiting and stops once final. Every full load (not the polls) asks Mollie through the webhook code while the latest payment is open, pending or authorized, whatever the order shows, in case the webhook is late or cannot reach a local machine. A payment that completed after the hold then goes through `mark_paid` as refund due with its cancellation email, and the page says so ("Je betaling kwam binnen nadat je bestelling was verlopen") | One extra GET at Mollie per visit, none per poll. A late payment must not stay recorded as open |
+| The status page polls itself over htmx every 3 s while waiting and stops once final. Every full load (not the polls) asks Mollie through the webhook code while the latest payment is open, pending or authorized, whatever the order shows, in case the webhook is late or cannot reach a local machine. A payment that completed after the hold then goes through `mark_paid` as refund due with its cancellation email, and the page says the money goes back; that text shows for any paid payment on a cancelled or refunded order | One extra GET at Mollie per visit, none per poll. A late payment must not stay recorded as open. A server asks Mollie about one payment at most once per 10 s (`PaymentLookups`, in memory), so a status link cannot be used to hammer Mollie |
 | Shown status: paid, confirmed or picked up = paid; pending with the latest payment failed or canceled = failed; expired payment, passed hold or cancelled `hold_expired` = expired; else waiting | |
 | The webhook sits outside the session and CSRF layers (merged next to `/health`), takes the body as bytes, uses `payments::parse_webhook_body`, then `get_payment`. Paid goes to `orders::mark_paid`; other statuses go to `orders::record_payment_status`, which updates the payment row and never the order. 400 for a malformed body; 200 for an unknown payment, a payment without order metadata, one recorded for another order (logged as error) and every recorded outcome; 503 when Mollie or the database fails, so Mollie retries | Mollie retries non-2xx answers; a 4xx for unknown ids would only cause retries. Repeats change nothing (ADR 0012) |
 | A payment row now exists from the moment the payment is created (`open`), and `mark_paid` turns it into `paid` in place. Reports must count `status = 'paid'` rows only | Keeps every Mollie payment visible to staff, also failed ones |
@@ -46,18 +46,27 @@ Known limits, from review:
   and payment completes within its hold); only a cancelled or finished bake day or a
   passed hold ends it.
 - When the customer changed anything before the retry, what they see wins (decision of
-  the owner's coordinator, 2026-11-24). `orders::cancel_pending` cancels the held order
-  with reason `replaced_by_customer` (a new migration extends the check on
-  `cancel_reason`), which frees its hold at once, with an audit entry and no email. Then
-  a normal checkout places the new order. The cancel and the new checkout are separate
-  transactions, so a refused new checkout (for example past the deadline) leaves the old
-  order cancelled; the customer sees why and their cart stays. A Mollie payment created
-  for the old order stays open: its link never reached the customer, and should it be
-  paid anyway, `mark_paid` records it as refund due and the cancellation email goes out.
+  the owner's coordinator, 2026-11-24). `orders::checkout_replacing` places the new
+  order and cancels the held one with reason `replaced_by_customer` in one transaction:
+  bake day, the products of both orders, both slots in id order, then the old order row,
+  so the usual lock order holds. Any refusal of the new order (deadline, details, stock,
+  slot, an unavailable line) rolls the cancel back and the held order stays. After the
+  deadline a changed checkout is refused with "je eerdere bestelling kun je nog
+  ongewijzigd betalen"; the unchanged one still pays within the hold. When the held
+  order was paid meanwhile (another tab) or has a paid or authorized payment, nothing new
+  is placed and the customer goes to its status page. The cancel frees the hold at once,
+  with an audit entry and no email. A Mollie payment created for the old order stays
+  open: its link never reached the customer, and should it be paid anyway, `mark_paid`
+  records it as refund due and the cancellation email goes out. A database error while
+  reading the remembered order is a 500 and the session keeps it.
   Not chosen: a read-only "Opnieuw betalen" page for the held order (new page state, and
   the customer cannot fix a mistake until the hold ends) and refusing changed edits with
   a message (the customer would be stuck for up to 15 minutes). The charity choice is
   not part of the comparison yet; checkout has no charity choice until F4d.
+- Rolling deploy: the migration adds `replaced_by_customer` before the new server starts.
+  A server of the previous release that reads such an order fails to parse its cancel
+  reason (`Error::Corrupt`, a 500 on that order's pages) until it is replaced. Keep the
+  overlap short, or deploy with the old servers stopped first.
 - Two checkout posts of one session at the same moment (a double click past the browser)
   both read the cart and make two orders with two holds. A claim per session would need a
   lock or a column; the rate limit and the 303 make it rare. The second order's hold runs

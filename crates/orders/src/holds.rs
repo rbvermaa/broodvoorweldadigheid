@@ -1,5 +1,6 @@
 use db::time::to_micros;
 use domain::{Clock, OrderId};
+use jiff::Timestamp;
 use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
@@ -77,11 +78,26 @@ pub async fn cancel_pending(
     reason: CancelReason,
 ) -> Result<bool, Error> {
     let mut tx = conn.begin().await?;
+    let cancelled = cancel_locked(&mut tx, id, reason, None, clock.now()).await?;
+    tx.commit().await?;
+    Ok(cancelled)
+}
+
+/// [`cancel_pending`] inside the caller's transaction, which must already hold the locks
+/// that come before the order row (ADR 0008, ADR 0012). `actor` defaults to the order's
+/// customer.
+pub(crate) async fn cancel_locked(
+    conn: &mut PgConnection,
+    id: OrderId,
+    reason: CancelReason,
+    actor: Option<Actor>,
+    now: Timestamp,
+) -> Result<bool, Error> {
     let status = sqlx::query_scalar!(
         r#"SELECT status FROM "order" WHERE id = $1 FOR UPDATE"#,
         id.get()
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or(Error::NotFound)?;
     let settling = sqlx::query_scalar!(
@@ -89,33 +105,32 @@ pub async fn cancel_pending(
             WHERE order_id = $1 AND status IN ('paid', 'authorized')) AS "settling!""#,
         id.get()
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut *conn)
     .await?;
     if status != OrderStatus::PendingPayment.as_str() || settling {
         return Ok(false);
     }
-    let before = order::get(&mut tx, id).await?;
+    let before = order::get(conn, id).await?;
     sqlx::query!(
         r#"UPDATE "order" SET status = 'cancelled', cancel_reason = $2 WHERE id = $1"#,
         id.get(),
         reason.as_str(),
     )
-    .execute(&mut *tx)
+    .execute(&mut *conn)
     .await?;
-    let after = order::get(&mut tx, id).await?;
+    let after = order::get(conn, id).await?;
     audit::record(
-        &mut tx,
+        conn,
         &Entry {
             entity: "order",
             entity_id: id.get(),
             action: "cancelled",
             before: Some(order::snapshot(&before)),
             after: Some(order::snapshot(&after)),
-            actor: Actor::Customer(before.customer_id),
-            at: clock.now(),
+            actor: actor.unwrap_or(Actor::Customer(before.customer_id)),
+            at: now,
         },
     )
     .await?;
-    tx.commit().await?;
     Ok(true)
 }

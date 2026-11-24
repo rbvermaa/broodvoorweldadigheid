@@ -3,8 +3,9 @@ use domain::{OrderId, PickupSlotId, ProductId};
 use jiff::SignedDuration;
 use orders::audit;
 use orders::{
-    CancelReason, CustomerInput, Error, HOLD, OrderStatus, Orders, PaidOutcome, PaymentReceived,
-    RefundReason, cancel_pending, mark_paid, release_expired_holds, same_as_order,
+    CancelReason, CustomerInput, Error, HOLD, OrderStatus, OrderedBy, Orders, PaidOutcome,
+    PaymentReceived, RefundReason, cancel_pending, checkout_replacing, mark_paid,
+    release_expired_holds, same_as_order,
 };
 use sqlx::pool::PoolConnection;
 use sqlx::{PgPool, Postgres};
@@ -325,4 +326,65 @@ async fn the_same_checkout_matches_its_order_and_any_change_does_not(
         .await
         .unwrap()
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_replacement_is_all_or_nothing(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, Some(2), None).await;
+    let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    let customer = guest("klant@example.org");
+
+    let too_many = checkout_replacing(
+        &mut conn,
+        &clock,
+        &cart(&shop, &[(bread, 3, None)]),
+        &customer,
+        shop.slot,
+        OrderedBy::Guest,
+        held.id,
+    )
+    .await;
+    assert!(matches!(
+        too_many,
+        Err(Error::CapacityExceeded { remaining: 2, .. })
+    ));
+    assert_eq!(
+        orders::order::get(&mut conn, held.id).await.unwrap().status,
+        OrderStatus::PendingPayment,
+        "a refused replacement leaves the held order"
+    );
+
+    let new = checkout_replacing(
+        &mut conn,
+        &clock,
+        &cart(&shop, &[(bread, 2, None)]),
+        &customer,
+        shop.slot,
+        OrderedBy::Guest,
+        held.id,
+    )
+    .await
+    .expect("the held loaf counts as free");
+    assert_eq!(new.lines[0].qty, 2);
+    let old = orders::order::get(&mut conn, held.id).await.unwrap();
+    assert_eq!(old.cancel_reason, Some(CancelReason::ReplacedByCustomer));
+
+    assert!(matches!(
+        checkout_replacing(
+            &mut conn,
+            &clock,
+            &cart(&shop, &[(bread, 1, None)]),
+            &customer,
+            shop.slot,
+            OrderedBy::Guest,
+            held.id,
+        )
+        .await,
+        Err(Error::NotReplaceable)
+    ));
 }

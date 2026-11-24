@@ -1342,7 +1342,7 @@ async fn the_status_page_finds_a_late_payment_after_the_hold(pool: PgPool) {
     let page = browser.get(&format!("/bestelling/{token}")).await;
     assert_eq!(page.status, StatusCode::OK);
     assert!(
-        page.body.contains(&dutch("order-status-late-payment")),
+        page.body.contains(&dutch("order-status-refund")),
         "{}",
         page.body
     );
@@ -1354,7 +1354,7 @@ async fn the_status_page_finds_a_late_payment_after_the_hold(pool: PgPool) {
     assert_eq!(queued[0].kind, "order_cancelled");
 
     let again = browser.get(&format!("/bestelling/{token}")).await;
-    assert!(again.body.contains(&dutch("order-status-late-payment")));
+    assert!(again.body.contains(&dutch("order-status-refund")));
     assert_eq!(outbox(&shop.pool).await.len(), 1);
 }
 
@@ -1512,4 +1512,232 @@ async fn a_late_payment_of_a_replaced_order_is_refunded(pool: PgPool) {
     let queued = outbox(&shop.pool).await;
     assert_eq!(queued.len(), 1, "{queued:?}");
     assert_eq!(queued[0].kind, "order_cancelled");
+}
+
+async fn checkout_as(browser: &Browser<'_>, drop: &Drop, email: &str) -> Reply {
+    browser
+        .post(
+            &format!("/drops/{}/bestellen", drop.day.get()),
+            &[
+                ("naam", "Test Klant"),
+                ("email", email),
+                ("telefoon", ""),
+                ("ophaalmoment", &drop.slot),
+            ],
+            false,
+            true,
+        )
+        .await
+}
+
+async fn held_order_is_intact(shop: &Shop) {
+    assert_eq!(
+        order_statuses(&shop.pool).await,
+        vec![("pending_payment".to_owned(), None)],
+        "the held order stays"
+    );
+    assert!(shop.mollie.created().is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_changed_retry_past_the_deadline_keeps_the_held_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    shop.clock.set(ts("2026-10-29T18:59:30Z"));
+    failed_first_payment(&shop, &browser, &drop).await;
+
+    shop.clock.set(ts("2026-10-29T19:00:30Z"));
+    let reply = checkout_as(&browser, &drop, "ander@example.org").await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply
+            .body
+            .contains(&dutch("checkout-error-replace-deadline")),
+        "{}",
+        reply.body
+    );
+    held_order_is_intact(&shop).await;
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(
+        reply.status,
+        StatusCode::SEE_OTHER,
+        "unchanged it still pays"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_changed_retry_with_an_invalid_email_keeps_the_held_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+
+    let reply = checkout_as(&browser, &drop, "klant x@example.org").await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-email")),
+        "{}",
+        reply.body
+    );
+    held_order_is_intact(&shop).await;
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_changed_retry_exceeding_stock_keeps_the_held_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    let rye = product(
+        &mut conn,
+        &Spec {
+            name: "Roggebrood",
+            price: 500,
+            ..BREAD
+        },
+    )
+    .await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    on_range(&mut conn, drop.day, rye, Some(1)).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+    browser.add(drop.day, rye, "1", None).await;
+
+    let (other, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    other.add(drop.day, rye, "1", None).await;
+    assert_eq!(
+        other.checkout(drop.day, &drop.slot).await.status,
+        StatusCode::SEE_OTHER
+    );
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.body
+    );
+    let statuses = order_statuses(&shop.pool).await;
+    assert_eq!(
+        statuses[0],
+        ("pending_payment".to_owned(), None),
+        "the held order stays: {statuses:?}"
+    );
+    assert_eq!(statuses.len(), 2, "only the other customer's order is new");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_retry_after_paying_elsewhere_shows_the_paid_order(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    failed_first_payment(&shop, &browser, &drop).await;
+    let order = only_order(&shop.pool).await;
+    orders::mark_paid(
+        &mut conn,
+        shop.clock.as_ref(),
+        order.id,
+        &orders::PaymentReceived {
+            reference: "tr_elsewhere".to_owned(),
+            amount: order.total,
+        },
+    )
+    .await
+    .unwrap();
+
+    let reply = checkout_as(&browser, &drop, "ander@example.org").await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    let token = token_of(&shop.pool, order.id).await;
+    assert_eq!(reply.header(LOCATION), format!("/bestelling/{token}"));
+    assert_eq!(order_statuses(&shop.pool).await.len(), 1);
+    assert!(shop.mollie.created().is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_status_page_asks_mollie_at_most_once_per_ten_seconds(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    browser.checkout(drop.day, &drop.slot).await;
+    let token = token_of(&shop.pool, only_order(&shop.pool).await.id).await;
+    let page = format!("/bestelling/{token}");
+
+    assert!(
+        browser
+            .get(&page)
+            .await
+            .body
+            .contains(&dutch("order-status-waiting"))
+    );
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    shop.clock.advance(SignedDuration::from_secs(9));
+    assert!(
+        browser
+            .get(&page)
+            .await
+            .body
+            .contains(&dutch("order-status-waiting")),
+        "no second lookup within ten seconds"
+    );
+    shop.clock.advance(SignedDuration::from_secs(1));
+    assert!(
+        browser
+            .get(&page)
+            .await
+            .body
+            .contains(&dutch("order-status-paid"))
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_payment_for_a_cancelled_day_gets_the_refund_email(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    browser.checkout(drop.day, &drop.slot).await;
+    days::cancel(&mut conn, shop.clock.as_ref(), drop.day, "Ziek")
+        .await
+        .unwrap();
+
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    let due = orders::refunds_due(&mut conn).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].refund_reason, Some(RefundReason::DayFinal));
+    let queued = outbox(&shop.pool).await;
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0].kind, "order_cancelled");
+    let token = token_of(&shop.pool, only_order(&shop.pool).await.id).await;
+    let page = browser.get(&format!("/bestelling/{token}")).await;
+    assert!(
+        page.body.contains(&dutch("order-status-refund")),
+        "{}",
+        page.body
+    );
 }

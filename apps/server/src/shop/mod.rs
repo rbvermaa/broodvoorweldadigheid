@@ -4,6 +4,7 @@
 mod cart;
 mod checkout;
 mod drops;
+mod lookups;
 pub mod money;
 mod order;
 mod webhook;
@@ -26,6 +27,7 @@ use crate::components::{Drop, DropCharity};
 use crate::pages;
 use crate::state::AppState;
 
+pub use lookups::PaymentLookups;
 pub use webhook::settle;
 
 const CART_KEY: &str = "cart";

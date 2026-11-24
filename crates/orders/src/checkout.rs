@@ -8,7 +8,8 @@ use crate::Error;
 use crate::audit::{self, Actor, Entry};
 use crate::cart::{self, Cart, PricedLine};
 use crate::customer::{self, CustomerInput};
-use crate::order::{self, Channel, Order, OrderStatus, PaymentMode, vat_to_db};
+use crate::holds;
+use crate::order::{self, CancelReason, Channel, Order, OrderStatus, PaymentMode, vat_to_db};
 use crate::source::Orders;
 
 /// How long an unpaid order holds its capacity (spec, "Data model").
@@ -186,6 +187,47 @@ pub async fn checkout(
     slot: PickupSlotId,
     ordered_by: OrderedBy,
 ) -> Result<Order, Error> {
+    place(conn, clock, cart, customer, slot, ordered_by, None).await
+}
+
+/// [`checkout`] that first cancels `replaces`, a pending order of the same bake day, as
+/// replaced by the customer (F5, ADR 0015). Both happen in one transaction: when the new
+/// order is refused for any reason, the old one stays as it was. The old order's
+/// products and slot are locked with the new ones, in the usual order, before its row.
+///
+/// # Errors
+/// Those of [`checkout`], and [`Error::NotReplaceable`] when `replaces` is no longer
+/// pending, has a payment that is paid or authorized, or belongs to another bake day.
+pub async fn checkout_replacing(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+    ordered_by: OrderedBy,
+    replaces: OrderId,
+) -> Result<Order, Error> {
+    place(
+        conn,
+        clock,
+        cart,
+        customer,
+        slot,
+        ordered_by,
+        Some(replaces),
+    )
+    .await
+}
+
+async fn place(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+    ordered_by: OrderedBy,
+    replaces: Option<OrderId>,
+) -> Result<Order, Error> {
     let now = clock.now();
     let channel = ordered_by.channel();
     let day = cart.bake_day();
@@ -197,7 +239,43 @@ pub async fn checkout(
     let facts = lock_day(&mut tx, day).await?;
     ensure_orderable(&facts, channel, now)?;
     let products = cart.products();
-    range::lock_capacity(&mut tx, day, &products).await?;
+    let replaced = match replaces {
+        Some(id) => Some(order::get(&mut tx, id).await?),
+        None => None,
+    };
+    let mut locked = products.clone();
+    if let Some(old) = &replaced {
+        if old.bake_day_id != day {
+            return Err(Error::NotReplaceable);
+        }
+        locked.extend(old.lines.iter().map(|line| line.product_id));
+        locked.sort_unstable();
+        locked.dedup();
+    }
+    range::lock_capacity(&mut tx, day, &locked).await?;
+    if let Some(old) = &replaced {
+        let mut slots = vec![old.pickup_slot_id, slot];
+        slots.sort_unstable();
+        slots.dedup();
+        for s in slots {
+            lock_slot(&mut tx, day, s).await?;
+        }
+        let actor = match ordered_by {
+            OrderedBy::Guest => None,
+            OrderedBy::Staff(staff) => Some(Actor::Staff(staff)),
+        };
+        let cancelled = holds::cancel_locked(
+            &mut tx,
+            old.id,
+            CancelReason::ReplacedByCustomer,
+            actor,
+            now,
+        )
+        .await?;
+        if !cancelled {
+            return Err(Error::NotReplaceable);
+        }
+    }
     let mut catalog = Vec::with_capacity(products.len());
     for &id in &products {
         match catalog::products::get(&mut tx, id).await {

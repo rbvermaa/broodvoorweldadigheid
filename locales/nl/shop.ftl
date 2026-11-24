@@ -52,6 +52,7 @@ checkout-error-phone = Dit telefoonnummer klopt niet.
 checkout-error-pickup = Kies een ophaalmoment.
 checkout-error-slot-full = Dit ophaalmoment is vol. Kies een ander.
 checkout-error-deadline = De bestel-deadline is voorbij. Voor deze drop kun je niet meer bestellen.
+checkout-error-replace-deadline = De bestel-deadline is voorbij, dus je bestelling kun je niet meer wijzigen. Je eerdere bestelling kun je nog ongewijzigd betalen tot je reservering afloopt.
 checkout-error-closed = Bestellen kan nu niet voor deze drop.
 checkout-error-capacity = Van { $product } { $n ->
     [one] is er nog maar 1
@@ -70,5 +71,5 @@ order-status-paid = We hebben je betaling ontvangen. Je krijgt een bevestiging p
 order-status-failed = Je betaling is niet gelukt, dus je bestelling gaat niet door.
 order-status-expired = Je bestelling is verlopen, want de betaling was niet op tijd binnen.
 order-status-cancelled = Deze bestelling is geannuleerd.
-order-status-late-payment = Je betaling kwam binnen nadat je bestelling was verlopen. We betalen het bedrag terug en sturen je daarover een mail.
+order-status-refund = Je betaling is binnen, maar deze bestelling gaat niet door. We betalen het bedrag terug en sturen je daarover een mail.
 order-again = Opnieuw bestellen

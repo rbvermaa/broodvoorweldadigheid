@@ -8,6 +8,7 @@ use jobs::OrderEmails;
 use crate::clock::SystemClock;
 use crate::config::Config;
 use crate::payment_provider::Unconfigured;
+use crate::shop::PaymentLookups;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,6 +18,7 @@ pub struct AppState {
     pub payments: Arc<dyn PaymentProvider>,
     pub clock: Arc<dyn Clock>,
     pub order_emails: Arc<OrderEmails>,
+    pub payment_lookups: Arc<PaymentLookups>,
 }
 
 impl AppState {
@@ -30,6 +32,7 @@ impl AppState {
             i18n,
             config: Arc::new(config),
             order_emails: Arc::new(order_emails),
+            payment_lookups: Arc::new(PaymentLookups::default()),
             payments: Arc::new(Unconfigured),
             clock: Arc::new(SystemClock),
         }
