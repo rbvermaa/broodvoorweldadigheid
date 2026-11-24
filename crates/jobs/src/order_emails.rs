@@ -9,7 +9,8 @@ use jiff::civil::{Time, time};
 use jiff::{SignedDuration, Timestamp};
 use notify::{
     Company, ComposeError, Composer, Donation, DonationMoved, Email, Item, OrderCancelled,
-    OrderConfirmation, OutboxError, OutboxId, Pickup, PickupReminder, Recipient, SickDayCancelled,
+    OrderConfirmation, OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder, Recipient,
+    SickDayCancelled,
 };
 use orders::donations::{Moved, SavedDonation};
 use orders::{OrderDetails, Payment};
@@ -312,9 +313,43 @@ pub async fn enqueue_sick_day(
     Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
 }
 
-/// Withdraws the order's pickup reminder if it is not sent yet, after the order moved to
-/// another ophaalmoment or was cancelled. The reminder job queues a new one with the new
-/// time and place when it is due.
+/// Queues the email that tells the customer the order's ophaalmoment changed (F1, F4a),
+/// with the time and place the order has now. Call it in the transaction that changes the
+/// slot. Each change sends its own email; one from an earlier change that is not sent yet
+/// is withdrawn, so an old time never arrives after the new one.
+///
+/// # Errors
+/// [`EmailError`].
+pub async fn enqueue_pickup_moved(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    emails: &OrderEmails,
+    order: OrderId,
+) -> Result<Option<OutboxId>, EmailError> {
+    let email = compose(conn, emails, order, |composer, details| {
+        composer.pickup_moved(&PickupMoved {
+            to: recipient(details),
+            order_number: details.order.number.to_string(),
+            pickup: pickup(details),
+        })
+    })
+    .await?;
+    let prefix = pickup_moved_prefix(order);
+    notify::withdraw_unsent_prefixed(conn, &prefix).await?;
+    let key = format!("{prefix}{}", db::time::to_micros(clock.now()));
+    Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
+}
+
+/// `pickup-moved:42:`, followed by the time of the change in microseconds.
+#[must_use]
+pub fn pickup_moved_prefix(order: OrderId) -> String {
+    format!("pickup-moved:{}:", order.get())
+}
+
+/// Withdraws the order's pickup reminder and pickup-moved emails that are not sent yet,
+/// after the order moved to another ophaalmoment or was cancelled. The reminder job queues
+/// a new reminder with the new time and place when it is due. Returns whether the reminder
+/// was withdrawn.
 ///
 /// # Errors
 /// [`EmailError::Outbox`].
@@ -322,6 +357,7 @@ pub async fn withdraw_reminder(
     conn: &mut PgConnection,
     order: OrderId,
 ) -> Result<bool, EmailError> {
+    notify::withdraw_unsent_prefixed(conn, &pickup_moved_prefix(order)).await?;
     Ok(notify::withdraw_unsent(conn, &reminder_key(order)).await?)
 }
 

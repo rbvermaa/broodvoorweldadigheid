@@ -25,7 +25,7 @@ use jiff::Timestamp;
 use jiff::civil::date;
 use server::AppState;
 use server::config::Config;
-use support::{signed_in, signed_in_at};
+use support::signed_in_at;
 use testkit::{FakeClock, FakePaymentProvider};
 use tower::ServiceExt;
 
@@ -252,7 +252,7 @@ async fn staff(pool: &PgPool, name: &str, role: Role) -> StaffUser {
 
 async fn client<'a>(app: &'a App, name: &str, role: Role) -> Client<'a> {
     let user = staff(&app.pool, name, role).await;
-    let (cookie, token) = signed_in(&app.pool, &user).await;
+    let (cookie, token) = signed_in_at(&app.pool, &user, app.clock.now()).await;
     Client { app, cookie, token }
 }
 
@@ -2208,6 +2208,353 @@ async fn moving_an_order_withdraws_its_unsent_reminder(pool: PgPool) {
         .await
         .expect("count");
     assert_eq!(left, 0);
+}
+
+async fn slots_of(pool: &PgPool, day: BakeDayId) -> Vec<bakedays::PickupSlot> {
+    let mut conn = pool.acquire().await.expect("conn");
+    days::list_slots(&mut conn, day).await.expect("slots")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_baker_edits_adds_and_removes_pickup_slots(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let slot = slots_of(&pool, day).await[0];
+    let id = slot.id.get();
+    let edit = format!("{path}/slots/{id}");
+    let date_field = format!("slot_date_{id}");
+    let starts_field = format!("slot_starts_{id}");
+    let ends_field = format!("slot_ends_{id}");
+
+    let page = baker.get(&path).await;
+    page.shows(&format!(r#"name="{date_field}" value="2026-12-05""#));
+    page.shows(&format!(r#"name="{starts_field}" value="11:00""#));
+    page.shows(&format!(r#"name="{ends_field}" value="12:00""#));
+    page.shows(&dutch("slot-add"));
+    page.lacks(&dutch("slot-remove"));
+
+    let fields = |date: &'static str, starts: &'static str, ends: &'static str| {
+        vec![
+            (date_field.as_str(), date),
+            (starts_field.as_str(), starts),
+            (ends_field.as_str(), ends),
+        ]
+    };
+    for (date, starts, ends, message) in [
+        ("2026-12-05", "13:00", "12:00", dutch("slot-error-order")),
+        (
+            "2026-12-05",
+            "04:30",
+            "06:00",
+            dutch_with("slot-error-before-bake", &[("time", "05:00")]),
+        ),
+        ("", "13:00", "14:00", dutch("form-error-date")),
+        ("2026-12-05", "", "14:00", dutch("form-error-time")),
+    ] {
+        let refused = baker.post(&edit, &fields(date, starts, ends)).await;
+        assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY, "{starts}");
+        refused.shows(&message);
+        refused.shows(&format!(r#"name="{starts_field}" value="{starts}""#));
+    }
+    assert_eq!(slots_of(&pool, day).await, [slot]);
+
+    baker
+        .post(&edit, &fields("2026-12-06", "13:00", "14:30"))
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    let moved = slots_of(&pool, day).await[0];
+    assert_eq!(
+        (moved.starts_at, moved.ends_at),
+        (ts("2026-12-06T12:00:00Z"), ts("2026-12-06T13:30:00Z"))
+    );
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(queued, 0, "no orders, so no emails");
+
+    let add = format!("{path}/slots");
+    let refused = baker
+        .post(
+            &add,
+            &[
+                ("slot_location_new", "1"),
+                ("slot_date_new", "2026-12-05"),
+                ("slot_starts_new", "16:00"),
+                ("slot_ends_new", "15:00"),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("slot-error-order"));
+    baker
+        .post(
+            &add,
+            &[
+                ("slot_location_new", "1"),
+                ("slot_date_new", "2026-12-05"),
+                ("slot_starts_new", "15:00"),
+                ("slot_ends_new", "16:00"),
+            ],
+        )
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    let slots = slots_of(&pool, day).await;
+    assert_eq!(slots.len(), 2);
+    let added = slots[0];
+    assert_eq!(
+        (added.starts_at, added.ends_at, added.location_id),
+        (
+            ts("2026-12-05T14:00:00Z"),
+            ts("2026-12-05T15:00:00Z"),
+            DE_PROEF
+        )
+    );
+    baker.get(&path).await.shows(&dutch("slot-remove"));
+
+    let removed = baker
+        .htmx(&format!("{path}/slots/{}/remove", added.id.get()), &[])
+        .await;
+    assert_eq!(
+        removed.header("hx-redirect"),
+        format!("{path}?opgeslagen=1")
+    );
+    assert_eq!(slots_of(&pool, day).await, [moved]);
+
+    let last = format!("{edit}/remove");
+    let refused = baker.htmx(&last, &[]).await;
+    assert_eq!(refused.status, StatusCode::OK);
+    refused.shows(&dutch("day-error-no-pickup-slot"));
+    let refused = baker.post(&last, &[]).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    refused.shows(&dutch("day-error-no-pickup-slot"));
+    assert_eq!(slots_of(&pool, day).await, [moved]);
+
+    // Saturday 5 December, 12:00 in Frederiksoord: baking has started.
+    app.clock.set(ts("2026-12-05T11:00:00Z"));
+    let late = staff(&pool, "Bakker Bea", Role::Baker).await;
+    let baker = sign_in(&app, &late).await;
+    for url in [edit.clone(), add.clone()] {
+        let refused = baker
+            .post(
+                &url,
+                &[
+                    (date_field.as_str(), "2026-12-05"),
+                    (starts_field.as_str(), "10:30"),
+                    (ends_field.as_str(), "11:30"),
+                    ("slot_location_new", "1"),
+                    ("slot_date_new", "2026-12-05"),
+                    ("slot_starts_new", "10:30"),
+                    ("slot_ends_new", "12:00"),
+                ],
+            )
+            .await;
+        assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY, "{url}");
+        refused.shows(&dutch("slot-error-past"));
+    }
+    assert_eq!(slots_of(&pool, day).await, [moved]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_owner_and_baker_change_slots_and_only_with_the_csrf_token(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let slot = slots_of(&pool, day).await[0];
+    let id = slot.id.get();
+    let date_field = format!("slot_date_{id}");
+    let starts_field = format!("slot_starts_{id}");
+    let ends_field = format!("slot_ends_{id}");
+    let edit_fields = vec![
+        (date_field.as_str(), "2026-12-05"),
+        (starts_field.as_str(), "13:00"),
+        (ends_field.as_str(), "14:00"),
+    ];
+    let add_fields = vec![
+        ("slot_location_new", "1"),
+        ("slot_date_new", "2026-12-05"),
+        ("slot_starts_new", "15:00"),
+        ("slot_ends_new", "16:00"),
+    ];
+    let requests = [
+        (format!("{path}/slots/{id}"), edit_fields),
+        (format!("{path}/slots"), add_fields),
+        (format!("{path}/slots/{id}/remove"), Vec::new()),
+    ];
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for (url, fields) in &requests {
+        let reply = counter.post(url, fields).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{url}");
+    }
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    for (url, fields) in &requests {
+        let body = fields
+            .iter()
+            .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let reply = owner
+            .send(
+                Request::post(url.as_str())
+                    .header(COOKIE, &owner.cookie)
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{url}");
+    }
+    assert_eq!(slots_of(&pool, day).await, [slot]);
+
+    owner
+        .post(&requests[0].0, &requests[0].1)
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn moving_a_slot_with_orders_asks_first_emails_the_customers_and_withdraws_reminders(
+    pool: PgPool,
+) {
+    let app = app(pool.clone());
+    company_details(&pool).await;
+    let paid = paid_order(&app).await;
+    let path = format!("/staff/bake-days/{}", paid.day.get());
+    let slot = paid.order.pickup_slot_id;
+    let id = slot.get();
+    let key = jobs::order_emails::reminder_key(paid.order.id);
+    sqlx::query(
+        "INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
+            next_attempt_at, created_at)
+        VALUES ($1, 'pickup_reminder', 'klant@example.org', 'Morgen', 'Hoi', '<p>Hoi</p>', now(),
+            now())",
+    )
+    .bind(&key)
+    .execute(&pool)
+    .await
+    .expect("reminder");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+
+    let page = baker.get(&path).await;
+    page.shows(&dutch_count("slot-move-text", 1));
+    page.shows(&format!(r#"data-dialog-open="slot-{id}""#));
+    page.shows(&format!(r#"id="slot-{id}""#));
+    page.shows(r#"name="bevestigd" value="ja""#);
+
+    let date_field = format!("slot_date_{id}");
+    let starts_field = format!("slot_starts_{id}");
+    let ends_field = format!("slot_ends_{id}");
+    let move_to = |starts: &'static str| {
+        vec![
+            (date_field.as_str(), "2026-12-05"),
+            (starts_field.as_str(), starts),
+            (ends_field.as_str(), "15:30"),
+            ("bevestigd", "ja"),
+        ]
+    };
+    let pickup_moved = async || -> Vec<String> {
+        emails_to(&pool, "klant@example.org")
+            .await
+            .into_iter()
+            .filter(|(kind, _)| kind == "pickup_moved")
+            .map(|(_, text)| text)
+            .collect()
+    };
+    let refused = baker
+        .htmx(&format!("{path}/slots/{id}"), &move_to("16:00"))
+        .await;
+    assert_eq!(refused.status, StatusCode::OK);
+    refused.shows(&dutch("slot-error-order"));
+    assert!(pickup_moved().await.is_empty());
+
+    let unconfirmed = baker
+        .post(&format!("{path}/slots/{id}"), &move_to("14:00")[..3])
+        .await;
+    assert_eq!(unconfirmed.status, StatusCode::CONFLICT);
+    unconfirmed.shows(&dutch("slot-error-confirm"));
+    assert!(pickup_moved().await.is_empty());
+    assert_eq!(
+        slots_of(&pool, paid.day).await[0].starts_at,
+        ts("2026-12-05T10:00:00Z")
+    );
+
+    let moved = baker
+        .htmx(&format!("{path}/slots/{id}"), &move_to("14:00"))
+        .await;
+    assert_eq!(moved.header("hx-redirect"), format!("{path}?opgeslagen=1"));
+    let notices = pickup_moved().await;
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(notices[0].contains("14:00"), "{}", notices[0]);
+    assert!(notices[0].contains(&paid.order.number.to_string()));
+    assert!(
+        !emails_to(&pool, "klant@example.org")
+            .await
+            .iter()
+            .any(|(kind, _)| kind == "pickup_reminder"),
+        "the unsent reminder is withdrawn, so the job queues one with the new time"
+    );
+
+    baker
+        .htmx(&format!("{path}/slots/{id}"), &move_to("15:00"))
+        .await;
+    let notices = pickup_moved().await;
+    assert_eq!(
+        notices.len(),
+        1,
+        "the unsent notice is replaced: {notices:?}"
+    );
+    assert!(notices[0].contains("15:00–15:30"), "{}", notices[0]);
+
+    baker
+        .htmx(&format!("{path}/slots/{id}"), &move_to("15:00"))
+        .await;
+    assert_eq!(
+        pickup_moved().await,
+        notices,
+        "saving the same times again sends nothing"
+    );
+
+    let refused = baker.htmx(&format!("{path}/slots/{id}/remove"), &[]).await;
+    refused.shows(&dutch("slot-error-has-orders"));
+
+    let markt = paid.markt_slot.get();
+    baker
+        .get(&path)
+        .await
+        .shows(&format!(r#"data-dialog-open="slot-remove-{markt}""#));
+    sqlx::query(
+        r#"INSERT INTO "order" (number_year, number_seq, customer_id, customer_name, bake_day_id,
+            pickup_slot_id, channel, payment_mode, status, cancel_reason, total_cents, created_at)
+        SELECT number_year, number_seq + 1, customer_id, customer_name, bake_day_id, $2, channel,
+            payment_mode, 'cancelled', 'hold_expired', total_cents, created_at
+        FROM "order" WHERE id = $1"#,
+    )
+    .bind(paid.order.id.get())
+    .bind(markt)
+    .execute(&pool)
+    .await
+    .expect("cancelled order");
+    baker
+        .get(&path)
+        .await
+        .lacks(&format!(r#"data-dialog-open="slot-remove-{markt}""#));
+    assert_eq!(slots_of(&pool, paid.day).await.len(), 2);
+
+    let order_path = format!("/staff/orders/{}", paid.order.id.get());
+    baker
+        .post(
+            &format!("{order_path}/pickup"),
+            &[("slot", &markt.to_string())],
+        )
+        .await
+        .redirects_to(&format!("{order_path}?opgeslagen=1"));
+    assert!(
+        pickup_moved().await.is_empty(),
+        "moving or cancelling the order withdraws the unsent notice"
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

@@ -18,6 +18,7 @@ mod icon_set;
 pub mod icons;
 pub mod pages;
 pub mod payment_provider;
+pub mod privacy;
 pub mod rate_limit;
 pub mod security;
 pub mod session;
@@ -58,6 +59,7 @@ pub fn router(state: AppState) -> Router {
         .merge(alerts::routes(&state))
         .merge(account::routes())
         .merge(donation::routes())
+        .merge(privacy::routes())
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))

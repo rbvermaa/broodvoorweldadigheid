@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriber (email, confirmed_at, created_at)\n        VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n        ON CONFLICT ((lower(email))) DO UPDATE SET\n            confirmed_at = CASE\n                WHEN subscriber.confirmed_at IS NULL OR subscriber.unsubscribed_at IS NOT NULL\n                THEN EXCLUDED.confirmed_at ELSE subscriber.confirmed_at END,\n            unsubscribed_at = NULL,\n            confirm_token_hash = NULL,\n            confirm_expires_at = NULL,\n            confirm_sent_at = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b141912835882af7a30dbe081af8fa0ca6bc1caa62e1a2c14b81b496dfc10faa"
+}

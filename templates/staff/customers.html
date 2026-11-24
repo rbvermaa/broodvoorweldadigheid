@@ -1,0 +1,28 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as t %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("staff-nav-customers")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("staff-nav-customers")? }}</h1>
+{% if !notice.is_empty() %}{% call fb::alert(notice_kind, notice) %}{% endcall %}{% endif %}
+<p>{{ layout.t("staff-customers-intro")? }}</p>
+<form method="post" action="/staff/customers">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("email", "email", layout.t("staff-customers-email")?, value = email, required = true) %}{% endcall %}
+{% call b::button(layout.t("staff-customers-search")?, kind = "submit") %}{% endcall %}
+</form>
+{% if searched %}
+{% if let Some(found) = found %}
+{% call t::table(found.table) %}{% endcall %}
+<p><a href="{{ found.export }}" download>{{ layout.t("staff-customers-export")? }}</a></p>
+{% call b::button(layout.t("staff-customers-erase")?, variant = "danger", opens = "klant-verwijderen") %}{% endcall %}
+{% call d::confirm_dialog("klant-verwijderen", layout.t("staff-customers-erase")?, layout.t("staff-customers-erase-text")?, layout.t("staff-customers-erase-confirm")?, found.erase) %}{% endcall %}
+{% else %}
+{% call fb::empty_state(layout.t("staff-customers-none-title")?, layout.t("staff-customers-none-text")?) %}{% endcall %}
+{% endif %}
+{% endif %}
+{% endblock %}

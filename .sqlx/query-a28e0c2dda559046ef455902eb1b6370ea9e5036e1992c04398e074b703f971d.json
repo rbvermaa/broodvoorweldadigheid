@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE customer SET email = $2, name = $3, phone = NULL, marketing_consent = false,\n            erased_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a28e0c2dda559046ef455902eb1b6370ea9e5036e1992c04398e074b703f971d"
+}

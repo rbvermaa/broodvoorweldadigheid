@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.order_id, p.name_nl, l.qty, l.unit_price_cents, l.vat_rate\n        FROM order_line l\n        JOIN \"order\" o ON o.id = l.order_id\n        JOIN product p ON p.id = l.product_id\n        WHERE o.customer_id = $1\n        ORDER BY l.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "qty"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "unit_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "unit_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "vat_rate"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2b09575e2184053bff21f5b0c389491f69eeb5076ce0dfcbb292bb24b64284bc"
+}

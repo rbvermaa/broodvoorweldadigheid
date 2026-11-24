@@ -43,3 +43,20 @@ donation-chosen-text = Je keuze is opgeslagen. Je donatie gaat naar het goede do
 donation-link-failed-title = Deze link werkt niet meer
 donation-link-failed-text = Je hebt al een goed doel gekozen, of de termijn om te kiezen is voorbij. Dan ging je donatie naar het goede doel van de eerstvolgende drop.
 donation-saved-heading = Bewaarde donaties
+
+# Privacy tools on "Mijn bestellingen" (F12, ADR 0031).
+privacy-heading = Je gegevens
+privacy-intro = Download alles wat we van je bewaren, kies of je mails over nieuwe drops wilt, of verwijder je account.
+privacy-download = Download mijn gegevens
+privacy-drop-alerts = Mail me als er een nieuwe drop is
+privacy-drop-alerts-save = Opslaan
+privacy-delete-heading = Account verwijderen
+privacy-delete-intro = We wissen je naam, e-mailadres en telefoonnummer. Je bestellingen moeten we 7 jaar bewaren voor de belastingdienst, maar zonder iets wat naar jou wijst. Je donaties blijven bij het goede doel.
+privacy-delete = Verwijder mijn account
+privacy-delete-title = Account verwijderen?
+privacy-delete-text = Je naam, e-mailadres en telefoonnummer worden gewist en je wordt uitgelogd. Dit kun je niet ongedaan maken. Je krijgt nog één mail ter bevestiging.
+privacy-delete-confirm = Ja, verwijder mijn account
+privacy-refused-open = Je hebt nog een bestelling die betaald of opgehaald moet worden. Daarvoor hebben we je naam nodig. Verwijder je account na het ophalen.
+privacy-refused-business = Je bestelt als bedrijf, en die gegevens staan op facturen. Mail ons, dan regelen we het samen.
+privacy-erased-title = Je account is verwijderd
+privacy-erased-text = We hebben je gegevens gewist en je bent uitgelogd. Je krijgt nog een mail ter bevestiging.

@@ -1,11 +1,12 @@
 //! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
-//! extra production, orders, the production and pickup lists, and the reports. Every
-//! handler takes [`Staff`] and checks a permission (ADR 0010). Forms post normally and
-//! redirect with `?opgeslagen=1`; htmx only adds inline checks and partial updates on top
-//! (ADR 0019).
+//! extra production, orders, the production and pickup lists, the reports, and customer
+//! data requests (F12). Every handler takes [`Staff`] and checks a permission (ADR 0010).
+//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
+//! partial updates on top (ADR 0019).
 
 pub mod bake_days;
 pub mod charities;
+pub mod customers;
 pub mod extras;
 pub mod form;
 pub mod lists;
@@ -54,6 +55,12 @@ pub type Outcome = Step<Response>;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route(
+            customers::PATH,
+            get(customers::page).post(customers::search),
+        )
+        .route("/staff/customers/{id}/export", get(customers::export))
+        .route("/staff/customers/{id}/erase", post(customers::erase))
         .route("/staff/products", get(products::list))
         .route(
             "/staff/products/new",
@@ -119,6 +126,15 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/staff/bake-days/{id}/copy", post(bake_days::copy))
         .route("/staff/bake-days/{id}/repeat", post(bake_days::repeat))
+        .route("/staff/bake-days/{id}/slots", post(bake_days::add_slot))
+        .route(
+            "/staff/bake-days/{id}/slots/{slot}",
+            post(bake_days::update_slot),
+        )
+        .route(
+            "/staff/bake-days/{id}/slots/{slot}/remove",
+            post(bake_days::remove_slot),
+        )
         .route("/staff/bake-days/{id}/open", post(bake_days::open))
         .route("/staff/bake-days/{id}/close", post(bake_days::close))
         .route(

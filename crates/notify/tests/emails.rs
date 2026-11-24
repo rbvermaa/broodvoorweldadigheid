@@ -7,7 +7,7 @@ use jiff::civil::{Date, date};
 use notify::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
     DropAlertKind, Email, EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine,
-    OutgoingEmail, Pickup, PickupReminder, Recipient, SendError, SickDayCancelled,
+    OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient, SendError, SickDayCancelled,
     SubscriptionConfirmation,
 };
 
@@ -251,6 +251,25 @@ fn pickup_reminder() {
 }
 
 #[test]
+fn pickup_moved_names_the_new_moment() {
+    let email = compose(|c| {
+        c.pickup_moved(&PickupMoved {
+            to: sanne(),
+            order_number: "2026-0042".to_owned(),
+            pickup: Pickup {
+                starts: ts("2026-12-05T13:00:00Z"),
+                ends: ts("2026-12-05T14:30:00Z"),
+                ..pickup()
+            },
+        })
+    });
+    assert_eq!(email.kind, EmailKind::PickupMoved);
+    assert!(email.text.contains("14:00"), "{}", email.text);
+    assert!(email.text.contains("15:30"), "{}", email.text);
+    snapshot("pickup-moved", &email);
+}
+
+#[test]
 fn order_cancelled_with_a_refund() {
     let email = compose(|c| {
         c.order_cancelled(&OrderCancelled {
@@ -418,6 +437,15 @@ fn donation_moved() {
 }
 
 #[test]
+fn account_deleted() {
+    let email = compose(|c| c.account_deleted("klant@example.org"));
+    assert_eq!(email.kind, EmailKind::AccountDeleted);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("7 jaar"), "{}", email.text);
+    snapshot("account-deleted", &email);
+}
+
+#[test]
 fn every_email_carries_the_company_details_and_no_class_attributes() {
     let i18n = i18n();
     let company = company();
@@ -434,6 +462,7 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
             login_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
             valid_minutes: 30,
         }),
+        composer.account_deleted("klant@example.org"),
     ];
     for email in emails {
         let email = email.expect("compose");

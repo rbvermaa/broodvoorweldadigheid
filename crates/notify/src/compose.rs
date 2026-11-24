@@ -105,6 +105,14 @@ pub struct PickupReminder {
     pub items: Vec<Item>,
 }
 
+/// F1, F4a: staff moved the ophaalmoment of an order; `pickup` is the new one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickupMoved {
+    pub to: Recipient,
+    pub order_number: String,
+    pub pickup: Pickup,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderCancelled {
     pub to: Recipient,
@@ -348,6 +356,32 @@ impl<'a> Composer<'a> {
     }
 
     /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn pickup_moved(&self, moved: &PickupMoved) -> Result<Email, ComposeError> {
+        let number = moved.order_number.as_str();
+        let blocks = vec![
+            Block::Paragraph(self.t("email-pickup-moved-intro", &[("number", number.to_owned())])?),
+            Block::Facts(vec![
+                self.fact("email-label-order", number.to_owned())?,
+                self.fact("email-label-pickup", self.moment(&moved.pickup)?)?,
+                self.fact("email-label-location", self.place(&moved.pickup)?)?,
+            ]),
+            Block::Paragraph(self.t("email-pickup-moved-sorry", &[])?),
+        ];
+        let parts = Parts {
+            subject: self.t(
+                "email-pickup-moved-subject",
+                &[("number", number.to_owned())],
+            )?,
+            heading: self.t("email-pickup-moved-heading", &[])?,
+            greeting: self.greeting(moved.to.name.as_deref())?,
+            blocks,
+            unsubscribe: None,
+        };
+        self.email(EmailKind::PickupMoved, &moved.to.email, parts)
+    }
+
+    /// # Errors
     /// See [`Composer::order_confirmation`]; also a refund of zero or less.
     pub fn order_cancelled(&self, cancelled: &OrderCancelled) -> Result<Email, ComposeError> {
         let number = cancelled.order_number.as_str();
@@ -548,6 +582,25 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::DonationMoved, &moved.to.email, parts)
+    }
+
+    /// The last email to a customer whose data was erased (F12). No name: it is gone.
+    ///
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn account_deleted(&self, to: &str) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-account-deleted-subject", &[])?,
+            heading: self.t("email-account-deleted-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-account-deleted-intro", &[])?),
+                Block::Paragraph(self.t("email-account-deleted-orders", &[])?),
+                Block::Paragraph(self.t("email-questions", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::AccountDeleted, to, parts)
     }
 
     /// To the bakery, with only the company name in the footer; the sender gets no copy.

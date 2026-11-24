@@ -8,5 +8,6 @@ mod holds;
 mod manage;
 mod payment;
 mod pickup;
+mod privacy;
 mod refunds;
 mod tracking;

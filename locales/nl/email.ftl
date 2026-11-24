@@ -41,10 +41,20 @@ email-donation-moved-subject = Je bewaarde donatie gaat naar { $charity }
 email-donation-moved-heading = Je donatie heeft een bestemming
 email-donation-moved-intro = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor later. Je hebt geen goed doel gekozen, dus gaat je donatie nu naar { $charity }, het goede doel van de drop van { $date }.
 
+email-account-deleted-subject = Je gegevens zijn verwijderd
+email-account-deleted-heading = Je account is verwijderd
+email-account-deleted-intro = Je vroeg ons om je gegevens te verwijderen. Dat is gedaan: je naam, e-mailadres en telefoonnummer zijn gewist, en je krijgt geen mails meer over drops.
+email-account-deleted-orders = Je bestellingen moeten we 7 jaar bewaren voor de belastingdienst. Er staat niets meer bij wat naar jou wijst. Je donaties blijven bij het goede doel.
+
 email-pickup-reminder-subject = Ophalen: je bestelling { $number }
 email-pickup-reminder-heading = Je brood ligt bijna klaar
 email-pickup-reminder-intro = Je kunt je bestelling ophalen op { $day } tussen { $start } en { $end }.
 email-pickup-reminder-items = Dit haal je op:
+
+email-pickup-moved-subject = Nieuw ophaalmoment voor je bestelling { $number }
+email-pickup-moved-heading = Je ophaalmoment is veranderd
+email-pickup-moved-intro = We hebben het ophaalmoment van je bestelling { $number } veranderd. Dit is het nieuwe moment:
+email-pickup-moved-sorry = Past dit niet? Beantwoord deze mail, dan zoeken we samen een oplossing.
 
 email-order-cancelled-subject = Je bestelling { $number } is geannuleerd
 email-order-cancelled-heading = Je bestelling is geannuleerd

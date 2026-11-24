@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_outbox\n        WHERE kind = 'drop_alert' AND status = 'pending' AND lower(to_address) = lower($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "189666d8401c73181219ef7ad312a9025e662c248caa706184e5801ab0597343"
+}

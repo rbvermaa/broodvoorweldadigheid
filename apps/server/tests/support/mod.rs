@@ -6,13 +6,10 @@ use jiff::Timestamp;
 use server::{csrf, session, staff_session};
 use tower_sessions::Session;
 
-/// A session in the store with `staff` signed in, as any sign-in method leaves it. Returns
-/// the `Cookie` header value and the session's CSRF token.
-pub async fn signed_in(pool: &PgPool, staff: &StaffUser) -> (String, String) {
-    signed_in_at(pool, staff, Timestamp::now()).await
-}
-
-/// `signed_in` for an app whose clock reads `now`.
+/// A session in the store with `staff` signed in at `now`, as any sign-in method leaves it.
+/// Returns the `Cookie` header value and the session's CSRF token. `now` must be the app's
+/// clock: a login started at another time can count as expired, and starting one clears
+/// the logins that look expired at that time.
 pub async fn signed_in_at(pool: &PgPool, staff: &StaffUser, now: Timestamp) -> (String, String) {
     let login = auth::login::start(pool, staff.id, now)
         .await

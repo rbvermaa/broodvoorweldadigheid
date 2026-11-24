@@ -14,10 +14,11 @@ use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::routing::get;
 use db::PgPool;
 use i18n::Translator;
+use jiff::Timestamp;
 use server::config::Config;
 use server::staff::{Forbidden, Staff};
 use server::{AppState, csrf, staff};
-use support::{signed_in, signed_in_at};
+use support::signed_in_at;
 use testkit::FakeClock;
 use tokio::sync::{Notify, oneshot};
 use tower::ServiceExt;
@@ -176,7 +177,7 @@ async fn the_staff_page_without_a_session_redirects_to_login(pool: PgPool) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_signed_in_staff_member_sees_the_staff_page(pool: PgPool) {
     let baker = add(&pool, "uuid-baker", "Bakker Bas", Role::Baker).await;
-    let (cookie, _) = signed_in(&pool, &baker).await;
+    let (cookie, _) = signed_in_at(&pool, &baker, Timestamp::now()).await;
     let page = get_with(&app(pool, &[]), "/staff", Some(&cookie)).await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.body);
     assert!(page.body.contains("Bakker Bas"), "{}", page.body);
@@ -200,7 +201,7 @@ async fn a_role_without_the_permission_gets_the_dutch_403(pool: PgPool) {
     let routes = Router::new().route("/staff/medewerkers", get(manage_staff));
     let app = server::with_shell(routes, state(pool.clone(), &[]));
 
-    let (cookie, _) = signed_in(&pool, &counter).await;
+    let (cookie, _) = signed_in_at(&pool, &counter, Timestamp::now()).await;
     let reply = get_with(&app, "/staff/medewerkers", Some(&cookie)).await;
     assert_page(
         &reply,
@@ -209,7 +210,7 @@ async fn a_role_without_the_permission_gets_the_dutch_403(pool: PgPool) {
         "staff-forbidden-text",
     );
 
-    let (cookie, _) = signed_in(&pool, &owner).await;
+    let (cookie, _) = signed_in_at(&pool, &owner, Timestamp::now()).await;
     let reply = get_with(&app, "/staff/medewerkers", Some(&cookie)).await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(reply.body, "beheer");
@@ -222,7 +223,7 @@ async fn a_role_without_the_permission_gets_the_dutch_403(pool: PgPool) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_deactivated_staff_member_loses_the_session(pool: PgPool) {
     let baker = add(&pool, "uuid-baker", "Bas", Role::Baker).await;
-    let (cookie, _) = signed_in(&pool, &baker).await;
+    let (cookie, _) = signed_in_at(&pool, &baker, Timestamp::now()).await;
     let app = app(pool.clone(), &[]);
     assert_eq!(
         get_with(&app, "/staff", Some(&cookie)).await.status,
@@ -237,7 +238,7 @@ async fn a_deactivated_staff_member_loses_the_session(pool: PgPool) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn logout_needs_the_csrf_token_and_ends_the_session(pool: PgPool) {
     let baker = add(&pool, "uuid-baker", "Bas", Role::Baker).await;
-    let (cookie, token) = signed_in(&pool, &baker).await;
+    let (cookie, token) = signed_in_at(&pool, &baker, Timestamp::now()).await;
     let app = app(pool, &[]);
 
     let without = post_form(&app, "/staff/logout", Some(&cookie), "").await;
@@ -282,7 +283,7 @@ async fn without_dev_login_there_is_no_way_in(pool: PgPool) {
     );
 
     let other = add(&pool, "uuid-other", "Ander", Role::Counter).await;
-    let (cookie, token) = signed_in(&pool, &other).await;
+    let (cookie, token) = signed_in_at(&pool, &other, Timestamp::now()).await;
     let reply = post_form(
         &app,
         staff::DEV_LOGIN_PATH,
@@ -467,7 +468,7 @@ async fn a_role_change_applies_on_the_next_request(pool: PgPool) {
     add(&pool, "uuid-owner", "Eigenaar", Role::Owner).await;
     let routes = Router::new().route("/staff/medewerkers", get(manage_staff));
     let app = server::with_shell(routes, state(pool.clone(), &[]));
-    let (cookie, _) = signed_in(&pool, &counter).await;
+    let (cookie, _) = signed_in_at(&pool, &counter, Timestamp::now()).await;
     assert_eq!(
         get_with(&app, "/staff/medewerkers", Some(&cookie))
             .await
@@ -488,7 +489,7 @@ async fn a_role_change_applies_on_the_next_request(pool: PgPool) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn an_idle_login_ends_after_twelve_hours(pool: PgPool) {
     let baker = add(&pool, "uuid-baker", "Bas", Role::Baker).await;
-    let start: jiff::Timestamp = "2026-11-24T09:00:00Z".parse().expect("timestamp");
+    let start: Timestamp = "2026-11-24T09:00:00Z".parse().expect("timestamp");
     let clock = Arc::new(FakeClock::new(start));
     let app = server::router(state(pool.clone(), &[]).with_clock(clock.clone()));
     let (cookie, _) = signed_in_at(&pool, &baker, start).await;
@@ -527,7 +528,7 @@ async fn held(axum::Extension(gate): axum::Extension<Gate>, _staff: Staff) -> &'
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_request_in_flight_cannot_undo_logout(pool: PgPool) {
     let baker = add(&pool, "uuid-baker", "Bas", Role::Baker).await;
-    let (cookie, token) = signed_in(&pool, &baker).await;
+    let (cookie, token) = signed_in_at(&pool, &baker, Timestamp::now()).await;
     let (entered_tx, entered_rx) = oneshot::channel();
     let gate = Gate {
         entered: Arc::new(std::sync::Mutex::new(Some(entered_tx))),
@@ -571,7 +572,7 @@ async fn a_request_in_flight_cannot_undo_logout(pool: PgPool) {
 async fn signing_in_on_a_shared_browser_ends_the_previous_login(pool: PgPool) {
     let first = add(&pool, "uuid-first", "Eerste", Role::Counter).await;
     let second = add(&pool, "uuid-second", "Tweede", Role::Baker).await;
-    let (cookie, token) = signed_in(&pool, &first).await;
+    let (cookie, token) = signed_in_at(&pool, &first, Timestamp::now()).await;
     let app = app(pool.clone(), DEV_LOGIN);
     let reply = post_form(
         &app,

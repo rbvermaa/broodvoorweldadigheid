@@ -23,6 +23,7 @@ staff-nav-orders = Bestellingen
 staff-nav-products = Producten
 staff-nav-locations = Ophaallocaties
 staff-nav-charities = Goede doelen
+staff-nav-customers = Klanten
 form-save = Opslaan
 form-yes = Ja
 form-no = Nee
@@ -155,6 +156,27 @@ day-repeated = { $n ->
 day-final = Deze bakdag is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
 day-slots = Ophaalmomenten
 day-no-slots = Geen ophaalmomenten: deze bakdag is alleen voor productie.
+slot-date = Datum
+slot-add = Ophaalmoment toevoegen
+slot-orders = { $n ->
+    [one] 1 bestelling
+   *[other] { $n } bestellingen
+}
+slot-move = Ophaalmoment verplaatsen
+slot-move-text = { $n ->
+    [one] Er is al 1 bestelling voor dit ophaalmoment.
+   *[other] Er zijn al { $n } bestellingen voor dit ophaalmoment.
+} Laat die klanten weten dat de tijd verandert: ze krijgen een mail met het nieuwe ophaalmoment.
+slot-move-confirm = Verplaatsen en klanten mailen
+slot-remove = Ophaalmoment verwijderen
+# $slot: 11:00–12:00, De Proef
+slot-remove-text = Het ophaalmoment { $slot } verdwijnt van deze bakdag.
+slot-error-order = Het ophaalmoment moet eindigen na het begin.
+# $time: 05:00
+slot-error-before-bake = Het ophaalmoment kan niet beginnen voor het bakken begint, om { $time } op de bakdag.
+slot-error-past = Dit ophaalmoment is dan al voorbij. Kies een tijd die nog moet komen.
+slot-error-confirm = Er zijn intussen bestellingen voor dit ophaalmoment. Kijk of je het nog steeds wilt verplaatsen.
+slot-error-has-orders =Er zijn bestellingen voor dit ophaalmoment. Verplaats het ophaalmoment of zet de bestellingen eerst over.
 day-schedule = Tijden
 day-menu-publish = Menu tonen vanaf
 day-menu-publish-hint = Leeg laten als het menu nog niet vaststaat.
@@ -422,3 +444,20 @@ reports-error-amount = Het bedrag om nu over te maken is { $due }.
 reports-error-amount-format = Vul een bedrag in, bijvoorbeeld 12,50.
 reports-error-reference = Vul de omschrijving of referentie van de overboeking in.
 reports-error-period = De periode van deze overboeking klopt niet. Kies de periode opnieuw en probeer het nog eens.
+
+# A customer's data request: export or erase (F12, ADR 0031).
+staff-customers-intro = Vraagt een klant om zijn gegevens, of om ze te verwijderen? Zoek de klant op e-mailadres.
+staff-customers-email = E-mailadres
+staff-customers-search = Zoeken
+staff-customers-caption = Gevonden klant
+staff-customers-name = Naam
+staff-customers-orders = Bestellingen
+staff-customers-none-title = Geen klant gevonden
+staff-customers-none-text = Met dit e-mailadres is niet besteld, of de klant is al verwijderd.
+staff-customers-export = Download gegevens (JSON)
+staff-customers-erase = Klant verwijderen
+staff-customers-erase-text = Naam, e-mailadres en telefoonnummer worden gewist en de klant wordt uitgelogd. Bestellingen en donaties blijven, zonder naam. De klant krijgt een mail ter bevestiging. Dit kun je niet ongedaan maken.
+staff-customers-erase-confirm = Ja, verwijder deze klant
+staff-customers-erased = De klant is verwijderd.
+staff-customers-refused-open = Deze klant heeft nog een bestelling die betaald of opgehaald moet worden. Verwijder de klant na het ophalen.
+staff-customers-refused-business = Dit is een zakelijke klant. Die gegevens staan op facturen en worden hier niet verwijderd.
