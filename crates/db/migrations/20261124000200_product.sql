@@ -32,7 +32,7 @@ CREATE TABLE product (
     CONSTRAINT product_pwyw_bounds CHECK (
         CASE WHEN pay_what_you_want
             THEN min_price_cents IS NOT NULL AND max_price_cents IS NOT NULL
-                AND 0 <= min_price_cents AND min_price_cents <= price_incl_cents
+                AND 0 < min_price_cents AND min_price_cents <= price_incl_cents
                 AND price_incl_cents <= max_price_cents
             ELSE min_price_cents IS NULL AND max_price_cents IS NULL
         END

@@ -107,6 +107,10 @@ async fn invalid_pay_what_you_want_bounds_are_refused_before_writing(
         pay_what_you_want: Some((eur(300), eur(1500))),
         ..sourdough()
     };
+    let zero_min = ProductInput {
+        pay_what_you_want: Some((eur(0), eur(1500))),
+        ..sourdough()
+    };
     let negative_min = ProductInput {
         pay_what_you_want: Some((eur(-1), eur(1500))),
         ..sourdough()
@@ -115,10 +119,12 @@ async fn invalid_pay_what_you_want_bounds_are_refused_before_writing(
         products::create(&mut conn, &below_min).await,
         Err(Error::Price(InvalidPriceRange::SuggestedOutsideRange))
     ));
-    assert!(matches!(
-        products::create(&mut conn, &negative_min).await,
-        Err(Error::Price(InvalidPriceRange::NegativeMinimum))
-    ));
+    for input in [&zero_min, &negative_min] {
+        assert!(matches!(
+            products::create(&mut conn, input).await,
+            Err(Error::Price(InvalidPriceRange::MinimumNotPositive))
+        ));
+    }
 
     let product = products::create(&mut conn, &sourdough()).await.unwrap();
     assert!(matches!(
@@ -418,6 +424,20 @@ async fn stored_rows_that_break_domain_rules_are_reported(mut conn: PoolConnecti
         products::get(&mut conn, product.id).await,
         Err(Error::Corrupt(_))
     ));
+
+    sqlx::query("ALTER TABLE product DROP CONSTRAINT product_vat_rate_check")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE product SET pay_what_you_want = false, min_price_cents = NULL, max_price_cents = NULL, vat_rate = 6 WHERE id = $1")
+        .bind(product.id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert!(matches!(
+        products::get(&mut conn, product.id).await,
+        Err(Error::Corrupt(_))
+    ));
 }
 
 async fn insert_raw(conn: &mut PgConnection, columns: &str, values: &str) -> sqlx::Error {
@@ -464,6 +484,10 @@ async fn database_refuses_inconsistent_prices_and_approvals(mut conn: PoolConnec
         (
             ", pay_what_you_want, min_price_cents, max_price_cents",
             ", true, 600, 1000",
+        ),
+        (
+            ", pay_what_you_want, min_price_cents, max_price_cents",
+            ", true, 0, 1000",
         ),
         (", min_price_cents, max_price_cents", ", 100, 1000"),
     ];

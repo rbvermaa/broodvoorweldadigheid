@@ -113,20 +113,6 @@ struct Row {
     active: bool,
 }
 
-fn vat_rate_from_db(percent: i16) -> Result<VatRate, Error> {
-    VatRate::ALL
-        .into_iter()
-        .find(|rate| rate.percent() == i64::from(percent))
-        .ok_or_else(|| Error::Corrupt(format!("vat rate {percent}")))
-}
-
-fn vat_rate_to_db(rate: VatRate) -> i16 {
-    match rate {
-        VatRate::Nine => 9,
-        VatRate::TwentyOne => 21,
-    }
-}
-
 fn allergens_from_db(codes: &[String]) -> Result<BTreeSet<Allergen>, Error> {
     codes
         .iter()
@@ -173,7 +159,7 @@ impl TryFrom<Row> for Product {
             description_nl: row.description_nl,
             photo_path: row.photo_path,
             pricing,
-            vat_rate: vat_rate_from_db(row.vat_rate)?,
+            vat_rate: VatRate::try_from(row.vat_rate).map_err(|e| Error::Corrupt(e.to_string()))?,
             unit_weight_g: row.unit_weight_g,
             dough_g_per_piece: row.dough_g_per_piece,
             freezer_days: row.freezer_days,
@@ -250,7 +236,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
             ingredient_text, packaged, sold_online, estimated_cost_cents, active
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
@@ -261,7 +247,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
         input.description_nl,
         input.photo_path,
         input.price_incl.cents(),
-        vat_rate_to_db(input.vat_rate),
+        input.vat_rate.percent(),
         input.pay_what_you_want.is_some(),
         v.min_price_cents,
         v.max_price_cents,
@@ -297,7 +283,7 @@ pub async fn update(
         Row,
         r#"UPDATE product SET
             name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,
-            vat_rate = $6, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,
+            vat_rate = $6::bigint, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,
             unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,
             lead_time_hours = $13, allergens = $14, may_contain = $15, ingredient_text = $16,
             packaged = $17, sold_online = $18, estimated_cost_cents = $19, active = $20
@@ -313,7 +299,7 @@ pub async fn update(
         input.description_nl,
         input.photo_path,
         input.price_incl.cents(),
-        vat_rate_to_db(input.vat_rate),
+        input.vat_rate.percent(),
         input.pay_what_you_want.is_some(),
         v.min_price_cents,
         v.max_price_cents,
@@ -461,14 +447,6 @@ pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<i
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn vat_rates_map_to_percentages() {
-        for rate in VatRate::ALL {
-            assert_eq!(vat_rate_from_db(vat_rate_to_db(rate)).unwrap(), rate);
-        }
-        assert!(matches!(vat_rate_from_db(6), Err(Error::Corrupt(_))));
-    }
 
     #[test]
     fn unknown_allergen_codes_are_corrupt() {
