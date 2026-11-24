@@ -654,7 +654,7 @@ async fn last_fee_page_and_bad_transactions() {
         .unwrap();
     assert_eq!(page.next, None);
 
-    let odd = json!({ "count": 4, "_embedded": { "balance_transactions": [
+    let odd = json!({ "count": 5, "_embedded": { "balance_transactions": [
         { "id": "baltr_a", "type": "payment",
           "resultAmount": { "currency": "EUR", "value": "1.00" },
           "initialAmount": { "currency": "EUR", "value": "1.00" },
@@ -669,6 +669,11 @@ async fn last_fee_page_and_bad_transactions() {
           "initialAmount": { "currency": "EUR", "value": "1.00" },
           "deductions": null,
           "context": { "paymentId": "tr_bad1" } },
+        { "id": "baltr_cap", "type": "capture",
+          "resultAmount": { "currency": "EUR", "value": "1.90" },
+          "initialAmount": { "currency": "EUR", "value": "2.00" },
+          "deductions": { "currency": "EUR", "value": "-0.10" },
+          "context": { "paymentId": "tr_cap1" } },
         { "id": "baltr_d", "type": "payment",
           "resultAmount": { "currency": "EUR", "value": "0.75" },
           "initialAmount": { "currency": "EUR", "value": "1.00" },
@@ -683,13 +688,22 @@ async fn last_fee_page_and_bad_transactions() {
         .unwrap();
     assert_eq!(
         page.fees,
-        [PaymentFee {
-            payment: tr("tr_ok1"),
-            kind: FeeKind::Payment,
-            gross: Money::from_cents(100),
-            fee: Money::ZERO,
-            net: Money::from_cents(75),
-        }],
+        [
+            PaymentFee {
+                payment: tr("tr_cap1"),
+                kind: FeeKind::Payment,
+                gross: Money::from_cents(200),
+                fee: Money::from_cents(10),
+                net: Money::from_cents(190),
+            },
+            PaymentFee {
+                payment: tr("tr_ok1"),
+                kind: FeeKind::Payment,
+                gross: Money::from_cents(100),
+                fee: Money::ZERO,
+                net: Money::from_cents(75),
+            }
+        ],
         "odd transactions are skipped; reservations are not fees"
     );
 

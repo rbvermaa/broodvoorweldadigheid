@@ -576,7 +576,7 @@ impl WireTransaction {
     /// (fees plus commissions), not reservations or repayments.
     fn into_fee(self) -> Result<Option<PaymentFee>, PaymentError> {
         let kind = match self.kind.as_str() {
-            "payment" => FeeKind::Payment,
+            "payment" | "capture" => FeeKind::Payment,
             "refund" => FeeKind::Refund,
             _ => return Ok(None),
         };
