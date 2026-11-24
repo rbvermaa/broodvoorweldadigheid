@@ -6,3 +6,19 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+apalis = { version = "1.2", default-features = false }
+apalis-postgres = { version = "1.2", default-features = false, features = ["tokio", "migrate"] }
+bakedays = { path = "../bakedays" }
+db = { path = "../db" }
+domain = { path = "../domain" }
+jiff.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+testkit = { path = "../testkit" }
