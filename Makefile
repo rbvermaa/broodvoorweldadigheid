@@ -148,6 +148,7 @@ db-down: ## Stop the local PostgreSQL
 
 migrations-lock: ## Append new migrations to crates/db/migrations/migrations.lock; never rewrites entries
 	$(NIX_DEV) bash -c 'set -e; cd crates/db/migrations; touch migrations.lock; \
+		if [ -s migrations.lock ] && [ -n "$$(tail -c 1 migrations.lock)" ]; then echo >> migrations.lock; fi; \
 		for f in *.sql; do \
 			awk -v f="$$f" "\$$2 == f { found = 1 } END { exit !found }" migrations.lock \
 				|| sha384sum "$$f" >> migrations.lock; \
