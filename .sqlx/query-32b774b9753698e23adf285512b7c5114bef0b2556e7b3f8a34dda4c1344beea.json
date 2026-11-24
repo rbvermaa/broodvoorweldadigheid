@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.id, k.kind AS \"kind!\"\n        FROM bake_day d\n        CROSS JOIN (VALUES ('menu_published'), ('ordering_open')) AS k (kind)\n        WHERE d.online_ordering\n            AND (d.cutoff_at IS NULL\n                OR d.cutoff_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond')\n            AND ((k.kind = 'menu_published' AND d.status = 'draft'\n                    AND d.menu_publish_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n                    AND (d.opens_at IS NULL\n                        OR d.opens_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond'))\n                OR (k.kind = 'ordering_open' AND d.status = 'open'))\n            AND NOT EXISTS (SELECT 1 FROM drop_alert_sent s\n                WHERE s.bake_day_id = d.id AND s.kind = k.kind)\n        ORDER BY d.date, d.id, k.kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "32b774b9753698e23adf285512b7c5114bef0b2556e7b3f8a34dda4c1344beea"
+}

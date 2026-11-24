@@ -316,6 +316,40 @@ async fn a_day_that_opens_with_its_menu_gets_only_the_ordering_alert(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_draft_whose_opening_was_skipped_waits_for_the_ordering_alert(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = FakeClock::new(ts("2026-10-20T08:00:00Z"));
+    setup(&mut conn, &clock).await;
+    let day = saturday(
+        &mut conn,
+        Some("2026-10-26T08:00:00Z"),
+        Some("2026-10-26T08:00:00Z"),
+    )
+    .await;
+    menu_item(&mut conn, &day, "Desem spelt").await;
+
+    let report = alert_tick(&mut conn, &clock, "2026-10-26T08:00:00Z").await;
+    assert_eq!(report, AlertReport::default());
+    assert!(alert_rows(&mut conn).await.is_empty());
+
+    let opened = jobs::bake_days::tick(&mut conn, &clock).await.unwrap();
+    assert_eq!(opened.opened, [day.id]);
+    let report = alert_tick(&mut conn, &clock, "2026-10-26T08:01:00Z").await;
+    assert_eq!(
+        report.queued,
+        [QueuedAlert {
+            bake_day: day.id,
+            kind: DropAlertKind::OrderingOpen,
+            recipients: 1,
+        }]
+    );
+    assert_eq!(
+        alert_rows(&mut conn).await,
+        [(day.id.get(), "ordering_open".to_owned(), 1)]
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn production_only_cancelled_and_past_deadline_drops_never_alert(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let clock = FakeClock::new(ts("2026-10-20T08:00:00Z"));

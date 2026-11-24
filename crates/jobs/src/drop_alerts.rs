@@ -37,8 +37,9 @@ fn parse_kind(kind: &str) -> Option<DropAlertKind> {
 
 /// Queues the drop alerts that are due (F9a): "menu published" for an online draft whose
 /// `menu_publish_at` has passed, "ordering open" for an open day, both only before the
-/// deadline. Production-only and cancelled drops never alert, and an alert for a day the
-/// tick just opened is "ordering open" only. Run it after [`crate::bake_days::tick`].
+/// deadline. Production-only and cancelled drops never alert, and a draft that is due to
+/// open gets no menu alert, only the ordering alert once it opens. Run it after
+/// [`crate::bake_days::tick`].
 ///
 /// Each drop and kind goes out once: the `drop_alert_sent` row is inserted in the same
 /// transaction that queues the emails, so a second tick, or a second server, finds it and
@@ -62,7 +63,9 @@ pub async fn tick(
             AND (d.cutoff_at IS NULL
                 OR d.cutoff_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond')
             AND ((k.kind = 'menu_published' AND d.status = 'draft'
-                    AND d.menu_publish_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond')
+                    AND d.menu_publish_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
+                    AND (d.opens_at IS NULL
+                        OR d.opens_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond'))
                 OR (k.kind = 'ordering_open' AND d.status = 'open'))
             AND NOT EXISTS (SELECT 1 FROM drop_alert_sent s
                 WHERE s.bake_day_id = d.id AND s.kind = k.kind)
@@ -139,7 +142,9 @@ async fn send(
             AND (cutoff_at IS NULL
                 OR cutoff_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')
             AND (($3 = 'menu_published' AND status = 'draft'
-                    AND menu_publish_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond')
+                    AND menu_publish_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
+                    AND (opens_at IS NULL
+                        OR opens_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))
                 OR ($3 = 'ordering_open' AND status = 'open'))
         FOR SHARE SKIP LOCKED",
         day.get(),

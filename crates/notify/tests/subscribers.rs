@@ -208,6 +208,32 @@ async fn unsubscribing_is_idempotent_and_signing_up_again_needs_a_new_confirmati
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn signing_up_right_after_unsubscribing_sends_a_working_link(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = now();
+    subscribe(&mut conn, &clock, "iemand@example.nl").await;
+    let unsubscribe = unsubscribe_token(&mut conn, &clock).await;
+    assert!(
+        subscribers::unsubscribe(&mut conn, &clock, &unsubscribe)
+            .await
+            .unwrap()
+    );
+
+    assert_eq!(
+        subscribe(&mut conn, &clock, "iemand@example.nl").await,
+        Subscribed::ConfirmationQueued
+    );
+    let again = last_token(&mut conn).await;
+    assert!(
+        subscribers::confirm(&mut conn, &clock, &again)
+            .await
+            .unwrap()
+    );
+    assert_eq!(active(&mut conn).await, ["iemand@example.nl"]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn unknown_tokens_and_bad_addresses_change_nothing(mut conn: PoolConnection<Postgres>) {
     let clock = now();
     let unknown = "A".repeat(43);

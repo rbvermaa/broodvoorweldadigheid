@@ -237,8 +237,8 @@ pub async fn unsubscribe_link_known(
 }
 
 /// Takes the subscriber behind an unsubscribe link off the list, voids an open
-/// confirmation link and withdraws drop alerts to them still waiting in the outbox;
-/// `false` for an unknown link. Safe to repeat.
+/// confirmation link (signing up again sends a new one at once) and withdraws drop alerts
+/// to them still waiting in the outbox; `false` for an unknown link. Safe to repeat.
 ///
 /// # Errors
 /// [`SubscriberError::Db`].
@@ -256,7 +256,8 @@ pub async fn unsubscribe(
             unsubscribed_at = coalesce(s.unsubscribed_at,
                 timestamptz 'epoch' + $2::bigint * interval '1 microsecond'),
             confirm_token_hash = NULL,
-            confirm_expires_at = NULL
+            confirm_expires_at = NULL,
+            confirm_sent_at = NULL
         FROM subscriber_unsubscribe_token t
         WHERE t.token_hash = $1 AND t.subscriber_id = s.id
         RETURNING s.id",
