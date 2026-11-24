@@ -468,3 +468,43 @@ async fn without_orders_the_page_says_so(pool: PgPool) {
     let page = get(&app, "/mijn-bestellingen", Some(&cookie)).await;
     assert!(page.body.contains(&dutch("account-orders-empty-title")));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn using_links_shares_the_rate_limit(pool: PgPool) {
+    let app = app(&pool).await;
+    let (cookie, token) = session_at(&app, "/inloggen").await;
+    let link = format!("/inloggen/{}", "x".repeat(43));
+    for _ in 0..server::account::LOGIN_BURST {
+        let reply = post(&app, &link, Some(&cookie), &format!("_csrf={token}")).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND);
+    }
+    let limited = post(&app, &link, Some(&cookie), &format!("_csrf={token}")).await;
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    let without_token = post(&app, "/inloggen", Some(&cookie), "").await;
+    assert_eq!(
+        without_token.status,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the limit comes before the CSRF check"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn signing_in_again_ends_the_previous_login_on_that_session(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    let app = app(&pool).await;
+    let cookie = signed_in(&app, &pool).await;
+    assert_eq!(logins(&pool).await, 1);
+    ask_from(&app, "192.0.2.50", KNOWN).await;
+    let link = last_link(&pool).await;
+    let page = get(&app, &link, Some(&cookie)).await;
+    let reply = post_from(
+        &app,
+        "192.0.2.50",
+        &link,
+        Some(&cookie),
+        &format!("_csrf={}", csrf_of(&page.body)),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    assert_eq!(logins(&pool).await, 1);
+}

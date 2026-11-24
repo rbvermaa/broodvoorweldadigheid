@@ -153,11 +153,21 @@ pub struct SubscriptionConfirmation {
 }
 
 /// A customer's magic link to sign in (spec, Security; ADR 0028).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct LoginLink {
     pub to: String,
     pub login_url: String,
     pub valid_minutes: i64,
+}
+
+impl std::fmt::Debug for LoginLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginLink")
+            .field("to", &self.to)
+            .field("login_url", &"<redacted>")
+            .field("valid_minutes", &self.valid_minutes)
+            .finish()
+    }
 }
 
 /// F4f: a message from the contact form, sent to the bakery. Replies go to `email`.

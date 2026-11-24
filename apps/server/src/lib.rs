@@ -55,7 +55,7 @@ pub fn router(state: AppState) -> Router {
         .merge(shop::routes())
         .merge(site)
         .merge(alerts::routes(&state))
-        .merge(account::routes(&state))
+        .merge(account::routes())
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
@@ -72,9 +72,15 @@ pub fn router(state: AppState) -> Router {
         shop::CHECKOUT_PERIOD,
         shop::CHECKOUT_BURST,
     );
+    let login = rate_limit::apply(
+        sessioned(account::login_routes(), &state),
+        &state,
+        account::LOGIN_PERIOD,
+        account::LOGIN_BURST,
+    );
     shell(
         routes,
-        Some(checkout),
+        Some(checkout.merge(login)),
         shop::webhook_routes(),
         state.clone(),
     )

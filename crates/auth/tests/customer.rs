@@ -204,3 +204,38 @@ async fn a_login_ends_when_idle_or_old(pool: PgPool) {
         None
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn concurrent_requests_stay_within_the_limit(pool: PgPool) {
+    customer(&pool, "klant@example.nl").await;
+    let tries = usize::try_from(LINKS_PER_WINDOW).expect("small") + 3;
+    let requests = (0..tries).map(|_| {
+        let pool = pool.clone();
+        tokio::spawn(async move { request(&pool, "klant@example.nl", start()).await })
+    });
+    let mut issued = 0;
+    for request in requests.collect::<Vec<_>>() {
+        if matches!(request.await.expect("task"), LinkRequest::Issued(_)) {
+            issued += 1;
+        }
+    }
+    assert_eq!(issued, LINKS_PER_WINDOW);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn two_clicks_at_once_sign_in_once(pool: PgPool) {
+    customer(&pool, "klant@example.nl").await;
+    let link = issue(&pool, "klant@example.nl", start()).await;
+    let clicks = (0..2).map(|_| {
+        let pool = pool.clone();
+        let token = link.token.as_str().to_owned();
+        tokio::spawn(async move { redeem(&pool, &token, start()).await })
+    });
+    let mut signed_in = 0;
+    for click in clicks.collect::<Vec<_>>() {
+        if click.await.expect("task").is_some() {
+            signed_in += 1;
+        }
+    }
+    assert_eq!(signed_in, 1);
+}

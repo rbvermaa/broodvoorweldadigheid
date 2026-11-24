@@ -6,7 +6,8 @@ use std::time::Duration;
 use askama::Template;
 use auth::customer::{self, LINK_VALID, LinkRequest};
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::header::CACHE_CONTROL;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, Router};
@@ -17,10 +18,10 @@ use serde::Deserialize;
 use tower_sessions::Session;
 
 use crate::components::{Cell, Table};
+use crate::csrf;
 use crate::customer_session;
 use crate::pages::{self, Layout};
 use crate::state::AppState;
-use crate::{csrf, rate_limit};
 
 pub const LOGIN_PATH: &str = "/inloggen";
 pub const ORDERS_PATH: &str = "/mijn-bestellingen";
@@ -29,23 +30,21 @@ pub const ORDERS_PATH: &str = "/mijn-bestellingen";
 pub const LOGIN_PERIOD: Duration = Duration::from_secs(12);
 pub const LOGIN_BURST: u32 = 5;
 
-/// The pages, behind the session and CSRF layers; the two POSTs that use a link are rate
-/// limited together.
-pub fn routes(state: &AppState) -> Router<AppState> {
-    let limited = rate_limit::apply(
-        Router::new()
-            .route(LOGIN_PATH, post(request_link))
-            .route("/inloggen/{token}", post(use_link)),
-        state,
-        LOGIN_PERIOD,
-        LOGIN_BURST,
-    );
+/// The pages, behind the session and CSRF layers.
+pub fn routes() -> Router<AppState> {
     Router::new()
         .route(LOGIN_PATH, get(form))
         .route("/inloggen/{token}", get(link_page))
         .route(ORDERS_PATH, get(my_orders))
         .route("/uitloggen", post(logout))
-        .merge(limited)
+}
+
+/// Asking for a link and using one, which the server rate limits together outside the
+/// session and CSRF layers (ADR 0007).
+pub fn login_routes() -> Router<AppState> {
+    Router::new()
+        .route(LOGIN_PATH, post(request_link))
+        .route("/inloggen/{token}", post(use_link))
 }
 
 #[derive(Template)]
@@ -171,7 +170,7 @@ async fn request_link(
     Form(input): Form<LoginForm>,
 ) -> Response {
     let email = input.email.trim();
-    if email.len() > 254 || !notify::is_address(email) {
+    if !looks_like_email(email) {
         let error = match state.i18n.t("account-email-error", None) {
             Ok(text) => text,
             Err(error) => return server_error(&state, &error),
@@ -189,6 +188,15 @@ async fn request_link(
         tracing::error!(%error, "cannot send a login link");
     }
     message(&state, StatusCode::OK, CHECK_MAIL, "info", false)
+}
+
+/// The same loose check checkout makes, so every customer it stored can ask for a link.
+fn looks_like_email(email: &str) -> bool {
+    email.len() <= 254
+        && !email.chars().any(|c| c.is_whitespace() || c.is_control())
+        && email.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty() && domain.contains('.') && !domain.contains('@')
+        })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -243,14 +251,19 @@ async fn link_page(
         Err(error) => return server_error(&state, &error),
     };
     match customer::link_is_valid(&mut conn, &token, state.clock.now()).await {
-        Ok(true) => pages::render(
-            &state,
-            StatusCode::OK,
-            &LinkPage {
-                layout: Layout::new(&state).with_csrf_token(csrf),
-                action: format!("{LOGIN_PATH}/{token}"),
-            },
-        ),
+        Ok(true) => {
+            let mut page = pages::render(
+                &state,
+                StatusCode::OK,
+                &LinkPage {
+                    layout: Layout::new(&state).with_csrf_token(csrf),
+                    action: format!("{LOGIN_PATH}/{token}"),
+                },
+            );
+            page.headers_mut()
+                .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            page
+        }
         Ok(false) => link_failed(&state),
         Err(error) => server_error(&state, &error),
     }

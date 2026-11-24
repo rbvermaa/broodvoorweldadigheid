@@ -9,7 +9,7 @@ use domain::CustomerId;
 use jiff::{SignedDuration, Timestamp};
 use rand::Rng;
 use sha2::{Digest, Sha256};
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 
 use crate::LoginId;
 
@@ -103,9 +103,9 @@ fn since(now: Timestamp, span: SignedDuration) -> i64 {
 
 /// Issues a link for the customer with this email address, if there is one and they are
 /// under the limit, and clears links that expired. Customer emails are stored trimmed and
-/// lower-cased, so `raw` is too before the lookup. Call it inside the transaction that
-/// queues the email: the customer row stays locked until then, so two requests cannot
-/// both pass the limit.
+/// lower-cased, so `raw` is too before the lookup. The customer row stays locked until the
+/// outermost transaction ends, so two requests cannot both pass the limit; call it inside
+/// the transaction that queues the email.
 ///
 /// # Errors
 /// A database error.
@@ -118,11 +118,12 @@ pub async fn request_link(
     if email.is_empty() || email.len() > MAX_EMAIL_LEN {
         return Ok(LinkRequest::Unknown);
     }
+    let mut tx = conn.begin().await?;
     let Some(customer) = sqlx::query!(
         "SELECT id, email FROM customer WHERE email = $1 FOR UPDATE",
         email,
     )
-    .fetch_optional(&mut *conn)
+    .fetch_optional(&mut *tx)
     .await?
     else {
         return Ok(LinkRequest::Unknown);
@@ -130,12 +131,14 @@ pub async fn request_link(
     let at = to_micros(now);
     sqlx::query!(
         "DELETE FROM customer_login_link
-         WHERE expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
-           AND created_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+         WHERE customer_id = $1
+           AND expires_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
+           AND created_at <= timestamptz 'epoch' + $3::bigint * interval '1 microsecond'",
+        customer.id,
         at,
         since(now, LINK_WINDOW),
     )
-    .execute(&mut *conn)
+    .execute(&mut *tx)
     .await?;
     let recent = sqlx::query_scalar!(
         r#"SELECT count(*) AS "n!" FROM customer_login_link
@@ -144,7 +147,7 @@ pub async fn request_link(
         customer.id,
         since(now, LINK_WINDOW),
     )
-    .fetch_one(&mut *conn)
+    .fetch_one(&mut *tx)
     .await?;
     if recent >= LINKS_PER_WINDOW {
         return Ok(LinkRequest::Throttled);
@@ -160,8 +163,9 @@ pub async fn request_link(
         at,
         to_micros(expires),
     )
-    .execute(&mut *conn)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(LinkRequest::Issued(LoginLink {
         customer: CustomerId::new(customer.id),
         email: customer.email,
