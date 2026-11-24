@@ -1,4 +1,4 @@
-/// An amount in euro cents. Negative amounts are allowed for refunds and corrections.
+/// An amount in euro cents; negative for refunds and corrections.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Money(i64);
 

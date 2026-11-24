@@ -10,8 +10,8 @@ pub struct PayWhatYouWant {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidPriceRange {
-    #[error("minimum price is negative")]
-    NegativeMinimum,
+    #[error("minimum price is not positive")]
+    MinimumNotPositive,
     #[error("suggested price is outside the minimum and maximum")]
     SuggestedOutsideRange,
 }
@@ -26,10 +26,10 @@ pub enum PriceRefused {
 
 impl PayWhatYouWant {
     /// # Errors
-    /// [`InvalidPriceRange`] unless `0 <= min <= suggested <= max`.
+    /// [`InvalidPriceRange`] unless `0 < min <= suggested <= max`.
     pub fn new(suggested: Money, min: Money, max: Money) -> Result<Self, InvalidPriceRange> {
-        if min < Money::ZERO {
-            return Err(InvalidPriceRange::NegativeMinimum);
+        if min <= Money::ZERO {
+            return Err(InvalidPriceRange::MinimumNotPositive);
         }
         if suggested < min || suggested > max {
             return Err(InvalidPriceRange::SuggestedOutsideRange);
@@ -124,7 +124,11 @@ mod tests {
     fn invalid_ranges_are_refused() {
         assert_eq!(
             PayWhatYouWant::new(eur(600), eur(-1), eur(1500)),
-            Err(InvalidPriceRange::NegativeMinimum)
+            Err(InvalidPriceRange::MinimumNotPositive)
+        );
+        assert_eq!(
+            PayWhatYouWant::new(eur(600), eur(0), eur(1500)),
+            Err(InvalidPriceRange::MinimumNotPositive)
         );
         assert_eq!(
             PayWhatYouWant::new(eur(200), eur(300), eur(1500)),
@@ -134,20 +138,25 @@ mod tests {
             PayWhatYouWant::new(eur(1600), eur(300), eur(1500)),
             Err(InvalidPriceRange::SuggestedOutsideRange)
         );
-        assert!(PayWhatYouWant::new(eur(0), eur(0), eur(0)).is_ok());
+        assert!(PayWhatYouWant::new(eur(1), eur(1), eur(1)).is_ok());
+    }
+
+    fn bounds_and_price() -> impl Strategy<Value = ([i64; 3], i64)> {
+        [1_i64..100_000, 1_i64..100_000, 1_i64..100_000].prop_flat_map(|mut bounds| {
+            bounds.sort_unstable();
+            let [min, _, max] = bounds;
+            (
+                Just(bounds),
+                prop_oneof![(min - 2)..=(max + 2), any::<i64>()],
+            )
+        })
     }
 
     proptest! {
         #[test]
         fn price_outside_min_max_is_always_refused(
-            a in 0_i64..100_000,
-            b in 0_i64..100_000,
-            c in 0_i64..100_000,
-            chosen in any::<i64>(),
+            ([min, suggested, max], chosen) in bounds_and_price(),
         ) {
-            let mut bounds = [a, b, c];
-            bounds.sort_unstable();
-            let [min, suggested, max] = bounds;
             let pwyw = PayWhatYouWant::new(eur(suggested), eur(min), eur(max)).unwrap();
             let result = pwyw.check(eur(chosen));
             if chosen < min || chosen > max {
