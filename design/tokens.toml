@@ -146,3 +146,39 @@ background = "surface"
 [[pair]]
 foreground = "info"
 background = "info-surface"
+
+[[pair]]
+foreground = "accent"
+background = "surface-muted"
+
+[[pair]]
+foreground = "success"
+background = "surface-muted"
+
+[[pair]]
+foreground = "warning"
+background = "surface-muted"
+
+[[pair]]
+foreground = "error"
+background = "surface-muted"
+
+[[pair]]
+foreground = "info"
+background = "surface-muted"
+
+[[pair]]
+foreground = "text"
+background = "success-surface"
+
+[[pair]]
+foreground = "text"
+background = "warning-surface"
+
+[[pair]]
+foreground = "text"
+background = "error-surface"
+
+[[pair]]
+foreground = "text"
+background = "info-surface"

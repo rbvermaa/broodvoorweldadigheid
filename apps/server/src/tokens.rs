@@ -263,7 +263,10 @@ fn font_stack(stack: &[String]) -> Result<String, String> {
     }
     let mut families = Vec::with_capacity(stack.len());
     for family in stack {
-        if family.is_empty() || family.contains(['"', '\\', ';', '{', '}', ',', '\n', '\r']) {
+        let plain = family
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b' ' || byte == b'-');
+        if family.trim().is_empty() || !plain {
             return Err(format!("{family:?} is not a valid font family name"));
         }
         if GENERIC_FAMILIES.contains(&family.as_str()) {
@@ -276,13 +279,32 @@ fn font_stack(stack: &[String]) -> Result<String, String> {
 }
 
 fn shadow(value: &str) -> Result<String, String> {
-    if value.trim().is_empty()
-        || value.contains([';', '{', '}', '\\', '<', '>', '"', '\'', '\n', '\r'])
-    {
-        Err(format!("{value:?} is not a plain box-shadow value"))
-    } else {
+    if is_plain_shadow(value) {
         Ok(value.to_string())
+    } else {
+        Err(format!(
+            "{value:?} is not a plain box-shadow value (lengths, #rrggbb or rgb(...), commas)"
+        ))
     }
+}
+
+fn is_plain_shadow(value: &str) -> bool {
+    let allowed = |byte: u8| {
+        byte.is_ascii_lowercase() || byte.is_ascii_digit() || b" .%/,#-()".contains(&byte)
+    };
+    if value.trim().is_empty() || !value.bytes().all(allowed) {
+        return false;
+    }
+    let mut inside_rgb = false;
+    for (at, byte) in value.bytes().enumerate() {
+        match byte {
+            b'(' if !inside_rgb && value[..at].ends_with("rgb") => inside_rgb = true,
+            b')' if inside_rgb => inside_rgb = false,
+            b'(' | b')' => return false,
+            _ => {}
+        }
+    }
+    !inside_rgb
 }
 
 #[cfg(test)]
@@ -578,10 +600,35 @@ background = "white"
 
     #[test]
     fn font_names_cannot_break_out_of_quotes() {
-        for bad in ["In\\\"ter", "a;b", "a{b", "a,b", ""] {
-            let source = replaced("\"Inter\"", &format!("{bad:?}"));
+        for bad in [
+            r#""In\"ter""#,
+            r#""a;b""#,
+            r#""a{b""#,
+            r#""a,b""#,
+            r#""""#,
+            r#"" ""#,
+            r#""a</style>""#,
+            r#""a\fb""#,
+            r#""a\tb""#,
+        ] {
+            let source = replaced("\"Inter\"", bad);
             let error = error_of(&source);
             assert!(error.contains("[font] body"), "{bad:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn real_shadow_values_are_accepted() {
+        for good in [
+            "none",
+            "0 0 0 2px #000000",
+            "inset 0 1px 2px rgb(0 0 0 / 8%), 0 1px 0 rgb(255 255 255)",
+        ] {
+            let source = replaced(
+                "sm = \"0 1px 2px rgb(0 0 0 / 0.08)\"",
+                &format!("sm = {good:?}"),
+            );
+            assert!(generate(&source).is_ok(), "{good:?}");
         }
     }
 
@@ -595,6 +642,13 @@ background = "white"
             "a\\b",
             "a\nb",
             "a</style>",
+            "0 4px 12px rgb(0 0 0 / 0.12",
+            "0 4px 12px rgb(0 0 0 / 0.12))",
+            ")0 1px 2px rgb(0 0 0 / 0.1)(",
+            "0 1px 2px /* x",
+            "0 1px 2px url(x)",
+            "0 1px 2px red !important",
+            "@import x",
         ] {
             let source = replaced(
                 "sm = \"0 1px 2px rgb(0 0 0 / 0.08)\"",
