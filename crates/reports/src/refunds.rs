@@ -14,9 +14,10 @@ pub struct RefundSplit {
 /// Negative lines for `refunded` cents taken back on an order with `lines`.
 ///
 /// - A refund of the whole order (or more) reverses every line exactly.
-/// - A partial refund of a single-rate order is one line at that rate.
-/// - A partial refund of a mixed-rate order is split over the rates in proportion to
-///   their gross, largest remainder first, and marked `estimated`.
+/// - A partial refund is split over the order's lines in proportion to their gross,
+///   largest remainder first, one negative line per original line. No line gets back
+///   more than it cost, so no line ends with negative BTW. When the order has both
+///   rates the split is marked `estimated` (open question on mixed-rate refunds).
 ///
 /// # Errors
 /// [`Error::Money`] when an amount does not fit.
@@ -24,16 +25,13 @@ pub fn refund_lines(lines: &[Line], refunded: Money) -> Result<RefundSplit, Erro
     if refunded <= Money::ZERO || lines.is_empty() {
         return Ok(RefundSplit::default());
     }
-    let mut per_rate: Vec<(VatRate, i64)> = Vec::new();
-    let mut gross = Money::ZERO;
-    for line in lines {
-        let total = line.total()?;
-        gross = gross.checked_add(total)?;
-        match per_rate.iter_mut().find(|(rate, _)| *rate == line.vat_rate) {
-            Some((_, sum)) => *sum = Money::from_cents(*sum).checked_add(total)?.cents(),
-            None => per_rate.push((line.vat_rate, total.cents())),
-        }
-    }
+    let totals = lines
+        .iter()
+        .map(Line::total)
+        .collect::<Result<Vec<_>, _>>()?;
+    let gross = totals
+        .iter()
+        .try_fold(Money::ZERO, |sum, t| sum.checked_add(*t))?;
     if refunded >= gross {
         let lines = lines
             .iter()
@@ -49,41 +47,46 @@ pub fn refund_lines(lines: &[Line], refunded: Money) -> Result<RefundSplit, Erro
             estimated: false,
         });
     }
-    per_rate.retain(|(_, sum)| *sum > 0);
-    per_rate.sort_by_key(|(rate, _)| *rate);
-    let estimated = per_rate.len() > 1;
     let total = i128::from(gross.cents());
     let wanted = i128::from(refunded.cents());
-    let mut shares: Vec<(VatRate, i128, i128)> = per_rate
+    let mut shares: Vec<(i128, i128)> = totals
         .iter()
-        .map(|&(rate, sum)| {
-            let exact = wanted * i128::from(sum);
-            (rate, exact / total, exact % total)
+        .map(|t| {
+            let exact = wanted * i128::from(t.cents().max(0));
+            (exact / total, exact % total)
         })
         .collect();
-    let mut left = wanted - shares.iter().map(|s| s.1).sum::<i128>();
+    let mut left = wanted - shares.iter().map(|s| s.0).sum::<i128>();
     let mut order: Vec<usize> = (0..shares.len()).collect();
-    order.sort_by(|&a, &b| shares[b].2.cmp(&shares[a].2).then(a.cmp(&b)));
+    order.sort_by(|&a, &b| shares[b].1.cmp(&shares[a].1).then(a.cmp(&b)));
     for i in order {
         if left == 0 {
             break;
         }
-        shares[i].1 += 1;
+        shares[i].0 += 1;
         left -= 1;
     }
-    let lines = shares
-        .into_iter()
-        .filter(|s| s.1 > 0)
-        .map(|(vat_rate, cents, _)| {
-            let cents = i64::try_from(cents).map_err(|_| domain::MoneyError::Overflow)?;
-            Ok(Line {
-                unit_price: Money::from_cents(-cents),
-                qty: 1,
-                vat_rate,
-            })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
-    Ok(RefundSplit { lines, estimated })
+    let mut rates: Vec<VatRate> = Vec::new();
+    let mut out = Vec::new();
+    for (line, (cents, _)) in lines.iter().zip(shares) {
+        if cents == 0 {
+            continue;
+        }
+        if !rates.contains(&line.vat_rate) {
+            rates.push(line.vat_rate);
+        }
+        let cents = i64::try_from(cents).map_err(|_| domain::MoneyError::Overflow)?;
+        out.push(Line {
+            unit_price: Money::from_cents(-cents),
+            qty: 1,
+            vat_rate: line.vat_rate,
+        });
+    }
+    let estimated = lines.iter().any(|l| l.vat_rate != lines[0].vat_rate);
+    Ok(RefundSplit {
+        lines: out,
+        estimated,
+    })
 }
 
 #[cfg(test)]
@@ -154,6 +157,17 @@ mod tests {
         assert!(split.estimated);
     }
 
+    #[test]
+    fn a_partial_refund_never_takes_back_more_btw_than_was_charged() {
+        let lines = [line(500, 1, VatRate::Nine); 3];
+        let split = refund_lines(&lines, eur(1499)).unwrap();
+        let mut all = lines.to_vec();
+        all.extend(split.lines);
+        let nine = VatTotals::from_lines(&all).unwrap().rate(VatRate::Nine);
+        assert_eq!(nine.gross(), eur(1));
+        assert_eq!(nine.vat(), Money::ZERO);
+    }
+
     fn lines_strategy() -> impl Strategy<Value = Vec<Line>> {
         prop::collection::vec(
             (
@@ -176,6 +190,13 @@ mod tests {
             prop_assert_eq!(back, -refunded.min(gross));
             for l in &split.lines {
                 prop_assert!(l.unit_price <= Money::ZERO);
+            }
+            let mut all = lines.clone();
+            all.extend(split.lines);
+            let totals = VatTotals::from_lines(&all).unwrap();
+            for rate in VatRate::ALL {
+                prop_assert!(totals.rate(rate).gross() >= Money::ZERO);
+                prop_assert!(totals.rate(rate).vat() >= Money::ZERO);
             }
         }
     }

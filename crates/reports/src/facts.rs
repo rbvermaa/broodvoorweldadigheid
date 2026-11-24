@@ -283,13 +283,11 @@ pub(crate) async fn donations(
             SELECT allocation_id, SUM(paid_cents) AS paid, SUM(refunded_cents) AS refunded
             FROM charity_transfer_allocation GROUP BY allocation_id
         ) t ON t.allocation_id = da.id
-        WHERE o.status = ANY($3)
-            AND ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)
+        WHERE ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)
             AND ($2::integer IS NULL OR bd.date <= date 'epoch' + $2)
         ORDER BY da.id"#,
         from.map(to_epoch_days),
         to.map(to_epoch_days),
-        &counted(),
     )
     .fetch_all(&mut *conn)
     .await?;

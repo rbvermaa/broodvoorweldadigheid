@@ -19,10 +19,10 @@ no line and no date. The rule (`refund_lines`):
 | Refund | Lines |
 |---|---|
 | the whole order (or more) | every line reversed exactly, so BTW cancels to the cent |
-| part of a single-rate order | one negative line at that rate |
-| part of a mixed-rate order | split over the rates in proportion to their gross, largest remainder gets the odd cent; the order is listed in `estimated_refunds` |
+| part of the order | split over the order's lines in proportion to their gross, largest remainder first, one negative line per line; no line gets back more than it cost, so no line ends with negative BTW |
+| part of a mixed-rate order | as above, and the order is listed in `estimated_refunds` |
 
-The last row is our answer to the open question on mixed-rate partial refunds until
+The split over lines is our answer to the open question on mixed-rate partial refunds until
 the accountant decides. Refunds carry no date, so a refund is counted on the sale's
 day: a later refund changes an earlier period. See open questions.
 
@@ -64,7 +64,9 @@ recorded; it waits for later donations.
 
 **Donations (F11c) and contribution (F11e)** are dated by the drop. They are computed
 from allocations, net of refunds, so drop totals and charity totals are the same money
-(property tests). An order's refunds go to its allocations oldest first. The
+(property tests). An order's refunds go to its allocations oldest first. Allocations
+are read whatever the order's status now is, so a refund after a transfer is always
+seen as a correction. The
 contribution counts only orders with an allocation: BTW from the lines net of refunds,
 Mollie fees from `payment.fee_cents` (an order with an unknown fee is counted in
 `unknown_fees`, never as zero), ingredients as the product's current
