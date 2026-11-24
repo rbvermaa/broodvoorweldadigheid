@@ -1,0 +1,10 @@
+# Accepted advisories (owner decision 2026-11-24, ADR 0016).
+#
+# RUSTSEC-2026-0194 and RUSTSEC-2026-0195: quick-xml 0.38.4, pulled in by
+# typst-library -> hayagriva -> citationberg 0.7.0. The affected code parses CSL
+# bibliography styles. Our Typst templates use no bibliography, and our World serves
+# only our own template and /data.json, so no untrusted XML reaches it.
+# Remove both entries once no quick-xml below 0.41 is left in Cargo.lock
+# (crates/production/tests/advisories.rs fails until they are removed).
+[advisories]
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
