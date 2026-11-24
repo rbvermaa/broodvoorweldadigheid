@@ -330,3 +330,27 @@ mod tests {
         ));
     }
 }
+
+/// Orders that take a place in the slot at `now`: paid, confirmed, picked up, or pending
+/// within their hold. A display read without locks, for the pickup picker; checkout checks
+/// again under the slot lock.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn slot_orders(
+    conn: &mut PgConnection,
+    slot: PickupSlotId,
+    now: Timestamp,
+) -> Result<i64, Error> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM "order"
+        WHERE pickup_slot_id = $1
+            AND (status IN ('paid', 'confirmed', 'picked_up')
+                OR (status = 'pending_payment'
+                    AND hold_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))"#,
+        slot.get(),
+        to_micros(now),
+    )
+    .fetch_one(conn)
+    .await?)
+}

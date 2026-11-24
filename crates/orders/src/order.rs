@@ -258,6 +258,49 @@ pub(crate) fn snapshot(order: &Order) -> serde_json::Value {
     })
 }
 
+/// A status token is a UUID in its canonical text form: 36 characters, lower-case hex
+/// with dashes at fixed places.
+fn is_status_token(token: &str) -> bool {
+    token.len() == 36
+        && token.bytes().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => b == b'-',
+            _ => b.is_ascii_digit() || (b'a'..=b'f').contains(&b),
+        })
+}
+
+/// The random token in the link to the order's status page; never the order number.
+///
+/// # Errors
+/// [`Error::NotFound`] or [`Error::Db`].
+pub async fn status_token(conn: &mut PgConnection, id: OrderId) -> Result<String, Error> {
+    sqlx::query_scalar!(
+        r#"SELECT status_token::text AS "token!" FROM "order" WHERE id = $1"#,
+        id.get(),
+    )
+    .fetch_optional(conn)
+    .await?
+    .ok_or(Error::NotFound)
+}
+
+/// The order behind a status token.
+///
+/// # Errors
+/// [`Error::NotFound`] for an unknown or malformed token, [`Error::Db`] or
+/// [`Error::Corrupt`].
+pub async fn by_status_token(conn: &mut PgConnection, token: &str) -> Result<Order, Error> {
+    if !is_status_token(token) {
+        return Err(Error::NotFound);
+    }
+    let id = sqlx::query_scalar!(
+        r#"SELECT id FROM "order" WHERE status_token = $1::text::uuid"#,
+        token,
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(Error::NotFound)?;
+    get(conn, OrderId::new(id)).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,5 +359,21 @@ mod tests {
             line_from_row(row(2, 21)).unwrap().vat_rate,
             VatRate::TwentyOne
         );
+    }
+
+    #[test]
+    fn status_tokens_are_canonical_uuids() {
+        assert!(is_status_token("0b8f3c2e-5d4a-4c1b-9e7f-1a2b3c4d5e6f"));
+        for bad in [
+            "",
+            "2026-0001",
+            "0B8F3C2E-5D4A-4C1B-9E7F-1A2B3C4D5E6F",
+            "0b8f3c2e5d4a4c1b9e7f1a2b3c4d5e6f",
+            "0b8f3c2e-5d4a-4c1b-9e7f-1a2b3c4d5e6",
+            "0b8f3c2e-5d4a-4c1b-9e7f-1a2b3c4d5e6g",
+            "0b8f3c2e-5d4a-4c1b-9e7f_1a2b3c4d5e6f",
+        ] {
+            assert!(!is_status_token(bad), "{bad:?}");
+        }
     }
 }
