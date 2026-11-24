@@ -5,6 +5,8 @@ use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
 use crate::capacity::{Capacity, PoolLimit, ProductLimit, Remaining, Used};
+use crate::extras::ProductionExtraId;
+use crate::orders::OrderSource;
 use crate::status::BakeDayStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,33 +62,38 @@ pub(crate) async fn lock_editable_day(
     Ok(())
 }
 
-/// Takes the capacity locks for one product on a bake day, in the fixed order of ADR 0008:
-/// the `bake_day_product` row, then its `capacity_pool` row, both `FOR UPDATE`. Anything
-/// that takes capacity (extra production now, checkout later) holds these locks while it
-/// checks and writes, so two writers never both take the last piece.
+/// Takes the capacity locks for some products on a bake day, in the fixed order of
+/// ADR 0008: their `bake_day_product` rows by product id, then their `capacity_pool` rows
+/// by pool id, all `FOR UPDATE`. Anything that takes capacity (extra production now,
+/// checkout later) holds these locks while it reads usage, checks and writes, so two
+/// writers never both take the last piece and never deadlock on each other.
 ///
 /// # Errors
 /// [`Error::Db`].
 pub async fn lock_capacity(
     conn: &mut PgConnection,
     day: BakeDayId,
-    product: ProductId,
+    products: &[ProductId],
 ) -> Result<(), Error> {
-    let pool = sqlx::query_scalar!(
+    let ids: Vec<i64> = products.iter().map(|p| p.get()).collect();
+    let pools: Vec<i64> = sqlx::query_scalar!(
         "SELECT capacity_pool_id FROM bake_day_product
-        WHERE bake_day_id = $1 AND product_id = $2 FOR UPDATE",
+        WHERE bake_day_id = $1 AND product_id = ANY($2)
+        ORDER BY product_id FOR UPDATE",
         day.get(),
-        product.get(),
+        &ids,
     )
-    .fetch_optional(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?
-    .flatten();
-    if let Some(pool) = pool {
+    .into_iter()
+    .flatten()
+    .collect();
+    if !pools.is_empty() {
         sqlx::query_scalar!(
-            "SELECT id FROM capacity_pool WHERE id = $1 FOR UPDATE",
-            pool
+            "SELECT id FROM capacity_pool WHERE id = ANY($1) ORDER BY id FOR UPDATE",
+            &pools,
         )
-        .fetch_one(&mut *conn)
+        .fetch_all(&mut *conn)
         .await?;
     }
     Ok(())
@@ -291,21 +298,17 @@ pub async fn list_products(
     .collect()
 }
 
-/// Extra production per product on a bake day, leaving out one row when given.
-///
-/// # Errors
-/// [`Error::Db`] or [`Error::Corrupt`].
-pub async fn extras_by_product(
+pub(crate) async fn extras_by_product(
     conn: &mut PgConnection,
     day: BakeDayId,
-    excluding_extra: Option<i64>,
+    excluding_extra: Option<ProductionExtraId>,
 ) -> Result<BTreeMap<ProductId, u32>, Error> {
     sqlx::query!(
         r#"SELECT product_id, sum(qty)::bigint AS "qty!" FROM production_extra
         WHERE bake_day_id = $1 AND id IS DISTINCT FROM $2
         GROUP BY product_id"#,
         day.get(),
-        excluding_extra,
+        excluding_extra.map(ProductionExtraId::get),
     )
     .fetch_all(conn)
     .await?
@@ -321,9 +324,10 @@ pub async fn extras_by_product(
 pub(crate) async fn load_capacity(
     conn: &mut PgConnection,
     day: BakeDayId,
-    ordered: &BTreeMap<ProductId, u32>,
-    excluding_extra: Option<i64>,
+    orders: &impl OrderSource,
+    excluding_extra: Option<ProductionExtraId>,
 ) -> Result<Capacity, Error> {
+    let ordered = orders.ordered(conn, day).await?;
     let products = list_products(conn, day).await?;
     let pools = list_pools(conn, day).await?;
     let extras = extras_by_product(conn, day, excluding_extra).await?;
@@ -349,17 +353,16 @@ pub(crate) async fn load_capacity(
     ))
 }
 
-/// Remaining pieces per product on the day's range (F3). `ordered` holds the pieces taken
-/// by orders, per product; extra production is read from the database.
+/// Remaining pieces per product on the day's range (F3), after orders and extra production.
 ///
 /// # Errors
 /// [`Error::Db`] or [`Error::Corrupt`].
 pub async fn availability(
     conn: &mut PgConnection,
     day: BakeDayId,
-    ordered: &BTreeMap<ProductId, u32>,
+    orders: &impl OrderSource,
 ) -> Result<Vec<Availability>, Error> {
-    let capacity = load_capacity(conn, day, ordered, None).await?;
+    let capacity = load_capacity(conn, day, orders, None).await?;
     Ok(list_products(conn, day)
         .await?
         .into_iter()
@@ -368,4 +371,39 @@ pub async fn availability(
             remaining: capacity.remaining(p.product_id),
         })
         .collect())
+}
+
+/// Sold out: the range is not empty and nothing is left of any product (F1a).
+#[must_use]
+pub fn sold_out(availability: &[Availability]) -> bool {
+    !availability.is_empty()
+        && availability
+            .iter()
+            .all(|a| a.remaining == Remaining::Pieces(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn left(remaining: Remaining) -> Availability {
+        Availability {
+            product_id: ProductId::new(1),
+            remaining,
+        }
+    }
+
+    #[test]
+    fn sold_out_needs_a_range_with_nothing_left() {
+        assert!(!sold_out(&[]));
+        assert!(sold_out(&[
+            left(Remaining::Pieces(0)),
+            left(Remaining::Pieces(0))
+        ]));
+        assert!(!sold_out(&[
+            left(Remaining::Pieces(0)),
+            left(Remaining::Pieces(1))
+        ]));
+        assert!(!sold_out(&[left(Remaining::Unlimited)]));
+    }
 }

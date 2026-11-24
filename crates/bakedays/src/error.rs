@@ -1,5 +1,5 @@
 use domain::ProductId;
-use jiff::civil::Weekday;
+use jiff::civil::{Date, Weekday};
 
 use crate::capacity::Exceeded;
 use crate::status::TransitionRefused;
@@ -12,6 +12,8 @@ pub enum Error {
     Invalid(&'static str),
     #[error("the location has no active pickup window on {0:?}")]
     NoPickupWindow(Weekday),
+    #[error("a bake day already uses this pickup location on {0}")]
+    DateTaken(Date),
     #[error("the charity is archived")]
     CharityArchived,
     #[error("the charity cannot change after the first order")]

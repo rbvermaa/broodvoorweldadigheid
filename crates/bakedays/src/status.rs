@@ -137,7 +137,9 @@ pub enum PublicStatus {
     Cancelled,
 }
 
-/// `None` for production-only days, which never appear on the public calendar.
+/// `None` for production-only days, which never appear on the public calendar. A draft or
+/// open day past its deadline shows closed. `opens_at` plays no part: a day shows open only
+/// once it is stored as open (ADR 0008).
 #[must_use]
 pub fn public_status(
     facts: StatusFacts,
@@ -148,14 +150,13 @@ pub fn public_status(
     if !facts.online_ordering {
         return None;
     }
+    let past_cutoff = facts.cutoff_at.is_none_or(|cutoff| now >= cutoff);
     Some(match facts.status {
+        BakeDayStatus::Draft | BakeDayStatus::Open if past_cutoff => PublicStatus::Closed,
         BakeDayStatus::Draft => match menu_publish_at {
             Some(at) if at <= now => PublicStatus::MenuAnnounced,
             _ => PublicStatus::Planned,
         },
-        BakeDayStatus::Open if facts.cutoff_at.is_none_or(|cutoff| now >= cutoff) => {
-            PublicStatus::Closed
-        }
         BakeDayStatus::Open if sold_out => PublicStatus::SoldOut,
         BakeDayStatus::Open => PublicStatus::Open,
         BakeDayStatus::Closed | BakeDayStatus::Done => PublicStatus::Closed,
@@ -341,8 +342,12 @@ mod tests {
             Some(PublicStatus::Cancelled)
         );
         assert_eq!(
-            public_status(facts(Draft), None, ts(AFTER_BAKE), false),
+            public_status(facts(Draft), None, ts(BEFORE_CUTOFF), false),
             Some(PublicStatus::Planned)
+        );
+        assert_eq!(
+            public_status(facts(Draft), menu, ts("2026-10-29T19:00:00Z"), false),
+            Some(PublicStatus::Closed)
         );
     }
 

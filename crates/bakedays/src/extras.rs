@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
@@ -6,6 +5,7 @@ use domain::{BakeDayId, ProductId};
 use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
+use crate::orders::OrderSource;
 use crate::range::{load_capacity, lock_capacity, lock_editable_day};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -125,7 +125,7 @@ fn validate(input: &ExtraInput) -> Result<(i32, Option<&str>), Error> {
 }
 
 /// Adds extra pieces of a product to a bake day. Extras count against capacity like orders
-/// (F3, F7a); `ordered` holds the pieces taken by orders, per product.
+/// (F3, F7a). Ordered pieces come from `orders`, read after the capacity locks.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Final`] once the day is done or cancelled,
@@ -135,13 +135,13 @@ pub async fn add(
     day: BakeDayId,
     product: ProductId,
     input: &ExtraInput,
-    ordered: &BTreeMap<ProductId, u32>,
+    orders: &impl OrderSource,
 ) -> Result<ProductionExtra, Error> {
     let (qty, note) = validate(input)?;
     let mut tx = conn.begin().await?;
     lock_editable_day(&mut tx, day).await?;
-    lock_capacity(&mut tx, day, product).await?;
-    load_capacity(&mut tx, day, ordered, None)
+    lock_capacity(&mut tx, day, &[product]).await?;
+    load_capacity(&mut tx, day, orders, None)
         .await?
         .check(product, input.qty)?;
     let row = sqlx::query_as!(
@@ -191,16 +191,16 @@ pub async fn update(
     conn: &mut PgConnection,
     id: ProductionExtraId,
     input: &ExtraInput,
-    ordered: &BTreeMap<ProductId, u32>,
+    orders: &impl OrderSource,
 ) -> Result<ProductionExtra, Error> {
     let (qty, note) = validate(input)?;
     let mut tx = conn.begin().await?;
     let (day, product, _) = locate(&mut tx, id).await?;
     lock_editable_day(&mut tx, day).await?;
-    lock_capacity(&mut tx, day, product).await?;
+    lock_capacity(&mut tx, day, &[product]).await?;
     let (_, _, current) = locate(&mut tx, id).await?;
     if input.qty > current {
-        load_capacity(&mut tx, day, ordered, Some(id.get()))
+        load_capacity(&mut tx, day, orders, Some(id))
             .await?
             .check(product, input.qty)?;
     }

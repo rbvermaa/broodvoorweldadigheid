@@ -15,6 +15,8 @@ CREATE TABLE bake_day (
         online_ordering OR (opens_at IS NULL AND status <> 'open')
     ),
     CONSTRAINT bake_day_opens_before_cutoff CHECK (opens_at < cutoff_at),
+    CONSTRAINT bake_day_menu_before_cutoff CHECK (menu_publish_at <= cutoff_at),
+    CONSTRAINT bake_day_cutoff_before_bake CHECK (cutoff_at <= bake_starts_at),
     CONSTRAINT bake_day_cancel_message CHECK ((status = 'cancelled') = (cancel_message IS NOT NULL))
 );
 

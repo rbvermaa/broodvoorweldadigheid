@@ -5,6 +5,7 @@ use jiff::civil::Date;
 use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
+use crate::orders::OrderSource;
 use crate::pickup;
 use crate::schedule::{self, LeadTimeWarning};
 use crate::status::{self, BakeDayStatus, PublicStatus, StatusFacts, Transition};
@@ -69,6 +70,13 @@ pub struct Schedule {
     pub opens_at: Option<Timestamp>,
     pub cutoff_at: Option<Timestamp>,
     pub bake_starts_at: Timestamp,
+}
+
+/// A copied bake day. `charity_dropped` is set when the source's charity was archived.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CopiedDay {
+    pub day: BakeDay,
+    pub charity_dropped: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +172,17 @@ fn validate_schedule(schedule: &Schedule) -> Result<(), Error> {
     {
         return Err(Error::Invalid("opening time"));
     }
+    if let (Some(menu), Some(cutoff)) = (schedule.menu_publish_at, schedule.cutoff_at)
+        && menu > cutoff
+    {
+        return Err(Error::Invalid("menu publish time"));
+    }
+    if schedule
+        .cutoff_at
+        .is_some_and(|cutoff| cutoff > schedule.bake_starts_at)
+    {
+        return Err(Error::Invalid("deadline after bake start"));
+    }
     Ok(())
 }
 
@@ -193,6 +212,7 @@ async fn ensure_charity_active(conn: &mut PgConnection, id: CharityId) -> Result
 
 /// Creates a draft bake day with one pickup slot per active window of the location on
 /// the date's weekday. The deadline is the earliest of the windows' default deadlines.
+/// A production-only day may have no window; it then gets no slots and no deadline.
 ///
 /// # Errors
 /// [`Error::NotFound`] when the location does not exist, [`Error::NoPickupWindow`],
@@ -209,7 +229,7 @@ pub async fn create(conn: &mut PgConnection, input: &NewBakeDay) -> Result<BakeD
         .into_iter()
         .filter(|w| w.active && w.weekday == weekday)
         .collect();
-    if windows.is_empty() {
+    if windows.is_empty() && input.online_ordering {
         return Err(Error::NoPickupWindow(weekday));
     }
     let mut slots = Vec::with_capacity(windows.len());
@@ -265,7 +285,7 @@ async fn insert_day(
             timestamptz 'epoch' + $6::bigint * interval '1 microsecond',
             timestamptz 'epoch' + $7::bigint * interval '1 microsecond')
         RETURNING id"#,
-        to_epoch_days(date)?,
+        to_epoch_days(date),
         schedule.online_ordering,
         charity_id.map(CharityId::get),
         micros(schedule.menu_publish_at),
@@ -349,8 +369,8 @@ pub async fn list_between(
         FROM bake_day
         WHERE date BETWEEN date 'epoch' + $1::integer AND date 'epoch' + $2::integer
         ORDER BY date, id"#,
-        to_epoch_days(from)?,
-        to_epoch_days(to)?,
+        to_epoch_days(from),
+        to_epoch_days(to),
     )
     .fetch_all(conn)
     .await?
@@ -409,8 +429,8 @@ pub const fn ensure_charity_changeable(orders_so_far: u64) -> Result<(), Error> 
     Ok(())
 }
 
-/// Sets the drop's charity, or `None` for a normal sale. `orders_so_far` is the number of
-/// orders on the bake day, read in the caller's transaction.
+/// Sets the drop's charity, or `None` for a normal sale. The order count is read from
+/// `orders` after the bake day row is locked.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Final`], [`Error::OrdersExist`], [`Error::Invalid`]
@@ -419,11 +439,11 @@ pub async fn set_charity(
     conn: &mut PgConnection,
     id: BakeDayId,
     charity_id: Option<CharityId>,
-    orders_so_far: u64,
+    orders: &impl OrderSource,
 ) -> Result<BakeDay, Error> {
-    ensure_charity_changeable(orders_so_far)?;
     let mut tx = conn.begin().await?;
     get_for_update(&mut tx, id).await?.ensure_editable()?;
+    ensure_charity_changeable(orders.count(&mut tx, id).await?)?;
     if let Some(charity) = charity_id {
         ensure_charity_active(&mut tx, charity).await?;
     }
@@ -592,14 +612,40 @@ pub async fn update_slot(
 
 /// Copies a bake day to another date as a new draft: its times move by the same number of
 /// days at the same local time, and its pickup slots, pools and products come along.
-/// Extra production, status and cancel message do not. An archived charity is dropped.
+/// Extra production, status and cancel message do not. An archived charity is dropped,
+/// and the result says so.
 ///
 /// # Errors
-/// [`Error::NotFound`] or [`Error::Invalid`].
-pub async fn copy_to(conn: &mut PgConnection, id: BakeDayId, date: Date) -> Result<BakeDay, Error> {
+/// [`Error::NotFound`], [`Error::Invalid`], or [`Error::DateTaken`] when a bake day that
+/// is not cancelled already uses one of the source's pickup locations on that date (or,
+/// for a day without slots, another day without slots exists on that date).
+pub async fn copy_to(
+    conn: &mut PgConnection,
+    id: BakeDayId,
+    date: Date,
+) -> Result<CopiedDay, Error> {
     let mut tx = conn.begin().await?;
     let source = get(&mut tx, id).await?;
-    let days = to_epoch_days(date)? - to_epoch_days(source.date)?;
+    let taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM bake_day d
+            WHERE d.date = date 'epoch' + $1::integer AND d.status <> 'cancelled' AND d.id <> $2
+            AND (
+                EXISTS (SELECT 1 FROM pickup_slot s JOIN pickup_slot src USING (location_id)
+                    WHERE s.bake_day_id = d.id AND src.bake_day_id = $2)
+                OR (NOT EXISTS (SELECT 1 FROM pickup_slot WHERE bake_day_id = $2)
+                    AND NOT EXISTS (SELECT 1 FROM pickup_slot WHERE bake_day_id = d.id))
+            )
+        ) AS "taken!""#,
+        to_epoch_days(date),
+        id.get(),
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if taken {
+        return Err(Error::DateTaken(date));
+    }
+    let days = to_epoch_days(date) - to_epoch_days(source.date);
     let shift = |t: Timestamp| schedule::shift_days(t, days);
     let shift_opt = |t: Option<Timestamp>| t.map(shift).transpose();
     let charity_id = match source.charity_id {
@@ -652,7 +698,10 @@ pub async fn copy_to(conn: &mut PgConnection, id: BakeDayId, date: Date) -> Resu
     .await?;
     let day = get(&mut tx, new_id).await?;
     tx.commit().await?;
-    Ok(day)
+    Ok(CopiedDay {
+        day,
+        charity_dropped: source.charity_id.is_some() && charity_id.is_none(),
+    })
 }
 
 /// Copies a bake day to the same weekday for each of the next `weeks` weeks.
@@ -663,7 +712,7 @@ pub async fn repeat_weekly(
     conn: &mut PgConnection,
     id: BakeDayId,
     weeks: u8,
-) -> Result<Vec<BakeDay>, Error> {
+) -> Result<Vec<CopiedDay>, Error> {
     if !(1..=MAX_REPEAT_WEEKS).contains(&weeks) {
         return Err(Error::Invalid("number of weeks"));
     }
@@ -671,7 +720,7 @@ pub async fn repeat_weekly(
     let source = get(&mut tx, id).await?;
     let mut copies = Vec::with_capacity(usize::from(weeks));
     for week in 1..=i32::from(weeks) {
-        let date = from_epoch_days(to_epoch_days(source.date)? + 7 * week)?;
+        let date = from_epoch_days(to_epoch_days(source.date) + 7 * week)?;
         copies.push(copy_to(&mut tx, id, date).await?);
     }
     tx.commit().await?;
@@ -679,7 +728,7 @@ pub async fn repeat_weekly(
 }
 
 /// Warns when the deadline leaves less than the longest lead time of the drop's products
-/// before baking starts (F1).
+/// before baking starts (F1). Production-only days take no orders, so they never warn.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Catalog`] or [`Error::Db`].
@@ -688,20 +737,19 @@ pub async fn lead_time_warning(
     id: BakeDayId,
 ) -> Result<Option<LeadTimeWarning>, Error> {
     let day = get(conn, id).await?;
-    let products = sqlx::query_scalar!(
-        "SELECT product_id FROM bake_day_product WHERE bake_day_id = $1 ORDER BY product_id",
+    if !day.online_ordering {
+        return Ok(None);
+    }
+    let products: Vec<ProductId> = sqlx::query_scalar!(
+        "SELECT product_id FROM bake_day_product WHERE bake_day_id = $1",
         id.get(),
     )
     .fetch_all(&mut *conn)
-    .await?;
-    let mut lead_times = Vec::with_capacity(products.len());
-    for product in products {
-        let product = ProductId::new(product);
-        lead_times.push((
-            product,
-            catalog::products::lead_time_hours(conn, product).await?,
-        ));
-    }
+    .await?
+    .into_iter()
+    .map(ProductId::new)
+    .collect();
+    let lead_times = catalog::products::lead_times(conn, &products).await?;
     Ok(schedule::lead_time_warning(
         day.cutoff_at,
         day.bake_starts_at,

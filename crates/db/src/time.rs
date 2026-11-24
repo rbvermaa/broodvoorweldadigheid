@@ -44,13 +44,10 @@ pub fn from_seconds_of_day(seconds: i32) -> Result<Time, OutOfRange> {
     Time::new(hour, minute, second, 0).map_err(|_| OutOfRange("time of day"))
 }
 
-/// # Errors
-/// Never for a date jiff can represent; the error keeps the signature honest.
-pub fn to_epoch_days(day: Date) -> Result<i32, OutOfRange> {
-    EPOCH_DATE
-        .until(day)
-        .map_err(|_| OutOfRange("date"))
-        .map(|span| span.get_days())
+#[must_use]
+pub fn to_epoch_days(day: Date) -> i32 {
+    let days = day.duration_since(EPOCH_DATE).as_secs() / 86_400;
+    i32::try_from(days).expect("jiff dates lie within ±4 million days of 1970")
 }
 
 /// # Errors
@@ -76,9 +73,12 @@ mod tests {
 
     #[test]
     fn dates_round_trip_through_epoch_days() {
-        assert_eq!(to_epoch_days(date(1970, 1, 1)), Ok(0));
-        assert_eq!(to_epoch_days(date(2026, 10, 31)), Ok(20_757));
-        assert_eq!(to_epoch_days(date(1969, 12, 31)), Ok(-1));
+        assert_eq!(to_epoch_days(date(1970, 1, 1)), 0);
+        assert_eq!(to_epoch_days(date(2026, 10, 31)), 20_757);
+        assert_eq!(to_epoch_days(date(1969, 12, 31)), -1);
+        for extreme in [Date::MIN, Date::MAX] {
+            assert_eq!(from_epoch_days(to_epoch_days(extreme)), Ok(extreme));
+        }
         assert_eq!(from_epoch_days(20_757), Ok(date(2026, 10, 31)));
         assert_eq!(from_epoch_days(i32::MAX), Err(OutOfRange("date")));
     }

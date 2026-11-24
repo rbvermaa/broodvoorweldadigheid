@@ -444,6 +444,28 @@ pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<i
     .ok_or_else(|| Error::Corrupt("no company row".to_owned()))
 }
 
+/// [`lead_time_hours`] for several products in one query, by product id. Unknown ids are
+/// left out.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn lead_times(
+    conn: &mut PgConnection,
+    ids: &[ProductId],
+) -> Result<Vec<(ProductId, i32)>, Error> {
+    let ids: Vec<i64> = ids.iter().map(|id| id.get()).collect();
+    sqlx::query!(
+        r#"SELECT p.id, coalesce(p.lead_time_hours, c.default_lead_time_hours) AS "hours!"
+        FROM product p CROSS JOIN company c WHERE p.id = ANY($1) ORDER BY p.id"#,
+        &ids,
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| Ok((ProductId::new(row.id), row.hours)))
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

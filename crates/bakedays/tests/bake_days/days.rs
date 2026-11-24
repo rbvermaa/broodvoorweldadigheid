@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
 use bakedays::schedule::LeadTimeWarning;
 use bakedays::status::TransitionRefused;
 use bakedays::{
-    BakeDayProduct, BakeDayStatus, Error, ExtraInput, NewBakeDay, PickupSlotInput,
+    BakeDayProduct, BakeDayStatus, Error, ExtraInput, NewBakeDay, NoOrders, PickupSlotInput,
     PickupWindowInput, PublicStatus, Purpose, Schedule, Transition, days, extras, pickup, range,
 };
 use domain::{BakeDayId, Clock, PickupLocationId};
@@ -12,7 +10,7 @@ use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
 use testkit::FakeClock;
 
-use crate::common::{DE_PROEF, charity, create_day, date, product, saturday, ts};
+use crate::common::{DE_PROEF, FixedOrders, charity, create_day, date, product, saturday, ts};
 
 fn schedule_of(day: &bakedays::BakeDay) -> Schedule {
     Schedule {
@@ -147,6 +145,14 @@ async fn schedule_changes_per_drop(mut conn: PoolConnection<Postgres>) {
         },
         Schedule {
             opens_at: Some(ts("2026-10-29T11:00:00Z")),
+            ..changed
+        },
+        Schedule {
+            menu_publish_at: Some(ts("2026-10-29T11:00:01Z")),
+            ..changed
+        },
+        Schedule {
+            bake_starts_at: ts("2026-10-29T10:59:59Z"),
             ..changed
         },
         Schedule {
@@ -305,18 +311,26 @@ async fn charity_changes_only_until_the_first_order(mut conn: PoolConnection<Pos
     .await;
     assert_eq!(day.charity_id, Some(food_bank));
 
-    let normal_sale = days::set_charity(&mut conn, day.id, None, 0).await.unwrap();
+    let normal_sale = days::set_charity(&mut conn, day.id, None, &NoOrders)
+        .await
+        .unwrap();
     assert_eq!(normal_sale.charity_id, None);
     assert!(matches!(
-        days::set_charity(&mut conn, day.id, Some(food_bank), 1).await,
+        days::set_charity(&mut conn, day.id, Some(food_bank), &FixedOrders::count(1)).await,
         Err(Error::OrdersExist)
     ));
     assert!(matches!(
-        days::set_charity(&mut conn, day.id, Some(archived), 0).await,
+        days::set_charity(&mut conn, day.id, Some(archived), &NoOrders).await,
         Err(Error::CharityArchived)
     ));
     assert!(matches!(
-        days::set_charity(&mut conn, day.id, Some(domain::CharityId::new(999)), 0).await,
+        days::set_charity(
+            &mut conn,
+            day.id,
+            Some(domain::CharityId::new(999)),
+            &NoOrders
+        )
+        .await,
         Err(Error::Invalid("charity"))
     ));
     assert!(matches!(
@@ -442,7 +456,7 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
         purpose: Purpose::Freezer,
         note: None,
     };
-    extras::add(&mut conn, source.id, bread, &extra, &BTreeMap::new())
+    extras::add(&mut conn, source.id, bread, &extra, &NoOrders)
         .await
         .unwrap();
     sqlx::query("UPDATE charity SET archived_at = now() WHERE id = $1")
@@ -451,9 +465,15 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
         .await
         .unwrap();
 
-    let copy = days::copy_to(&mut conn, source.id, date("2026-10-31"))
+    let copied = days::copy_to(&mut conn, source.id, date("2026-10-31"))
         .await
         .unwrap();
+    assert!(copied.charity_dropped);
+    let copy = copied.day;
+    assert!(matches!(
+        days::copy_to(&mut conn, source.id, date("2026-10-31")).await,
+        Err(Error::DateTaken(d)) if d == date("2026-10-31")
+    ));
     assert_ne!(copy.id, source.id);
     assert_eq!(copy.date, date("2026-10-31"));
     assert_eq!(copy.status, BakeDayStatus::Draft);
@@ -508,6 +528,8 @@ async fn repeat_weekly_copies_to_the_next_weeks(mut conn: PoolConnection<Postgre
     )
     .await;
     let copies = days::repeat_weekly(&mut conn, source.id, 3).await.unwrap();
+    assert!(copies.iter().all(|c| !c.charity_dropped));
+    let copies: Vec<_> = copies.into_iter().map(|c| c.day).collect();
     let dates: Vec<_> = copies.iter().map(|d| d.date).collect();
     assert_eq!(
         dates,
@@ -520,6 +542,10 @@ async fn repeat_weekly_copies_to_the_next_weeks(mut conn: PoolConnection<Postgre
         .unwrap();
     assert_eq!(listed.len(), 3);
     assert_eq!(listed[0], source);
+    assert!(matches!(
+        days::repeat_weekly(&mut conn, source.id, 1).await,
+        Err(Error::DateTaken(_))
+    ));
     for weeks in [0, 53] {
         assert!(matches!(
             days::repeat_weekly(&mut conn, source.id, weeks).await,
@@ -591,6 +617,16 @@ async fn database_refuses_inconsistent_days(mut conn: PoolConnection<Postgres>) 
              VALUES ('2026-10-31', now(), now(), 'cancelled')",
             "bake_day_cancel_message",
         ),
+        (
+            "INSERT INTO bake_day (date, bake_starts_at, cutoff_at, menu_publish_at)
+             VALUES ('2026-10-31', now(), now(), now() + interval '1 hour')",
+            "bake_day_menu_before_cutoff",
+        ),
+        (
+            "INSERT INTO bake_day (date, bake_starts_at, cutoff_at)
+             VALUES ('2026-10-31', now(), now() + interval '1 hour')",
+            "bake_day_cutoff_before_bake",
+        ),
     ];
     for (sql, constraint) in cases {
         let err = insert(sql).execute(&mut *conn).await.unwrap_err();
@@ -599,4 +635,93 @@ async fn database_refuses_inconsistent_days(mut conn: PoolConnection<Postgres>) 
             Some(constraint)
         );
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn production_only_days_need_no_pickup_window(mut conn: PoolConnection<Postgres>) {
+    let friday = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-10-30"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(friday.cutoff_at, None);
+    assert!(
+        days::list_slots(&mut conn, friday.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let bread = product(&mut conn, "Desem", Some(168)).await;
+    range::set_product(
+        &mut conn,
+        friday.id,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: None,
+            capacity_pool_id: None,
+            units_per_item: 1,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        days::lead_time_warning(&mut conn, friday.id).await.unwrap(),
+        None
+    );
+
+    let saturday_production = create_day(
+        &mut conn,
+        &NewBakeDay {
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(
+        saturday_production.cutoff_at,
+        Some(ts("2026-10-29T19:00:00Z"))
+    );
+    assert!(matches!(
+        days::copy_to(&mut conn, friday.id, date("2026-11-06")).await,
+        Ok(copy) if copy.day.cutoff_at.is_none()
+    ));
+    let other_friday = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-11-13"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert!(matches!(
+        days::copy_to(&mut conn, friday.id, other_friday.date).await,
+        Err(Error::DateTaken(_))
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_cancelled_day_does_not_block_a_copy(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-20T12:00:00Z"));
+    let source = create_day(&mut conn, &saturday()).await;
+    let later = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-11-07"),
+            bake_starts_at: ts("2026-11-07T03:00:00Z"),
+            ..saturday()
+        },
+    )
+    .await;
+    days::cancel(&mut conn, &clock, later.id, "Ziek")
+        .await
+        .unwrap();
+    days::copy_to(&mut conn, source.id, later.date)
+        .await
+        .unwrap();
 }

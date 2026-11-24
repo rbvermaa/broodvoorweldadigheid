@@ -1,5 +1,7 @@
-use bakedays::{BakeDay, NewBakeDay, days};
-use domain::{CharityId, PickupLocationId, ProductId};
+use std::collections::BTreeMap;
+
+use bakedays::{BakeDay, Error, NewBakeDay, OrderSource, days, extras};
+use domain::{BakeDayId, CharityId, PickupLocationId, ProductId};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use sqlx::PgConnection;
@@ -57,4 +59,102 @@ pub async fn charity(conn: &mut PgConnection, name: &str, archived: bool) -> Cha
     .await
     .unwrap();
     CharityId::new(id)
+}
+
+/// Orders as a fixed answer, for tests that do not race.
+#[derive(Debug, Default)]
+pub struct FixedOrders {
+    pub ordered: BTreeMap<ProductId, u32>,
+    pub count: u64,
+}
+
+impl FixedOrders {
+    pub fn pieces<const N: usize>(ordered: [(ProductId, u32); N]) -> Self {
+        Self {
+            ordered: BTreeMap::from(ordered),
+            count: 1,
+        }
+    }
+
+    pub fn count(count: u64) -> Self {
+        Self {
+            count,
+            ..Self::default()
+        }
+    }
+}
+
+impl OrderSource for FixedOrders {
+    async fn ordered(
+        &self,
+        _conn: &mut PgConnection,
+        _day: BakeDayId,
+    ) -> Result<BTreeMap<ProductId, u32>, Error> {
+        Ok(self.ordered.clone())
+    }
+
+    async fn count(&self, _conn: &mut PgConnection, _day: BakeDayId) -> Result<u64, Error> {
+        Ok(self.count)
+    }
+}
+
+/// Orders kept in a test table, read inside the caller's transaction like the real
+/// orders crate will.
+pub struct TableOrders;
+
+impl TableOrders {
+    pub async fn create_table(conn: &mut PgConnection) {
+        sqlx::query(
+            "CREATE TABLE test_order_line (bake_day_id bigint, product_id bigint, qty integer)",
+        )
+        .execute(conn)
+        .await
+        .unwrap();
+    }
+
+    pub async fn insert(conn: &mut PgConnection, day: BakeDayId, product: ProductId, qty: i32) {
+        sqlx::query("INSERT INTO test_order_line VALUES ($1, $2, $3)")
+            .bind(day.get())
+            .bind(product.get())
+            .bind(qty)
+            .execute(conn)
+            .await
+            .unwrap();
+    }
+}
+
+impl OrderSource for TableOrders {
+    async fn ordered(
+        &self,
+        conn: &mut PgConnection,
+        day: BakeDayId,
+    ) -> Result<BTreeMap<ProductId, u32>, Error> {
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT product_id, sum(qty)::bigint FROM test_order_line WHERE bake_day_id = $1 GROUP BY product_id",
+        )
+        .bind(day.get())
+        .fetch_all(conn)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(product, qty)| (ProductId::new(product), u32::try_from(qty).unwrap()))
+            .collect())
+    }
+
+    async fn count(&self, conn: &mut PgConnection, day: BakeDayId) -> Result<u64, Error> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM test_order_line WHERE bake_day_id = $1")
+                .bind(day.get())
+                .fetch_one(conn)
+                .await?;
+        Ok(u64::try_from(count).unwrap())
+    }
+}
+
+pub async fn extras_total(conn: &mut PgConnection, day: BakeDayId) -> BTreeMap<ProductId, u32> {
+    let mut total = BTreeMap::new();
+    for extra in extras::list(conn, day).await.unwrap() {
+        *total.entry(extra.product_id).or_default() += extra.qty;
+    }
+    total
 }
