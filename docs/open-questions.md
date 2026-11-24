@@ -9,8 +9,8 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Off-site backup target.** Which host or provider does the second rustic
   repository go to?
 - [ ] **Label fonts.** Which fonts go into the server image for PDFs and labels?
-- [ ] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
-  Left unenforced for now; revisit with GitHub Pro or a move to Forgejo.
+- [x] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
+  Done 2026-11-24: the repo is public now and `main` requires the CI jobs (ADR 0001).
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
   It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
   SMTP avoids it: lettre verifies with `rustls-native-certs` (ADR 0014).
@@ -21,8 +21,8 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Gate 3 names the till.** The roadmap picture says "Gate 3: till in daily use,
   two weeks at the counter", but the till is out of scope (SumUp). What is Gate 3?
 - [x] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
-  Answer (owner, 2026-11-24): the deadline is 20:00 two days before the pickup date; the warning
-  uses that rule instead of a number of hours.
+  **Answered 2026-11-24:** "2 days before in the evening": the deadline is at the latest
+  20:00 local two days before the bake date (company.sourdough_deadline_*, ADR 0006).
 - [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
   balance transactions, which need an organization access token with `balances.read`,
   not the website API key (ADR 0013). OK to add that token to the sops secrets?
@@ -35,7 +35,8 @@ Questions about the spec. The spec is only changed when the owner asks.
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
-  Resolved by the answer above.
+  **Answered 2026-11-24:** the warning now uses the owner's rule above, which matches the
+  default Thursday 20:00 deadline, so default drops no longer warn.
 - [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
 - [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
