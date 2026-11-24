@@ -69,3 +69,14 @@ Known limits, from review:
 - The webhook asks Mollie about any well-formed `tr_` id it receives, without a rate limit.
   Ignoring ids without a payment row would lose a payment whose `open` row failed to save,
   so it stays as is for now.
+
+Follow-ups from the last review (P2, not done yet):
+
+- The pickup picker counts the customer's own unpaid order. When that order took the last
+  place of a limited slot and its payment failed, the slot shows as full and disabled, so
+  the next submit has no `ophaalmoment` and fails validation instead of retrying. The
+  picker should count the session's unpaid order as free for that customer.
+- The cart and menu stock reads also count that unpaid order, although checkout cancels it
+  before placing the replacement. With two loaves and one held, raising the cart to two is
+  refused, and a hold that took the last stock shows the drop as sold out. Those display
+  reads should leave out the session's replaceable hold; checkout keeps its locked check.
