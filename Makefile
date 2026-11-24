@@ -4,6 +4,7 @@
 #   make db-down                stop it (data stays in .pg/)
 #   make db-up && make sqlx-prepare   regenerate .sqlx/ after changing a query or migration
 #   PG_PORT=54332 make db-up    use another port when one is taken
+#   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
@@ -59,7 +60,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
+	sqlx-prepare sqlx-check migrations-lock restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -144,3 +145,10 @@ db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 
 db-down: ## Stop the local PostgreSQL
 	$(NIX_DEV) pg_ctl --pgdata=$(PG_DIR)/data --wait --mode=fast stop
+
+migrations-lock: ## Append new migrations to crates/db/migrations/migrations.lock; never rewrites entries
+	$(NIX_DEV) bash -c 'set -e; cd crates/db/migrations; touch migrations.lock; \
+		for f in *.sql; do \
+			awk -v f="$$f" "\$$2 == f { found = 1 } END { exit !found }" migrations.lock \
+				|| sha384sum "$$f" >> migrations.lock; \
+		done'
