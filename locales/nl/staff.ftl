@@ -420,3 +420,4 @@ reports-no-transfers = Nog geen overboekingen.
 reports-error-amount = Het bedrag om nu over te maken is { $due }.
 reports-error-amount-format = Vul een bedrag in, bijvoorbeeld 12,50.
 reports-error-reference = Vul de omschrijving of referentie van de overboeking in.
+reports-error-period = De periode van deze overboeking klopt niet. Kies de periode opnieuw en probeer het nog eens.

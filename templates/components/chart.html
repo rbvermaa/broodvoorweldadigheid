@@ -1,4 +1,4 @@
-{# chart: components::BarChart. The same numbers belong in a table on the page too. #}
+{# chart: components::BarChart. The hidden list gives screen readers the same numbers. #}
 {% macro bar_chart(chart) %}
 <figure class="chart">
 <svg class="chart-svg" viewBox="0 0 640 {{ chart.height }}" role="img" aria-labelledby="{{ chart.id }}-title">
@@ -9,6 +9,11 @@
 <text class="chart-value" x="{{ bar.value_x }}" y="{{ bar.value_y }}">{{ bar.value }}</text>
 {%- endfor %}
 </svg>
+<ul class="visually-hidden">
+{%- for bar in chart.bars %}
+<li>{{ bar.label }}: {{ bar.value }}</li>
+{%- endfor %}
+</ul>
 <figcaption class="chart-caption">{{ chart.caption }}</figcaption>
 </figure>
 {% endmacro %}

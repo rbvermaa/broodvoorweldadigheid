@@ -2669,6 +2669,7 @@ async fn donation_reports_show_drops_charities_and_charts(pool: PgPool) {
     page.shows("<svg class=\"chart-svg\"");
     page.shows(&dutch("reports-donations-drops-chart"));
     page.shows("class=\"chart-bar\" x=\"0\" y=\"26\" width=\"480\"");
+    page.shows(&format!("<li>05-12-2026: {}</li>", i18n::money(1300)));
 
     let drops = owner.get("/staff/reports/donations/drops.csv").await;
     assert_eq!(drops.header("content-type"), "text/csv; charset=utf-8");
@@ -2683,7 +2684,11 @@ async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
     let (charity, _) = charity_order(&app).await;
     let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
 
-    let list = owner.get("/staff/reports/payouts").await;
+    let today = owner.get("/staff/reports/payouts").await;
+    today.shows("value=\"2026-11-24\"");
+    let list = owner
+        .get("/staff/reports/payouts?van=2026-01-01&tot=2026-12-31")
+        .await;
     assert_eq!(list.status, StatusCode::OK, "{}", list.text);
     list.shows("Voedselbank");
     list.shows(&i18n::money(1300));
@@ -2692,13 +2697,16 @@ async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
         "href=\"{detail_path}?van=2026-01-01&tot=2026-12-31\""
     ));
 
-    let detail = owner.get(&detail_path).await;
+    let detail = owner
+        .get(&format!("{detail_path}?van=2026-01-01&tot=2026-12-31"))
+        .await;
     assert_eq!(detail.status, StatusCode::OK);
     detail.shows("value=\"13,00\"");
     let transfers = format!("{detail_path}/transfers");
     let fields = |amount: &'static str, reference: &'static str| {
         vec![
-            ("up_to", "2026-12-31"),
+            ("van", "2026-01-01"),
+            ("tot", "2026-12-31"),
             ("amount", amount),
             ("transferred_on", "2026-12-07"),
             ("bank_reference", reference),
@@ -2722,6 +2730,16 @@ async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
         "reports-error-amount",
         &[("due", &i18n::money(1300))],
     ));
+    let mut early = fields("13,00", "BVW-1");
+    early[1] = ("tot", "2026-12-01");
+    let before_the_drop = owner.post(&transfers, &early).await;
+    assert_eq!(before_the_drop.status, StatusCode::UNPROCESSABLE_ENTITY);
+    before_the_drop.shows(&dutch("reports-nothing-due"));
+    let mut garbled = fields("13,00", "BVW-1");
+    garbled[1] = ("tot", "kerst");
+    let bad_period = owner.post(&transfers, &garbled).await;
+    assert_eq!(bad_period.status, StatusCode::UNPROCESSABLE_ENTITY);
+    bad_period.shows(&dutch("reports-error-period"));
     let no_reference = owner.post(&transfers, &fields("13,00", " ")).await;
     assert_eq!(no_reference.status, StatusCode::UNPROCESSABLE_ENTITY);
     no_reference.shows(&dutch("reports-error-reference"));
@@ -2732,7 +2750,9 @@ async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
         .redirects_to(&format!(
             "{detail_path}?van=2026-01-01&tot=2026-12-31&opgeslagen=1"
         ));
-    let after = owner.get(&detail_path).await;
+    let after = owner
+        .get(&format!("{detail_path}?van=2026-01-01&tot=2026-12-31"))
+        .await;
     after.shows("BVW-1");
     after.shows(&i18n::numeric_date(date(2026, 12, 7)));
     after.shows(&dutch("reports-nothing-due"));

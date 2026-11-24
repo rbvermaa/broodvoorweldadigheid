@@ -96,11 +96,15 @@ const GRANULARITIES: [(Granularity, &str); 3] = [
     (Granularity::Quarter, "reports-per-quarter"),
 ];
 
-/// This calendar year.
-fn default_period(state: &AppState) -> Step<Period> {
+/// This calendar year, or with `until_today` from 1 January up to today.
+pub fn default_period(state: &AppState, until_today: bool) -> Step<Period> {
     let today = state.clock.now_in_bakery().date();
     let from = Date::new(today.year(), 1, 1).map_err(|e| fail(state, &e))?;
-    let to = Date::new(today.year(), 12, 31).map_err(|e| fail(state, &e))?;
+    let to = if until_today {
+        today
+    } else {
+        Date::new(today.year(), 12, 31).map_err(|e| fail(state, &e))?
+    };
     Period::new(from, to).map_err(|e| fail(state, &e).into())
 }
 
@@ -111,7 +115,23 @@ pub fn choose(
     action: &str,
     with_granularity: bool,
 ) -> Step<Chosen> {
-    let fallback = default_period(state)?;
+    choose_from(
+        state,
+        query,
+        action,
+        with_granularity,
+        default_period(state, false)?,
+    )
+}
+
+/// [`choose`] with another default period.
+pub fn choose_from(
+    state: &AppState,
+    query: &PeriodQuery,
+    action: &str,
+    with_granularity: bool,
+    fallback: Period,
+) -> Step<Chosen> {
     let mut errors = Errors::default();
     let mut read = |field: &str, raw: Option<&String>, default: Date| match raw
         .map(|s| s.trim())
@@ -125,10 +145,17 @@ pub fn choose(
     };
     let from = read("van", query.van.as_ref(), fallback.from());
     let to = read("tot", query.tot.as_ref(), fallback.to());
-    let period = Period::new(from, to).unwrap_or_else(|_| {
-        errors.add("tot", t(state, "reports-error-order"));
-        fallback
-    });
+    let period = match Period::new(from, to) {
+        Ok(period) if period.instants().is_ok() => period,
+        Ok(_) => {
+            errors.add("tot", t(state, "reports-error-date"));
+            fallback
+        }
+        Err(_) => {
+            errors.add("tot", t(state, "reports-error-order"));
+            fallback
+        }
+    };
     let granularity = GRANULARITIES
         .iter()
         .find(|(g, _)| Some(granularity_value(*g)) == query.per.as_deref())

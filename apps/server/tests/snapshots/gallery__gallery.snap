@@ -656,6 +656,11 @@ expression: without_asset_hashes(&gallery_html(&state))
 <rect class="chart-bar" x="0" y="146" width="0" height="24"></rect>
 <text class="chart-value" x="8" y="164">€ 0,00</text>
 </svg>
+<ul class="visually-hidden">
+<li>Zuurdesemvolkorenbrood met zonnebloempitten: € 125,00</li>
+<li>Desem wit: € 42,50</li>
+<li>Nog niets: € 0,00</li>
+</ul>
 <figcaption class="chart-caption">Giften per bakdag</figcaption>
 </figure>
 

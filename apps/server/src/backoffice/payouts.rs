@@ -13,7 +13,9 @@ use reports::payouts::{self, NewTransfer, Payout};
 use tower_sessions::Session;
 
 use super::form::{Errors, Fields, money_value, parse_date, parse_money};
-use super::reports::{Chosen, PeriodForm, PeriodQuery, choose, money, report_error};
+use super::reports::{
+    Chosen, PeriodForm, PeriodQuery, choose_from, default_period, money, report_error,
+};
 use super::{
     Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require, saved, t,
     t_with,
@@ -27,6 +29,11 @@ const LIST: &str = "/staff/reports/payouts";
 
 fn detail_path(charity: CharityId) -> String {
     format!("{LIST}/{}", charity.get())
+}
+
+/// Payouts default to drops up to today: a drop still to come has nothing to pay yet.
+fn choose_payout(state: &AppState, query: &PeriodQuery, action: &str) -> Step<Chosen> {
+    choose_from(state, query, action, false, default_period(state, true)?)
 }
 
 async fn payout(state: &AppState, charity: CharityId, chosen: &Chosen) -> Step<Payout> {
@@ -55,7 +62,7 @@ pub async fn list(
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::ManageCharities)?;
-        let chosen = choose(&state, &query, LIST, false)?;
+        let chosen = choose_payout(&state, &query, LIST)?;
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         let all = charities::list_all(&mut conn)
             .await
@@ -244,7 +251,7 @@ pub async fn detail(
     let run = async {
         require(&state, &staff, Permission::ManageCharities)?;
         let charity = charity(&state, &id).await?;
-        let chosen = choose(&state, &query, &detail_path(charity.id), false)?;
+        let chosen = choose_payout(&state, &query, &detail_path(charity.id))?;
         let answer = Answer {
             saved: query.saved(),
             problem: String::new(),
@@ -269,7 +276,19 @@ pub async fn record(
         let charity = charity(&state, &id).await?;
         let path = detail_path(charity.id);
         let query = PeriodQuery::between(fields.text("van"), fields.text("tot"));
-        let chosen = choose(&state, &query, &path, false)?;
+        let chosen = choose_payout(&state, &query, &path)?;
+        if !chosen.form.errors.is_empty()
+            || fields.text("van").is_empty()
+            || fields.text("tot").is_empty()
+        {
+            let answer = Answer {
+                saved: false,
+                problem: t(&state, "reports-error-period"),
+                posted: None,
+            };
+            let status = invalid_status(&headers);
+            return render(&state, &session, status, &charity, chosen, answer).await;
+        }
         let mut posted = TransferForm {
             action: format!("{path}/transfers"),
             from: chosen.form.from.clone(),
