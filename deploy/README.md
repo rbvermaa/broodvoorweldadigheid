@@ -4,7 +4,7 @@ Needs Docker Compose 2.23.1 or newer, for `configs.content` in compose.yaml.
     make images                      # build and load the bvw-*:dev images
     nix develop -c cargo run -p cli -- dev-secrets deploy/secrets
     make up                          # https://localhost:8443/ and https://idm.localhost:8443/
-    make smoke                       # throwaway stack on 18080/18443: health, Kanidm, redirects, backup and restore test
+    make smoke                       # throwaway stack on 18080/18443: health, Kanidm, redirects, session, backup and restore test
     make down
 
 Ports bind to 127.0.0.1; set `BVW_BIND_ADDRESS=0.0.0.0` to expose them. `make up` uses the

@@ -6,6 +6,8 @@ use std::time::Duration;
 #[cfg(feature = "ai")]
 use ai as _;
 use clap::{Parser, Subcommand};
+use i18n::Translator;
+use server::AppState;
 use server::config::Config;
 use server::healthcheck;
 use tokio::net::TcpListener;
@@ -59,7 +61,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let pool = db::connect_lazy(&config.database_url, DB_ACQUIRE_TIMEOUT)?;
     let listener = TcpListener::bind(config.bind_addr).await?;
+    let state = AppState::new(pool, Translator::dutch()?, config);
     tracing::info!(addr = %listener.local_addr()?, "listening");
-    server::serve(listener, pool, server::shutdown_signal()).await?;
+    server::serve(listener, state, server::shutdown_signal()).await?;
     Ok(())
 }

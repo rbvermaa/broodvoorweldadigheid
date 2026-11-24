@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 
@@ -6,6 +6,12 @@ pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 pub struct Config {
     pub bind_addr: SocketAddr,
     pub database_url: String,
+    /// Off only for local runs over plain http; browsers drop Secure cookies there.
+    pub cookie_secure: bool,
+    /// The reverse proxy whose X-Forwarded-For is believed for rate limiting.
+    pub trusted_proxy: Option<IpAddr>,
+    /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
+    pub gallery: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -16,6 +22,12 @@ pub enum ConfigError {
     NotPostgres,
     #[error("BIND_ADDR {0:?} is not a socket address like 0.0.0.0:8080")]
     InvalidBindAddr(String),
+    #[error("COOKIE_SECURE {0:?} must be true or false")]
+    InvalidCookieSecure(String),
+    #[error("TRUSTED_PROXY {0:?} is not an IP address like 10.89.0.10")]
+    InvalidTrustedProxy(String),
+    #[error("GALLERY {0:?} must be true or false")]
+    InvalidGallery(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -23,6 +35,9 @@ impl std::fmt::Debug for Config {
         f.debug_struct("Config")
             .field("bind_addr", &self.bind_addr)
             .field("database_url", &"<redacted>")
+            .field("cookie_secure", &self.cookie_secure)
+            .field("trusted_proxy", &self.trusted_proxy)
+            .field("gallery", &self.gallery)
             .finish()
     }
 }
@@ -43,9 +58,29 @@ impl Config {
         if !(database_url.starts_with("postgres://") || database_url.starts_with("postgresql://")) {
             return Err(ConfigError::NotPostgres);
         }
+        let cookie_secure = match lookup("COOKIE_SECURE").as_deref() {
+            None | Some("true") => true,
+            Some("false") => false,
+            Some(other) => return Err(ConfigError::InvalidCookieSecure(other.to_string())),
+        };
+        let trusted_proxy = lookup("TRUSTED_PROXY")
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| {
+                raw.parse()
+                    .map_err(|_| ConfigError::InvalidTrustedProxy(raw))
+            })
+            .transpose()?;
+        let gallery = match lookup("GALLERY").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(other) => return Err(ConfigError::InvalidGallery(other.to_string())),
+        };
         Ok(Self {
             bind_addr,
             database_url,
+            cookie_secure,
+            trusted_proxy,
+            gallery,
         })
     }
 }
@@ -68,6 +103,9 @@ mod tests {
             .expect("config");
         assert_eq!(config.bind_addr, "0.0.0.0:8080".parse().expect("addr"));
         assert_eq!(config.database_url, "postgres://db/bakery");
+        assert!(config.cookie_secure);
+        assert_eq!(config.trusted_proxy, None);
+        assert!(!config.gallery);
     }
 
     #[test]
@@ -121,6 +159,60 @@ mod tests {
                 ("DATABASE_URL", "postgres://db/bakery"),
             ])),
             Err(ConfigError::InvalidBindAddr("localhost".to_string()))
+        );
+    }
+
+    #[test]
+    fn cookie_secure_can_be_turned_off_for_local_http() {
+        let config = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("COOKIE_SECURE", "false"),
+        ]))
+        .expect("config");
+        assert!(!config.cookie_secure);
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("COOKIE_SECURE", "nee"),
+            ])),
+            Err(ConfigError::InvalidCookieSecure("nee".to_string()))
+        );
+    }
+
+    #[test]
+    fn trusted_proxy_is_an_ip_address() {
+        let config = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("TRUSTED_PROXY", "10.89.0.10"),
+        ]))
+        .expect("config");
+        assert_eq!(
+            config.trusted_proxy,
+            Some("10.89.0.10".parse().expect("ip"))
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("TRUSTED_PROXY", "caddy"),
+            ])),
+            Err(ConfigError::InvalidTrustedProxy("caddy".to_string()))
+        );
+    }
+
+    #[test]
+    fn gallery_is_off_unless_turned_on() {
+        let on = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("GALLERY", "true"),
+        ]))
+        .expect("config");
+        assert!(on.gallery);
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("GALLERY", "ja"),
+            ])),
+            Err(ConfigError::InvalidGallery("ja".to_string()))
         );
     }
 }
