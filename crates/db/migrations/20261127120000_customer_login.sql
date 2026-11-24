@@ -28,3 +28,7 @@ ALTER TABLE email_outbox ADD CONSTRAINT email_outbox_kind_check CHECK (kind IN (
     'sick_day_cancelled', 'drop_alert', 'subscription_confirmation',
     'contact_message', 'login_link'
 ));
+
+-- An email that carries a secret, such as a login link, is not sent after expires_at, and
+-- its bodies are blanked once it is sent or failed.
+ALTER TABLE email_outbox ADD COLUMN expires_at timestamptz;

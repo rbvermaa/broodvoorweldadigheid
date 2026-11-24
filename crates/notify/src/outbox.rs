@@ -58,13 +58,38 @@ pub async fn enqueue(
     email: &Email,
     dedupe_key: Option<&str>,
 ) -> Result<Option<OutboxId>, OutboxError> {
+    insert(conn, clock, email, dedupe_key, None).await
+}
+
+/// Queues an email that carries a secret, such as a login link: it is not sent after
+/// `expires_at`, and its bodies are blanked once it is sent or failed.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn enqueue_expiring(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &Email,
+    expires_at: Timestamp,
+) -> Result<Option<OutboxId>, OutboxError> {
+    insert(conn, clock, email, None, Some(expires_at)).await
+}
+
+async fn insert(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &Email,
+    dedupe_key: Option<&str>,
+    expires_at: Option<Timestamp>,
+) -> Result<Option<OutboxId>, OutboxError> {
     let now = db::time::to_micros(clock.now());
     let id = sqlx::query_scalar!(
         r#"INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
-            list_unsubscribe, reply_to, next_attempt_at, created_at)
+            list_unsubscribe, reply_to, next_attempt_at, created_at, expires_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
             timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
-            timestamptz 'epoch' + $9::bigint * interval '1 microsecond')
+            timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $10::bigint * interval '1 microsecond')
         ON CONFLICT (dedupe_key) DO NOTHING
         RETURNING id"#,
         dedupe_key,
@@ -76,6 +101,7 @@ pub async fn enqueue(
         email.list_unsubscribe,
         email.reply_to,
         now,
+        expires_at.map(db::time::to_micros),
     )
     .fetch_optional(conn)
     .await?;
@@ -130,6 +156,7 @@ struct Due {
     list_unsubscribe: Option<String>,
     reply_to: Option<String>,
     attempts: i32,
+    expired: bool,
 }
 
 enum Outcome {
@@ -162,7 +189,9 @@ pub async fn send_pending(
         let Some(due) = sqlx::query_as!(
             Due,
             r#"SELECT id, message_id::text AS "message_id!", kind, to_address, subject,
-                text_body, html_body, list_unsubscribe, reply_to, attempts
+                text_body, html_body, list_unsubscribe, reply_to, attempts,
+                coalesce(expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond',
+                    false) AS "expired!"
             FROM email_outbox
             WHERE status = 'pending'
                 AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
@@ -178,7 +207,9 @@ pub async fn send_pending(
         };
         let id = due.id;
         let attempts = due.attempts.saturating_add(1);
+        let expired = due.expired;
         let outcome = match outgoing(due, now) {
+            Ok(_) if expired => Outcome::Failed("expired before it was sent".to_owned()),
             Ok(email) => match sender.send(&email).await {
                 Ok(()) => Outcome::Sent,
                 Err(SendError::Transient(error)) => match retry_at(now, attempts) {
@@ -193,6 +224,8 @@ pub async fn send_pending(
             Outcome::Sent => {
                 sqlx::query!(
                     r#"UPDATE email_outbox SET status = 'sent', attempts = $2, last_error = NULL,
+                        text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
+                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END,
                         sent_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
                     WHERE id = $1"#,
                     id,
@@ -221,7 +254,9 @@ pub async fn send_pending(
             Outcome::Failed(error) => {
                 tracing::error!(outbox_id = id, attempts, "email failed for good");
                 sqlx::query!(
-                    r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3
+                    r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3,
+                        text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
+                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END
                     WHERE id = $1"#,
                     id,
                     attempts,

@@ -55,6 +55,7 @@ pub struct LoginLink {
     pub customer: CustomerId,
     pub email: String,
     pub token: LinkToken,
+    pub expires_at: Timestamp,
 }
 
 /// What a request for a link did. The visitor sees the same answer for each, so nobody
@@ -170,6 +171,7 @@ pub async fn request_link(
         customer: CustomerId::new(customer.id),
         email: customer.email,
         token,
+        expires_at: expires,
     }))
 }
 

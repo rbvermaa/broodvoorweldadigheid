@@ -17,6 +17,7 @@ pub use compose::{
 pub use content::RenderError;
 pub use email::{Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture};
 pub use outbox::{
-    OutboxError, OutboxId, SendReport, enqueue, queued_keys, send_pending, withdraw_unsent,
+    OutboxError, OutboxId, SendReport, enqueue, enqueue_expiring, queued_keys, send_pending,
+    withdraw_unsent,
 };
 pub use smtp::{Secret, SmtpConfig, SmtpConfigError, SmtpSender, TlsMode, message};

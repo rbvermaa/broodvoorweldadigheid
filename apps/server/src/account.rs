@@ -109,6 +109,13 @@ fn message(
     )
 }
 
+/// For pages whose URL holds a secret or that show a customer's own data.
+fn no_store(mut page: Response) -> Response {
+    page.headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    page
+}
+
 fn link_failed(state: &AppState) -> Response {
     message(state, StatusCode::NOT_FOUND, LINK_FAILED, "warning", true)
 }
@@ -230,7 +237,7 @@ async fn queue_link(state: &AppState, email: &str) -> Result<(), QueueError> {
         ),
         valid_minutes: LINK_VALID.as_mins(),
     })?;
-    notify::enqueue(&mut tx, state.clock.as_ref(), &mail, None).await?;
+    notify::enqueue_expiring(&mut tx, state.clock.as_ref(), &mail, link.expires_at).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -251,19 +258,14 @@ async fn link_page(
         Err(error) => return server_error(&state, &error),
     };
     match customer::link_is_valid(&mut conn, &token, state.clock.now()).await {
-        Ok(true) => {
-            let mut page = pages::render(
-                &state,
-                StatusCode::OK,
-                &LinkPage {
-                    layout: Layout::new(&state).with_csrf_token(csrf),
-                    action: format!("{LOGIN_PATH}/{token}"),
-                },
-            );
-            page.headers_mut()
-                .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            page
-        }
+        Ok(true) => no_store(pages::render(
+            &state,
+            StatusCode::OK,
+            &LinkPage {
+                layout: Layout::new(&state).with_csrf_token(csrf),
+                action: format!("{LOGIN_PATH}/{token}"),
+            },
+        )),
         Ok(false) => link_failed(&state),
         Err(error) => server_error(&state, &error),
     }
@@ -314,7 +316,7 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
     };
     let page = orders_page(&state, &me.email, &list);
     match page {
-        Ok((signed_in_as, orders)) => pages::render(
+        Ok((signed_in_as, orders)) => no_store(pages::render(
             &state,
             StatusCode::OK,
             &OrdersPage {
@@ -322,7 +324,7 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
                 signed_in_as,
                 orders,
             },
-        ),
+        )),
         Err(error) => server_error(&state, &error),
     }
 }

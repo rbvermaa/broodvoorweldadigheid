@@ -9,7 +9,7 @@ use auth::customer::LINK_VALID;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
-use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::{Request, StatusCode};
 use bakedays::{NewBakeDay, Schedule, days};
 use db::PgPool;
@@ -378,7 +378,6 @@ async fn order_for(pool: &PgPool, clock: &FakeClock, email: &str) -> orders::Ord
         &NewBakeDay {
             date: "2026-10-31".parse().unwrap(),
             location_id: PickupLocationId::new(1),
-            bake_starts_at: ts("2026-10-31T03:00:00Z"),
             online_ordering: true,
             charity_id: None,
         },
@@ -393,7 +392,6 @@ async fn order_for(pool: &PgPool, clock: &FakeClock, email: &str) -> orders::Ord
             menu_publish_at: None,
             opens_at: Some(ts("2026-10-01T00:00:00Z")),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -507,4 +505,56 @@ async fn signing_in_again_ends_the_previous_login_on_that_session(pool: PgPool) 
     .await;
     assert_eq!(reply.status, StatusCode::SEE_OTHER);
     assert_eq!(logins(&pool).await, 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn pages_with_a_secret_or_own_data_are_not_cached(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    let app = app(&pool).await;
+    ask(&app, KNOWN).await;
+    let link = last_link(&pool).await;
+    let page = app
+        .router
+        .clone()
+        .oneshot(with_peer(Request::get(&link).body(Body::empty()).unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(page.headers()[CACHE_CONTROL], "private, no-store");
+    let (reply, _) = follow(&app, &link).await;
+    let cookie = reply.cookie.unwrap();
+    let mine = app
+        .router
+        .clone()
+        .oneshot(with_peer(
+            Request::get("/mijn-bestellingen")
+                .header(COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(mine.status(), StatusCode::OK);
+    assert_eq!(mine.headers()[CACHE_CONTROL], "private, no-store");
+}
+
+fn with_peer(mut request: Request<Body>) -> Request<Body> {
+    request
+        .extensions_mut()
+        .insert(ConnectInfo("192.0.2.7:4000".parse::<SocketAddr>().unwrap()));
+    request
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_login_mail_expires_with_its_link(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    let app = app(&pool).await;
+    ask(&app, KNOWN).await;
+    let expires: bool = sqlx::query_scalar(
+        "SELECT expires_at = created_at + interval '30 minutes' FROM email_outbox
+         WHERE kind = 'login_link'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(expires);
 }

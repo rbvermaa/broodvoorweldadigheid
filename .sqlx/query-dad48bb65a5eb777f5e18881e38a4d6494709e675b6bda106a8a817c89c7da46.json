@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, message_id::text AS \"message_id!\", kind, to_address, subject,\n                text_body, html_body, list_unsubscribe, reply_to, attempts\n            FROM email_outbox\n            WHERE status = 'pending'\n                AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            ORDER BY next_attempt_at, id\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED",
+  "query": "SELECT id, message_id::text AS \"message_id!\", kind, to_address, subject,\n                text_body, html_body, list_unsubscribe, reply_to, attempts,\n                coalesce(expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond',\n                    false) AS \"expired!\"\n            FROM email_outbox\n            WHERE status = 'pending'\n                AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            ORDER BY next_attempt_at, id\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -107,6 +107,12 @@
             "name": "attempts"
           }
         }
+      },
+      {
+        "ordinal": 10,
+        "name": "expired!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -124,8 +130,9 @@
       false,
       true,
       true,
-      false
+      false,
+      null
     ]
   },
-  "hash": "a147ff02d8c2ae3580684f9208a6d73fc9da3f840c30790fc91e81e3a2d6447a"
+  "hash": "dad48bb65a5eb777f5e18881e38a4d6494709e675b6bda106a8a817c89c7da46"
 }
