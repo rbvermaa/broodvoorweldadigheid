@@ -1,6 +1,14 @@
 {% extends "base.html" %}
+{% import "components/brand.html" as brand %}
 {% block title %}{{ layout.t("home-title")? }}{% endblock %}
+{% block header %}
+<header class="site-header site-header-hero">
+{% call brand::logo("hero") %}{% endcall %}
+</header>
+{% endblock %}
 {% block content %}
-<h1>{{ layout.t("home-title")? }}</h1>
-<p>{{ layout.t("home-intro")? }}</p>
+<div class="hero">
+<h1 class="hero-title">{{ layout.t("home-title")? }}</h1>
+<p class="hero-text">{{ layout.t("home-intro")? }}</p>
+</div>
 {% endblock %}

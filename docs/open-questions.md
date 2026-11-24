@@ -39,6 +39,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   default Thursday 20:00 deadline, so default drops no longer warn.
 - [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
+  **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
+  icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
+  wordmark until the server knows its public URL.
+- [x] **Accent colour.** The spec leaves "one accent colour" to choose.
+  **Answered 2026-11-24:** none. The owner chose style "Stempel": ink #111111 on white,
+  like the logo (ADR 0023).
 - [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short

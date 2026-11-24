@@ -15,6 +15,10 @@ pub const FONTS_CSS: &str = include_str!("../../../design/fonts.css");
 pub const APP_CSS: &str = include_str!("../../../design/app.css");
 pub const COMPONENTS_CSS: &str = include_str!("../../../design/components.css");
 pub const APP_JS: &str = include_str!("../../../design/app.js");
+/// The logo and the icons cut from it, made by `make logo` from docs/media/image1.png.
+pub const LOGO_PNG: &[u8] = include_bytes!("../../../design/logo.png");
+pub const FAVICON_PNG: &[u8] = include_bytes!("../../../design/favicon.png");
+pub const TOUCH_ICON_PNG: &[u8] = include_bytes!("../../../design/apple-touch-icon.png");
 /// `HTMX_JS` is the store path of the pinned htmx release (nix/htmx.nix), set by the flake
 /// for builds and the dev shell.
 pub const HTMX_JS: &str = include_str!(env!(
@@ -40,6 +44,7 @@ pub const INTER_WOFF2: &[u8] = include_bytes!(concat!(
 const CSS: &str = "text/css; charset=utf-8";
 const JS: &str = "text/javascript; charset=utf-8";
 const WOFF2: &str = "font/woff2";
+const PNG: &str = "image/png";
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 pub const REVALIDATE: &str = "no-cache";
 
@@ -74,8 +79,10 @@ impl Asset {
     }
 }
 
-/// The stylesheets and scripts `base.html` links, in order.
-pub const LINKED: [&str; 6] = [
+/// The icons, stylesheets and scripts `base.html` links, in order.
+pub const LINKED: [&str; 8] = [
+    "favicon.png",
+    "apple-touch-icon.png",
     "fonts.css",
     "tokens.css",
     "app.css",
@@ -97,6 +104,9 @@ pub static ASSETS: LazyLock<Vec<Asset>> = LazyLock::new(|| {
         Asset::new("components.css", CSS, COMPONENTS_CSS.as_bytes()),
         Asset::new("htmx.min.js", JS, HTMX_JS.as_bytes()),
         Asset::new("app.js", JS, APP_JS.as_bytes()),
+        Asset::new("logo.png", PNG, LOGO_PNG),
+        Asset::new("favicon.png", PNG, FAVICON_PNG),
+        Asset::new("apple-touch-icon.png", PNG, TOUCH_ICON_PNG),
     ];
     assets.extend(fonts);
     assets
@@ -174,8 +184,12 @@ mod tests {
 
     #[test]
     fn tokens_css_has_brand_base_colours_and_fonts() {
-        assert!(TOKENS_CSS.contains("  --color-black: #000000;\n"));
-        assert!(TOKENS_CSS.contains("  --color-white: #ffffff;\n"));
+        assert!(TOKENS_CSS.contains("  --color-ink: #111111;\n"));
+        assert!(TOKENS_CSS.contains("  --color-paper: #ffffff;\n"));
+        assert!(
+            !TOKENS_CSS.contains("--color-accent"),
+            "style Stempel has no accent"
+        );
         assert!(TOKENS_CSS.contains("  --font-heading: \"Oswald\""));
         assert!(TOKENS_CSS.contains("  --font-body: \"Inter\""));
     }
@@ -215,6 +229,26 @@ mod tests {
         assert_eq!(css.matches("url(\"").count(), 2, "{css}");
         assert!(css.contains("font-family: \"Oswald\""), "{css}");
         assert!(css.contains("font-family: \"Inter\""), "{css}");
+    }
+
+    /// Width and height from the PNG header.
+    fn png_size(png: &[u8]) -> (u32, u32) {
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"), "not a PNG");
+        let word = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().expect("4 bytes"));
+        (word(16), word(20))
+    }
+
+    #[test]
+    fn brand_images_are_square_pngs_of_the_expected_size() {
+        for (name, side) in [
+            ("logo.png", 420),
+            ("favicon.png", 64),
+            ("apple-touch-icon.png", 180),
+        ] {
+            let asset = find(name).expect(name);
+            assert_eq!(asset.content_type, "image/png", "{name}");
+            assert_eq!(png_size(&asset.body), (side, side), "{name}");
+        }
     }
 
     #[test]
