@@ -3,11 +3,12 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use domain::Clock;
 use jiff::SignedDuration;
 use notify::outbox::{BACKOFF, MAX_ATTEMPTS};
 use notify::{
     Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport, enqueue,
-    send_pending, withdraw_unsent,
+    enqueue_expiring, send_pending, withdraw_unsent,
 };
 use sqlx::{Acquire, PgPool};
 use testkit::{FakeClock, FakeEmailSender};
@@ -400,4 +401,59 @@ async fn an_unsent_email_can_be_withdrawn_but_a_sent_one_stays(pool: PgPool) {
             .is_some(),
         "the key is free again"
     );
+}
+
+async fn bodies(pool: &PgPool) -> Vec<(String, String)> {
+    sqlx::query_as("SELECT text_body, html_body FROM email_outbox ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expiring_email_is_blanked_once_sent(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_mins(30);
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), expires)
+        .await
+        .unwrap();
+    enqueue(&mut conn, &clock, &email("b@example.org"), None)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(2, 0, 0));
+    assert_eq!(sender.sent()[0].email.text, "Hoi,\n");
+    assert_eq!(
+        bodies(&pool).await,
+        [
+            (String::new(), String::new()),
+            ("Hoi,\n".to_owned(), "<p>Hoi,</p>".to_owned()),
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expired_email_is_never_sent_and_is_blanked(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_mins(30);
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), expires)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    sender.fail_next(SendError::Transient("timeout".to_owned()));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 1, 0));
+    assert_eq!(bodies(&pool).await[0].0, "Hoi,\n", "kept for the retry");
+
+    clock.advance(SignedDuration::from_mins(30));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 0, 1));
+    assert!(sender.sent().is_empty());
+    let state = &states(&pool).await[0];
+    assert_eq!(state.status, "failed");
+    assert_eq!(
+        state.last_error.as_deref(),
+        Some("expired before it was sent")
+    );
+    assert_eq!(bodies(&pool).await, [(String::new(), String::new())]);
 }

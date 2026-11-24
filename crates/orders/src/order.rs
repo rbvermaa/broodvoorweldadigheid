@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use db::time::from_micros;
+use db::time::{from_epoch_days, from_micros};
 use domain::{
     BakeDayId, CustomerId, Money, MoneyError, OrderId, OrderLineId, PickupSlotId, ProductId,
     VatRate, VatTotals,
 };
 use jiff::Timestamp;
+use jiff::civil::Date;
 use sqlx::PgConnection;
 
 use crate::Error;
@@ -296,6 +297,53 @@ pub async fn list_firm(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<Or
             order_from_row(row, order_lines)
         })
         .collect()
+}
+
+/// One line of a customer's own order overview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomerOrder {
+    pub id: OrderId,
+    pub number: OrderNumber,
+    /// The bake day.
+    pub date: Date,
+    pub status: OrderStatus,
+    pub total: Money,
+    pub status_token: String,
+}
+
+/// Every order of `customer`, newest first.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn for_customer(
+    conn: &mut PgConnection,
+    customer: CustomerId,
+) -> Result<Vec<CustomerOrder>, Error> {
+    sqlx::query!(
+        r#"SELECT o.id, o.number_year, o.number_seq, d.date - date 'epoch' AS "date_days!",
+            o.status, o.total_cents, o.status_token::text AS "status_token!"
+        FROM "order" o JOIN bake_day d ON d.id = o.bake_day_id
+        WHERE o.customer_id = $1
+        ORDER BY o.created_at DESC, o.id DESC"#,
+        customer.get(),
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(CustomerOrder {
+            id: OrderId::new(row.id),
+            number: OrderNumber {
+                year: row.number_year,
+                seq: row.number_seq,
+            },
+            date: from_epoch_days(row.date_days)?,
+            status: OrderStatus::parse(&row.status)?,
+            total: Money::from_cents(row.total_cents),
+            status_token: row.status_token,
+        })
+    })
+    .collect()
 }
 
 /// The fields an audit entry keeps of an order's state.

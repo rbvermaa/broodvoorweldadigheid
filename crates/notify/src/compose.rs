@@ -152,6 +152,24 @@ pub struct SubscriptionConfirmation {
     pub confirm_url: String,
 }
 
+/// A customer's magic link to sign in (spec, Security; ADR 0028).
+#[derive(Clone, PartialEq, Eq)]
+pub struct LoginLink {
+    pub to: String,
+    pub login_url: String,
+    pub valid_minutes: i64,
+}
+
+impl std::fmt::Debug for LoginLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginLink")
+            .field("to", &self.to)
+            .field("login_url", &"<redacted>")
+            .field("valid_minutes", &self.valid_minutes)
+            .finish()
+    }
+}
+
 /// F4f: a message from the contact form, sent to the bakery. Replies go to `email`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactMessage {
@@ -463,6 +481,29 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::SubscriptionConfirmation, &subscription.to, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn login_link(&self, link: &LoginLink) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-login-subject", &[])?,
+            heading: self.t("email-login-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t(
+                    "email-login-intro",
+                    &[("minutes", link.valid_minutes.to_string())],
+                )?),
+                Block::Button(Link {
+                    label: self.t("email-login-button", &[])?,
+                    url: https(&link.login_url)?,
+                }),
+                Block::Paragraph(self.t("email-login-ignore", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::LoginLink, &link.to, parts)
     }
 
     /// To the bakery, with only the company name in the footer; the sender gets no copy.

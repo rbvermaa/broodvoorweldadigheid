@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as t %}
+{% block title %}{{ layout.t("account-orders-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("account-orders-title")? }}</h1>
+<p>{{ signed_in_as }}</p>
+{%- if orders.rows.is_empty() %}
+{% call fb::empty_state(layout.t("account-orders-empty-title")?, layout.t("account-orders-empty-text")?) %}{% endcall %}
+{%- else %}
+{% call t::table(orders) %}{% endcall %}
+{%- endif %}
+<form method="post" action="/uitloggen">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call b::button(layout.t("account-logout")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}
