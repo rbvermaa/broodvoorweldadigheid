@@ -6,8 +6,8 @@ use jiff::Timestamp;
 use jiff::civil::{Date, date};
 use notify::{
     Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Email,
-    EmailKind, Item, OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail, Pickup,
-    PickupReminder, Recipient, SendError, SickDayCancelled, SubscriptionConfirmation,
+    EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail,
+    Pickup, PickupReminder, Recipient, SendError, SickDayCancelled, SubscriptionConfirmation,
 };
 
 const NBSP: char = '\u{a0}';
@@ -379,6 +379,21 @@ fn subscription_confirmation() {
 }
 
 #[test]
+fn login_link() {
+    let email = compose(|c| {
+        c.login_link(&LoginLink {
+            to: "klant@example.org".to_owned(),
+            login_url: "https://broodvoorweldadigheid.nl/inloggen/tok3n".to_owned(),
+            valid_minutes: 30,
+        })
+    });
+    assert_eq!(email.kind, EmailKind::LoginLink);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("30 minuten"), "{}", email.text);
+    snapshot("login-link", &email);
+}
+
+#[test]
 fn every_email_carries_the_company_details_and_no_class_attributes() {
     let i18n = i18n();
     let company = company();
@@ -389,6 +404,11 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
         composer.subscription_confirmation(&SubscriptionConfirmation {
             to: "abonnee@example.org".to_owned(),
             confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+        }),
+        composer.login_link(&LoginLink {
+            to: "klant@example.org".to_owned(),
+            login_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+            valid_minutes: 30,
         }),
     ];
     for email in emails {

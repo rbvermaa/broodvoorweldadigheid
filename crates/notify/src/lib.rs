@@ -11,7 +11,7 @@ pub mod subscribers;
 
 pub use compose::{
     Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Item,
-    OrderCancelled, OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient,
+    LoginLink, OrderCancelled, OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient,
     SickDayCancelled, SubscriptionConfirmation, is_address,
 };
 pub use content::RenderError;

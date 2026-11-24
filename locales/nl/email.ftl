@@ -68,6 +68,12 @@ email-subscription-intro = Fijn dat je wilt horen wanneer er een nieuwe drop is!
 email-subscription-confirm = Aanmelding bevestigen
 email-subscription-ignore = Heb je je niet aangemeld? Dan kun je deze mail negeren. Je krijgt dan geen mails van ons.
 
+email-login-subject = Je inloglink
+email-login-heading = Inloggen
+email-login-intro = Je vroeg om een link om in te loggen. De link werkt { $minutes } minuten en maar één keer.
+email-login-button = Inloggen
+email-login-ignore = Heb je niet om deze link gevraagd? Dan kun je deze mail negeren. Er gebeurt dan niets.
+
 email-contact-subject = Contactformulier: bericht van { $name }
 email-contact-heading = Nieuw bericht via de site
 email-contact-greeting = Hoi bakker,
