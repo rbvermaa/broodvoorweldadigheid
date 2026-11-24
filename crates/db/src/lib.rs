@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod time;
+
 use std::time::Duration;
 
 use sqlx::migrate::{MigrateError, Migrator};
