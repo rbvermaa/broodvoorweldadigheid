@@ -176,7 +176,8 @@ async fn insert_lines(
 /// [`Error::DayFinal`], [`Error::NotOpen`] or [`Error::PastDeadline`] when the day takes
 /// no orders from this channel; [`Error::SlotNotOnDay`], [`Error::SlotFull`];
 /// [`Error::Cart`] for a product that is not for sale or a refused price;
-/// [`Error::CapacityExceeded`]; [`Error::Invalid`] for customer details.
+/// [`Error::CapacityExceeded`]; [`Error::FreeOrder`] when the total is zero, since
+/// Mollie cannot take a payment of €0; [`Error::Invalid`] for customer details.
 pub async fn checkout(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -207,6 +208,10 @@ pub async fn checkout(
     }
     let on_range = range::list_products(&mut tx, day).await?;
     let lines = cart.price(&catalog, &on_range)?;
+    let total = cart::totals(&lines)?.gross()?;
+    if total <= domain::Money::ZERO {
+        return Err(Error::FreeOrder);
+    }
     range::check_order(
         &mut tx,
         day,
@@ -220,7 +225,6 @@ pub async fn checkout(
     let max_orders = lock_slot(&mut tx, day, slot).await?;
     ensure_slot_room(&mut tx, slot, max_orders, clock.now(), None).await?;
     let customer_id = customer::find_or_create(&mut tx, &details, now).await?;
-    let total = cart::totals(&lines)?.gross()?;
     let (year, seq) = next_number(&mut tx, now).await?;
     let hold_expires_at = now.checked_add(HOLD).map_err(|_| Error::Invalid("time"))?;
     let id = sqlx::query_scalar!(

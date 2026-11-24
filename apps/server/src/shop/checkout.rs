@@ -136,7 +136,15 @@ async fn render_page(
             layout: Layout::new(state).with_csrf_token(token),
             drop: view,
             action: format!("{}/bestellen", drop_path(drop.bake_day_id)),
-            cart: cart::view(state, drop.bake_day_id, Some(cart), &products, false, None)?,
+            cart: cart::view(
+                state,
+                drop.bake_day_id,
+                Some(cart),
+                &products,
+                &cart::menu_ids(drop),
+                false,
+                None,
+            )?,
             form,
             windows,
             message,
@@ -273,21 +281,23 @@ async fn refusal(
             });
         }
         OrderError::Cart(_) => return Some(error_text("checkout-error-unavailable")),
+        OrderError::FreeOrder => return Some(error_text("checkout-error-free")),
         _ => return Some(error_text("checkout-error-closed")),
     }
     Some(error_text("checkout-error-form"))
 }
 
 /// Creates the Mollie payment for a new order and records it. The idempotency key comes
-/// from the order id, so a retried create cannot start a second payment.
-async fn start_payment(
-    state: &AppState,
-    conn: &mut PgConnection,
-    order: &Order,
-) -> Result<String, String> {
-    let token = orders::order::status_token(conn, order.id)
-        .await
-        .map_err(|err| err.to_string())?;
+/// from the order id, so a retried create cannot start a second payment. The caller
+/// holds no pool connection: the Mollie call can take seconds, so each database step
+/// takes a connection of its own and gives it back before the call.
+async fn start_payment(state: &AppState, order: &Order) -> Result<String, String> {
+    let token = {
+        let mut conn = state.pool.acquire().await.map_err(|err| err.to_string())?;
+        orders::order::status_token(&mut conn, order.id)
+            .await
+            .map_err(|err| err.to_string())?
+    };
     let mut args = FluentArgs::new();
     args.set("number", order.number.to_string());
     let base = &state.config.public_url;
@@ -311,8 +321,9 @@ async fn start_payment(
         .create_payment(&request)
         .await
         .map_err(|err| err.to_string())?;
+    let mut conn = state.pool.acquire().await.map_err(|err| err.to_string())?;
     orders::payment_started(
-        conn,
+        &mut conn,
         state.clock.as_ref(),
         order.id,
         created.id.as_str(),
@@ -321,6 +332,33 @@ async fn start_payment(
     .await
     .map_err(|err| err.to_string())?;
     Ok(created.checkout_url)
+}
+
+/// The checkout page with "betalen lukt nu even niet", on a fresh connection.
+async fn payment_unavailable(
+    state: &AppState,
+    session: &Session,
+    (drop, cart): (&PublicDrop, &Cart),
+    form: Fields,
+) -> Response {
+    let mut conn = match state.pool.acquire().await {
+        Ok(conn) => conn,
+        Err(err) => return server_error(state, "no database connection", &err),
+    };
+    let message = Some(Message {
+        kind: "error",
+        text: text(state, "checkout-error-payment", None),
+    });
+    render_page(
+        state,
+        &mut conn,
+        session,
+        (drop, cart),
+        form,
+        message,
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await
 }
 
 /// Places the order (F4, F4b, F4c) and sends the customer to Mollie (F5). The deadline,
@@ -340,8 +378,9 @@ pub async fn submit(
         Ok(found) => found,
         Err(response) => return *response,
     };
-    if let Some(response) = retry_unpaid(&state, &mut conn, &session, (&drop, &cart)).await {
-        return response;
+    if let Some(order) = unpaid_order(&state, &mut conn, &session, &drop).await {
+        std::mem::drop(conn);
+        return retry_payment(&state, &session, (&drop, &cart), &order).await;
     }
     let mut form = Fields::from_form(&raw);
     let slot = check_fields(&state, &mut form);
@@ -403,10 +442,11 @@ pub async fn submit(
             .await;
         }
     };
+    std::mem::drop(conn);
     if let Err(err) = save_cart(&session, &Cart::new(day)).await {
         tracing::warn!(error = %err, "cannot empty the cart");
     }
-    match start_payment(&state, &mut conn, &order).await {
+    match start_payment(&state, &order).await {
         Ok(checkout_url) => Redirect::to(&checkout_url).into_response(),
         Err(err) => {
             tracing::error!(error = %err, order = order.id.get(), "cannot start the payment");
@@ -416,27 +456,12 @@ pub async fn submit(
             if let Err(err) = session.insert(UNPAID_KEY, order.id.get()).await {
                 tracing::warn!(error = %err, "cannot remember the unpaid order");
             }
-            let message = Some(Message {
-                kind: "error",
-                text: text(&state, "checkout-error-payment", None),
-            });
-            let response = render_page(
-                &state,
-                &mut conn,
-                &session,
-                (&drop, &cart),
-                form,
-                message,
-                StatusCode::SERVICE_UNAVAILABLE,
-            )
-            .await;
             // tower-sessions does not save a session on a 5xx answer. The store takes its
-            // own pool connection, so ours goes back first.
-            std::mem::drop(conn);
+            // own pool connection, so this runs while the handler holds none.
             if let Err(err) = session.save().await {
                 tracing::warn!(error = %err, "cannot save the session");
             }
-            response
+            payment_unavailable(&state, &session, (&drop, &cart), form).await
         }
     }
 }
@@ -445,17 +470,15 @@ pub async fn submit(
 /// of placing another one and holding the stock twice.
 const UNPAID_KEY: &str = "unpaid_order";
 
-/// When the session remembers an order of this drop, still open for orders, whose payment
-/// did not start and whose hold still runs, tries the payment again. A sold-out drop
-/// counts as open: the order's own hold may be what sold it out. The idempotency key
-/// makes Mollie return the same payment if the first try did reach it. `None` lets
-/// checkout go on as normal.
-async fn retry_unpaid(
+/// The order the session remembers for this drop, when it is still open for orders, its
+/// payment did not start and its hold still runs. A sold-out drop counts as open: the
+/// order's own hold may be what sold it out. Otherwise the session forgets it.
+async fn unpaid_order(
     state: &AppState,
     conn: &mut PgConnection,
     session: &Session,
-    (drop, cart): (&PublicDrop, &Cart),
-) -> Option<Response> {
+    drop: &PublicDrop,
+) -> Option<Order> {
     let id = match session.get::<i64>(UNPAID_KEY).await {
         Ok(Some(id)) => OrderId::new(id),
         Ok(None) => return None,
@@ -471,13 +494,23 @@ async fn retry_unpaid(
             && order.status == OrderStatus::PendingPayment
             && order.hold_expires_at.is_some_and(|hold| now < hold)
     });
-    let Some(order) = order else {
-        if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
-            tracing::warn!(error = %err, "cannot forget the unpaid order");
-        }
-        return None;
-    };
-    match start_payment(state, conn, &order).await {
+    if order.is_none()
+        && let Err(err) = session.remove::<i64>(UNPAID_KEY).await
+    {
+        tracing::warn!(error = %err, "cannot forget the unpaid order");
+    }
+    order
+}
+
+/// Tries the payment of an unpaid order again. The idempotency key makes Mollie return
+/// the same payment if the first try did reach it.
+async fn retry_payment(
+    state: &AppState,
+    session: &Session,
+    (drop, cart): (&PublicDrop, &Cart),
+    order: &Order,
+) -> Response {
+    match start_payment(state, order).await {
         Ok(checkout_url) => {
             if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
                 tracing::warn!(error = %err, "cannot forget the unpaid order");
@@ -485,26 +518,11 @@ async fn retry_unpaid(
             if let Err(err) = save_cart(session, &Cart::new(drop.bake_day_id)).await {
                 tracing::warn!(error = %err, "cannot empty the cart");
             }
-            Some(Redirect::to(&checkout_url).into_response())
+            Redirect::to(&checkout_url).into_response()
         }
         Err(err) => {
             tracing::error!(error = %err, order = order.id.get(), "cannot start the payment");
-            let message = Some(Message {
-                kind: "error",
-                text: text(state, "checkout-error-payment", None),
-            });
-            Some(
-                render_page(
-                    state,
-                    conn,
-                    session,
-                    (drop, cart),
-                    Fields::default(),
-                    message,
-                    StatusCode::SERVICE_UNAVAILABLE,
-                )
-                .await,
-            )
+            payment_unavailable(state, session, (drop, cart), Fields::default()).await
         }
     }
 }

@@ -694,3 +694,45 @@ async fn order_numbers_start_again_at_new_year_in_local_time(mut conn: PoolConne
     assert_eq!(number_at("2026-12-31T23:30:00Z").await, "2027-0001");
     assert_eq!(number_at("2027-01-01T08:00:00Z").await, "2027-0002");
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_cart_that_costs_nothing_is_refused_without_a_hold(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let sample = product(
+        &mut conn,
+        &ProductSpec {
+            name: "Proefstukje",
+            price: 0,
+            ..BREAD
+        },
+    )
+    .await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, sample, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+
+    assert!(matches!(
+        order_as_guest(&mut conn, &clock, &shop, &[(sample, 1, None)]).await,
+        Err(Error::FreeOrder)
+    ));
+    let orders: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(orders, 0);
+
+    let order = order_as_guest(
+        &mut conn,
+        &clock,
+        &shop,
+        &[(sample, 1, None), (bread, 1, None)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        order.total,
+        eur(450),
+        "the sample still had its one place left"
+    );
+}

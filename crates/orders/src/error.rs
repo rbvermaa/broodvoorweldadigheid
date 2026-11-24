@@ -27,6 +27,8 @@ pub enum Error {
         product_id: ProductId,
         remaining: u32,
     },
+    #[error("the order total is zero")]
+    FreeOrder,
     #[error("the payment is recorded for another order")]
     PaymentOfOtherOrder,
     #[error("amount out of range")]

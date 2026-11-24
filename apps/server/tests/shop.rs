@@ -10,6 +10,7 @@ use axum::extract::ConnectInfo;
 use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
 use axum::http::{HeaderMap, Request, StatusCode};
 use bakedays::{NewBakeDay, Schedule, days};
+use domain::PaymentProvider;
 use domain::{
     BakeDayId, CharityId, Money, OrderId, PickupLocationId, ProductId, ProviderPaymentId,
 };
@@ -1083,4 +1084,188 @@ async fn pages_with_a_session_work_with_a_single_connection(pool: PgPool) {
         let reply = browser.get(&path).await;
         assert_eq!(reply.status, StatusCode::OK, "{path}: {}", reply.body);
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_cart_that_costs_nothing_is_refused_before_any_hold(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let sample = product(
+        &mut conn,
+        &Spec {
+            name: "Proefstukje",
+            price: 0,
+            ..BREAD
+        },
+    )
+    .await;
+    on_range(&mut conn, drop.day, sample, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, sample, "1", None).await;
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-free")),
+        "{}",
+        reply.body
+    );
+    let orders: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(&shop.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 0);
+    assert!(shop.mollie.created().is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_line_that_left_the_menu_stays_in_the_cart_as_unavailable(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    let rye = product(
+        &mut conn,
+        &Spec {
+            name: "Roggebrood",
+            price: 500,
+            ..BREAD
+        },
+    )
+    .await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    on_range(&mut conn, drop.day, rye, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, rye, "1", None).await;
+    sqlx::query("UPDATE product SET active = false WHERE id = $1")
+        .bind(rye.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    let panel = browser.add(drop.day, bread, "2", None).await;
+    assert_eq!(panel.status, StatusCode::OK);
+    assert!(panel.body.contains("Roggebrood"), "{}", panel.body);
+    assert!(
+        panel.body.contains(&dutch("cart-line-unavailable")),
+        "{}",
+        panel.body
+    );
+    assert!(
+        panel
+            .body
+            .contains(&dutch_with("cart-remove", &[("product", "Roggebrood")])),
+        "{}",
+        panel.body
+    );
+    let page = browser.get(&format!("/drops/{}", drop.day.get())).await;
+    for body in [&panel.body, &page.body] {
+        assert!(body.contains("Roggebrood"), "{body}");
+        assert!(body.contains(&dutch("cart-line-unavailable")), "{body}");
+        assert!(
+            !body.contains("14,00"),
+            "the unavailable line is not in the total"
+        );
+        assert!(body.contains("9,00"), "{body}");
+    }
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-unavailable")),
+        "{}",
+        reply.body
+    );
+}
+
+/// Holds `create_payment` until the test lets it go, like a slow Mollie.
+struct SlowMollie {
+    inner: FakePaymentProvider,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+impl PaymentProvider for SlowMollie {
+    fn create_payment<'a>(
+        &'a self,
+        request: &'a domain::NewPayment,
+    ) -> domain::ProviderFuture<'a, domain::CreatedPayment> {
+        Box::pin(async move {
+            self.entered.notify_one();
+            self.release.notified().await;
+            self.inner.create_payment(request).await
+        })
+    }
+
+    fn get_payment<'a>(
+        &'a self,
+        id: &'a ProviderPaymentId,
+    ) -> domain::ProviderFuture<'a, domain::PaymentSnapshot> {
+        self.inner.get_payment(id)
+    }
+
+    fn refund<'a>(
+        &'a self,
+        request: &'a domain::RefundRequest,
+    ) -> domain::ProviderFuture<'a, domain::CreatedRefund> {
+        self.inner.refund(request)
+    }
+
+    fn list_payment_fees<'a>(
+        &'a self,
+        cursor: Option<&'a domain::FeeCursor>,
+    ) -> domain::ProviderFuture<'a, domain::FeePage> {
+        self.inner.list_payment_fees(cursor)
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_slow_mollie_does_not_hold_a_database_connection(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = Arc::new(FakeClock::new(ts("2026-10-28T12:00:00Z")));
+    let drop = open_drop(&mut conn, &clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    std::mem::drop(conn);
+    let single = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(1))
+        .connect_lazy_with((*pool.connect_options()).clone());
+    let mollie = Arc::new(SlowMollie {
+        inner: FakePaymentProvider::new(),
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+    });
+    let config = Config::from_lookup(|key| match key {
+        "DATABASE_URL" => Some("postgres://unused/db".to_string()),
+        "PUBLIC_URL" => Some(PUBLIC_URL.to_string()),
+        _ => None,
+    })
+    .unwrap();
+    let state = AppState::new(single.clone(), Translator::dutch().unwrap(), config)
+        .with_clock(clock.clone())
+        .with_payments(mollie.clone());
+    let shop = Shop {
+        app: server::router(state),
+        pool: single,
+        clock,
+        mollie: Arc::new(FakePaymentProvider::new()),
+    };
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    let (checkout, calendar) = tokio::join!(browser.checkout(drop.day, &drop.slot), async {
+        mollie.entered.notified().await;
+        let calendar = send(
+            &shop.app,
+            Request::get("/drops").body(Body::empty()).unwrap(),
+        )
+        .await;
+        mollie.release.notify_one();
+        calendar
+    });
+    assert_eq!(calendar.status, StatusCode::OK, "{}", calendar.body);
+    assert_eq!(checkout.status, StatusCode::SEE_OTHER, "{}", checkout.body);
+    assert_eq!(mollie.inner.created().len(), 1);
 }

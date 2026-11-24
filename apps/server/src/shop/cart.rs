@@ -4,6 +4,7 @@ use askama::Template;
 use axum::extract::{Form, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
+use bakedays::calendar::PublicDrop;
 use bakedays::capacity::Remaining;
 use bakedays::{PublicStatus, range};
 use catalog::Pricing;
@@ -46,13 +47,25 @@ pub(crate) async fn load_products(
     Ok(products)
 }
 
+/// The product ids a drop's public menu offers.
+pub(crate) fn menu_ids(drop: &PublicDrop) -> Vec<ProductId> {
+    drop.menu
+        .iter()
+        .flatten()
+        .map(|item| item.product_id)
+        .collect()
+}
+
 /// The cart panel for `day`. Prices come from the catalog of this moment; checkout
-/// prices and checks everything again.
+/// prices and checks everything again. `products` holds the cart's products. A line
+/// whose product is no longer on `menu` stays visible, marked as unavailable and left
+/// out of the total, so the customer can remove it.
 pub(crate) fn view(
     state: &AppState,
     day: BakeDayId,
     cart: Option<&Cart>,
     products: &[catalog::Product],
+    menu: &[ProductId],
     can_check_out: bool,
     message: Option<Message>,
 ) -> Result<components::Cart, i18n::I18nError> {
@@ -68,13 +81,22 @@ pub(crate) fn view(
         let Some(product) = products.iter().find(|p| p.id == product_id) else {
             continue;
         };
-        let unit = line.chosen_price.unwrap_or(product.pricing.price_incl());
-        let amount = unit.cents().saturating_mul(i64::from(line.qty));
-        total = total.saturating_add(amount);
+        let orderable = menu.contains(&product_id)
+            && product.active
+            && product.sold_online
+            && product.approval.is_some();
+        let amount_cell = if orderable {
+            let unit = line.chosen_price.unwrap_or(product.pricing.price_incl());
+            let amount = unit.cents().saturating_mul(i64::from(line.qty));
+            total = total.saturating_add(amount);
+            Cell::number(i18n::money(amount))
+        } else {
+            Cell::text(t.t("cart-line-unavailable", None)?)
+        };
         rows.push(vec![
             Cell::text(product.name_nl.clone()),
             Cell::number(line.qty.to_string()),
-            Cell::number(i18n::money(amount)),
+            amount_cell,
         ]);
         let mut args = FluentArgs::new();
         args.set("product", product.name_nl.clone());
@@ -125,19 +147,15 @@ struct Change {
 async fn check(
     conn: &mut PgConnection,
     state: &AppState,
-    day: BakeDayId,
+    drop: &PublicDrop,
     form: &HashMap<String, String>,
-) -> Result<Result<(Change, Vec<catalog::Product>), String>, Box<Response>> {
+) -> Result<Result<Change, String>, Box<Response>> {
     let t = &state.i18n;
     let msg = |id: &str, args: Option<&FluentArgs<'_>>| {
         t.t(id, args)
             .map_err(|err| Box::new(server_error(state, "missing text", &err)))
     };
-    let drop = match find_drop(conn, state, day).await {
-        Ok(Some(drop)) => drop,
-        Ok(None) => return Err(Box::new(pages::error(state, StatusCode::NOT_FOUND))),
-        Err(err) => return Err(Box::new(server_error(state, "cannot load the drop", &err))),
-    };
+    let day = drop.bake_day_id;
     let Some(product) = form
         .get("product")
         .and_then(|raw| raw.parse::<i64>().ok())
@@ -145,10 +163,7 @@ async fn check(
     else {
         return Err(Box::new(pages::error(state, StatusCode::BAD_REQUEST)));
     };
-    let on_menu = drop
-        .menu
-        .as_ref()
-        .is_some_and(|menu| menu.iter().any(|item| item.product_id == product));
+    let menu = menu_ids(drop);
     let qty_raw = form
         .get(&format!("aantal-{}", product.get()))
         .map(|q| q.trim())
@@ -162,37 +177,19 @@ async fn check(
         }
     };
     if qty == 0 {
-        let menu_ids: Vec<_> = drop
-            .menu
-            .iter()
-            .flatten()
-            .map(|item| item.product_id)
-            .collect();
-        let products = load_products(conn, menu_ids)
-            .await
-            .map_err(|err| Box::new(server_error(state, "cannot load products", &err)))?;
-        return Ok(Ok((
-            Change {
-                product,
-                qty: 0,
-                price: None,
-            },
-            products,
-        )));
+        return Ok(Ok(Change {
+            product,
+            qty: 0,
+            price: None,
+        }));
     }
     if drop.status != PublicStatus::Open {
         return Ok(Err(msg("cart-error-closed", None)?));
     }
-    if !on_menu {
+    if !menu.contains(&product) {
         return Ok(Err(msg("cart-error-unavailable", None)?));
     }
-    let menu_ids: Vec<_> = drop
-        .menu
-        .iter()
-        .flatten()
-        .map(|item| item.product_id)
-        .collect();
-    let products = load_products(conn, menu_ids)
+    let products = load_products(conn, [product])
         .await
         .map_err(|err| Box::new(server_error(state, "cannot load products", &err)))?;
     let Some(catalog) = products.iter().find(|p| p.id == product) else {
@@ -240,14 +237,11 @@ async fn check(
         args.set("n", n);
         return Ok(Err(msg("cart-error-capacity", Some(&args))?));
     }
-    Ok(Ok((
-        Change {
-            product,
-            qty,
-            price,
-        },
-        products,
-    )))
+    Ok(Ok(Change {
+        product,
+        qty,
+        price,
+    }))
 }
 
 /// Adds, changes or removes one product (F4, F4b). htmx gets the cart panel back; a
@@ -264,21 +258,19 @@ pub async fn update(
         Ok(conn) => conn,
         Err(err) => return server_error(&state, "no database connection", &err),
     };
-    let checked = match check(&mut conn, &state, day, &form).await {
+    let drop = match find_drop(&mut conn, &state, day).await {
+        Ok(Some(drop)) => drop,
+        Ok(None) => return pages::error(&state, StatusCode::NOT_FOUND),
+        Err(err) => return server_error(&state, "cannot load the drop", &err),
+    };
+    let checked = match check(&mut conn, &state, &drop, &form).await {
         Ok(checked) => checked,
         Err(response) => return *response,
     };
     let mut cart = session_cart(&session).await;
-    let (message, products) = match checked {
-        Err(text) => {
-            let ids: Vec<_> = cart.iter().flat_map(Cart::products).collect();
-            let products = match load_products(&mut conn, ids).await {
-                Ok(products) => products,
-                Err(err) => return server_error(&state, "cannot load products", &err),
-            };
-            (error(text), products)
-        }
-        Ok((change, products)) => {
+    let message = match checked {
+        Err(text) => error(text),
+        Ok(change) => {
             let mut text_id = if change.qty == 0 {
                 "cart-removed"
             } else {
@@ -306,17 +298,14 @@ pub async fn update(
                 Ok(text) => text,
                 Err(err) => return server_error(&state, "missing text", &err),
             };
-            (
-                Message {
-                    kind: if text_id == "cart-replaced" {
-                        "warning"
-                    } else {
-                        "success"
-                    },
-                    text,
+            Message {
+                kind: if text_id == "cart-replaced" {
+                    "warning"
+                } else {
+                    "success"
                 },
-                products,
-            )
+                text,
+            }
         }
     };
     let failed = message.kind == "error";
@@ -331,7 +320,20 @@ pub async fn update(
         Ok(token) => token,
         Err(err) => return server_error(&state, "cannot read the session", &err),
     };
-    match view(&state, day, cart.as_ref(), &products, true, Some(message)) {
+    let products = match load_products(&mut conn, cart.iter().flat_map(Cart::products)).await {
+        Ok(products) => products,
+        Err(err) => return server_error(&state, "cannot load products", &err),
+    };
+    let menu = menu_ids(&drop);
+    match view(
+        &state,
+        day,
+        cart.as_ref(),
+        &products,
+        &menu,
+        true,
+        Some(message),
+    ) {
         Ok(panel) => pages::render(
             &state,
             StatusCode::OK,

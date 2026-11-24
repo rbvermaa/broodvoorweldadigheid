@@ -142,13 +142,8 @@ pub(crate) async fn menu_page(
         Err(err) => return server_error(state, "cannot load the drop", &err),
     };
     let orderable = drop.status == PublicStatus::Open;
-    let menu_ids: Vec<_> = drop
-        .menu
-        .iter()
-        .flatten()
-        .map(|item| item.product_id)
-        .collect();
-    let products = match cart::load_products(conn, menu_ids).await {
+    let menu_ids = cart::menu_ids(&drop);
+    let products = match cart::load_products(conn, menu_ids.iter().copied()).await {
         Ok(products) => products,
         Err(err) => return server_error(state, "cannot load products", &err),
     };
@@ -243,6 +238,7 @@ pub(crate) async fn menu_page(
                 day,
                 cart.as_ref(),
                 &cart_products,
+                &menu_ids,
                 orderable,
                 message,
             )?,

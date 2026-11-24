@@ -28,6 +28,7 @@ cart-error-price = Vul een bedrag in, zoals 4,50.
 cart-error-price-low = Kies minstens { $min }.
 cart-error-price-high = Kies hoogstens { $max }.
 cart-error-unavailable = Dit product kun je nu niet bestellen.
+cart-line-unavailable = Niet meer beschikbaar
 cart-error-closed = Bestellen kan niet meer voor deze drop.
 cart-error-capacity = Er { $n ->
     [one] is er nog maar 1
@@ -57,6 +58,7 @@ checkout-error-capacity = Van { $product } { $n ->
    *[other] zijn er nog maar { $n }
 } over. Pas je mandje aan.
 checkout-error-unavailable = Iets in je mandje kun je niet meer bestellen. Pas je mandje aan.
+checkout-error-free = Je mandje kost € 0. Dat kun je niet online afrekenen. Kies ook iets met een prijs.
 checkout-error-payment = Betalen lukt nu even niet. Probeer het over een paar minuten opnieuw.
 checkout-error-form = Kijk je gegevens nog even na.
 payment-description = Bestelling { $number } bij { app-name }
