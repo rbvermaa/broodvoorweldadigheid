@@ -165,3 +165,31 @@ fn a_list_right_after_a_paragraph_line_starts_a_list() {
         ]
     );
 }
+
+#[test]
+fn a_link_without_text_stays_text() {
+    assert_eq!(
+        parse("[](https://example.org)"),
+        vec![Block::Paragraph(vec![text("[](https://example.org)")])]
+    );
+}
+
+#[test]
+fn odd_input_never_panics() {
+    for source in [
+        "[",
+        "[a](",
+        "[a]",
+        "*",
+        "**",
+        "***",
+        "\\",
+        "a\\",
+        "*é*",
+        "[é](https://é)",
+        "- ",
+        "-",
+    ] {
+        let _ = parse(source);
+    }
+}

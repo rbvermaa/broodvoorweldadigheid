@@ -210,7 +210,7 @@ fn link(chars: &[char], start: usize) -> Option<(String, Option<String>, usize)>
     }
     let end = close + 2 + chars[close + 2..].iter().position(|&c| c == ')')?;
     let label: String = chars[start + 1..close].iter().collect();
-    if label.contains('[') {
+    if label.trim().is_empty() || label.contains('[') {
         return None;
     }
     let url: String = chars[close + 2..end].iter().collect();

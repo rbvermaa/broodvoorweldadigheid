@@ -27,6 +27,15 @@ fn dutch(id: &str) -> String {
         .expect("message")
 }
 
+fn field_error(id: &str) -> String {
+    let mut args = i18n::FluentArgs::new();
+    args.set("max", MESSAGE_MAX);
+    Translator::dutch()
+        .expect("Dutch texts")
+        .t(id, Some(&args))
+        .expect("message")
+}
+
 fn state(pool: PgPool, contact_email: Option<&str>) -> AppState {
     let config = Config::from_lookup(|key| match key {
         "DATABASE_URL" => Some("postgres://unused/db".to_owned()),
@@ -452,7 +461,7 @@ async fn header_injection_and_bad_fields_are_refused_in_dutch(pool: PgPool) {
         wait(&site);
         let reply = submit(&site, &visitor, &fields).await;
         assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{error}");
-        assert!(reply.body.contains(&dutch(error)), "{error}");
+        assert!(reply.body.contains(&field_error(error)), "{error}");
         assert!(reply.body.contains("aria-invalid=\"true\""), "{error}");
     }
     assert!(queued(&pool).await.is_empty());
@@ -474,4 +483,35 @@ async fn the_main_router_serves_faq_and_contact(pool: PgPool) {
     for path in ["/faq", "/contact"] {
         assert_eq!(get(&app, path, None).await.status, StatusCode::OK, "{path}");
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_submit_without_showing_the_form_first_is_refused(pool: PgPool) {
+    let clock = Arc::new(FakeClock::new("2026-12-01T09:00:00Z".parse().unwrap()));
+    let state = state(pool.clone(), Some(BAKERY));
+    let routes = site::routes(&state, clock.clone()).route(
+        "/token",
+        axum::routing::get(|session: tower_sessions::Session| async move {
+            server::csrf::token(&session).await.expect("token")
+        }),
+    );
+    let site = Site {
+        app: server::with_shell(routes, state),
+        clock,
+        pool,
+    };
+    let reply = get(&site.app, "/token", None).await;
+    let visitor = Visitor {
+        cookie: reply.cookie.expect("session cookie"),
+        token: reply.body,
+    };
+    wait(&site);
+    let refused = submit(&site, &visitor, &GOOD).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.body.contains(&dutch("contact-error-too-fast")));
+
+    wait(&site);
+    let sent = submit(&site, &visitor, &GOOD).await;
+    assert_eq!(sent.status, StatusCode::OK, "the refusal started the timer");
+    assert_eq!(queued(&site.pool).await.len(), 1);
 }

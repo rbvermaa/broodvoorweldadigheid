@@ -459,9 +459,7 @@ impl<'a> Composer<'a> {
         self.email(EmailKind::SubscriptionConfirmation, &subscription.to, parts)
     }
 
-    /// The bakery gets this email, so it carries only the company name, not the KvK
-    /// details customers must see. The sender never gets a copy, which keeps the form
-    /// from becoming a way to send email to anyone.
+    /// To the bakery, with only the company name in the footer; the sender gets no copy.
     ///
     /// # Errors
     /// [`ComposeError::Address`] for a bad recipient or sender address,
@@ -696,7 +694,7 @@ impl<'a> Composer<'a> {
 /// Whether `value` is exactly one email address, with nothing around it.
 #[must_use]
 pub fn is_address(value: &str) -> bool {
-    lettre::Address::from_str(value).is_ok()
+    lettre::Address::from_str(value).is_ok() && lettre::message::Mailbox::from_str(value).is_ok()
 }
 
 fn address(to: &str) -> Result<String, ComposeError> {

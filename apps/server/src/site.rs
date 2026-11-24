@@ -11,9 +11,11 @@ use axum::routing::{get, post};
 use axum::{Extension, Form, Router};
 use catalog::markdown::Block;
 use domain::Clock;
+use i18n::FluentArgs;
 use jiff::SignedDuration;
 use notify::{Company, ComposeError, Composer, ContactMessage};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tower_sessions::Session;
 
 use crate::csrf;
@@ -21,8 +23,7 @@ use crate::pages::{self, Layout};
 use crate::rate_limit;
 use crate::state::AppState;
 
-/// Set when the contact form is shown; a submit sooner than [`MIN_FILL_TIME`] after it
-/// is refused. The session lives in the database, so the client cannot change it.
+/// Microseconds since the epoch when the contact form was shown (ADR 0018).
 const FORM_SHOWN_AT: &str = "contact_form_shown_at";
 pub const MIN_FILL_TIME: SignedDuration = SignedDuration::from_secs(3);
 /// Ten messages at once per client, then one more every five minutes.
@@ -204,7 +205,8 @@ async fn send(
             errors,
         );
     }
-    if let Err(error) = queue(&state, clock.as_ref(), &form).await {
+    let dedupe_key = shown.map(|shown| submission_key(&session, shown));
+    if let Err(error) = queue(&state, clock.as_ref(), &form, dedupe_key.as_deref()).await {
         tracing::error!(%error, "contact form: message not queued");
         return pages::error(&state, StatusCode::INTERNAL_SERVER_ERROR);
     }
@@ -212,7 +214,12 @@ async fn send(
 }
 
 /// Queues the message for the bakery. Nothing is stored apart from the outbox row.
-async fn queue(state: &AppState, clock: &dyn Clock, form: &ContactForm) -> Result<(), QueueError> {
+async fn queue(
+    state: &AppState,
+    clock: &dyn Clock,
+    form: &ContactForm,
+    dedupe_key: Option<&str>,
+) -> Result<(), QueueError> {
     let to = state
         .config
         .contact_email
@@ -226,7 +233,7 @@ async fn queue(state: &AppState, clock: &dyn Clock, form: &ContactForm) -> Resul
         email: form.email.trim().to_owned(),
         message: form.message.trim().to_owned(),
     })?;
-    notify::enqueue(&mut conn, clock, &email, None).await?;
+    notify::enqueue(&mut conn, clock, &email, dedupe_key).await?;
     Ok(())
 }
 
@@ -262,9 +269,23 @@ fn validate(state: &AppState, form: &ContactForm) -> Errors {
     {
         errors.message = text(state, "contact-error-message");
     } else if message.chars().count() > MESSAGE_MAX {
-        errors.message = text(state, "contact-error-message-long");
+        let mut args = FluentArgs::new();
+        args.set("max", MESSAGE_MAX);
+        errors.message = state
+            .i18n
+            .t("contact-error-message-long", Some(&args))
+            .unwrap_or_default();
     }
     errors
+}
+
+/// One key per shown form, so a double submit queues one email. Hashed, because the
+/// session id is a credential.
+fn submission_key(session: &Session, shown: i64) -> String {
+    let id = session.id().map(|id| id.to_string()).unwrap_or_default();
+    let digest = Sha256::digest(format!("{id}:{shown}"));
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("contact:{hex}")
 }
 
 fn text(state: &AppState, id: &str) -> String {
@@ -283,8 +304,6 @@ async fn mark_shown(
         .await
 }
 
-/// A sent form must be shown again before the next message, so a reload of the result
-/// page does not send it twice.
 async fn sent(state: &AppState, session: &Session) -> Response {
     if let Err(error) = session.remove::<i64>(FORM_SHOWN_AT).await {
         return session_error(state, &error);

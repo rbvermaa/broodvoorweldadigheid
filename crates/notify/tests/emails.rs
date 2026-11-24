@@ -649,4 +649,8 @@ fn addresses_are_checked_without_composing() {
         "sanne@example.org\r\nBcc: x@example.org"
     ));
     assert!(!notify::is_address("sanne"));
+    assert!(
+        !notify::is_address("sanne@[192.0.2.1]"),
+        "the SMTP layer refuses domain literals in Reply-To"
+    );
 }
