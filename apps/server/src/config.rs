@@ -1,6 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
+pub const DEFAULT_PUBLIC_URL: &str = "https://broodvoorweldadigheid.nl";
 
 #[derive(PartialEq, Eq)]
 pub struct Config {
@@ -12,6 +14,13 @@ pub struct Config {
     pub trusted_proxy: Option<IpAddr>,
     /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
     pub gallery: bool,
+    /// Where customers reach the shop, without a trailing slash. Mollie sends customers
+    /// back and posts webhooks here; the iCal UIDs use its host.
+    pub public_url: String,
+    /// Without it the shop shows drops but cannot take payments.
+    pub mollie_api_key_file: Option<PathBuf>,
+    /// Mollie's API base URL; tests point it at a local mock.
+    pub mollie_api_url: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -28,6 +37,10 @@ pub enum ConfigError {
     InvalidTrustedProxy(String),
     #[error("GALLERY {0:?} must be true or false")]
     InvalidGallery(String),
+    #[error(
+        "PUBLIC_URL {0:?} must be an http(s) URL without path, like https://broodvoorweldadigheid.nl"
+    )]
+    InvalidPublicUrl(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -38,6 +51,9 @@ impl std::fmt::Debug for Config {
             .field("cookie_secure", &self.cookie_secure)
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
+            .field("public_url", &self.public_url)
+            .field("mollie_api_key_file", &self.mollie_api_key_file)
+            .field("mollie_api_url", &self.mollie_api_url)
             .finish()
     }
 }
@@ -75,14 +91,52 @@ impl Config {
             Some("true") => true,
             Some(other) => return Err(ConfigError::InvalidGallery(other.to_string())),
         };
+        let public_url = lookup("PUBLIC_URL").unwrap_or_else(|| DEFAULT_PUBLIC_URL.to_string());
+        if !is_origin(&public_url) {
+            return Err(ConfigError::InvalidPublicUrl(public_url));
+        }
+        let mollie_api_key_file = lookup("MOLLIE_API_KEY_FILE")
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from);
+        let mollie_api_url = lookup("MOLLIE_API_URL").filter(|url| !url.is_empty());
         Ok(Self {
             bind_addr,
             database_url,
             cookie_secure,
             trusted_proxy,
             gallery,
+            public_url,
+            mollie_api_key_file,
+            mollie_api_url,
         })
     }
+
+    /// The host of [`Config::public_url`], such as `broodvoorweldadigheid.nl`.
+    pub fn public_host(&self) -> &str {
+        let rest = self
+            .public_url
+            .split_once("://")
+            .map_or(self.public_url.as_str(), |(_, rest)| rest);
+        rest.split([':', '/']).next().unwrap_or(rest)
+    }
+}
+
+/// `http://` or `https://`, a host of letters, digits, dots and dashes, an optional
+/// port, and nothing after it.
+fn is_origin(url: &str) -> bool {
+    let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let (host, port) = rest.split_once(':').unwrap_or((rest, ""));
+    !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        && (port.is_empty() || port.parse::<u16>().is_ok())
+        && !(port.is_empty() && rest.ends_with(':'))
 }
 
 #[cfg(test)]
@@ -214,5 +268,43 @@ mod tests {
             ])),
             Err(ConfigError::InvalidGallery("ja".to_string()))
         );
+    }
+
+    #[test]
+    fn public_url_is_an_origin_and_gives_the_host() {
+        let config = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(config.public_url, "https://broodvoorweldadigheid.nl");
+        assert_eq!(config.public_host(), "broodvoorweldadigheid.nl");
+        assert_eq!(config.mollie_api_key_file, None);
+        let local = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("PUBLIC_URL", "https://localhost:8443"),
+            ("MOLLIE_API_KEY_FILE", "/run/secrets/mollie"),
+        ]))
+        .expect("config");
+        assert_eq!(local.public_host(), "localhost");
+        assert_eq!(
+            local.mollie_api_key_file,
+            Some(PathBuf::from("/run/secrets/mollie"))
+        );
+        for bad in [
+            "broodvoorweldadigheid.nl",
+            "https://broodvoorweldadigheid.nl/",
+            "https://broodvoorweldadigheid.nl/shop",
+            "https://user@host",
+            "https://host:",
+            "https://host:99999",
+            "ftp://host",
+        ] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("PUBLIC_URL", bad),
+                ])),
+                Err(ConfigError::InvalidPublicUrl(bad.to_string())),
+                "{bad}"
+            );
+        }
     }
 }

@@ -11,6 +11,19 @@ alert-error = Fout
 dialog-cancel = Annuleren
 product-sold-out = Uitverkocht
 product-add = In je mandje
+product-qty = Aantal
+product-your-price = Jouw prijs per stuk
+product-ingredients = Ingrediënten:
+product-allergens-pending = Allergeneninformatie volgt. Je kunt dit product nog niet bestellen.
+product-remaining = { $n ->
+    [one] Nog 1 over
+   *[other] Nog { $n } over
+}
+cart-title = Je mandje
+cart-empty = Je mandje is nog leeg.
+cart-total = Totaal
+cart-checkout = Afrekenen
+drop-normal-sale = Normale verkoop: deze drop is niet voor een goed doel.
 allergen-contains = Bevat
 allergen-may-contain = Kan sporen bevatten van
 pickup-full = Vol

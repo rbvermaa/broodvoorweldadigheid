@@ -61,7 +61,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let pool = db::connect_lazy(&config.database_url, DB_ACQUIRE_TIMEOUT)?;
     let listener = TcpListener::bind(config.bind_addr).await?;
-    let state = AppState::new(pool, Translator::dutch()?, config);
+    let payments = server::payment_provider::from_config(&config)?;
+    let state = AppState::new(pool, Translator::dutch()?, config).with_payments(payments);
     tracing::info!(addr = %listener.local_addr()?, "listening");
     server::serve(listener, state, server::shutdown_signal()).await?;
     Ok(())

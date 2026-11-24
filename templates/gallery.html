@@ -6,6 +6,8 @@
 {% import "components/table.html" as t %}
 {% import "components/feedback.html" as fb %}
 {% import "components/dialog.html" as d %}
+{% import "components/drop.html" as dr %}
+{% import "components/cart.html" as c %}
 {% block title %}{{ layout.t("gallery-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("gallery-title")? }}</h1>
@@ -49,6 +51,22 @@
 {% call p::product_tile(product) %}{% endcall %}
 {%- endfor %}
 </div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-drops">
+<h2 id="gallery-drops">{{ layout.t("gallery-drops")? }}</h2>
+<ul class="drop-list">
+{%- for drop in drops %}
+<li>{% call dr::drop_card(drop) %}{% endcall %}</li>
+{%- endfor %}
+</ul>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-cart">
+<h2 id="gallery-cart">{{ layout.t("gallery-cart")? }}</h2>
+{%- for cart in carts %}
+{% call c::cart_panel(cart) %}{% endcall %}
+{%- endfor %}
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-allergens">
