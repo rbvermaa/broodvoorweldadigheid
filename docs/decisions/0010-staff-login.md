@@ -9,6 +9,7 @@ Owner can do everything. The other roles get what their work needs.
 | Permission | What it covers | owner | baker | counter |
 |---|---|---|---|---|
 | ViewOrders | order list and order details | ✓ | ✓ | ✓ |
+| EditOrders | moving an order to another pickup slot, cancelling an unpaid order (F6) | ✓ | ✓ | |
 | PickupList | pickup list, marking orders picked up | ✓ | ✓ | ✓ |
 | Production | production list, recipes, batches, labels | ✓ | ✓ | |
 | EditAllergens | allergens, ingredient text, nutrition approval | ✓ | ✓ | |

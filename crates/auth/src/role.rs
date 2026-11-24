@@ -12,6 +12,8 @@ pub enum Role {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Permission {
     ViewOrders,
+    /// Moving an order to another pickup slot and cancelling an unpaid one (F6).
+    EditOrders,
     PickupList,
     Production,
     EditAllergens,
@@ -26,8 +28,9 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::ViewOrders,
+        Self::EditOrders,
         Self::PickupList,
         Self::Production,
         Self::EditAllergens,
@@ -60,6 +63,7 @@ impl Role {
             Self::Baker => matches!(
                 permission,
                 P::ViewOrders
+                    | P::EditOrders
                     | P::PickupList
                     | P::Production
                     | P::EditAllergens
@@ -99,9 +103,10 @@ mod tests {
     #[test]
     fn permission_table_matches_adr_0010() {
         use Permission as P;
-        let expected: [(P, bool, bool, bool); 10] = [
+        let expected: [(P, bool, bool, bool); 11] = [
             // permission, owner, baker, counter
             (P::ViewOrders, true, true, true),
+            (P::EditOrders, true, true, false),
             (P::PickupList, true, true, true),
             (P::Production, true, true, false),
             (P::EditAllergens, true, true, false),
