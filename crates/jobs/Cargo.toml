@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 apalis = { version = "1.2", default-features = false }
 apalis-postgres = { version = "1.2", default-features = false, features = ["tokio", "migrate"] }
+auth = { path = "../auth" }
 bakedays = { path = "../bakedays" }
 catalog = { path = "../catalog" }
 db = { path = "../db" }

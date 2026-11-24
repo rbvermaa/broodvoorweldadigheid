@@ -2213,6 +2213,7 @@ version = "0.1.0"
 dependencies = [
  "apalis",
  "apalis-postgres",
+ "auth",
  "bakedays",
  "catalog",
  "db",

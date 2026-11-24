@@ -12,4 +12,6 @@ pub enum Error {
     Db(#[from] sqlx::Error),
     #[error(transparent)]
     Outbox(#[from] notify::OutboxError),
+    #[error(transparent)]
+    Customers(#[from] auth::customer::Error),
 }

@@ -300,6 +300,41 @@ pub async fn end(pool: &PgPool, login: &LoginId) -> Result<(), Error> {
     Ok(())
 }
 
+/// What [`delete_expired`] removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Expired {
+    pub links: u64,
+    pub logins: u64,
+}
+
+/// Deletes login links past their expiry, used or not, and logins past the idle or
+/// absolute timeout. Links count against [`LINKS_PER_WINDOW`] only within
+/// [`LINK_WINDOW`], which is shorter than [`LINK_VALID`], so this never lifts the limit.
+///
+/// # Errors
+/// A database error.
+pub async fn delete_expired(conn: &mut PgConnection, now: Timestamp) -> Result<Expired, Error> {
+    let links = sqlx::query!(
+        "DELETE FROM customer_login_link
+         WHERE expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'",
+        to_micros(now),
+    )
+    .execute(&mut *conn)
+    .await?
+    .rows_affected();
+    let logins = sqlx::query!(
+        "DELETE FROM customer_login
+         WHERE created_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
+            OR last_seen_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+        since(now, ABSOLUTE_TIMEOUT),
+        since(now, IDLE_TIMEOUT),
+    )
+    .execute(conn)
+    .await?
+    .rows_affected();
+    Ok(Expired { links, logins })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

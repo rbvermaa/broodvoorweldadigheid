@@ -32,6 +32,8 @@ pub enum SubscriberError {
     Compose(#[from] ComposeError),
     #[error(transparent)]
     Outbox(#[from] OutboxError),
+    #[error("stored data is invalid: {0}")]
+    Corrupt(String),
 }
 
 /// What a sign-up did. The visitor sees the same answer for each, so nobody learns
@@ -320,6 +322,142 @@ pub async fn unsubscribe_link(
     .execute(conn)
     .await?;
     Ok(links.unsubscribe(&token))
+}
+
+/// The drop-alert subscription of one address, for a customer's data export (F12).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Subscription {
+    pub created_at: Timestamp,
+    pub confirmed_at: Option<Timestamp>,
+    pub unsubscribed_at: Option<Timestamp>,
+}
+
+impl Subscription {
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.confirmed_at.is_some() && self.unsubscribed_at.is_none()
+    }
+}
+
+/// The subscription of `email`, however it is capitalised.
+///
+/// # Errors
+/// [`SubscriberError::Db`].
+pub async fn of_address(
+    conn: &mut PgConnection,
+    email: &str,
+) -> Result<Option<Subscription>, SubscriberError> {
+    let Some(row) = sqlx::query!(
+        r#"SELECT (extract(epoch FROM created_at) * 1000000)::bigint AS "created_us!",
+            (extract(epoch FROM confirmed_at) * 1000000)::bigint AS confirmed_us,
+            (extract(epoch FROM unsubscribed_at) * 1000000)::bigint AS unsubscribed_us
+        FROM subscriber WHERE lower(email) = lower($1)"#,
+        email,
+    )
+    .fetch_optional(conn)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let at =
+        |us: i64| db::time::from_micros(us).map_err(|e| SubscriberError::Corrupt(e.to_string()));
+    Ok(Some(Subscription {
+        created_at: at(row.created_us)?,
+        confirmed_at: row.confirmed_us.map(at).transpose()?,
+        unsubscribed_at: row.unsubscribed_us.map(at).transpose()?,
+    }))
+}
+
+/// Puts `email` on the list without a confirmation email: for a customer who proved the
+/// address by signing in with a link sent to it. An open confirmation link is voided.
+///
+/// # Errors
+/// [`SubscriberError::Address`] for a bad address, or [`SubscriberError::Db`].
+pub async fn subscribe_verified(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    raw: &str,
+) -> Result<(), SubscriberError> {
+    let email = parse_address(raw)?;
+    let now = micros(clock.now());
+    sqlx::query!(
+        "INSERT INTO subscriber (email, confirmed_at, created_at)
+        VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $2::bigint * interval '1 microsecond')
+        ON CONFLICT ((lower(email))) DO UPDATE SET
+            confirmed_at = CASE
+                WHEN subscriber.confirmed_at IS NULL OR subscriber.unsubscribed_at IS NOT NULL
+                THEN EXCLUDED.confirmed_at ELSE subscriber.confirmed_at END,
+            unsubscribed_at = NULL,
+            confirm_token_hash = NULL,
+            confirm_expires_at = NULL,
+            confirm_sent_at = NULL",
+        email,
+        now,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// Takes `email` off the list like an unsubscribe link does, if it is on it: voids an
+/// open confirmation link and withdraws drop alerts to it still waiting in the outbox.
+///
+/// # Errors
+/// [`SubscriberError::Db`].
+pub async fn withdraw(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &str,
+) -> Result<(), SubscriberError> {
+    let mut tx = conn.begin().await?;
+    sqlx::query!(
+        "UPDATE subscriber SET
+            unsubscribed_at = coalesce(unsubscribed_at,
+                timestamptz 'epoch' + $2::bigint * interval '1 microsecond'),
+            confirm_token_hash = NULL,
+            confirm_expires_at = NULL,
+            confirm_sent_at = NULL
+        WHERE lower(email) = lower($1)",
+        email,
+        micros(clock.now()),
+    )
+    .execute(&mut *tx)
+    .await?;
+    withdraw_alerts(&mut tx, email).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Deletes the subscriber with `email`, their unsubscribe tokens and the drop alerts to
+/// them still waiting in the outbox (F12).
+///
+/// # Errors
+/// [`SubscriberError::Db`].
+pub async fn forget(conn: &mut PgConnection, email: &str) -> Result<(), SubscriberError> {
+    let mut tx = conn.begin().await?;
+    sqlx::query!(
+        "DELETE FROM subscriber WHERE lower(email) = lower($1)",
+        email
+    )
+    .execute(&mut *tx)
+    .await?;
+    withdraw_alerts(&mut tx, email).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A separate statement after the change to the subscriber row, so it sees alerts that a
+/// tick holding that row through [`active`] committed while the change waited.
+async fn withdraw_alerts(conn: &mut PgConnection, email: &str) -> Result<(), SubscriberError> {
+    sqlx::query!(
+        "DELETE FROM email_outbox
+        WHERE kind = 'drop_alert' AND status = 'pending' AND lower(to_address) = lower($1)",
+        email,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
