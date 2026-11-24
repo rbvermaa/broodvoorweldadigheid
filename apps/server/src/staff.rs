@@ -144,7 +144,12 @@ pub async fn callback(
         Err(error) => return server_error(&state, &error),
     };
     if let Some(error) = query.error.as_deref() {
-        return login_failed(&state, StatusCode::BAD_REQUEST, error);
+        let code: String = error
+            .chars()
+            .take(40)
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        return login_failed(&state, StatusCode::BAD_REQUEST, &code);
     }
     let (Some(code), Some(returned_state)) = (query.code, query.state) else {
         return login_failed(&state, StatusCode::BAD_REQUEST, "code or state missing");
@@ -167,6 +172,10 @@ pub async fn callback(
         Ok(identity) => identity,
         Err(OidcError::StateMismatch) => {
             return login_failed(&state, StatusCode::BAD_REQUEST, "state mismatch");
+        }
+        Err(error @ OidcError::Unreachable(_)) => {
+            tracing::error!(error = %auth::oidc::error_chain(&error), "staff login unavailable");
+            return unavailable(&state);
         }
         Err(error) => {
             let reason = auth::oidc::error_chain(&error);

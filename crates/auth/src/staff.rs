@@ -63,6 +63,10 @@ pub enum Error {
     Db(#[from] sqlx::Error),
 }
 
+/// Serializes bootstrap logins, so two people matching the bootstrap setting cannot both
+/// become owner.
+const BOOTSTRAP_LOCK: i64 = 0x6276_775f_6f77_6e72;
+
 macro_rules! columns {
     () => {
         "id, oidc_sub, name, email, role, active"
@@ -138,7 +142,7 @@ pub async fn sign_in(
     let name = identity.display_name();
     let row = sqlx::query(concat!(
         "UPDATE staff_user SET name = $2, email = COALESCE($3, email)
-         WHERE oidc_sub = $1 RETURNING ",
+         WHERE oidc_sub = $1 AND active RETURNING ",
         columns!()
     ))
     .bind(&identity.sub)
@@ -147,16 +151,19 @@ pub async fn sign_in(
     .fetch_optional(pool)
     .await?;
     if let Some(row) = row {
-        let staff = from_row(&row)?;
-        return if staff.active {
-            Ok(staff)
-        } else {
-            Err(Error::Inactive(staff.name))
-        };
+        return from_row(&row);
+    }
+    if let Some(staff) = find_by_sub(pool, &identity.sub).await? {
+        return Err(Error::Inactive(staff.name));
     }
     if !bootstrap.matches(identity) {
         return Err(Error::Unknown);
     }
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(BOOTSTRAP_LOCK)
+        .execute(&mut *tx)
+        .await?;
     let row = sqlx::query(concat!(
         "INSERT INTO staff_user (oidc_sub, name, email, role)
          SELECT $1, $2, $3, 'owner'
@@ -167,8 +174,9 @@ pub async fn sign_in(
     .bind(&identity.sub)
     .bind(name)
     .bind(&identity.email)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
     row.as_ref().map(from_row).ok_or(Error::Unknown)?
 }
 

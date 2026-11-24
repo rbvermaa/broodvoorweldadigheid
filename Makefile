@@ -57,7 +57,9 @@ BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
 export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
-OIDC_DIR := deploy/secrets/oidc
+# Compose resolves a relative BVW_SECRETS_DIR against deploy/.
+SECRETS_DIR := $(if $(BVW_SECRETS_DIR),$(if $(filter /%,$(BVW_SECRETS_DIR)),$(BVW_SECRETS_DIR),deploy/$(BVW_SECRETS_DIR)),deploy/secrets)
+OIDC_DIR := $(SECRETS_DIR)/oidc
 SHOP_URL := https://localhost:$(BVW_HTTPS_PORT)
 IDM_URL := https://idm.localhost:$(BVW_HTTPS_PORT)
 
@@ -118,11 +120,11 @@ down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
 kanidm-setup: ## Register the staff OAuth2 client in Kanidm; writes deploy/secrets/oidc/ (stack must be up)
-	@mkdir -p -m 755 $(OIDC_DIR)
-	$(COMPOSE) exec -T kanidm cli kanidm ca > $(OIDC_DIR)/.kanidm-ca.pem && mv $(OIDC_DIR)/.kanidm-ca.pem $(OIDC_DIR)/kanidm-ca.pem
+	@mkdir -p $(OIDC_DIR) && chmod 755 $(OIDC_DIR)
+	$(COMPOSE) exec -T kanidm cli kanidm ca > $(OIDC_DIR)/.kanidm-ca.pem && chmod 644 $(OIDC_DIR)/.kanidm-ca.pem && mv $(OIDC_DIR)/.kanidm-ca.pem $(OIDC_DIR)/kanidm-ca.pem
 	$(COMPOSE) exec -T kanidm cli kanidm oauth2-client --url $(IDM_URL) \
 		--landing-url $(SHOP_URL)/staff --redirect-url $(SHOP_URL)/staff/oidc/callback \
-		> $(OIDC_DIR)/.client-secret && mv $(OIDC_DIR)/.client-secret $(OIDC_DIR)/client-secret
+		> $(OIDC_DIR)/.client-secret && chmod 644 $(OIDC_DIR)/.client-secret && mv $(OIDC_DIR)/.client-secret $(OIDC_DIR)/client-secret
 	@echo "staff login is set up; next: make kanidm-person NAME=... DISPLAY_NAME=..."
 
 kanidm-person: ## Create a Kanidm person and print their sub and passkey link: NAME, DISPLAY_NAME, MAIL

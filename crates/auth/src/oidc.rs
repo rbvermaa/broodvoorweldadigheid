@@ -9,7 +9,7 @@ use openidconnect::core::{
 use openidconnect::{
     AsyncHttpClient, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
     EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, Scope, TokenResponse,
+    RedirectUrl, RequestTokenError, Scope, TokenResponse,
 };
 pub use openidconnect::{HttpRequest, HttpResponse, http, url};
 use serde::{Deserialize, Serialize};
@@ -106,6 +106,8 @@ pub enum OidcError {
     StateMismatch,
     #[error("the provider refused the code: {0}")]
     Exchange(String),
+    #[error("the token endpoint cannot be reached: {0}")]
+    Unreachable(String),
     #[error("the token response has no ID token")]
     NoIdToken,
     #[error("ID token rejected: {0}")]
@@ -180,7 +182,7 @@ impl Provider {
     /// signature, issuer, audience, nonce and expiry against `now`.
     ///
     /// # Errors
-    /// `StateMismatch`, `Exchange`, `NoIdToken` or `InvalidIdToken`.
+    /// `StateMismatch`, `Exchange`, `Unreachable`, `NoIdToken` or `InvalidIdToken`.
     pub async fn complete(
         &self,
         http: &dyn OidcHttp,
@@ -200,7 +202,10 @@ impl Provider {
             .set_pkce_verifier(PkceCodeVerifier::new(pending.pkce_verifier))
             .request_async(&Client(http))
             .await
-            .map_err(|error| OidcError::Exchange(error_chain(&error)))?;
+            .map_err(|error| match error {
+                RequestTokenError::Request(_) => OidcError::Unreachable(error_chain(&error)),
+                _ => OidcError::Exchange(error_chain(&error)),
+            })?;
         let id_token = response.id_token().ok_or(OidcError::NoIdToken)?;
         let verifier = self
             .client

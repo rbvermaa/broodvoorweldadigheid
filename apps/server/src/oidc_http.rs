@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use auth::oidc::{HttpError, HttpFuture, HttpRequest, OidcHttp, error_chain, http};
@@ -10,10 +10,11 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_BODY: usize = 1024 * 1024;
 
 /// Talks to the OIDC provider over rustls, trusting the system CAs plus `ca_file`.
-/// The client is built on first use, so a CA file written after start-up is picked up.
+/// The client is built on first use and again after a connection failure, so a CA file
+/// written or replaced after start-up is picked up.
 pub struct ReqwestHttp {
     ca_file: Option<PathBuf>,
-    client: Mutex<Option<Client>>,
+    client: Arc<Mutex<Option<Client>>>,
 }
 
 impl ReqwestHttp {
@@ -21,7 +22,7 @@ impl ReqwestHttp {
     pub fn new(ca_file: Option<PathBuf>) -> Self {
         Self {
             ca_file,
-            client: Mutex::new(None),
+            client: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -76,14 +77,17 @@ pub fn build_client(ca_file: Option<&Path>) -> Result<Client, HttpError> {
 impl OidcHttp for ReqwestHttp {
     fn send(&self, request: HttpRequest) -> HttpFuture {
         let client = self.client();
+        let cache = Arc::clone(&self.client);
         Box::pin(async move {
             let client = client?;
             let request = reqwest::Request::try_from(request)
                 .map_err(|error| HttpError(error.to_string()))?;
-            let mut response = client
-                .execute(request)
-                .await
-                .map_err(|error| HttpError(error_chain(&error)))?;
+            let mut response = client.execute(request).await.map_err(|error| {
+                if error.is_connect() {
+                    *cache.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                }
+                HttpError(error_chain(&error))
+            })?;
             let mut builder = http::Response::builder().status(response.status());
             if let Some(headers) = builder.headers_mut() {
                 headers.extend(response.headers().clone());

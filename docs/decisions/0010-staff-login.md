@@ -30,11 +30,11 @@ The table lives in `auth::Role::can` and its test. Routes call `Staff::require(p
 | The token's expiry is checked against the injected clock | Same rule as all domain code; tests move the clock past expiry |
 | openidconnect without its HTTP features; requests go through `auth::oidc::OidcHttp` | Its `rustls-tls` feature uses `webpki-roots` (CDLA-Permissive-2.0, not allowed). Tests use `testkit::FakeOidc`, so no network |
 | The server's client is reqwest 0.12 with `rustls-tls-manual-roots` (ring), trusting `rustls-native-certs` plus `OIDC_CA_FILE` | No webpki-roots, no aws-lc (its licence expression includes OpenSSL, which deny.toml does not allow). Kanidm's self-signed CA goes in `OIDC_CA_FILE` |
-| Discovery runs on the first login and again after 15 minutes | Kanidm may start after the server and may rotate keys |
+| Discovery runs on the first login and again after 15 minutes; the HTTP client is rebuilt after a connection failure | Kanidm may start after the server, may rotate keys, and a fresh kanidm volume brings a new CA |
 | The client secret is read from `OIDC_CLIENT_SECRET_FILE` at login time; missing or empty means 503 | `make kanidm-setup` writes it after the stack is up, without a server restart |
 | On login: clear the session, `cycle_id()`, then store only the staff id | Fixes ADR 0007's open item; a planted session id and its CSRF token stop working |
 | The `Staff` extractor loads the staff row on every request | Deactivating someone or changing a role works at once |
-| Unknown `sub` is refused. `BVW_BOOTSTRAP_OWNER_SUB` or `BVW_BOOTSTRAP_OWNER_EMAIL` (verified email only) becomes owner, but only while there is no owner | No self-signup; a leftover env var cannot create a second owner |
+| Unknown `sub` is refused. `BVW_BOOTSTRAP_OWNER_SUB` or `BVW_BOOTSTRAP_OWNER_EMAIL` (verified email only) becomes owner, but only while there is no owner; an advisory lock serializes bootstrap logins | No self-signup; a leftover env var cannot create a second owner. Prefer the sub: the email rule trusts Kanidm's email_verified |
 | Others are added with `cli staff add --sub UUID --name NAME --role ROLE` | A staff screen comes later. Kanidm's `sub` is the person's UUID |
 | Logout ends the local session only | Kanidm's own session stays; a passkey is needed again when it expires |
 | `/staff/login` and `/staff/oidc/callback` share a rate limit: 10 at once, one more every 6 s per client | Spec: rate limits on login. The limit sits inside the session layer (ADR 0007 open item stays open) |

@@ -169,3 +169,32 @@ async fn bootstrap_by_verified_email(pool: PgPool) {
     assert_eq!(owner.role, Role::Owner);
     assert_eq!(owner.email.as_deref(), Some("eigenaar@example.org"));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn concurrent_bootstrap_logins_make_one_owner(pool: PgPool) {
+    let bootstrap = BootstrapOwner {
+        sub: Some("by-sub".to_string()),
+        email: Some("eigenaar@example.org".to_string()),
+    };
+    let by_sub = identity("by-sub", "Een");
+    let mut by_email = identity("by-email", "Twee");
+    by_email.email = Some("eigenaar@example.org".to_string());
+    by_email.email_verified = true;
+    let (first, second) = tokio::join!(
+        staff::sign_in(&pool, &by_sub, &bootstrap),
+        staff::sign_in(&pool, &by_email, &bootstrap),
+    );
+    assert_eq!(
+        [first.is_ok(), second.is_ok()]
+            .iter()
+            .filter(|ok| **ok)
+            .count(),
+        1,
+        "{first:?} {second:?}"
+    );
+    let owners: i64 = sqlx::query_scalar("SELECT count(*) FROM staff_user WHERE role = 'owner'")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(owners, 1);
+}

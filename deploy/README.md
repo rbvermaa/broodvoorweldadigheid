@@ -26,7 +26,9 @@ real browser, so these steps are manual. Run them once per fresh `kanidm` volume
 link, add a passkey, then let the person in. The very first owner can come from the
 environment instead; it only works while there is no owner yet:
 
-    BVW_BOOTSTRAP_OWNER_EMAIL=bas@example.org make up     # or BVW_BOOTSTRAP_OWNER_SUB=<uuid>
+    BVW_BOOTSTRAP_OWNER_SUB=<uuid> make up     # or BVW_BOOTSTRAP_OWNER_EMAIL=bas@example.org
+
+The sub is safer: the email rule trusts Kanidm's `email_verified`.
 
 Everyone after that is added with a role (owner, baker or counter):
 
