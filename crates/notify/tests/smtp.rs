@@ -130,6 +130,14 @@ async fn a_rejected_recipient_is_permanent() {
 }
 
 #[tokio::test]
+async fn a_sender_policy_refusal_is_temporary_so_a_misconfigured_relay_keeps_the_queue() {
+    let (port, server) = fake_relay("550 5.7.1 relaying denied for this sender").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_busy_relay_is_temporary() {
     let (port, server) = fake_relay("451 4.3.0 try again later").await;
     let result = sender(port).send(&outgoing()).await;

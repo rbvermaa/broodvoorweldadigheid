@@ -244,9 +244,17 @@ impl EmailSender for SmtpSender {
             };
             sent.map(|_| ()).map_err(|error| {
                 let code = error.status().map(|code| code.to_string());
-                if error.is_permanent() && is_recipient_refusal(code.as_deref()) {
+                let reply = std::error::Error::source(&error).map(ToString::to_string);
+                if error.is_permanent() && is_recipient_refusal(code.as_deref(), reply.as_deref()) {
                     SendError::Permanent(error.to_string())
                 } else {
+                    if error.is_permanent() {
+                        tracing::error!(
+                            code = code.as_deref().unwrap_or_default(),
+                            status = enhanced_status(reply.as_deref()).unwrap_or_default(),
+                            "the SMTP relay refuses our emails; check its settings, they stay queued"
+                        );
+                    }
                     SendError::Transient(error.to_string())
                 }
             })
@@ -254,11 +262,32 @@ impl EmailSender for SmtpSender {
     }
 }
 
-/// Only replies about the recipient mailbox are final. Other 5xx replies, such as 535
-/// (authentication failed) or 554, usually mean the relay or our settings are wrong, and
-/// would otherwise fail every queued email at once.
-fn is_recipient_refusal(code: Option<&str>) -> bool {
+/// Only replies that name the recipient mailbox as the problem are final: 550, 551 or
+/// 553 with a recipient address status from RFC 3463 (5.1.1 bad mailbox, 5.1.2 bad
+/// domain, 5.1.3 bad address syntax, 5.1.6 moved) or RFC 7505 (5.1.10 null MX). Other
+/// 5xx replies, such as `550 5.7.1` (relay or sender policy), 5.1.7 and 5.1.8 (our sender
+/// address), 535 (authentication failed) or a reply without an enhanced code, usually
+/// mean the relay or our settings are wrong, and would otherwise fail every queued email.
+fn is_recipient_refusal(code: Option<&str>, reply: Option<&str>) -> bool {
     matches!(code, Some("550" | "551" | "553"))
+        && matches!(
+            enhanced_status(reply),
+            Some("5.1.1" | "5.1.2" | "5.1.3" | "5.1.6" | "5.1.10")
+        )
+}
+
+/// The RFC 3463 code at the start of a reply, like `5.7.1`. Safe to log, unlike the rest
+/// of the reply, which may hold the address.
+fn enhanced_status(reply: Option<&str>) -> Option<&str> {
+    reply
+        .and_then(|reply| reply.split_whitespace().next())
+        .filter(|status| {
+            let parts: Vec<&str> = status.split('.').collect();
+            parts.len() == 3
+                && parts.iter().all(|part| {
+                    (1..=3).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())
+                })
+        })
 }
 
 /// The MIME message: multipart/alternative with the text part first, a Message-ID on the
@@ -306,12 +335,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_mailbox_refusals_are_final() {
-        for code in ["550", "551", "553"] {
-            assert!(is_recipient_refusal(Some(code)), "{code}");
+    fn the_enhanced_status_is_the_first_word_when_it_looks_like_one() {
+        assert_eq!(enhanced_status(Some("5.7.1 denied")), Some("5.7.1"));
+        assert_eq!(enhanced_status(Some("5.1.10")), Some("5.1.10"));
+        for reply in [
+            "5.7 denied",
+            "5.7.1.2 denied",
+            "5..1 denied",
+            "5.1234.1 denied",
+            "5.a.1 denied",
+            "denied 5.7.1",
+            "",
+        ] {
+            assert_eq!(enhanced_status(Some(reply)), None, "{reply}");
         }
-        for code in [Some("535"), Some("530"), Some("554"), Some("552"), None] {
-            assert!(!is_recipient_refusal(code), "{code:?}");
+        assert_eq!(enhanced_status(None), None);
+    }
+
+    #[test]
+    fn only_mailbox_refusals_are_final() {
+        for (code, reply) in [
+            ("550", "5.1.1 no such user"),
+            ("551", "5.1.6 user has moved"),
+            ("553", "5.1.3 bad address syntax"),
+            ("550", "5.1.10 null MX"),
+            ("550", "5.1.2 bad destination domain"),
+        ] {
+            assert!(
+                is_recipient_refusal(Some(code), Some(reply)),
+                "{code} {reply}"
+            );
+        }
+        for (code, reply) in [
+            (Some("550"), Some("5.7.1 relaying denied")),
+            (Some("553"), Some("5.7.1 sender not allowed")),
+            (Some("553"), Some("5.1.8 bad sender's system address")),
+            (Some("550"), Some("5.1.7 bad sender's mailbox")),
+            (Some("550"), Some("no such user")),
+            (Some("550"), None),
+            (Some("535"), Some("5.7.8 authentication failed")),
+            (Some("554"), Some("5.1.1 no such user")),
+            (Some("552"), Some("5.2.2 mailbox full")),
+            (None, None),
+        ] {
+            assert!(!is_recipient_refusal(code, reply), "{code:?} {reply:?}");
         }
     }
 
