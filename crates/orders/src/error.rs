@@ -27,6 +27,8 @@ pub enum Error {
         product_id: ProductId,
         remaining: u32,
     },
+    #[error("an order that is {0} cannot be picked up")]
+    NotPickable(crate::OrderStatus),
     #[error("the payment is recorded for another order")]
     PaymentOfOtherOrder,
     #[error("amount out of range")]

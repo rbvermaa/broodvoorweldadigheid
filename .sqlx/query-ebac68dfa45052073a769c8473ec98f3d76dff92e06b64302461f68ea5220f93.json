@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, order_id, product_id, qty, unit_price_cents, suggested_price_cents, vat_rate\n        FROM order_line WHERE order_id = ANY($1) ORDER BY order_id, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "qty"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "unit_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "unit_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "suggested_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "suggested_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "vat_rate"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "ebac68dfa45052073a769c8473ec98f3d76dff92e06b64302461f68ea5220f93"
+}
