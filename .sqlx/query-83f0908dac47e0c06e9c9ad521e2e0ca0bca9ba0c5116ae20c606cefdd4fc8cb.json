@@ -1,0 +1,280 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE product SET\n            allergens_approved_by = $2,\n            allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        WHERE id = $1 AND allergens @> $4 AND allergens <@ $4\n            AND may_contain @> $5 AND may_contain <@ $5 AND ingredient_text = $6\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "description_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "photo_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "photo_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "price_incl_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "price_incl_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "vat_rate"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "pay_what_you_want",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "pay_what_you_want"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "min_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "min_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "max_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "max_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "unit_weight_g",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "unit_weight_g"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "dough_g_per_piece",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "dough_g_per_piece"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "freezer_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "freezer_days"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "lead_time_hours",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "lead_time_hours"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "allergens",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "may_contain",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "may_contain"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "ingredient_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_text"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "allergens_approved_by",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "allergens_approved_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 18,
+        "name": "packaged",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "packaged"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "sold_online",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "sold_online"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "estimated_cost_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "estimated_cost_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "active"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "TextArray",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      null,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "83f0908dac47e0c06e9c9ad521e2e0ca0bca9ba0c5116ae20c606cefdd4fc8cb"
+}

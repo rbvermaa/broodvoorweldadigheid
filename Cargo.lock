@@ -206,6 +206,14 @@ dependencies = [
 [[package]]
 name = "bakedays"
 version = "0.1.0"
+dependencies = [
+ "db",
+ "domain",
+ "jiff",
+ "sqlx",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "base64"
@@ -294,6 +302,15 @@ dependencies = [
 [[package]]
 name = "catalog"
 version = "0.1.0"
+dependencies = [
+ "db",
+ "domain",
+ "jiff",
+ "sqlx",
+ "testkit",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "cfg-if"
@@ -476,6 +493,7 @@ dependencies = [
 name = "db"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",

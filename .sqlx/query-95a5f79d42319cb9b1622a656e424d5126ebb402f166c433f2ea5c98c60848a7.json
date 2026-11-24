@@ -1,0 +1,103 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pickup_window SET weekday = $2, starts = make_interval(secs => $3::integer)::time,\n            ends = make_interval(secs => $4::integer)::time, default_deadline_days_before = $5,\n            default_deadline_time = make_interval(secs => $6::integer)::time, active = $7\n        WHERE id = $1\n        RETURNING id, location_id, weekday,\n            extract(epoch FROM starts)::integer AS \"starts_s!\",\n            extract(epoch FROM ends)::integer AS \"ends_s!\",\n            default_deadline_days_before,\n            extract(epoch FROM default_deadline_time)::integer AS \"default_deadline_time_s!\",\n            active",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_window",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "location_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "pickup_window",
+            "name": "location_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "weekday",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "pickup_window",
+            "name": "weekday"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "starts_s!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "ends_s!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "default_deadline_days_before",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "pickup_window",
+            "name": "default_deadline_days_before"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "default_deadline_time_s!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pickup_window",
+            "name": "active"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int2",
+        "Int4",
+        "Int4",
+        "Int2",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "95a5f79d42319cb9b1622a656e424d5126ebb402f166c433f2ea5c98c60848a7"
+}

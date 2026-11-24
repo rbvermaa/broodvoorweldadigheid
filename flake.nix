@@ -46,6 +46,7 @@
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
+              ./.sqlx
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
               ./design
               ./templates
@@ -57,6 +58,8 @@
             version = "0.1.0";
             strictDeps = true;
             HTMX_JS = "${htmx}";
+            # Query macros read .sqlx/, never a live database (make sqlx-prepare).
+            SQLX_OFFLINE = "true";
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           postgresql = pkgs.postgresql_17;
@@ -186,6 +189,24 @@
             }
           );
 
+          sqlx-prepare = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-sqlx-prepare";
+              SQLX_OFFLINE = "false";
+              nativeBuildInputs = postgres.packages ++ [ pkgs.sqlx-cli ];
+              preBuild = postgres.start;
+              buildPhaseCargoCommand = ''
+                sqlx migrate run --source crates/db/migrations
+                cargo sqlx prepare --workspace --check -- --all-targets --all-features
+              '';
+              postBuild = postgres.stop;
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
           restore = import ./nix/restore-check.nix { inherit pkgs cli postgres; };
 
           coverage = craneLib.mkCargoDerivation (
@@ -232,7 +253,13 @@
         {
           default = craneLib.devShell {
             HTMX_JS = "${htmx}";
-            checks = self.checks.${pkgs.stdenv.hostPlatform.system};
+            # Only the cargo checks: the image and restore checks would build the
+            # workspace, so a stale .sqlx/ would keep the shell from starting.
+            checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
+              "restore"
+              "image-contents"
+            ];
+            SQLX_OFFLINE = "true";
             packages = with pkgs; [
               gnumake
               postgresql_17
