@@ -7,7 +7,10 @@ use std::time::Duration;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use db::PgPool;
+use i18n::Translator;
 use serde_json::{Value, json};
+use server::AppState;
+use server::config::Config;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
@@ -18,13 +21,21 @@ fn closed_port() -> u16 {
     port
 }
 
+fn state(pool: PgPool) -> AppState {
+    let config = Config::from_lookup(|key| {
+        (key == "DATABASE_URL").then(|| "postgres://unused/db".to_string())
+    })
+    .expect("config");
+    AppState::new(pool, Translator::dutch().expect("Dutch texts"), config)
+}
+
 fn unreachable_pool() -> PgPool {
     let url = format!("postgres://postgres@127.0.0.1:{}/postgres", closed_port());
     db::connect_lazy(&url, Duration::from_millis(300)).expect("lazy pool")
 }
 
 async fn get_health(pool: PgPool) -> (StatusCode, Value) {
-    let response = server::router(pool)
+    let response = server::router(state(pool))
         .oneshot(
             Request::get("/health")
                 .body(Body::empty())
@@ -69,7 +80,7 @@ async fn healthcheck_exits_0_against_a_healthy_server(pool: PgPool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let serving = tokio::spawn(server::serve(listener, pool, async {
+    let serving = tokio::spawn(server::serve(listener, state(pool), async {
         let _ = stopped.await;
     }));
 
@@ -85,7 +96,7 @@ async fn healthcheck_exits_1_when_the_server_reports_degraded() {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let serving = tokio::spawn(server::serve(listener, unreachable_pool(), async {
+    let serving = tokio::spawn(server::serve(listener, state(unreachable_pool()), async {
         let _ = stopped.await;
     }));
 
