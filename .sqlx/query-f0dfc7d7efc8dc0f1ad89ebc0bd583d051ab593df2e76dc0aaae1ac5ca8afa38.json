@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT dc.bake_day_id, (bd.date - date 'epoch') AS \"day!\",\n            bd.charity_id AS \"charity_id!\", SUM(dc.amount_cents)::bigint AS \"amount!\"\n        FROM drop_cost dc JOIN bake_day bd ON bd.id = dc.bake_day_id\n        WHERE bd.charity_id IS NOT NULL\n            AND bd.date BETWEEN date 'epoch' + $1::integer AND date 'epoch' + $2::integer\n        GROUP BY dc.bake_day_id, bd.date, bd.charity_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "drop_cost",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "charity_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "charity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "amount!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "f0dfc7d7efc8dc0f1ad89ebc0bd583d051ab593df2e76dc0aaae1ac5ca8afa38"
+}

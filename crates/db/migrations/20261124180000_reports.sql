@@ -44,16 +44,28 @@ CREATE TRIGGER manual_invoice_append_only BEFORE UPDATE OR DELETE ON manual_invo
 CREATE TRIGGER manual_invoice_no_truncate BEFORE TRUNCATE ON manual_invoice
     FOR EACH STATEMENT EXECUTE FUNCTION refuse_row_change();
 
--- An invoiced order is locked: only confirmed -> picked_up may still happen.
--- Corrections are new orders (spec, "Data model").
+-- An invoiced order is locked: what was invoiced never changes and the order is never
+-- deleted; only confirmed -> picked_up may still happen. Corrections are new orders
+-- (spec, "Data model"). Columns added later stay writable, so backfills keep working.
 CREATE FUNCTION refuse_invoiced_order_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF OLD.manual_invoice_id IS NOT NULL AND (
-        (to_jsonb(NEW) - 'status') IS DISTINCT FROM (to_jsonb(OLD) - 'status')
+    IF OLD.manual_invoice_id IS NULL THEN
+        RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END IF;
+    IF TG_OP = 'DELETE'
+        OR (NEW.number_year, NEW.number_seq, NEW.customer_id, NEW.customer_name,
+            NEW.customer_phone, NEW.bake_day_id, NEW.pickup_slot_id, NEW.channel,
+            NEW.payment_mode, NEW.cancel_reason, NEW.total_cents, NEW.paid_at,
+            NEW.created_at, NEW.manual_invoice_id)
+        IS DISTINCT FROM
+           (OLD.number_year, OLD.number_seq, OLD.customer_id, OLD.customer_name,
+            OLD.customer_phone, OLD.bake_day_id, OLD.pickup_slot_id, OLD.channel,
+            OLD.payment_mode, OLD.cancel_reason, OLD.total_cents, OLD.paid_at,
+            OLD.created_at, OLD.manual_invoice_id)
         OR (NEW.status <> OLD.status
             AND NOT (OLD.status = 'confirmed' AND NEW.status = 'picked_up'))
-    ) THEN
+    THEN
         RAISE EXCEPTION 'order % is invoiced and cannot change', OLD.id
             USING ERRCODE = 'restrict_violation';
     END IF;
@@ -61,19 +73,25 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER order_invoiced_locked BEFORE UPDATE ON "order"
+CREATE TRIGGER order_invoiced_locked BEFORE UPDATE OR DELETE ON "order"
     FOR EACH ROW EXECUTE FUNCTION refuse_invoiced_order_change();
+CREATE TRIGGER order_no_truncate BEFORE TRUNCATE ON "order"
+    FOR EACH STATEMENT EXECUTE FUNCTION refuse_row_change();
 
+-- FOR SHARE waits for a mark_invoiced that holds the order row, then sees its result.
 CREATE FUNCTION refuse_invoiced_line_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
     invoiced boolean;
 BEGIN
-    SELECT bool_or(manual_invoice_id IS NOT NULL) INTO invoiced FROM "order"
-    WHERE id IN (
-        CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.order_id END,
-        CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE OLD.order_id END
-    );
+    SELECT bool_or(manual_invoice_id IS NOT NULL) INTO invoiced FROM (
+        SELECT manual_invoice_id FROM "order"
+        WHERE id IN (
+            CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.order_id END,
+            CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE OLD.order_id END
+        )
+        ORDER BY id FOR SHARE
+    ) locked;
     IF invoiced THEN
         RAISE EXCEPTION 'the order is invoiced; its lines cannot change'
             USING ERRCODE = 'restrict_violation';
@@ -84,6 +102,8 @@ $$;
 
 CREATE TRIGGER order_line_invoiced_locked BEFORE INSERT OR UPDATE OR DELETE ON order_line
     FOR EACH ROW EXECUTE FUNCTION refuse_invoiced_line_change();
+CREATE TRIGGER order_line_no_truncate BEFORE TRUNCATE ON order_line
+    FOR EACH STATEMENT EXECUTE FUNCTION refuse_row_change();
 
 CREATE TABLE drop_cost (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

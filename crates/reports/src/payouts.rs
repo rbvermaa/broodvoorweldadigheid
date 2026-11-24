@@ -38,7 +38,10 @@ pub(crate) fn settlements(
             continue;
         }
         let paid = fact.amount.checked_sub(fact.settled_paid)?;
-        let refunded = fact.refunded.checked_sub(fact.settled_refunded)?;
+        let refunded = fact
+            .refunded
+            .checked_sub(fact.settled_refunded)?
+            .max(Money::ZERO);
         if paid != Money::ZERO || refunded != Money::ZERO {
             out.push(Settlement {
                 allocation: fact.id,
@@ -176,7 +179,7 @@ pub async fn record_transfer(
     }
     let mut tx = conn.begin().await?;
     sqlx::query_scalar!(
-        "SELECT id FROM charity WHERE id = $1 FOR UPDATE",
+        "SELECT id FROM charity WHERE id = $1 FOR NO KEY UPDATE",
         transfer.charity.get()
     )
     .fetch_optional(&mut *tx)

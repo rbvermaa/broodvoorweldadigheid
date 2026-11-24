@@ -281,6 +281,7 @@ pub async fn mark_invoiced(
         return Err(Error::Invalid("orders"));
     }
     let mut tx = conn.begin().await?;
+    account(&mut tx, invoice.customer_id).await?;
     let rows = sqlx::query!(
         r#"SELECT o.id, o.customer_id, o.payment_mode, o.status, o.manual_invoice_id,
             o.total_cents, (bd.date - date 'epoch') AS "drop_day!"

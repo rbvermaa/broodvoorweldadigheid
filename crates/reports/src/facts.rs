@@ -20,6 +20,10 @@ use crate::refunds::{RefundSplit, refund_lines};
 /// payment. Cancelled and pending orders never count.
 pub(crate) const COUNTED: &[&str] = &["paid", "confirmed", "picked_up", "refunded"];
 
+fn counted() -> Vec<String> {
+    COUNTED.iter().map(|s| (*s).to_owned()).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FactLine {
     pub product_id: ProductId,
@@ -54,8 +58,10 @@ pub(crate) struct OrderFact {
     /// Refunded on payments the order accepted. Refunds of refused payments return money
     /// that never was a sale.
     pub refunded: Money,
-    /// Fees of every payment on the order; `None` when a fee is not known yet.
-    pub fees: Option<Money>,
+    /// Known fees of every payment on the order.
+    pub fees: Money,
+    /// A payment on the order has no fee yet.
+    pub fee_missing: bool,
 }
 
 impl OrderFact {
@@ -101,7 +107,6 @@ pub(crate) async fn orders(
             Some(to_epoch_days(to)),
         ),
     };
-    let statuses: Vec<String> = COUNTED.iter().map(|s| (*s).to_owned()).collect();
     let rows = sqlx::query!(
         r#"SELECT o.id, o.number_year, o.number_seq, o.bake_day_id,
             (bd.date - date 'epoch') AS "drop_day!", bd.charity_id,
@@ -116,7 +121,7 @@ pub(crate) async fn orders(
             AND ($4::integer IS NULL OR (bd.charity_id IS NOT NULL
                 AND bd.date BETWEEN date 'epoch' + $4 AND date 'epoch' + $5::integer))
         ORDER BY o.id"#,
-        &statuses,
+        &counted(),
         sold_from,
         sold_to,
         drop_from,
@@ -129,7 +134,11 @@ pub(crate) async fn orders(
     let money = payments(conn, &ids).await?;
     rows.into_iter()
         .map(|row| {
-            let (refunded, fees) = money.get(&row.id).copied().unwrap_or((Money::ZERO, None));
+            let (refunded, fees, fee_missing) =
+                money
+                    .get(&row.id)
+                    .copied()
+                    .unwrap_or((Money::ZERO, Money::ZERO, false));
             Ok(OrderFact {
                 id: OrderId::new(row.id),
                 number: OrderNumber {
@@ -143,6 +152,7 @@ pub(crate) async fn orders(
                 lines: lines.remove(&row.id).unwrap_or_default(),
                 refunded,
                 fees,
+                fee_missing,
             })
         })
         .collect()
@@ -176,11 +186,11 @@ async fn order_lines(
     Ok(out)
 }
 
-/// Per order: refunds on accepted payments, and fees (`None` when one is unknown).
+/// Per order: refunds on accepted payments, known fees, and whether a fee is missing.
 pub(crate) async fn payments(
     conn: &mut PgConnection,
     ids: &[i64],
-) -> Result<HashMap<i64, (Money, Option<Money>)>, Error> {
+) -> Result<HashMap<i64, (Money, Money, bool)>, Error> {
     let rows = sqlx::query!(
         r#"SELECT order_id,
             COALESCE(SUM(refunded_cents) FILTER (WHERE NOT refund_due), 0)::bigint
@@ -196,8 +206,14 @@ pub(crate) async fn payments(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let fees = (row.fees_missing == 0).then(|| Money::from_cents(row.fees));
-            (row.order_id, (Money::from_cents(row.refunded), fees))
+            (
+                row.order_id,
+                (
+                    Money::from_cents(row.refunded),
+                    Money::from_cents(row.fees),
+                    row.fees_missing > 0,
+                ),
+            )
         })
         .collect())
 }
@@ -267,11 +283,13 @@ pub(crate) async fn donations(
             SELECT allocation_id, SUM(paid_cents) AS paid, SUM(refunded_cents) AS refunded
             FROM charity_transfer_allocation GROUP BY allocation_id
         ) t ON t.allocation_id = da.id
-        WHERE ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)
+        WHERE o.status = ANY($3)
+            AND ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)
             AND ($2::integer IS NULL OR bd.date <= date 'epoch' + $2)
         ORDER BY da.id"#,
         from.map(to_epoch_days),
         to.map(to_epoch_days),
+        &counted(),
     )
     .fetch_all(&mut *conn)
     .await?;
@@ -281,7 +299,7 @@ pub(crate) async fn donations(
     let refunded: HashMap<OrderId, Money> = payments(conn, &order_ids)
         .await?
         .into_iter()
-        .map(|(id, (refunded, _))| (OrderId::new(id), refunded))
+        .map(|(id, (refunded, _, _))| (OrderId::new(id), refunded))
         .collect();
     let mut facts = rows
         .into_iter()

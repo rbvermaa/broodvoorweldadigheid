@@ -217,6 +217,19 @@ async fn uninvoiced_orders_are_listed_then_locked_by_the_invoice(
         .execute(&mut *conn)
         .await
         .unwrap();
+    let delete = sqlx::query("DELETE FROM \"order\" WHERE id = $1")
+        .bind(a.get())
+        .execute(&mut *conn)
+        .await;
+    assert!(delete.is_err());
+    let no_account = NewInvoice {
+        customer_id: other,
+        ..invoice(vec![foreign], "2026-009")
+    };
+    assert!(matches!(
+        invoices::mark_invoiced(&mut conn, &clock, STAFF, &no_account).await,
+        Err(Error::NotFound)
+    ));
     let rewrite = sqlx::query("UPDATE manual_invoice SET total_cents = 0")
         .execute(&mut *conn)
         .await;

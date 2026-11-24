@@ -43,9 +43,12 @@ period (the delivery date). Each line shows its net and BTW from the line split 
 0005); the unit price excl. BTW is the unit price split on its own and is for display
 only. `mark_invoiced` takes all orders or none: it refuses an order already invoiced,
 of another customer, not on account, not confirmed or picked up, or on a drop outside
-the invoice's period, and a used invoice number. Triggers lock an invoiced order: its
-lines never change and the order only moves from confirmed to picked up.
-`manual_invoice` is append-only.
+the invoice's period, a customer without a business account, and a used invoice
+number. Triggers lock an invoiced order: it is never deleted, its lines never change
+(the line trigger reads the order `FOR SHARE`, so it waits for a running
+`mark_invoiced`), the invoiced columns never change and the status only moves from
+confirmed to picked up. Columns added later stay writable. `manual_invoice` is
+append-only; `order` and `order_line` refuse TRUNCATE.
 
 **Charity payouts (F11b).** `charity_transfer` plus `charity_transfer_allocation`, which
 stores per allocation what a transfer settled: the allocation's amount the first time,
@@ -66,7 +69,8 @@ contribution counts only orders with an allocation: BTW from the lines net of re
 Mollie fees from `payment.fee_cents` (an order with an unknown fee is counted in
 `unknown_fees`, never as zero), ingredients as the product's current
 `estimated_cost_cents` × quantity (products without an estimate are listed) and the
-drop's `drop_cost` rows. A drop's costs count for the drop's charity; an order's other
+drop's `drop_cost` rows. A drop's costs count for the drop's charity, also when the drop
+has no donations; an order's other
 costs for the charity its donation went to. "Per €1" is `covered × 100 / received`
 rounded half-up in integer maths (`per_euro_cents`), also in basis points.
 

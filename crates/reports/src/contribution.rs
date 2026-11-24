@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use db::time::{to_epoch_days, to_micros};
+use db::time::{from_epoch_days, to_epoch_days, to_micros};
 use domain::{BakeDayId, CharityId, Clock, Money, OrderId, VatRate, VatTotals};
 use jiff::civil::Date;
 use sqlx::PgConnection;
@@ -188,10 +188,8 @@ fn order_contribution(
     for rate in VatRate::ALL {
         c.btw = c.btw.checked_add(totals.rate(rate).vat())?;
     }
-    match order.fees {
-        Some(fees) => c.fees = fees,
-        None => c.unknown_fees = 1,
-    }
+    c.fees = order.fees;
+    c.unknown_fees = u32::from(order.fee_missing);
     for line in &order.lines {
         match line.estimated_cost {
             Some(cost) => c.ingredients = c.ingredients.checked_add(cost.checked_mul(line.qty)?)?,
@@ -203,10 +201,19 @@ fn order_contribution(
     Ok(c)
 }
 
+/// The costs entered for one charity drop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DropCosts {
+    pub bake_day_id: BakeDayId,
+    pub date: Date,
+    pub charity: CharityId,
+    pub amount: Money,
+}
+
 pub(crate) fn build(
     orders: &[OrderFact],
     donations: &[DonationFact],
-    drop_costs: &HashMap<BakeDayId, Money>,
+    drop_costs: &[DropCosts],
     period: Period,
 ) -> Result<ContributionReport, Error> {
     let mut by_order: HashMap<OrderId, Vec<&DonationFact>> = HashMap::new();
@@ -235,18 +242,28 @@ pub(crate) fn build(
         let group = own.first().and_then(|d| d.charity);
         charities.entry(group).or_default().add(&c)?;
     }
-    for drop in drops.values_mut() {
-        if let Some(cost) = drop_costs.get(&drop.bake_day_id) {
-            drop.contribution.drop_costs = *cost;
-            let costs = Contribution {
-                drop_costs: *cost,
-                ..Contribution::default()
-            };
-            charities
-                .entry(Some(drop.charity))
-                .or_default()
-                .add(&costs)?;
+    for cost in drop_costs {
+        if !period.contains(cost.date) {
+            continue;
         }
+        let costs = Contribution {
+            drop_costs: cost.amount,
+            ..Contribution::default()
+        };
+        drops
+            .entry((cost.date, cost.bake_day_id))
+            .or_insert_with(|| DropContribution {
+                bake_day_id: cost.bake_day_id,
+                date: cost.date,
+                charity: cost.charity,
+                contribution: Contribution::default(),
+            })
+            .contribution
+            .add(&costs)?;
+        charities
+            .entry(Some(cost.charity))
+            .or_default()
+            .add(&costs)?;
     }
     let mut total = Contribution::default();
     for c in charities.values() {
@@ -266,8 +283,9 @@ pub(crate) fn build(
 }
 
 /// The bakery's contribution for charity drops dated in `period`. A drop's other costs
-/// count for the drop's charity; an order's BTW, fees and ingredients for the charity
-/// its donation went to. Ingredient cost uses the product's current estimate.
+/// count for the drop's charity, also on a drop without donations; an order's BTW, fees
+/// and ingredients for the charity its donation went to. Ingredient cost uses the
+/// product's current estimate.
 ///
 /// # Errors
 /// [`Error::Db`], [`Error::Corrupt`] or [`Error::Money`].
@@ -282,10 +300,12 @@ pub async fn report(conn: &mut PgConnection, period: Period) -> Result<Contribut
     .await?;
     let donations = facts::donations(conn, Some(period.from()), Some(period.to())).await?;
     let costs = sqlx::query!(
-        r#"SELECT dc.bake_day_id, SUM(dc.amount_cents)::bigint AS "amount!"
+        r#"SELECT dc.bake_day_id, (bd.date - date 'epoch') AS "day!",
+            bd.charity_id AS "charity_id!", SUM(dc.amount_cents)::bigint AS "amount!"
         FROM drop_cost dc JOIN bake_day bd ON bd.id = dc.bake_day_id
-        WHERE bd.date BETWEEN date 'epoch' + $1::integer AND date 'epoch' + $2::integer
-        GROUP BY dc.bake_day_id"#,
+        WHERE bd.charity_id IS NOT NULL
+            AND bd.date BETWEEN date 'epoch' + $1::integer AND date 'epoch' + $2::integer
+        GROUP BY dc.bake_day_id, bd.date, bd.charity_id"#,
         to_epoch_days(period.from()),
         to_epoch_days(period.to()),
     )
@@ -293,12 +313,14 @@ pub async fn report(conn: &mut PgConnection, period: Period) -> Result<Contribut
     .await?
     .into_iter()
     .map(|row| {
-        (
-            BakeDayId::new(row.bake_day_id),
-            Money::from_cents(row.amount),
-        )
+        Ok(DropCosts {
+            bake_day_id: BakeDayId::new(row.bake_day_id),
+            date: from_epoch_days(row.day)?,
+            charity: CharityId::new(row.charity_id),
+            amount: Money::from_cents(row.amount),
+        })
     })
-    .collect();
+    .collect::<Result<Vec<_>, Error>>()?;
     build(&orders, &donations, &costs, period)
 }
 
@@ -337,7 +359,17 @@ mod tests {
                 estimated_cost: cost.map(Money::from_cents),
             }],
             refunded: Money::ZERO,
-            fees: fees.map(Money::from_cents),
+            fees: Money::from_cents(fees.unwrap_or(0)),
+            fee_missing: fees.is_none(),
+        }
+    }
+
+    fn cost(drop: i64, cents: i64) -> DropCosts {
+        DropCosts {
+            bake_day_id: BakeDayId::new(drop),
+            date: date(2026, 10, 31),
+            charity: CharityId::new(drop),
+            amount: Money::from_cents(cents),
         }
     }
 
@@ -354,7 +386,7 @@ mod tests {
             order(2, 1, 545, Some(120), Some(32)),
         ];
         let donations = [donation(1, 1, Some(1), 1090), donation(2, 2, Some(1), 1090)];
-        let costs = HashMap::from([(BakeDayId::new(1), Money::from_cents(250))]);
+        let costs = [cost(1, 250)];
         let report = build(&orders, &donations, &costs, year()).unwrap();
         let c = &report.drops[0].contribution;
         assert_eq!(c.received.cents(), 2180);
@@ -374,12 +406,36 @@ mod tests {
     fn unknown_fees_and_estimates_are_reported() {
         let orders = [order(1, 1, 545, None, None)];
         let donations = [donation(1, 1, Some(1), 1090)];
-        let report = build(&orders, &donations, &HashMap::new(), year()).unwrap();
+        let report = build(&orders, &donations, &[], year()).unwrap();
         let c = &report.total;
         assert_eq!(c.unknown_fees, 1);
         assert_eq!(c.missing_estimates.iter().collect::<Vec<_>>(), ["Desem"]);
         assert!(!c.complete());
         assert_eq!(c.fees, Money::ZERO);
+        let mut partly = order(2, 1, 545, Some(1), Some(39));
+        partly.fee_missing = true;
+        let report = build(&[partly], &[donation(2, 2, Some(1), 1090)], &[], year()).unwrap();
+        assert_eq!(report.total.fees.cents(), 39);
+        assert_eq!(report.total.unknown_fees, 1);
+    }
+
+    #[test]
+    fn a_drop_with_only_costs_still_counts() {
+        let report = build(&[], &[], &[cost(2, 300)], year()).unwrap();
+        assert_eq!(report.drops.len(), 1);
+        assert_eq!(report.drops[0].charity, CharityId::new(2));
+        assert_eq!(report.total.drop_costs.cents(), 300);
+        assert_eq!(report.charities[0].charity, Some(CharityId::new(2)));
+        let outside = DropCosts {
+            date: date(2025, 1, 4),
+            ..cost(2, 300)
+        };
+        assert!(
+            build(&[], &[], &[outside], year())
+                .unwrap()
+                .drops
+                .is_empty()
+        );
     }
 
     #[test]
@@ -395,13 +451,7 @@ mod tests {
     fn orders_without_donation_are_skipped() {
         let mut normal = order(1, 1, 545, Some(1), Some(1));
         normal.drop_charity = None;
-        let report = build(
-            &[normal, order(2, 1, 545, None, None)],
-            &[],
-            &HashMap::new(),
-            year(),
-        )
-        .unwrap();
+        let report = build(&[normal, order(2, 1, 545, None, None)], &[], &[], year()).unwrap();
         assert!(report.drops.is_empty());
         assert_eq!(report.total, Contribution::default());
     }
@@ -423,11 +473,12 @@ mod tests {
                 orders.push(order(id, drop, price, cost, fee));
                 donations.push(on_drop(donation(id, id, charity, price * 2), drop));
             }
-            let costs: HashMap<BakeDayId, Money> = costs
+            let costs: Vec<DropCosts> = costs
                 .into_iter()
                 .enumerate()
-                .map(|(i, c)| (BakeDayId::new(i64::try_from(i).unwrap() + 1), Money::from_cents(c)))
+                .map(|(i, c)| cost(i64::try_from(i).unwrap() + 1, c))
                 .collect();
+            let entered: i64 = costs.iter().map(|c| c.amount.cents()).sum();
             let report = build(&orders, &donations, &costs, year()).unwrap();
             let mut drops = Contribution::default();
             for d in &report.drops {
@@ -436,6 +487,7 @@ mod tests {
             prop_assert_eq!(drops.covered().unwrap(), report.total.covered().unwrap());
             prop_assert_eq!(drops.received, report.total.received);
             prop_assert_eq!(drops.unknown_fees, report.total.unknown_fees);
+            prop_assert_eq!(drops.drop_costs.cents(), entered);
         }
     }
 }

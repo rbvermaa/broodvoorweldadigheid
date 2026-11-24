@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT da.id, da.order_id, o.bake_day_id, (bd.date - date 'epoch') AS \"drop_day!\",\n            bd.charity_id AS drop_charity, da.charity_id, da.status, da.amount_cents,\n            COALESCE(t.paid, 0)::bigint AS \"settled_paid!\",\n            COALESCE(t.refunded, 0)::bigint AS \"settled_refunded!\"\n        FROM donation_allocation da\n        JOIN \"order\" o ON o.id = da.order_id\n        JOIN bake_day bd ON bd.id = o.bake_day_id\n        LEFT JOIN (\n            SELECT allocation_id, SUM(paid_cents) AS paid, SUM(refunded_cents) AS refunded\n            FROM charity_transfer_allocation GROUP BY allocation_id\n        ) t ON t.allocation_id = da.id\n        WHERE ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)\n            AND ($2::integer IS NULL OR bd.date <= date 'epoch' + $2)\n        ORDER BY da.id",
+  "query": "SELECT da.id, da.order_id, o.bake_day_id, (bd.date - date 'epoch') AS \"drop_day!\",\n            bd.charity_id AS drop_charity, da.charity_id, da.status, da.amount_cents,\n            COALESCE(t.paid, 0)::bigint AS \"settled_paid!\",\n            COALESCE(t.refunded, 0)::bigint AS \"settled_refunded!\"\n        FROM donation_allocation da\n        JOIN \"order\" o ON o.id = da.order_id\n        JOIN bake_day bd ON bd.id = o.bake_day_id\n        LEFT JOIN (\n            SELECT allocation_id, SUM(paid_cents) AS paid, SUM(refunded_cents) AS refunded\n            FROM charity_transfer_allocation GROUP BY allocation_id\n        ) t ON t.allocation_id = da.id\n        WHERE o.status = ANY($3)\n            AND ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)\n            AND ($2::integer IS NULL OR bd.date <= date 'epoch' + $2)\n        ORDER BY da.id",
   "describe": {
     "columns": [
       {
@@ -102,7 +102,8 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Int4"
+        "Int4",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -118,5 +119,5 @@
       null
     ]
   },
-  "hash": "6bf3f63c29e3534cf0f4cbcf821f174b4e4d6b94608e47b2209f5e45fff49ff1"
+  "hash": "e608ce3405f44293a2d2c1072240c927d6c54fa8a8ac87e5bebac4d4692a5f8c"
 }

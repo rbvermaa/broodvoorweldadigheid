@@ -229,7 +229,8 @@ mod tests {
             sold_at: sold_at.parse::<Timestamp>().unwrap(),
             lines,
             refunded: Money::from_cents(refunded),
-            fees: None,
+            fees: Money::ZERO,
+            fee_missing: false,
         }
     }
 
