@@ -8,7 +8,8 @@ Questions about the spec. The spec is only changed when the owner asks.
   list of allowed external services?
 - [ ] **Off-site backup target.** Which host or provider does the second rustic
   repository go to?
-- [ ] **Label fonts.** Which fonts go into the server image for PDFs and labels?
+- [x] **Label fonts.** Which fonts go into the server image for PDFs and labels?
+  **Answered:** Oswald and Inter, pinned by Nix (ADR 0009); the PDFs embed their TTFs (ADR 0016).
 - [x] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
   Done 2026-11-24: the repo is public now and `main` requires the CI jobs (ADR 0001).
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
@@ -37,15 +38,15 @@ Questions about the spec. The spec is only changed when the owner asks.
   default is off.
   **Answered 2026-11-24:** the warning now uses the owner's rule above, which matches the
   default Thursday 20:00 deadline, so default drops no longer warn.
-- [x] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
 - [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
-- [ ] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
+- [x] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?
-- [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
+  **Done:** a failed payment start can be retried for the same order within its hold (ADR 0015).
+- [x] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
   **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
   icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
@@ -63,10 +64,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
   server refuse to start without them?
-- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
-  allergen data cannot be ordered, also not by staff. OK?
-- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
-  like web orders. How do phone orders get paid: payment link, at pickup, on account?
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
