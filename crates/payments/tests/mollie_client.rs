@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -212,7 +214,7 @@ async fn invalid_requests_are_not_sent() {
         payment: tr("tr_a1"),
         amount: Money::from_cents(-5),
         description: "Terug".into(),
-        idempotency_key: None,
+        idempotency_key: IdempotencyKey::new("refund-a1-1").unwrap(),
     };
     assert!(matches!(
         client.refund(&refund).await,
@@ -463,7 +465,7 @@ async fn refund_request_shape_and_statuses() {
             payment: tr("tr_p1"),
             amount: Money::from_cents(450),
             description: "Ziek: bakdag gaat niet door".into(),
-            idempotency_key: Some(IdempotencyKey::new("refund-7-1").unwrap()),
+            idempotency_key: IdempotencyKey::new("refund-7-1").unwrap(),
         };
         let refund = client(&server).refund(&request).await.unwrap();
         assert_eq!(refund.id.as_str(), "re_4qqhO89gsT");
@@ -493,7 +495,7 @@ async fn refund_with_odd_answers() {
             payment: tr("tr_p1"),
             amount: Money::from_cents(1),
             description: "Terug".into(),
-            idempotency_key: None,
+            idempotency_key: IdempotencyKey::new("refund-p1-1").unwrap(),
         };
         assert!(matches!(
             client(&server).refund(&request).await,
@@ -629,9 +631,47 @@ async fn last_fee_page_and_bad_transactions() {
         .unwrap();
     assert_eq!(page.next, None);
 
+    let odd = json!({ "count": 4, "_embedded": { "balance_transactions": [
+        { "id": "baltr_a", "type": "payment",
+          "resultAmount": { "currency": "EUR", "value": "1.00" },
+          "initialAmount": { "currency": "EUR", "value": "1.00" },
+          "deductions": null },
+        { "id": "baltr_b", "type": "payment",
+          "resultAmount": { "currency": "EUR", "value": "1.10" },
+          "initialAmount": { "currency": "EUR", "value": "1.00" },
+          "deductions": { "currency": "EUR", "value": "0.10" },
+          "context": { "paymentId": "tr_neg1" } },
+        { "id": "baltr_c", "type": "payment",
+          "resultAmount": { "currency": "EUR", "value": "1.0" },
+          "initialAmount": { "currency": "EUR", "value": "1.00" },
+          "deductions": null,
+          "context": { "paymentId": "tr_bad1" } },
+        { "id": "baltr_d", "type": "payment",
+          "resultAmount": { "currency": "EUR", "value": "0.75" },
+          "initialAmount": { "currency": "EUR", "value": "1.00" },
+          "deductions": { "currency": "EUR", "value": "-0.25" },
+          "deductionDetails": { "reservations": { "currency": "EUR", "value": "-0.25" } },
+          "context": { "paymentId": "tr_ok1" } }
+    ]}, "_links": {} });
+    let server = MockServer::start(move |_| Reply::json(200, odd.clone())).await;
+    let page = client_with_token(&server)
+        .list_payment_fees(None)
+        .await
+        .unwrap();
+    assert_eq!(
+        page.fees,
+        [PaymentFee {
+            payment: tr("tr_ok1"),
+            gross: Money::from_cents(100),
+            fee: Money::from_cents(25),
+            net: Money::from_cents(75),
+        }],
+        "odd transactions are skipped; empty details fall back to deductions"
+    );
+
     let bad_pages = [
         json!({ "count": 1, "_embedded": { "balance_transactions": [{
-            "type": "payment",
+            "type": "payment", "id_missing": true,
             "resultAmount": { "currency": "EUR", "value": "1.00" },
             "initialAmount": { "currency": "EUR", "value": "1.00" },
             "deductions": null

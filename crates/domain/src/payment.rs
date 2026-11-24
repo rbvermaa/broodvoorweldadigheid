@@ -207,8 +207,9 @@ pub struct RefundRequest {
     pub payment: ProviderPaymentId,
     pub amount: Money,
     pub description: String,
-    /// `None` makes the provider client pick a fresh key.
-    pub idempotency_key: Option<IdempotencyKey>,
+    /// Required: a refund retried after a lost answer must not pay out twice. Derive
+    /// it from what the refund is for, such as `refund-<order>-<n>`.
+    pub idempotency_key: IdempotencyKey,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

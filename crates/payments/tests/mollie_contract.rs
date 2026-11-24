@@ -1,6 +1,8 @@
 //! Nightly contract test against Mollie test mode (`make mollie-contract`).
 //! Without `MOLLIE_TEST_API_KEY_FILE` it does nothing, so normal test runs stay offline.
 
+#![forbid(unsafe_code)]
+
 use payments::{ApiKey, MollieClient, MollieOptions};
 
 #[path = "support/contract.rs"]

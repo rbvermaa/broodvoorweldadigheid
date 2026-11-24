@@ -98,7 +98,7 @@ fn check_base_url(raw: &str) -> Result<Url, SetupError> {
     Ok(url)
 }
 
-fn tls_roots(mut builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, SetupError> {
+fn check_native_roots() -> Result<(), SetupError> {
     let loaded = rustls_native_certs::load_native_certs();
     if !loaded.errors.is_empty() {
         tracing::warn!(
@@ -106,17 +106,10 @@ fn tls_roots(mut builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuild
             "some root certificates could not be loaded"
         );
     }
-    let mut added = 0;
-    for cert in &loaded.certs {
-        if let Ok(cert) = reqwest::Certificate::from_der(cert.as_ref()) {
-            builder = builder.add_root_certificate(cert);
-            added += 1;
-        }
-    }
-    if added == 0 {
+    if loaded.certs.is_empty() {
         return Err(SetupError::NoRootCertificates);
     }
-    Ok(builder.https_only(true))
+    Ok(())
 }
 
 impl MollieClient {
@@ -140,17 +133,18 @@ impl MollieClient {
         options: MollieOptions,
     ) -> Result<Self, SetupError> {
         let base = check_base_url(&options.base_url)?;
-        let mut builder = reqwest::Client::builder()
+        let https = base.scheme() == "https";
+        if https {
+            check_native_roots()?;
+        }
+        let http = reqwest::Client::builder()
             .use_rustls_tls()
-            .tls_built_in_root_certs(false)
+            .tls_built_in_root_certs(https)
+            .https_only(https)
             .connect_timeout(options.connect_timeout)
             .timeout(options.timeout)
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("bakflow-payments/", env!("CARGO_PKG_VERSION")));
-        if base.scheme() == "https" {
-            builder = tls_roots(builder)?;
-        }
-        let http = builder
+            .user_agent(concat!("bakflow-payments/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|err| SetupError::Http(err.to_string()))?;
         Ok(Self {
@@ -219,8 +213,14 @@ impl MollieClient {
         tracing::debug!(%method, path, status = status.as_u16(), "mollie request");
         let bytes = response.bytes().await.map_err(transport_error)?;
         if status.is_success() {
-            serde_json::from_slice(&bytes)
-                .map_err(|err| PaymentError::InvalidResponse(format!("{path}: {err}")))
+            serde_json::from_slice(&bytes).map_err(|err| {
+                PaymentError::InvalidResponse(format!(
+                    "{path}: {:?} JSON error at line {} column {}",
+                    err.classify(),
+                    err.line(),
+                    err.column()
+                ))
+            })
         } else {
             Err(status_error(status, &bytes))
         }
@@ -284,13 +284,13 @@ impl MollieClient {
             "amount": { "currency": "EUR", "value": format_value(request.amount) },
             "description": request.description,
         });
-        let key = key_or_fresh(request.idempotency_key.as_ref());
+        let key = &request.idempotency_key;
         let refund: WireRefund = self
             .call(
                 Method::POST,
                 self.url(&format!("payments/{}/refunds", request.payment)),
                 self.api_key.expose(),
-                Some((&body, &key)),
+                Some((&body, key)),
             )
             .await?;
         Ok(CreatedRefund {
@@ -315,8 +315,13 @@ impl MollieClient {
         let page: WireTransactions = self.call(Method::GET, url, token.expose(), None).await?;
         let mut fees = Vec::new();
         for transaction in page.embedded.balance_transactions {
-            if let Some(fee) = transaction.into_fee()? {
-                fees.push(fee);
+            let id = transaction.id.clone();
+            match transaction.into_fee() {
+                Ok(Some(fee)) => fees.push(fee),
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::warn!(transaction = id, error = %err, "skipped a Mollie balance transaction")
+                }
             }
         }
         let next = page
@@ -537,6 +542,7 @@ struct WireTransactionLinks {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WireTransaction {
+    id: String,
     #[serde(rename = "type")]
     kind: String,
     initial_amount: WireAmount,
@@ -574,17 +580,23 @@ impl WireTransaction {
             .and_then(|context| context.payment_id)
             .ok_or_else(|| invalid("payment transaction without paymentId"))?;
         let charged = match &self.deduction_details {
-            Some(details) => optional_money(details.fees.as_ref())?
-                .checked_add(optional_money(details.commissions.as_ref())?)
-                .map_err(|_| invalid("fee out of range"))?,
-            None => optional_money(self.deductions.as_ref())?,
+            Some(details) if details.fees.is_some() || details.commissions.is_some() => {
+                optional_money(details.fees.as_ref())?
+                    .checked_add(optional_money(details.commissions.as_ref())?)
+                    .map_err(|_| invalid("fee out of range"))?
+            }
+            _ => optional_money(self.deductions.as_ref())?,
         };
+        let fee = charged
+            .checked_neg()
+            .map_err(|_| invalid("fee out of range"))?;
+        if fee < Money::ZERO {
+            return Err(invalid("fee is negative"));
+        }
         Ok(Some(PaymentFee {
             payment: payment_id(&payment)?,
             gross: self.initial_amount.money()?,
-            fee: charged
-                .checked_neg()
-                .map_err(|_| invalid("fee out of range"))?,
+            fee,
             net: self.result_amount.money()?,
         }))
     }
@@ -691,7 +703,10 @@ mod tests {
         let key = ApiKey::new("test_abc").unwrap();
         match MollieClient::new(key, None, MollieOptions::default()) {
             Ok(client) => assert!(format!("{client:?}").contains("<redacted>")),
-            Err(err) => assert!(matches!(err, SetupError::NoRootCertificates), "{err}"),
+            Err(err) => assert!(
+                matches!(err, SetupError::NoRootCertificates | SetupError::Http(_)),
+                "{err}"
+            ),
         }
     }
 }

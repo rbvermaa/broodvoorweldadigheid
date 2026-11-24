@@ -22,15 +22,10 @@ struct State {
     next_payment: u64,
     next_refund: u64,
     payments: BTreeMap<ProviderPaymentId, FakePayment>,
-    replays: BTreeMap<IdempotencyKey, Replay>,
+    payment_replays: BTreeMap<IdempotencyKey, (NewPayment, CreatedPayment)>,
+    refund_replays: BTreeMap<IdempotencyKey, (RefundRequest, CreatedRefund)>,
     notifications: Vec<ProviderPaymentId>,
     created: Vec<NewPayment>,
-}
-
-#[derive(Debug, Clone)]
-enum Replay {
-    Payment(CreatedPayment),
-    Refund(CreatedRefund),
 }
 
 #[derive(Debug, Clone)]
@@ -128,11 +123,19 @@ impl FakePaymentProvider {
     fn create(&self, request: &NewPayment) -> Result<CreatedPayment, PaymentError> {
         let mut state = self.state();
         check_up(&state)?;
-        if let Some(key) = &request.idempotency_key
-            && let Some(Replay::Payment(created)) = state.replays.get(key)
-        {
-            return Ok(created.clone());
+        if let Some(key) = &request.idempotency_key {
+            if state.refund_replays.contains_key(key) {
+                return Err(key_reused());
+            }
+            if let Some((earlier, created)) = state.payment_replays.get(key) {
+                return if earlier == request {
+                    Ok(created.clone())
+                } else {
+                    Err(key_reused())
+                };
+            }
         }
+        check_description(&request.description)?;
         if request.amount <= Money::ZERO {
             return Err(rejected("amount", "The amount must be positive"));
         }
@@ -158,8 +161,8 @@ impl FakePaymentProvider {
         );
         if let Some(key) = &request.idempotency_key {
             state
-                .replays
-                .insert(key.clone(), Replay::Payment(created.clone()));
+                .payment_replays
+                .insert(key.clone(), (request.clone(), created.clone()));
         }
         Ok(created)
     }
@@ -181,11 +184,18 @@ impl FakePaymentProvider {
     fn do_refund(&self, request: &RefundRequest) -> Result<CreatedRefund, PaymentError> {
         let mut state = self.state();
         check_up(&state)?;
-        if let Some(key) = &request.idempotency_key
-            && let Some(Replay::Refund(created)) = state.replays.get(key)
-        {
-            return Ok(created.clone());
+        let key = &request.idempotency_key;
+        if state.payment_replays.contains_key(key) {
+            return Err(key_reused());
         }
+        if let Some((earlier, created)) = state.refund_replays.get(key) {
+            return if earlier == request {
+                Ok(created.clone())
+            } else {
+                Err(key_reused())
+            };
+        }
+        check_description(&request.description)?;
         let refund_id = ProviderRefundId::new(format!("re_fake{}", state.next_refund + 1))
             .expect("fake ids are valid tokens");
         let payment = state
@@ -208,11 +218,9 @@ impl FakePaymentProvider {
             id: refund_id,
             status: RefundStatus::Pending,
         };
-        if let Some(key) = &request.idempotency_key {
-            state
-                .replays
-                .insert(key.clone(), Replay::Refund(created.clone()));
-        }
+        state
+            .refund_replays
+            .insert(key.clone(), (request.clone(), created.clone()));
         Ok(created)
     }
 
@@ -243,6 +251,19 @@ fn check_up(state: &State) -> Result<(), PaymentError> {
     } else {
         Ok(())
     }
+}
+
+fn key_reused() -> PaymentError {
+    rejected("", "The idempotency key was used for a different request")
+}
+
+fn check_description(description: &str) -> Result<(), PaymentError> {
+    if description.trim().is_empty() || description.chars().count() > 255 {
+        return Err(PaymentError::InvalidRequest(
+            "description must have 1 to 255 characters".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn rejected(field: &str, detail: &str) -> PaymentError {
@@ -315,7 +336,7 @@ mod tests {
             payment: id.clone(),
             amount: Money::from_cents(cents),
             description: "Ziek: bakdag gaat niet door".into(),
-            idempotency_key: None,
+            idempotency_key: IdempotencyKey::new(format!("refund-{id}-{cents}")).unwrap(),
         }
     }
 
@@ -428,7 +449,7 @@ mod tests {
 
         fake.pay(&first.id);
         let refund_request = RefundRequest {
-            idempotency_key: Some(IdempotencyKey::new("refund-7-1").unwrap()),
+            idempotency_key: IdempotencyKey::new("refund-7-1").unwrap(),
             ..refund(&first.id, 450)
         };
         let refunded = ready(fake.refund(&refund_request)).unwrap();
@@ -437,6 +458,62 @@ mod tests {
             ready(fake.get_payment(&first.id)).unwrap().amount_refunded,
             Money::from_cents(450)
         );
+    }
+
+    #[test]
+    fn reused_keys_and_bad_descriptions_are_refused() {
+        let fake = FakePaymentProvider::new();
+        let key = IdempotencyKey::new("shared-key").unwrap();
+        let request = NewPayment {
+            idempotency_key: Some(key.clone()),
+            ..new_payment(450)
+        };
+        let created = ready(fake.create_payment(&request)).unwrap();
+        let changed = NewPayment {
+            amount: Money::from_cents(500),
+            ..request.clone()
+        };
+        assert_eq!(ready(fake.create_payment(&changed)), Err(key_reused()));
+        fake.pay(&created.id);
+        let refund_with_create_key = RefundRequest {
+            idempotency_key: key,
+            ..refund(&created.id, 100)
+        };
+        assert_eq!(
+            ready(fake.refund(&refund_with_create_key)),
+            Err(key_reused())
+        );
+        let first = refund(&created.id, 100);
+        ready(fake.refund(&first)).unwrap();
+        let other_amount = RefundRequest {
+            amount: Money::from_cents(200),
+            ..first.clone()
+        };
+        assert_eq!(ready(fake.refund(&other_amount)), Err(key_reused()));
+        let create_with_refund_key = NewPayment {
+            idempotency_key: Some(first.idempotency_key.clone()),
+            ..new_payment(450)
+        };
+        assert_eq!(
+            ready(fake.create_payment(&create_with_refund_key)),
+            Err(key_reused())
+        );
+        let blank = NewPayment {
+            description: " ".into(),
+            ..new_payment(450)
+        };
+        assert!(matches!(
+            ready(fake.create_payment(&blank)),
+            Err(PaymentError::InvalidRequest(_))
+        ));
+        let long = RefundRequest {
+            description: "x".repeat(256),
+            ..refund(&created.id, 1)
+        };
+        assert!(matches!(
+            ready(fake.refund(&long)),
+            Err(PaymentError::InvalidRequest(_))
+        ));
     }
 
     #[test]

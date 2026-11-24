@@ -43,7 +43,7 @@ pub async fn run(provider: &dyn PaymentProvider, run_id: &str) {
         payment: created.id.clone(),
         amount: Money::from_cents(100),
         description: "Contracttest".into(),
-        idempotency_key: None,
+        idempotency_key: IdempotencyKey::new(format!("contract-refund-{run_id}")).unwrap(),
     };
     let refused = provider.refund(&refund).await;
     assert!(
