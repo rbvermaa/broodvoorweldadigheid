@@ -16,7 +16,6 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// With the system clock.
     pub fn new(pool: PgPool, i18n: Translator, config: Config) -> Self {
         Self {
             pool,

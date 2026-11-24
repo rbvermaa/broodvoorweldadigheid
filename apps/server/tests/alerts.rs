@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
-use axum::http::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
+use axum::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::http::{Request, StatusCode};
 use db::PgPool;
 use i18n::Translator;
@@ -46,6 +46,7 @@ async fn app(pool: &PgPool) -> Router {
 struct Reply {
     status: StatusCode,
     cookie: Option<String>,
+    csp: Option<String>,
     body: String,
 }
 
@@ -55,6 +56,10 @@ async fn send(app: &Router, mut request: Request<Body>) -> Reply {
         .insert(ConnectInfo("192.0.2.7:4000".parse::<SocketAddr>().unwrap()));
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
+    let csp = response
+        .headers()
+        .get(CONTENT_SECURITY_POLICY)
+        .map(|v| v.to_str().unwrap().to_owned());
     let cookie = response
         .headers()
         .get(SET_COOKIE)
@@ -63,6 +68,7 @@ async fn send(app: &Router, mut request: Request<Body>) -> Reply {
     Reply {
         status,
         cookie,
+        csp,
         body: String::from_utf8(bytes.to_vec()).unwrap(),
     }
 }
@@ -229,6 +235,7 @@ async fn unsubscribe_page_shows_a_button_that_posts_without_a_session(pool: PgPo
     assert_eq!(reply.status, StatusCode::OK);
     assert!(reply.body.contains(&dutch("alerts-unsubscribed-title")));
     assert!(reply.cookie.is_none(), "no session for mail clients");
+    assert_eq!(reply.csp.as_deref(), Some(server::security::CSP));
     assert_eq!(active(&pool).await, 0);
 
     let again = post(&app, &path, None, "List-Unsubscribe=One-Click").await;
