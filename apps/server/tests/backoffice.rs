@@ -14,7 +14,7 @@ use axum::extract::ConnectInfo;
 use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use axum::http::{HeaderMap, Request, StatusCode};
 use bakedays::{
-    BakeDayProduct, BakeDayStatus, ExtraInput, NewBakeDay, Purpose, days, extras, range,
+    BakeDayProduct, BakeDayStatus, ExtraInput, NewBakeDay, Purpose, Schedule, days, extras, range,
 };
 use catalog::{AllergenInfo, CharityInput, ProductInput, charities, products};
 use db::PgPool;
@@ -24,7 +24,7 @@ use jiff::Timestamp;
 use jiff::civil::date;
 use server::AppState;
 use server::config::Config;
-use support::signed_in;
+use support::{signed_in, signed_in_at};
 use testkit::FakeClock;
 use tower::ServiceExt;
 
@@ -239,6 +239,12 @@ async fn staff(pool: &PgPool, name: &str, role: Role) -> StaffUser {
 async fn client<'a>(app: &'a App, name: &str, role: Role) -> Client<'a> {
     let user = staff(&app.pool, name, role).await;
     let (cookie, token) = signed_in(&app.pool, &user).await;
+    Client { app, cookie, token }
+}
+
+/// Signs `user` in at the app's clock, for a test that moves the clock past a login's lifetime.
+async fn sign_in<'a>(app: &'a App, user: &StaffUser) -> Client<'a> {
+    let (cookie, token) = signed_in_at(&app.pool, user, app.clock.now()).await;
     Client { app, cookie, token }
 }
 
@@ -837,48 +843,90 @@ async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: Pg
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;
+    let rye = {
+        let mut conn = pool.acquire().await.expect("conn");
+        products::create(
+            &mut conn,
+            &ProductInput {
+                name_nl: "Roggebrood".to_owned(),
+                lead_time_hours: Some(48),
+                ..sourdough()
+            },
+        )
+        .await
+        .expect("product")
+        .id
+    };
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
     let path = format!("/staff/bake-days/{}", day.get());
+    let add = |product: ProductId| {
+        let product = product.get().to_string();
+        let baker = &baker;
+        let path = &path;
+        async move {
+            baker
+                .post(
+                    &format!("{path}/range"),
+                    &[
+                        ("product_id", product.as_str()),
+                        ("max_qty", ""),
+                        ("pool_id", ""),
+                        ("units", "1"),
+                    ],
+                )
+                .await
+                .redirects_to(&format!("{path}?opgeslagen=1"));
+        }
+    };
+    let schedule = |cutoff: &'static str| {
+        let baker = &baker;
+        let path = &path;
+        async move {
+            baker
+                .post(
+                    &format!("{path}/schedule"),
+                    &[
+                        ("menu_publish_at", "2026-12-01T12:00"),
+                        ("opens_at", "2026-12-01T12:00"),
+                        ("cutoff_at", cutoff),
+                        ("bake_starts_at", "2026-12-05T04:00"),
+                    ],
+                )
+                .await
+                .redirects_to(&format!("{path}?opgeslagen=1"));
+        }
+    };
 
+    add(bread).await;
     baker.get(&path).await.lacks("zuurdesem");
-    let added = baker
-        .post(
-            &format!("{path}/range"),
-            &[
-                ("product_id", &bread.get().to_string()),
-                ("max_qty", ""),
-                ("pool_id", ""),
-                ("units", "1"),
-            ],
-        )
-        .await;
-    added.redirects_to(&format!("{path}?opgeslagen=1"));
-    let page = baker.get(&path).await;
-    page.shows(&dutch_with(
-        "day-lead-time-warning",
+
+    schedule("2026-12-04T10:00").await;
+    baker.get(&path).await.shows(&dutch_with(
+        "day-lead-time-warning-sourdough",
         &[
-            ("product", "Desembrood wit"),
-            ("hours", "36"),
-            ("cutoff", "do 3 dec om 20:00"),
-            ("latest", "do 3 dec om 16:00"),
+            ("cutoff", "vr 4 dec om 10:00"),
+            ("latest", "do 3 dec om 20:00"),
         ],
     ));
 
-    let earlier = baker
-        .post(
-            &format!("{path}/schedule"),
-            &[
-                ("menu_publish_at", "2026-12-01T12:00"),
-                ("opens_at", "2026-12-01T12:00"),
-                ("cutoff_at", "2026-12-03T15:00"),
-                ("bake_starts_at", "2026-12-05T04:00"),
-            ],
-        )
-        .await;
-    earlier.redirects_to(&format!("{path}?opgeslagen=1"));
+    schedule("2026-12-03T15:00").await;
+    baker.get(&path).await.lacks("zuurdesem");
+
+    add(rye).await;
+    baker.get(&path).await.shows(&dutch_with(
+        "day-lead-time-warning-product",
+        &[
+            ("product", "Roggebrood"),
+            ("hours", "48"),
+            ("cutoff", "do 3 dec om 15:00"),
+            ("latest", "do 3 dec om 04:00"),
+        ],
+    ));
+
+    schedule("2026-12-03T03:00").await;
     let page = baker.get(&path).await;
     page.lacks("zuurdesem");
-    page.shows("value=\"2026-12-03T15:00\"");
+    page.shows("value=\"2026-12-03T03:00\"");
 
     let wrong = baker
         .post(
@@ -1107,7 +1155,8 @@ async fn copy_and_repeat_make_new_drops_and_refuse_taken_dates(pool: PgPool) {
 async fn opening_and_closing_ask_first_and_follow_the_rules(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
-    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let user = staff(&pool, "Bakker Bas", Role::Baker).await;
+    let baker = sign_in(&app, &user).await;
     let path = format!("/staff/bake-days/{}", day.get());
 
     let page = baker.get(&path).await;
@@ -1143,6 +1192,7 @@ async fn opening_and_closing_ask_first_and_follow_the_rules(pool: PgPool) {
         .day;
     drop(conn);
     app.clock.set(ts("2026-12-11T12:00:00Z"));
+    let baker = sign_in(&app, &user).await;
     let late = baker
         .post(&format!("/staff/bake-days/{}/open", next.id.get()), &[])
         .await;
@@ -1380,4 +1430,109 @@ async fn an_extra_of_another_day_is_not_found_and_a_refused_removal_shows_an_ale
     assert_eq!(refused.status, StatusCode::OK);
     refused.shows(&dutch("day-error-final"));
     refused.lacks("<html");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let approver = staff(&pool, "Keurder Karin", Role::Owner).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    products::approve_allergens(
+        &mut conn,
+        bread,
+        &sourdough().allergen_info,
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(10),
+            capacity_pool_id: None,
+            units_per_item: 1,
+        },
+    )
+    .await
+    .expect("range");
+    let stored = days::get(&mut conn, day).await.expect("day");
+    days::update_schedule(
+        &mut conn,
+        day,
+        &Schedule {
+            online_ordering: true,
+            menu_publish_at: None,
+            opens_at: Some(ts("2026-11-20T08:00:00Z")),
+            cutoff_at: stored.cutoff_at,
+            bake_starts_at: stored.bake_starts_at,
+        },
+    )
+    .await
+    .expect("schedule");
+    days::open(&mut conn, app.clock.as_ref(), day)
+        .await
+        .expect("open");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    let mut cart = orders::Cart::new(day);
+    cart.set(bread, 3, None).expect("cart");
+    orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "klant@example.org".to_owned(),
+            name: "Test Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        slot,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    let charity = charities::create(
+        &mut conn,
+        &CharityInput {
+            name: "Voedselbank".to_owned(),
+            url: "https://example.org".to_owned(),
+            ..CharityInput::default()
+        },
+    )
+    .await
+    .expect("charity");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+
+    baker
+        .get(&path)
+        .await
+        .shows(&dutch_count("range-remaining", 7));
+
+    let too_many = baker
+        .post(
+            &format!("{path}/extras"),
+            &[
+                ("product_id", &bread.get().to_string()),
+                ("qty", "8"),
+                ("purpose", "sumup"),
+            ],
+        )
+        .await;
+    assert_eq!(too_many.status, StatusCode::UNPROCESSABLE_ENTITY);
+    too_many.shows(&dutch_count("extra-error-capacity", 7));
+
+    let refused = baker
+        .post(
+            &format!("{path}/charity"),
+            &[("charity_id", &charity.id.get().to_string())],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("day-error-orders-exist"));
 }

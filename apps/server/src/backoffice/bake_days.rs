@@ -9,15 +9,16 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::capacity::Remaining;
+use bakedays::schedule::LeadTimeRule;
 use bakedays::status::TransitionRefused;
 use bakedays::{
-    BakeDay, BakeDayProduct, BakeDayStatus, CapacityPool, NewBakeDay, NoOrders, Schedule, days,
-    pickup, range,
+    BakeDay, BakeDayProduct, BakeDayStatus, CapacityPool, NewBakeDay, Schedule, days, pickup, range,
 };
 use catalog::{Charity, Product, charities, products};
 use domain::{BakeDayId, CapacityPoolId, CharityId, PickupLocationId, ProductId};
 use jiff::Timestamp;
 use jiff::civil::Date;
+use orders::Orders;
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -597,16 +598,28 @@ async fn lead_time_alert(
                 ],
             )
         };
-        t_with(
-            state,
-            "day-lead-time-warning",
-            &[
-                ("product", product_name(names, w.product_id)),
-                ("hours", w.lead_time_hours.to_string()),
-                ("cutoff", format(w.cutoff_at)),
-                ("latest", format(w.latest_cutoff)),
-            ],
-        )
+        let cutoff = format(w.cutoff_at);
+        let latest = format(w.latest_cutoff);
+        match w.rule {
+            LeadTimeRule::Sourdough(_) => t_with(
+                state,
+                "day-lead-time-warning-sourdough",
+                &[("cutoff", cutoff), ("latest", latest)],
+            ),
+            LeadTimeRule::Product {
+                product_id,
+                lead_time_hours,
+            } => t_with(
+                state,
+                "day-lead-time-warning-product",
+                &[
+                    ("product", product_name(names, product_id)),
+                    ("hours", lead_time_hours.to_string()),
+                    ("cutoff", cutoff),
+                    ("latest", latest),
+                ],
+            ),
+        }
     }))
 }
 
@@ -661,7 +674,7 @@ async fn render_day(
         .await
         .map_err(|e| fail(state, &e))?;
     let remaining: BTreeMap<ProductId, Remaining> =
-        range::availability(&mut conn, day.id, &NoOrders)
+        range::availability(&mut conn, day.id, &Orders::new(state.clock.as_ref()))
             .await
             .map_err(|e| fail(state, &e))?
             .into_iter()
@@ -900,7 +913,14 @@ pub async fn charity(
             return field_error(&state, &session, &headers, &day, forms, "charity_id", text).await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match days::set_charity(&mut conn, day.id, charity.map(CharityId::new), &NoOrders).await {
+        match days::set_charity(
+            &mut conn,
+            day.id,
+            charity.map(CharityId::new),
+            &Orders::new(state.clock.as_ref()),
+        )
+        .await
+        {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }

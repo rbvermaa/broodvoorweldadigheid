@@ -21,7 +21,8 @@ live in `apps/server/src/backoffice/` and join the router in one place
 | `AppState` holds the clock (`Arc<dyn Clock>`, the system clock by default, `with_clock` for tests) | Status changes and archiving need "now"; tests set it |
 | The table component's `Cell` can be a link (`Cell::link`) | Lists open their item; the gallery shows it |
 | The design-system check also reads ids passed as `t(state, "…")`, `t_with` and `t_count` | The back office builds texts in Rust; a missing id must fail the check, not render as the id |
-| Until the orders slice lands, the screens pass `bakedays::NoOrders` | ADR 0008 |
+| Availability, extra production and the charity rule count orders through `orders::Orders` with the app clock, so a pending order holds capacity until its hold expires | ADR 0008, ADR 0012 |
+| The lead-time warning names the rule that sets the latest deadline: the bakery's sourdough deadline (`company.sourdough_deadline_*`) or a product's own lead time | Staff know what to change |
 
 Open:
 

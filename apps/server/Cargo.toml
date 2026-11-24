@@ -21,6 +21,7 @@ domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
 jiff.workspace = true
 notify = { path = "../../crates/notify" }
+orders = { path = "../../crates/orders" }
 rand.workspace = true
 serde.workspace = true
 sha2.workspace = true

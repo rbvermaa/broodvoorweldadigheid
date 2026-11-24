@@ -8,10 +8,9 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::capacity::Remaining;
-use bakedays::{
-    BakeDay, ExtraInput, NoOrders, ProductionExtra, ProductionExtraId, Purpose, extras, range,
-};
+use bakedays::{BakeDay, ExtraInput, ProductionExtra, ProductionExtraId, Purpose, extras, range};
 use domain::ProductId;
+use orders::Orders;
 use tower_sessions::Session;
 
 use super::bake_days::{self, bakedays_error, day_path, problem};
@@ -183,7 +182,7 @@ async fn render(
         .await
         .map_err(|e| fail(state, &e))?;
     let available: BTreeMap<ProductId, Remaining> =
-        range::availability(&mut conn, day.id, &NoOrders)
+        range::availability(&mut conn, day.id, &Orders::new(state.clock.as_ref()))
             .await
             .map_err(|e| fail(state, &e))?
             .into_iter()
@@ -347,7 +346,7 @@ pub async fn add(
             day.id,
             ProductId::new(product),
             &input,
-            &NoOrders,
+            &Orders::new(state.clock.as_ref()),
         )
         .await;
         drop(conn);
@@ -428,7 +427,13 @@ pub async fn update(
             note: note(&posted.2),
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let result = extras::update(&mut conn, extra.id, &input, &NoOrders).await;
+        let result = extras::update(
+            &mut conn,
+            extra.id,
+            &input,
+            &Orders::new(state.clock.as_ref()),
+        )
+        .await;
         drop(conn);
         match result {
             Ok(_) if is_htmx(&headers) => {
