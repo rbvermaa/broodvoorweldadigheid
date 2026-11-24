@@ -18,9 +18,10 @@ pub use ids::{
 };
 pub use money::{Money, MoneyError};
 pub use payment::{
-    CreatedPayment, CreatedRefund, FeeCursor, FeePage, IdempotencyKey, InvalidToken, NewPayment,
-    PaymentError, PaymentFee, PaymentMethod, PaymentProvider, PaymentSnapshot, PaymentStatus,
-    ProviderFuture, ProviderPaymentId, ProviderRefundId, RefundRequest, RefundStatus,
+    CreatedPayment, CreatedRefund, FeeCursor, FeeKind, FeePage, IdempotencyKey, InvalidToken,
+    NewPayment, PaymentError, PaymentFee, PaymentMethod, PaymentProvider, PaymentSnapshot,
+    PaymentStatus, ProviderFuture, ProviderPaymentId, ProviderRefundId, RefundRequest,
+    RefundStatus,
 };
 pub use pwyw::{InvalidPriceRange, PayWhatYouWant, PriceRefused};
 pub use totals::{Line, RateTotal, VatTotals};

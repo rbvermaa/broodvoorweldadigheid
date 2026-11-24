@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use domain::{
-    CreatedPayment, CreatedRefund, FeeCursor, FeePage, IdempotencyKey, Money, NewPayment,
+    CreatedPayment, CreatedRefund, FeeCursor, FeeKind, FeePage, IdempotencyKey, Money, NewPayment,
     PaymentError, PaymentFee, PaymentProvider, PaymentSnapshot, PaymentStatus, ProviderFuture,
     ProviderPaymentId, ProviderRefundId, RefundRequest, RefundStatus,
 };
@@ -235,6 +235,7 @@ impl FakePaymentProvider {
                 let fee = payment.fee?;
                 Some(PaymentFee {
                     payment: id.clone(),
+                    kind: FeeKind::Payment,
                     gross: payment.request.amount,
                     fee,
                     net: Money::from_cents(payment.request.amount.cents() - fee.cents()),
@@ -566,12 +567,14 @@ mod tests {
             [
                 PaymentFee {
                     payment: b,
+                    kind: FeeKind::Payment,
                     gross: Money::from_cents(450),
                     fee: Money::from_cents(32),
                     net: Money::from_cents(418),
                 },
                 PaymentFee {
                     payment: a,
+                    kind: FeeKind::Payment,
                     gross: Money::from_cents(1000),
                     fee: Money::from_cents(29),
                     net: Money::from_cents(971),

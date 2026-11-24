@@ -228,14 +228,25 @@ pub struct CreatedRefund {
     pub status: RefundStatus,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FeeKind {
+    Payment,
+    /// A charge for refunding the payment; `gross` and `net` are negative.
+    Refund,
+}
+
+/// The total fee for a payment is the sum of `fee` over all its entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaymentFee {
     pub payment: ProviderPaymentId,
-    /// What the customer paid.
+    pub kind: FeeKind,
+    /// The amount moved before deductions: what the customer paid, or minus what was
+    /// refunded.
     pub gross: Money,
-    /// What the provider kept; positive.
+    /// What the provider charged; zero or positive.
     pub fee: Money,
-    /// What reached the balance: `gross - fee`.
+    /// What the balance changed by. Can differ from `gross - fee` when the provider
+    /// holds back a reserve.
     pub net: Money,
 }
 

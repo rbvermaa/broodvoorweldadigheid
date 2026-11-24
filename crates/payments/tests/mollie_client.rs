@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use domain::{
-    FeeCursor, IdempotencyKey, Money, NewPayment, OrderId, PaymentError, PaymentFee, PaymentMethod,
-    PaymentProvider, PaymentStatus, ProviderPaymentId, RefundRequest, RefundStatus,
+    FeeCursor, FeeKind, IdempotencyKey, Money, NewPayment, OrderId, PaymentError, PaymentFee,
+    PaymentMethod, PaymentProvider, PaymentStatus, ProviderPaymentId, RefundRequest, RefundStatus,
 };
 use payments::{ApiKey, MollieClient, MollieConfig, MollieOptions, OrganizationToken};
 use serde_json::{Value, json};
@@ -540,9 +540,10 @@ fn transactions_page() -> Value {
                 "resource": "balance-transaction",
                 "id": "baltr_2",
                 "type": "refund",
-                "resultAmount": { "currency": "EUR", "value": "-4.50" },
+                "resultAmount": { "currency": "EUR", "value": "-4.75" },
                 "initialAmount": { "currency": "EUR", "value": "-4.50" },
-                "deductions": null,
+                "deductions": { "currency": "EUR", "value": "-0.25" },
+                "deductionDetails": { "fees": { "currency": "EUR", "value": "-0.25" } },
                 "context": { "paymentId": "tr_5B8cwPMGnU", "refundId": "re_1" }
             },
             {
@@ -580,18 +581,28 @@ async fn payment_fees_from_balance_transactions() {
         [
             PaymentFee {
                 payment: tr("tr_5B8cwPMGnU"),
+                kind: FeeKind::Payment,
                 gross: Money::from_cents(1000),
                 fee: Money::from_cents(29),
                 net: Money::from_cents(971),
             },
             PaymentFee {
+                payment: tr("tr_5B8cwPMGnU"),
+                kind: FeeKind::Refund,
+                gross: Money::from_cents(-450),
+                fee: Money::from_cents(25),
+                net: Money::from_cents(-475),
+            },
+            PaymentFee {
                 payment: tr("tr_second1"),
+                kind: FeeKind::Payment,
                 gross: Money::from_cents(450),
                 fee: Money::from_cents(32),
                 net: Money::from_cents(418),
             },
             PaymentFee {
                 payment: tr("tr_free1"),
+                kind: FeeKind::Payment,
                 gross: Money::from_cents(300),
                 fee: Money::ZERO,
                 net: Money::from_cents(300),
@@ -601,19 +612,31 @@ async fn payment_fees_from_balance_transactions() {
     assert_eq!(page.next, Some(FeeCursor::new("baltr_5").unwrap()));
 
     let next = client.list_payment_fees(page.next.as_ref()).await.unwrap();
-    assert_eq!(next.fees.len(), 3);
+    assert_eq!(next.fees.len(), 4);
     let requests = server.requests();
     assert_eq!(
         requests[0].target,
-        "/v2/balances/primary/transactions?limit=250"
+        "/v2/balances/primary/transactions?limit=250&testmode=true"
     );
     assert_eq!(
         requests[1].target,
-        "/v2/balances/primary/transactions?limit=250&from=baltr_5"
+        "/v2/balances/primary/transactions?limit=250&testmode=true&from=baltr_5"
     );
     assert_eq!(
         requests[0].header("authorization"),
         Some(format!("Bearer {TOKEN}").as_str())
+    );
+
+    let live = MollieClient::new(
+        ApiKey::new("live_abc").unwrap(),
+        Some(OrganizationToken::new(TOKEN).unwrap()),
+        options(&server),
+    )
+    .unwrap();
+    live.list_payment_fees(None).await.unwrap();
+    assert_eq!(
+        server.requests()[2].target,
+        "/v2/balances/primary/transactions?limit=250"
     );
 }
 
@@ -662,11 +685,12 @@ async fn last_fee_page_and_bad_transactions() {
         page.fees,
         [PaymentFee {
             payment: tr("tr_ok1"),
+            kind: FeeKind::Payment,
             gross: Money::from_cents(100),
-            fee: Money::from_cents(25),
+            fee: Money::ZERO,
             net: Money::from_cents(75),
         }],
-        "odd transactions are skipped; empty details fall back to deductions"
+        "odd transactions are skipped; reservations are not fees"
     );
 
     let bad_pages = [

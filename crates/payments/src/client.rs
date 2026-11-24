@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use domain::{
-    CreatedPayment, CreatedRefund, FeeCursor, FeePage, IdempotencyKey, Money, NewPayment, OrderId,
-    PaymentError, PaymentFee, PaymentProvider, PaymentSnapshot, PaymentStatus, ProviderFuture,
-    ProviderPaymentId, ProviderRefundId, RefundRequest, RefundStatus,
+    CreatedPayment, CreatedRefund, FeeCursor, FeeKind, FeePage, IdempotencyKey, Money, NewPayment,
+    OrderId, PaymentError, PaymentFee, PaymentProvider, PaymentSnapshot, PaymentStatus,
+    ProviderFuture, ProviderPaymentId, ProviderRefundId, RefundRequest, RefundStatus,
 };
 use reqwest::{Method, StatusCode, Url};
 use serde::Deserialize;
@@ -308,6 +308,9 @@ impl MollieClient {
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("limit", FEE_PAGE_SIZE);
+            if self.api_key.is_test() {
+                query.append_pair("testmode", "true");
+            }
             if let Some(cursor) = cursor {
                 query.append_pair("from", cursor.as_str());
             }
@@ -572,20 +575,20 @@ impl WireTransaction {
     /// Mollie reports deductions as negative amounts; the fee is what Mollie charged
     /// (fees plus commissions), not reservations or repayments.
     fn into_fee(self) -> Result<Option<PaymentFee>, PaymentError> {
-        if self.kind != "payment" {
-            return Ok(None);
-        }
+        let kind = match self.kind.as_str() {
+            "payment" => FeeKind::Payment,
+            "refund" => FeeKind::Refund,
+            _ => return Ok(None),
+        };
         let payment = self
             .context
             .and_then(|context| context.payment_id)
-            .ok_or_else(|| invalid("payment transaction without paymentId"))?;
+            .ok_or_else(|| invalid("transaction without paymentId"))?;
         let charged = match &self.deduction_details {
-            Some(details) if details.fees.is_some() || details.commissions.is_some() => {
-                optional_money(details.fees.as_ref())?
-                    .checked_add(optional_money(details.commissions.as_ref())?)
-                    .map_err(|_| invalid("fee out of range"))?
-            }
-            _ => optional_money(self.deductions.as_ref())?,
+            Some(details) => optional_money(details.fees.as_ref())?
+                .checked_add(optional_money(details.commissions.as_ref())?)
+                .map_err(|_| invalid("fee out of range"))?,
+            None => optional_money(self.deductions.as_ref())?,
         };
         let fee = charged
             .checked_neg()
@@ -595,6 +598,7 @@ impl WireTransaction {
         }
         Ok(Some(PaymentFee {
             payment: payment_id(&payment)?,
+            kind,
             gross: self.initial_amount.money()?,
             fee,
             net: self.result_amount.money()?,
