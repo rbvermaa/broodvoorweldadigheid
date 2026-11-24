@@ -2068,7 +2068,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "testkit",
- "thiserror",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
