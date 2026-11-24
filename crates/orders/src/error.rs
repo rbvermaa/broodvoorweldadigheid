@@ -74,3 +74,32 @@ impl From<db::time::OutOfRange> for Error {
         Self::Corrupt(err.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lower_errors_keep_their_meaning() {
+        let product_id = ProductId::new(7);
+        assert!(matches!(
+            Error::from(bakedays::Error::CapacityExceeded {
+                product_id,
+                remaining: 2
+            }),
+            Error::CapacityExceeded { product_id: p, remaining: 2 } if p == product_id
+        ));
+        assert!(matches!(
+            Error::from(bakedays::Error::Db(sqlx::Error::RowNotFound)),
+            Error::Db(sqlx::Error::RowNotFound)
+        ));
+        assert!(matches!(
+            Error::from(bakedays::Error::Final),
+            Error::BakeDays(bakedays::Error::Final)
+        ));
+        assert!(matches!(
+            Error::from(db::time::OutOfRange("date")),
+            Error::Corrupt(text) if text == "date out of range"
+        ));
+    }
+}
