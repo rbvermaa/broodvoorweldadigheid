@@ -163,6 +163,8 @@ enum Outcome {
     Sent,
     Retry(Timestamp, String),
     Failed(String),
+    /// A secret link that ran out before the email went: expected, not an error.
+    Expired,
 }
 
 /// Sends up to `batch` due emails, oldest first. Each email is locked with
@@ -209,7 +211,7 @@ pub async fn send_pending(
         let attempts = due.attempts.saturating_add(1);
         let expired = due.expired;
         let outcome = match outgoing(due, now) {
-            Ok(_) if expired => Outcome::Failed("expired before it was sent".to_owned()),
+            Ok(_) if expired => Outcome::Expired,
             Ok(email) => match sender.send(&email).await {
                 Ok(()) => Outcome::Sent,
                 Err(SendError::Transient(error)) => match retry_at(now, attempts) {
@@ -251,8 +253,14 @@ pub async fn send_pending(
                 .await?;
                 report.retrying += 1;
             }
-            Outcome::Failed(error) => {
-                tracing::error!(outbox_id = id, attempts, "email failed for good");
+            outcome @ (Outcome::Failed(_) | Outcome::Expired) => {
+                let error = if let Outcome::Failed(error) = outcome {
+                    tracing::error!(outbox_id = id, attempts, "email failed for good");
+                    error
+                } else {
+                    tracing::info!(outbox_id = id, "email expired before it was sent");
+                    "expired before it was sent".to_owned()
+                };
                 sqlx::query!(
                     r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3,
                         text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
