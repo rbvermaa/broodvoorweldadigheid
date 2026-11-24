@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.status, d.charity_id FROM \"order\" o JOIN bake_day d ON d.id = o.bake_day_id\n        WHERE o.id = $1 FOR UPDATE OF o",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "charity_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "charity_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "a2b7a9f90d1d2a39ff3fb85d13291422a6da682ee7fdf0c37665bb3d8c28283c"
+}

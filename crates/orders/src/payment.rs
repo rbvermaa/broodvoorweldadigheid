@@ -10,6 +10,7 @@ use sqlx::{Acquire, PgConnection};
 use crate::Error;
 use crate::audit::{self, Actor, Entry};
 use crate::checkout::{DayFacts, lock_day, lock_slot};
+use crate::donations::{self, SavedDonation};
 use crate::order::{self, CancelReason, Order, OrderStatus};
 
 /// A completed payment, as the payment provider reports it.
@@ -89,10 +90,13 @@ pub struct Payment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PaidOutcome {
-    /// The order is paid. `allocation` is `None` on a drop without charity.
+    /// The order is paid. On a charity drop it has either an `allocation` or, when the
+    /// customer saved the donation (F4d), `saved` with the choose link for its email; on a
+    /// drop without charity neither.
     Paid {
         order: Order,
         allocation: Option<DonationAllocation>,
+        saved: Option<SavedDonation>,
     },
     /// This payment was reported before and accepted; nothing changed.
     AlreadyPaid(Order),
@@ -176,7 +180,8 @@ async fn find_payment(conn: &mut PgConnection, reference: &str) -> Result<Option
 
 /// Records a completed payment (F5) and, if the order can take it, moves the order from
 /// pending payment to paid with a donation allocation of the full amount for the drop's
-/// charity, or none on a drop without charity (F4c).
+/// charity or the one the customer chose, a saved donation, or none on a drop without
+/// charity (F4c, F4d).
 ///
 /// Every payment is stored, also one the order cannot take: then the payment is marked
 /// refund due with its [`RefundReason`] and a pending order is cancelled. Only a payment
@@ -310,15 +315,26 @@ pub async fn mark_paid(
         )
         .execute(&mut *tx)
         .await?;
-        let allocation = match day.charity_id.map(CharityId::new) {
-            Some(charity_id) => Some(allocate(&mut tx, id, charity_id, payment.amount, now).await?),
-            None => None,
+        let (allocation, saved) = match day.charity_id.map(CharityId::new) {
+            Some(drop_charity) => match donations::checkout_choice(&mut tx, id).await? {
+                (_, true) => (
+                    None,
+                    Some(donations::save(&mut tx, id, payment.amount, now, ACTOR).await?),
+                ),
+                (chosen, false) => {
+                    let charity_id = chosen.unwrap_or(drop_charity);
+                    let allocated = allocate(&mut tx, id, charity_id, payment.amount, now).await?;
+                    (Some(allocated), None)
+                }
+            },
+            None => (None, None),
         };
         let after = order::get(&mut tx, id).await?;
         record(&mut tx, &before, &after, "paid", &recorded, now).await?;
         PaidOutcome::Paid {
             order: after,
             allocation,
+            saved,
         }
     };
     tx.commit().await?;

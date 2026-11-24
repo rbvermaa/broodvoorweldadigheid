@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"order\" SET donation_charity_id = $2, donation_saved = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "484cbb33d1d4bf825a16f249c718151f6f7b790e5683910adf387f139920df5c"
+}

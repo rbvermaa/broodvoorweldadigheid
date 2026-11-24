@@ -83,6 +83,7 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
     let PaidOutcome::Paid {
         order: paid_order,
         allocation: Some(allocation),
+        saved: None,
     } = outcome
     else {
         panic!("{outcome:?}");
@@ -186,7 +187,7 @@ async fn a_normal_sale_earmarks_nothing_and_a_wrong_amount_goes_back(
         .await
         .unwrap();
     assert!(
-        matches!(&outcome, PaidOutcome::Paid { allocation: None, order } if order.status == OrderStatus::Paid),
+        matches!(&outcome, PaidOutcome::Paid { allocation: None, saved: None, order } if order.status == OrderStatus::Paid),
         "{outcome:?}"
     );
     assert!(allocations(&mut conn, order.id).await.unwrap().is_empty());

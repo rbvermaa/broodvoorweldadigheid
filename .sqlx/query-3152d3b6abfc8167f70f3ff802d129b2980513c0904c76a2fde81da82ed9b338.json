@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.date - date 'epoch' AS \"date_days!\", c.id, c.name\n        FROM bake_day d JOIN charity c ON c.id = d.charity_id\n        WHERE c.archived_at IS NULL AND d.online_ordering\n            AND d.status NOT IN ('cancelled', 'done')\n            AND d.date >= date 'epoch' + $1::integer\n        ORDER BY d.date, d.id\n        LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "3152d3b6abfc8167f70f3ff802d129b2980513c0904c76a2fde81da82ed9b338"
+}
