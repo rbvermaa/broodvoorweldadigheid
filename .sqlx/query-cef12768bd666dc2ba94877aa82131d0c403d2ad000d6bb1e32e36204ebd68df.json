@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT before ->> 'status' FROM audit_log\n        WHERE entity = 'order' AND entity_id = $1 AND action = $2\n        ORDER BY id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cef12768bd666dc2ba94877aa82131d0c403d2ad000d6bb1e32e36204ebd68df"
+}

@@ -27,6 +27,8 @@ pub enum Error {
         product_id: ProductId,
         remaining: u32,
     },
+    #[error("an order that is {0} cannot be picked up")]
+    NotPickable(crate::OrderStatus),
     #[error("the order to replace is no longer pending")]
     NotReplaceable,
     #[error("the order total is zero")]
