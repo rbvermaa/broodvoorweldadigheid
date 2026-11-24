@@ -36,6 +36,18 @@ services:
       - kanidm:/data
     networks: [internal]
 
+  # The cli lives in the backup image. Runs once per `up`; the server waits for it.
+  migrate:
+    image: bvw-backup:${BVW_IMAGE_TAG:-dev}
+    restart: "no"
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    command: [migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   server:
     image: bvw-server:${BVW_IMAGE_TAG:-dev}
     restart: unless-stopped
@@ -46,6 +58,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [internal]
     healthcheck:
       test: ["CMD", "server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]

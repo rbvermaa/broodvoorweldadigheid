@@ -113,12 +113,23 @@ fn bare_server_error(state: &AppState) -> Response {
         .into_response()
 }
 
-pub async fn home(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
+/// The shop's htmx actions need a CSRF token, so the home page starts a session.
+pub async fn home(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    session: tower_sessions::Session,
+) -> Response {
+    let token = match crate::csrf::token(&session).await {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::error!(%error, "cannot start a session");
+            return self::error(&state, StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
     render(
         &state,
         StatusCode::OK,
         &Home {
-            layout: Layout::new(&state),
+            layout: Layout::new(&state).with_csrf_token(token),
         },
     )
 }

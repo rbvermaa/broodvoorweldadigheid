@@ -93,9 +93,9 @@ fn header(reply: &Reply, name: impl axum::http::header::AsHeaderName) -> &str {
         .unwrap_or_default()
 }
 
-#[tokio::test]
-async fn home_renders_dutch_text_through_the_layout() {
-    let app = server::router(state(unused_pool()));
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn home_renders_dutch_text_through_the_layout(pool: PgPool) {
+    let app = server::router(state(pool));
     let reply = get_path(&app, "/").await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(header(&reply, CONTENT_TYPE), "text/html; charset=utf-8");
@@ -125,13 +125,18 @@ async fn home_renders_dutch_text_through_the_layout() {
             asset.name
         );
     }
-    assert!(!reply.body.contains("csrf-token"), "home has no form");
+    let cookie = header(&reply, SET_COOKIE);
+    assert!(
+        cookie.starts_with("bvw_session="),
+        "home starts a session: {cookie}"
+    );
+    assert!(reply.body.contains("<meta name=\"csrf-token\" content=\""));
 }
 
 #[tokio::test]
-async fn anonymous_pages_set_no_cookie() {
+async fn assets_and_unknown_pages_set_no_cookie() {
     let app = server::router(state(unused_pool()));
-    for path in ["/", "/static/app.css", "/nope"] {
+    for path in ["/static/app.css", "/nope", "/health"] {
         let reply = get_path(&app, path).await;
         assert!(reply.headers.get(SET_COOKIE).is_none(), "{path}");
     }
