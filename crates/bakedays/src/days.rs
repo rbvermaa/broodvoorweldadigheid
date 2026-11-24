@@ -433,12 +433,21 @@ pub async fn list_between(
     .collect()
 }
 
+async fn has_slots(conn: &mut PgConnection, id: BakeDayId) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM pickup_slot WHERE bake_day_id = $1) AS "exists!""#,
+        id.get(),
+    )
+    .fetch_one(conn)
+    .await?)
+}
+
 /// Changes the times of one drop and whether it sells online.
 ///
 /// # Errors
-/// [`Error::NotFound`], [`Error::Final`], or [`Error::Invalid`]: an online day needs a
-/// deadline, opens before it, and a production-only day has no opening time and cannot
-/// be open.
+/// [`Error::NotFound`], [`Error::Final`], [`Error::NoPickupSlot`] for an online day without
+/// pickup slots, or [`Error::Invalid`]: an online day needs a deadline, opens before it,
+/// and a production-only day has no opening time and cannot be open.
 pub async fn update_schedule(
     conn: &mut PgConnection,
     id: BakeDayId,
@@ -450,6 +459,9 @@ pub async fn update_schedule(
     day.ensure_editable()?;
     if !schedule.online_ordering && day.status == BakeDayStatus::Open {
         return Err(Error::Invalid("production-only while open"));
+    }
+    if schedule.online_ordering && !has_slots(&mut tx, id).await? {
+        return Err(Error::NoPickupSlot);
     }
     sqlx::query!(
         r#"UPDATE bake_day SET online_ordering = $2,
@@ -523,6 +535,9 @@ async fn transition(
     let mut tx = conn.begin().await?;
     let day = get_for_update(&mut tx, id).await?;
     let next = status::next_status(day.status_facts(), transition, clock.now())?;
+    if transition == Transition::Open && !has_slots(&mut tx, id).await? {
+        return Err(Error::NoPickupSlot);
+    }
     sqlx::query!(
         "UPDATE bake_day SET status = $2, cancel_message = $3 WHERE id = $1",
         id.get(),
@@ -539,7 +554,8 @@ async fn transition(
 /// Opens ordering: draft to open, before the deadline.
 ///
 /// # Errors
-/// [`Error::NotFound`] or [`Error::Transition`].
+/// [`Error::NotFound`], [`Error::Transition`], or [`Error::NoPickupSlot`] when customers
+/// could not pick up.
 pub async fn open(
     conn: &mut PgConnection,
     clock: &dyn Clock,

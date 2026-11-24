@@ -105,13 +105,12 @@ pub fn routes() -> Router<AppState> {
         .route("/staff/bake-days/{id}/charity", post(bake_days::charity))
         .route("/staff/bake-days/{id}/range", post(bake_days::set_product))
         .route(
+            "/staff/bake-days/{id}/range/{product}",
+            post(bake_days::update_product),
+        )
+        .route(
             "/staff/bake-days/{id}/range/{product}/remove",
             post(bake_days::remove_product),
-        )
-        .route("/staff/bake-days/{id}/pools", post(bake_days::create_pool))
-        .route(
-            "/staff/bake-days/{id}/pools/{pool}",
-            post(bake_days::resize_pool),
         )
         .route("/staff/bake-days/{id}/copy", post(bake_days::copy))
         .route("/staff/bake-days/{id}/repeat", post(bake_days::repeat))

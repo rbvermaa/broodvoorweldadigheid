@@ -222,6 +222,58 @@ async fn production_only_days_never_open(mut conn: PoolConnection<Postgres>) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_pickup_slots_never_sells_online(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-26T12:00:00Z"));
+    let friday = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-10-30"),
+            bake_starts_at: ts("2026-10-30T03:00:00Z"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert!(
+        days::list_slots(&mut conn, friday.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let online = Schedule {
+        online_ordering: true,
+        cutoff_at: Some(ts("2026-10-28T19:00:00Z")),
+        ..schedule_of(&friday)
+    };
+    assert!(matches!(
+        days::update_schedule(&mut conn, friday.id, &online).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert!(
+        !days::get(&mut conn, friday.id)
+            .await
+            .unwrap()
+            .online_ordering
+    );
+
+    sqlx::query(
+        "UPDATE bake_day SET online_ordering = true, cutoff_at = '2026-10-28T19:00:00Z' WHERE id = $1",
+    )
+    .bind(friday.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    assert!(matches!(
+        days::open(&mut conn, &clock, friday.id).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert_eq!(
+        days::get(&mut conn, friday.id).await.unwrap().status,
+        BakeDayStatus::Draft
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn status_moves_through_the_state_machine(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new(ts("2026-10-29T18:59:59Z"));
     let day = create_day(&mut conn, &saturday()).await;

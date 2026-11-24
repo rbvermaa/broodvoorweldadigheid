@@ -1,4 +1,4 @@
-//! Bake days: create, schedule, charity, range, capacity pools, copy and repeat, and
+//! Bake days: create, schedule, charity, range, copy and repeat, and
 //! opening and closing ordering (F1, F1a, F3, F4c).
 
 use std::collections::BTreeMap;
@@ -11,11 +11,9 @@ use axum::response::Response;
 use bakedays::capacity::Remaining;
 use bakedays::schedule::LeadTimeRule;
 use bakedays::status::TransitionRefused;
-use bakedays::{
-    BakeDay, BakeDayProduct, BakeDayStatus, CapacityPool, NewBakeDay, Schedule, days, pickup, range,
-};
+use bakedays::{BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, Schedule, days, pickup, range};
 use catalog::{Charity, Product, charities, products};
-use domain::{BakeDayId, CapacityPoolId, CharityId, PickupLocationId, ProductId};
+use domain::{BakeDayId, CharityId, PickupLocationId, ProductId};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use orders::Orders;
@@ -58,11 +56,9 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
                     ("production_only", "day-error-production-only-open")
                 }
                 "charity" => ("charity_id", "day-error-charity-unknown"),
-                "pool name" => ("pool_name", "pool-error-name"),
-                "duplicate pool name" => ("pool_name", "pool-error-duplicate"),
                 "units per item" => ("units", "range-error-units"),
                 "product" => ("product_id", "range-error-product"),
-                "capacity pool" => ("pool_id", "range-error-pool"),
+                "maximum" => ("max_qty", "form-error-count"),
                 "number of weeks" => ("weeks", "day-error-weeks"),
                 "quantity" => ("qty", "extra-error-qty"),
                 "date" => ("date", "form-error-date"),
@@ -96,6 +92,7 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
         E::CharityArchived => ("charity_id", t(state, "day-error-charity-archived")),
         E::OrdersExist => ("charity_id", t(state, "day-error-orders-exist")),
         E::Final => ("", t(state, "day-error-final")),
+        E::NoPickupSlot => ("production_only", t(state, "day-error-no-pickup-slot")),
         E::Transition(refused) => ("", t(state, transition_message(*refused))),
         E::CapacityExceeded { remaining, .. } => {
             ("qty", t_count(state, "extra-error-capacity", *remaining))
@@ -420,10 +417,10 @@ pub struct DayForms {
     pub charity_id: String,
     pub product_id: String,
     pub max_qty: String,
-    pub pool_id: String,
     pub units: String,
-    pub pool_name: String,
-    pub pool_max: String,
+    pub edit_product: String,
+    pub edit_max_qty: String,
+    pub edit_units: String,
     pub copy_date: String,
     pub weeks: String,
 }
@@ -443,10 +440,10 @@ impl DayForms {
                 .unwrap_or_default(),
             product_id: String::new(),
             max_qty: String::new(),
-            pool_id: String::new(),
             units: "1".to_owned(),
-            pool_name: String::new(),
-            pool_max: String::new(),
+            edit_product: String::new(),
+            edit_max_qty: String::new(),
+            edit_units: String::new(),
             copy_date: String::new(),
             weeks: String::new(),
         }
@@ -455,16 +452,15 @@ impl DayForms {
 
 pub struct RangeRow {
     pub text: String,
+    pub name: String,
+    pub edit: String,
+    pub max_field: String,
+    pub max_qty: String,
+    pub units_field: String,
+    pub units: String,
     pub dialog: String,
     pub action: String,
     pub confirm: String,
-}
-
-pub struct PoolRow {
-    pub field: String,
-    pub label: String,
-    pub value: String,
-    pub action: String,
 }
 
 pub struct Action {
@@ -490,9 +486,7 @@ struct DayPage<'a> {
     errors: Errors,
     charities: Vec<SelectOption>,
     product_options: Vec<SelectOption>,
-    pool_options: Vec<SelectOption>,
     range: Vec<RangeRow>,
-    pools: Vec<PoolRow>,
     actions: Vec<Action>,
 }
 
@@ -553,30 +547,13 @@ fn range_text(
     state: &AppState,
     name: &str,
     item: &BakeDayProduct,
-    pools: &[CapacityPool],
     remaining: Option<Remaining>,
 ) -> String {
     let max = item.max_qty.map_or_else(
         || t(state, "range-no-max"),
         |n| t_count(state, "range-max", n),
     );
-    let pool = item
-        .capacity_pool_id
-        .and_then(|id| pools.iter().find(|p| p.id == id))
-        .map(|p| {
-            t_with(
-                state,
-                "range-in-pool",
-                &[
-                    ("pool", p.name.clone()),
-                    ("units", item.units_per_item.to_string()),
-                ],
-            )
-        });
-    let mut parts = vec![name.to_owned(), max];
-    parts.extend(pool);
-    parts.push(remaining_text(state, remaining));
-    parts.join(" · ")
+    [name.to_owned(), max, remaining_text(state, remaining)].join(" · ")
 }
 
 async fn lead_time_alert(
@@ -672,9 +649,6 @@ async fn render_day(
     let items = range::list_products(&mut conn, day.id)
         .await
         .map_err(|e| fail(state, &e))?;
-    let pools = range::list_pools(&mut conn, day.id)
-        .await
-        .map_err(|e| fail(state, &e))?;
     let remaining: BTreeMap<ProductId, Remaining> =
         range::availability(&mut conn, day.id, &Orders::new(state.clock.as_ref()))
             .await
@@ -715,48 +689,40 @@ async fn render_day(
         .iter()
         .map(|item| {
             let name = product_name(&names, item.product_id);
+            let id = item.product_id.get();
+            let (max_qty, units) = if forms.edit_product == id.to_string() {
+                (forms.edit_max_qty.clone(), forms.edit_units.clone())
+            } else {
+                (
+                    item.max_qty.map(|n| n.to_string()).unwrap_or_default(),
+                    item.units_per_item.to_string(),
+                )
+            };
             RangeRow {
-                text: range_text(
-                    state,
-                    &name,
-                    item,
-                    &pools,
-                    remaining.get(&item.product_id).copied(),
-                ),
-                dialog: format!("remove-{}", item.product_id.get()),
-                action: format!("{path}/range/{}/remove", item.product_id.get()),
+                text: range_text(state, &name, item, remaining.get(&item.product_id).copied()),
+                edit: format!("{path}/range/{id}"),
+                max_field: format!("max_qty_{id}"),
+                max_qty,
+                units_field: format!("units_{id}"),
+                units,
+                dialog: format!("remove-{id}"),
+                action: format!("{path}/range/{id}/remove"),
                 confirm: t_with(
                     state,
                     "range-remove-text",
-                    &[("product", name), ("date", date.clone())],
+                    &[("product", name.clone()), ("date", date.clone())],
                 ),
+                name,
             }
-        })
-        .collect();
-    let pool_rows = pools
-        .iter()
-        .map(|p| PoolRow {
-            field: format!("pool_{}", p.id.get()),
-            label: p.name.clone(),
-            value: p.max_units.to_string(),
-            action: format!("{path}/pools/{}", p.id.get()),
         })
         .collect();
     let product_options = all_products
         .iter()
-        .filter(|p| p.active)
+        .filter(|p| p.active && !items.iter().any(|item| item.product_id == p.id))
         .map(|p| SelectOption {
             value: p.id.get().to_string(),
             label: p.name_nl.clone(),
             selected: p.id.get().to_string() == forms.product_id,
-        })
-        .collect();
-    let pool_options = pools
-        .iter()
-        .map(|p| SelectOption {
-            value: p.id.get().to_string(),
-            label: p.name.clone(),
-            selected: p.id.get().to_string() == forms.pool_id,
         })
         .collect();
     let mut alerts = answer.alerts;
@@ -779,9 +745,7 @@ async fn render_day(
             forms,
             errors: answer.errors,
             product_options,
-            pool_options,
             range: range_rows,
-            pools: pool_rows,
             actions: actions(state, day, &date),
             path,
         },
@@ -933,6 +897,55 @@ pub async fn charity(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
+#[derive(Clone, Copy)]
+enum Limit {
+    Max,
+    Units,
+}
+
+/// A product's limits as posted; an empty maximum means none.
+fn parse_limits(
+    state: &AppState,
+    max_qty: &str,
+    units: &str,
+) -> Result<(Option<u32>, u32), (Limit, String)> {
+    let max_qty = if max_qty.is_empty() {
+        None
+    } else if let Some(n) = parse_count(max_qty) {
+        Some(n)
+    } else {
+        return Err((Limit::Max, t(state, "form-error-count")));
+    };
+    let Some(units) = parse_count(units).filter(|n| *n > 0) else {
+        return Err((Limit::Units, t(state, "range-error-units")));
+    };
+    Ok((max_qty, units))
+}
+
+/// Puts a product on the day. A product already on it keeps its capacity pool.
+async fn put_product(
+    state: &AppState,
+    day: BakeDayId,
+    product: ProductId,
+    max_qty: Option<u32>,
+    units: u32,
+) -> Step<Result<(), bakedays::Error>> {
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    let result = match range::update_product(&mut conn, day, product, max_qty, units).await {
+        Err(bakedays::Error::NotFound) => {
+            let item = BakeDayProduct {
+                product_id: product,
+                max_qty,
+                capacity_pool_id: None,
+                units_per_item: units,
+            };
+            range::set_product(&mut conn, day, &item).await
+        }
+        other => other,
+    };
+    Ok(result)
+}
+
 pub async fn set_product(
     State(state): State<AppState>,
     staff: Staff,
@@ -947,43 +960,108 @@ pub async fn set_product(
         let mut forms = DayForms::of(&day);
         forms.product_id = fields.text("product_id").to_owned();
         forms.max_qty = fields.text("max_qty").to_owned();
-        forms.pool_id = fields.text("pool_id").to_owned();
         forms.units = fields.text("units").to_owned();
         let Ok(Some(product)) = optional_id(&forms.product_id) else {
             let text = t(&state, "range-error-product");
             return field_error(&state, &session, &headers, &day, forms, "product_id", text).await;
         };
-        let max_qty = if forms.max_qty.is_empty() {
-            None
-        } else if let Some(n) = parse_count(&forms.max_qty) {
-            Some(n)
-        } else {
-            let text = t(&state, "form-error-count");
-            return field_error(&state, &session, &headers, &day, forms, "max_qty", text).await;
+        let (max_qty, units) = match parse_limits(&state, &forms.max_qty, &forms.units) {
+            Ok(limits) => limits,
+            Err((limit, text)) => {
+                let field = match limit {
+                    Limit::Max => "max_qty",
+                    Limit::Units => "units",
+                };
+                return field_error(&state, &session, &headers, &day, forms, field, text).await;
+            }
         };
-        let Ok(pool) = optional_id(&forms.pool_id) else {
-            let text = t(&state, "range-error-pool");
-            return field_error(&state, &session, &headers, &day, forms, "pool_id", text).await;
-        };
-        let Some(units) = parse_count(&forms.units).filter(|n| *n > 0) else {
-            let text = t(&state, "range-error-units");
-            return field_error(&state, &session, &headers, &day, forms, "units", text).await;
-        };
-        let item = BakeDayProduct {
-            product_id: ProductId::new(product),
-            max_qty,
-            capacity_pool_id: pool.map(CapacityPoolId::new),
-            units_per_item: units,
-        };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let result = range::set_product(&mut conn, day.id, &item).await;
-        drop(conn);
-        match result {
+        match put_product(&state, day.id, ProductId::new(product), max_qty, units).await? {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Changes the limits of a product already on the day, from its own form in the range.
+pub async fn update_product(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path((id, product)): Path<(String, String)>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::ManageBakeDays)?;
+        let day = load(&state, &id).await?;
+        let product = ProductId::new(path_id(&state, &product)?);
+        let key = product.get();
+        let max_field = format!("max_qty_{key}");
+        let units_field = format!("units_{key}");
+        let mut forms = DayForms::of(&day);
+        forms.edit_product = key.to_string();
+        forms.edit_max_qty = fields.text(&max_field).to_owned();
+        forms.edit_units = fields.text(&units_field).to_owned();
+        let field_of = |limit: Limit| match limit {
+            Limit::Max => max_field.clone(),
+            Limit::Units => units_field.clone(),
+        };
+        let (max_qty, units) = match parse_limits(&state, &forms.edit_max_qty, &forms.edit_units) {
+            Ok(limits) => limits,
+            Err((limit, text)) => {
+                let field = field_of(limit);
+                return row_refused(&state, &session, &headers, &day, forms, &field, text).await;
+            }
+        };
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let result = range::update_product(&mut conn, day.id, product, max_qty, units).await;
+        drop(conn);
+        let error = match result {
+            Ok(()) => return Ok(saved(&headers, &day_path(day.id))),
+            Err(error) => error,
+        };
+        let Some(problem) = problem(&state, &error) else {
+            return Err(bakedays_error(&state, &error).into());
+        };
+        let field = match problem.field {
+            "max_qty" => field_of(Limit::Max),
+            "units" => field_of(Limit::Units),
+            _ => String::new(),
+        };
+        row_refused(
+            &state,
+            &session,
+            &headers,
+            &day,
+            forms,
+            &field,
+            problem.text,
+        )
+        .await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// The page again with `text` under the range row's `field`, or on top when `field` is
+/// empty.
+async fn row_refused(
+    state: &AppState,
+    session: &Session,
+    headers: &HeaderMap,
+    day: &BakeDay,
+    forms: DayForms,
+    field: &str,
+    text: String,
+) -> Outcome {
+    let mut answer = Answer::plain(false);
+    answer.forms = Some(forms);
+    if field.is_empty() {
+        answer.problem = text;
+    } else {
+        answer.errors.add(field, text);
+    }
+    render_day(state, session, invalid_status(headers), day, answer).await
 }
 
 pub async fn remove_product(
@@ -1003,77 +1081,6 @@ pub async fn remove_product(
         match result {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => transition_refused(&state, &session, &headers, &day, &error).await,
-        }
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-pub async fn create_pool(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Form(fields): Form<Fields>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::ManageBakeDays)?;
-        let day = load(&state, &id).await?;
-        let mut forms = DayForms::of(&day);
-        forms.pool_name = fields.text("pool_name").to_owned();
-        forms.pool_max = fields.text("pool_max").to_owned();
-        let Some(max) = parse_count(&forms.pool_max) else {
-            let text = t(&state, "form-error-count");
-            return field_error(&state, &session, &headers, &day, forms, "pool_max", text).await;
-        };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let result = range::create_pool(&mut conn, day.id, &forms.pool_name, max).await;
-        drop(conn);
-        match result {
-            Ok(_) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
-        }
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-pub async fn resize_pool(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    headers: HeaderMap,
-    Path((id, pool)): Path<(String, String)>,
-    Form(fields): Form<Fields>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::ManageBakeDays)?;
-        let day = load(&state, &id).await?;
-        let pool = CapacityPoolId::new(path_id(&state, &pool)?);
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let pools = range::list_pools(&mut conn, day.id)
-            .await
-            .map_err(|e| fail(&state, &e))?;
-        if !pools.iter().any(|p| p.id == pool) {
-            return Err(not_found(&state).into());
-        }
-        let field = format!("pool_{}", pool.get());
-        let Some(max) = parse_count(fields.text(&field)) else {
-            drop(conn);
-            let answer = Answer::refused(
-                None,
-                Problem {
-                    field: "",
-                    text: t(&state, "pool-error-size"),
-                },
-            );
-            return render_day(&state, &session, invalid_status(&headers), &day, answer).await;
-        };
-        match range::resize_pool(&mut conn, pool, max).await {
-            Ok(()) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => {
-                drop(conn);
-                refused(&state, &session, &headers, &day, None, &error).await
-            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)

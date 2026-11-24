@@ -127,6 +127,32 @@ async fn range_products_are_set_replaced_and_removed(mut conn: PoolConnection<Po
             "{input:?}"
         );
     }
+    let pool = range::create_pool(&mut conn, day.id, "Oven", 10)
+        .await
+        .unwrap();
+    range::set_product(&mut conn, day.id, &on_day(bread, None, Some(pool.id), 1))
+        .await
+        .unwrap();
+    range::update_product(&mut conn, day.id, bread, Some(4), 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        range::list_products(&mut conn, day.id).await.unwrap(),
+        [on_day(bread, Some(4), Some(pool.id), 2)]
+    );
+    for (product, max_qty, units) in [
+        (ProductId::new(999), None, 1),
+        (bread, None, 0),
+        (bread, Some(u32::MAX), 1),
+    ] {
+        assert!(
+            matches!(
+                range::update_product(&mut conn, day.id, product, max_qty, units).await,
+                Err(Error::Invalid(_))
+            ),
+            "{product:?} {max_qty:?} {units}"
+        );
+    }
     range::remove_product(&mut conn, day.id, bread)
         .await
         .unwrap();
@@ -134,6 +160,16 @@ async fn range_products_are_set_replaced_and_removed(mut conn: PoolConnection<Po
         range::remove_product(&mut conn, day.id, bread).await,
         Err(Error::NotFound)
     ));
+    assert!(matches!(
+        range::update_product(&mut conn, day.id, bread, None, 1).await,
+        Err(Error::NotFound)
+    ));
+    assert!(
+        range::list_products(&mut conn, day.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

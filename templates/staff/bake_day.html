@@ -54,6 +54,15 @@
 <ul>
 {%- for row in range %}
 <li>{{ row.text }}
+<form method="post" action="{{ row.edit }}">
+{% call s::csrf() %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ row.name }}</legend>
+{% call f::field("number", row.max_field, layout.t("range-max-qty")?, value = row.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get(row.max_field)) %}{% endcall %}
+{% call f::field("number", row.units_field, layout.t("range-units")?, value = row.units, error = errors.get(row.units_field), required = true) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</fieldset>
+</form>
 {% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog) %}{% endcall %}
 {% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}
 </li>
@@ -64,26 +73,10 @@
 {% call s::csrf() %}{% endcall %}
 {% call f::select("product_id", layout.t("range-product")?, product_options, hint = layout.t("range-product-hint")?, error = errors.get("product_id"), required = true) %}{% endcall %}
 {% call f::field("number", "max_qty", layout.t("range-max-qty")?, value = forms.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get("max_qty")) %}{% endcall %}
-{% call f::select("pool_id", layout.t("range-pool")?, pool_options, hint = layout.t("range-pool-hint")?, error = errors.get("pool_id")) %}{% endcall %}
 {% call f::field("number", "units", layout.t("range-units")?, value = forms.units, hint = layout.t("range-units-hint")?, error = errors.get("units"), required = true) %}{% endcall %}
 {% call b::button(layout.t("range-add")?, kind = "submit") %}{% endcall %}
 </form>
 
-<h2>{{ layout.t("pools-title")? }}</h2>
-<p>{{ layout.t("pools-intro")? }}</p>
-{%- for pool in pools %}
-<form method="post" action="{{ pool.action }}">
-{% call s::csrf() %}{% endcall %}
-{% call f::field("number", pool.field, pool.label, value = pool.value, hint = layout.t("pool-size-hint")?) %}{% endcall %}
-{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
-</form>
-{%- endfor %}
-<form method="post" action="{{ path }}/pools">
-{% call s::csrf() %}{% endcall %}
-{% call f::field("text", "pool_name", layout.t("pool-name")?, value = forms.pool_name, hint = layout.t("pool-name-hint")?, error = errors.get("pool_name"), required = true) %}{% endcall %}
-{% call f::field("number", "pool_max", layout.t("pool-max")?, value = forms.pool_max, error = errors.get("pool_max"), required = true) %}{% endcall %}
-{% call b::button(layout.t("pool-add")?, kind = "submit") %}{% endcall %}
-</form>
 {% endif %}
 
 <h2>{{ layout.t("day-copy-title")? }}</h2>

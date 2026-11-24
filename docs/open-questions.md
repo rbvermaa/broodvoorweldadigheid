@@ -88,3 +88,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   prints through the official Niimbot app (ADR 0024).
 - [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
   **Answered 2026-11-24:** not needed; the owner dropped them.
+- [ ] **Spec F3 wording.** F3 still says "limits per product and per dough or oven-load
+  pool". The owner dropped pools on 2026-11-24 (ADR 0025). Update F3 to "a maximum per
+  product per bake day"?
