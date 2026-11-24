@@ -19,6 +19,8 @@ pub mod security;
 pub mod session;
 pub mod shop;
 pub mod site;
+pub mod staff;
+pub mod staff_session;
 pub mod state;
 #[cfg(test)]
 mod tokens;
@@ -30,7 +32,7 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router, middleware};
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -49,7 +51,13 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(pages::home))
         .merge(shop::routes())
         .merge(site)
-        .merge(alerts::routes(&state));
+        .merge(alerts::routes(&state))
+        .route("/staff", get(staff::home))
+        .route(staff::LOGIN_PATH, get(staff::login))
+        .route("/staff/logout", post(staff::logout));
+    if state.config.dev_staff_login {
+        routes = routes.route(staff::DEV_LOGIN_PATH, post(staff::dev_login));
+    }
     if state.config.gallery {
         routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
     }

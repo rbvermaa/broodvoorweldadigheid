@@ -32,6 +32,51 @@ pub enum Command {
         #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
         database_url: String,
     },
+    #[command(subcommand, about = "Staff who may log in to the back office (F13)")]
+    Staff(StaffCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StaffCommand {
+    #[command(about = "Let a person into the back office with a role; --sub is their Kanidm UUID")]
+    Add {
+        #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
+        database_url: String,
+        #[arg(long, env = "STAFF_SUB", value_parser = uuid_sub)]
+        sub: String,
+        #[arg(long, env = "STAFF_NAME", value_parser = trimmed)]
+        name: String,
+        #[arg(long, env = "STAFF_EMAIL", help = "optional; empty means none")]
+        email: Option<String>,
+        #[arg(long, env = "STAFF_ROLE", help = "owner, baker or counter")]
+        role: auth::Role,
+    },
+}
+
+/// Kanidm's `sub` is the person's UUID; anything else is most likely their user name.
+fn uuid_sub(raw: &str) -> Result<String, String> {
+    let sub = raw.trim().to_ascii_lowercase();
+    let groups: Vec<&str> = sub.split('-').collect();
+    let lengths = groups.iter().map(|group| group.len()).collect::<Vec<_>>();
+    let hex = groups
+        .iter()
+        .all(|group| group.bytes().all(|b| b.is_ascii_hexdigit()));
+    if hex && lengths == [8, 4, 4, 4, 12] {
+        Ok(sub)
+    } else {
+        Err(format!(
+            "{raw:?} is not a UUID; use the person's Kanidm UUID"
+        ))
+    }
+}
+
+fn trimmed(raw: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        Err("must not be empty".to_string())
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -87,6 +132,8 @@ pub enum Error {
     DevSecrets(#[from] dev_secrets::Error),
     #[error(transparent)]
     Db(#[from] db::Error),
+    #[error(transparent)]
+    Staff(#[from] auth::staff::Error),
 }
 
 pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode, Error> {
@@ -97,6 +144,35 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
             db::migrate(&pool).await?;
             pool.close().await;
             println!("migrations applied");
+        }
+        Command::Staff(StaffCommand::Add {
+            database_url,
+            sub,
+            name,
+            email,
+            role,
+        }) => {
+            let pool = db::connect(&database_url).await?;
+            let added = auth::staff::add(
+                &pool,
+                &auth::NewStaff {
+                    oidc_sub: sub,
+                    name,
+                    email: email
+                        .map(|email| email.trim().to_string())
+                        .filter(|email| !email.is_empty()),
+                    role,
+                },
+            )
+            .await;
+            pool.close().await;
+            let added = added?;
+            println!(
+                "added {} as {} (id {})",
+                added.name,
+                added.role,
+                added.id.get()
+            );
         }
         Command::DevSecrets { dir } => {
             for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
@@ -239,6 +315,109 @@ mod tests {
             panic!("expected dev-secrets, got {cli:?}");
         };
         assert_eq!(dir, PathBuf::from("deploy/secrets"));
+    }
+
+    #[test]
+    fn parses_staff_add_with_a_role() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db/bakflow",
+            "--sub",
+            "0D2F1F9E-1C2B-4E3A-9F00-123456789ABC",
+            "--name",
+            "Bas",
+            "--role",
+            "baker",
+        ])
+        .expect("valid arguments");
+        let Command::Staff(StaffCommand::Add {
+            sub, role, email, ..
+        }) = cli.command
+        else {
+            panic!("expected staff add, got {cli:?}");
+        };
+        assert_eq!(sub, "0d2f1f9e-1c2b-4e3a-9f00-123456789abc");
+        assert_eq!(role, auth::Role::Baker);
+        assert_eq!(email, None);
+
+        let error = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db",
+            "--sub",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789abc",
+            "--name",
+            "X",
+            "--role",
+            "admin",
+        ])
+        .expect_err("unknown role");
+        assert!(
+            error.to_string().contains("owner, baker or counter"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn staff_add_refuses_a_sub_that_is_no_uuid_and_a_blank_name() {
+        let parse = |sub: &str, name: &str| {
+            Cli::try_parse_from([
+                "cli",
+                "staff",
+                "add",
+                "--database-url",
+                "postgres://db",
+                "--sub",
+                sub,
+                "--name",
+                name,
+                "--role",
+                "baker",
+            ])
+        };
+        for sub in [
+            "bas",
+            "",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789ab",
+            "0d2f1f9e1c2b4e3a9f00123456789abc",
+        ] {
+            let error = parse(sub, "Bas").expect_err(sub);
+            assert!(error.to_string().contains("not a UUID"), "{error}");
+        }
+        let error = parse("0d2f1f9e-1c2b-4e3a-9f00-123456789abc", "   ").expect_err("blank");
+        assert!(error.to_string().contains("must not be empty"), "{error}");
+        let cli =
+            parse(" 0d2f1f9e-1c2b-4e3a-9f00-123456789abc ", " Bas van 't Hof ").expect("valid");
+        let Command::Staff(StaffCommand::Add { sub, name, .. }) = cli.command else {
+            panic!("expected staff add");
+        };
+        assert_eq!(sub, "0d2f1f9e-1c2b-4e3a-9f00-123456789abc");
+        assert_eq!(name, "Bas van 't Hof");
+        let cli = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db",
+            "--sub",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789abc",
+            "--name",
+            "Bas",
+            "--role",
+            "baker",
+            "--email",
+            "",
+        ])
+        .expect("an empty email is allowed");
+        assert!(matches!(
+            cli.command,
+            Command::Staff(StaffCommand::Add { .. })
+        ));
     }
 
     #[test]

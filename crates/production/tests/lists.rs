@@ -82,9 +82,11 @@ async fn shop(conn: &mut PgConnection, clock: &FakeClock, date: &str) -> Shop {
 
 async fn product(conn: &mut PgConnection, name: &str, sold_online: bool) -> ProductId {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+         INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
             dough_g_per_piece, sold_online, allergens_approved_by, allergens_approved_at)
-         VALUES ($1, 450, 9, 800, 900, $2, 1, '2026-10-01T10:00:00Z') RETURNING id",
+         VALUES ($1, 450, 9, 800, 900, $2, (SELECT id FROM baker), '2026-10-01T10:00:00Z') RETURNING id",
     )
     .bind(name)
     .bind(sold_online)

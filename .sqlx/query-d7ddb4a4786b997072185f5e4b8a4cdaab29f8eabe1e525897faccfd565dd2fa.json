@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staff_user (oidc_sub, name, email, role)\n         SELECT $1, $2, $3, 'owner'\n         WHERE NOT EXISTS (SELECT 1 FROM staff_user WHERE role = 'owner')\n         ON CONFLICT (oidc_sub) DO NOTHING\n         RETURNING id AS \"id!\", oidc_sub AS \"oidc_sub!\", name AS \"name!\", email,\n            role AS \"role!\", active AS \"active!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "oidc_sub!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "oidc_sub"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "role!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "staff_user",
+            "name": "active"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "d7ddb4a4786b997072185f5e4b8a4cdaab29f8eabe1e525897faccfd565dd2fa"
+}
