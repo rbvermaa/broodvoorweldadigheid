@@ -225,9 +225,13 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
             pool.clone(),
             Arc::clone(&clock),
             jobs::Mail {
-                sender: Arc::new(testkit::FakeEmailSender::new()),
+                sender: Some(Arc::new(testkit::FakeEmailSender::new())),
                 i18n: Arc::new(i18n::Translator::dutch().unwrap()),
                 links: notify::subscribers::Links::new("https://broodvoorweldadigheid.nl"),
+                orders: Arc::new(jobs::OrderEmails::new(
+                    Arc::new(i18n::Translator::dutch().unwrap()),
+                    "https://shop.example.org",
+                )),
             },
             name.to_owned(),
             async {

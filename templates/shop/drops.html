@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "components/drop.html" as dr %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("drops-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("drops-title")? }}</h1>
+<p>{{ layout.t("drops-intro")? }}</p>
+{%- if drops.is_empty() %}
+{% call fb::empty_state(layout.t("drops-empty-title")?, layout.t("drops-empty-text")?) %}{% endcall %}
+{%- else %}
+<ul class="drop-list">
+{%- for drop in drops %}
+<li>{% call dr::drop_card(drop) %}{% endcall %}</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+<p><a href="/drops.ics">{{ layout.t("drops-ical")? }}</a></p>
+{% endblock %}

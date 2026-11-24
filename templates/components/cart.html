@@ -1,0 +1,37 @@
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
+{% import "components/table.html" as t %}
+
+{# cart: components::Cart. htmx swaps the whole panel (id "mandje") after every change. #}
+{% macro cart_panel(cart) %}
+<section class="cart" id="mandje" aria-labelledby="mandje-titel">
+<h2 class="cart-title" id="mandje-titel">{{ layout.icon("shopping-basket")? }}{{ layout.t("cart-title")? }}</h2>
+<div role="status">
+{%- if let Some(message) = cart.message %}
+{% call fb::alert(message.kind, message.text) %}{% endcall %}
+{%- endif %}
+</div>
+{%- if cart.lines.rows.is_empty() %}
+<p>{{ layout.t("cart-empty")? }}</p>
+{%- else %}
+{% call t::table(cart.lines) %}{% endcall %}
+<p class="cart-total"><span>{{ layout.t("cart-total")? }}</span>{% call p::price(cart.total_cents) %}{% endcall %}</p>
+<div class="cart-actions">
+{%- for remove in cart.removes %}
+<form method="post" action="{{ cart.action }}" hx-post="{{ cart.action }}" hx-target="#mandje" hx-swap="outerHTML">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+<input type="hidden" name="product" value="{{ remove.product_id }}">
+<input type="hidden" name="aantal-{{ remove.product_id }}" value="0">
+{% call b::button(remove.label, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{%- endfor %}
+</div>
+{%- if !cart.checkout.is_empty() %}
+<a class="button button-primary" href="{{ cart.checkout }}">{{ layout.t("cart-checkout")? }}</a>
+{%- endif %}
+{%- endif %}
+</section>
+{% endmacro %}

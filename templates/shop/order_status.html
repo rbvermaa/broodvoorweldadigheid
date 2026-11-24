@@ -1,0 +1,13 @@
+{% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
+<div id="bestelstatus"{% if !status.poll.is_empty() %} hx-get="{{ status.poll }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+{%- if !status.thanks.is_empty() %}
+<h2>{{ status.thanks }}</h2>
+{%- endif %}
+{% call fb::alert(status.kind, status.text) %}{% endcall %}
+<p>{{ status.number }}</p>
+<p class="cart-total"><span>{{ layout.t("order-total")? }}</span>{% call p::price(status.total_cents) %}{% endcall %}</p>
+{%- if !status.again.is_empty() %}
+<p><a class="button button-primary" href="{{ status.again }}">{{ layout.t("order-again")? }}</a></p>
+{%- endif %}
+</div>

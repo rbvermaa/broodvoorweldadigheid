@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ layout.t("order-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("order-title")? }}</h1>
+{% include "shop/order_status.html" %}
+{% endblock %}

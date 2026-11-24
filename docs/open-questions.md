@@ -38,6 +38,14 @@ Questions about the spec. The spec is only changed when the owner asks.
   **Answered 2026-11-24:** the warning now uses the owner's rule above, which matches the
   default Thursday 20:00 deadline, so default drops no longer warn.
 - [x] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
+- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
+  allergen data cannot be ordered, also not by staff. OK?
+- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
+  like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [ ] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
+  stays pending until its hold ends; the customer orders again from the drop page. Should
+  the status page offer "try paying again" for the same order within its hold instead?
+- [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
   **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
   icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
@@ -51,6 +59,10 @@ Questions about the spec. The spec is only changed when the owner asks.
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
+- [ ] **Company KvK number and address.** Order emails need both (Compliance), but the
+  `company` row has neither and there is no form yet. Until they are filled in, payments
+  go through without a confirmation email (ADR 0022). What are they, and should the
+  server refuse to start without them?
 - [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold

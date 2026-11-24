@@ -1,4 +1,5 @@
 {% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
 
 {% macro price(cents) %}
 <span class="price">{{ layout.money(cents) }}</span>
@@ -25,13 +26,37 @@
 <h3 class="product-name">{{ product.name }}</h3>
 <p class="product-description">{{ product.description }}</p>
 {% call price(product.price_cents) %}{% endcall %}
-{% call allergen_list(product.allergens) %}{% endcall %}
-{% call allergen_list(product.may_contain, true) %}{% endcall %}
+{%- if let Some(allergens) = product.allergens %}
+{% call allergen_list(allergens.contains()) %}{% endcall %}
+{% call allergen_list(allergens.may_contain(), true) %}{% endcall %}
+{%- if !allergens.ingredients().is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {{ allergens.ingredients() }}</p>
+{%- endif %}
+{%- else %}
+<p class="product-status">{{ layout.t("product-allergens-pending")? }}</p>
+{%- endif %}
 {%- if product.sold_out %}
 <p class="product-status">{{ layout.t("product-sold-out")? }}</p>
 {% call b::button(layout.t("product-add")?, disabled = true) %}{% endcall %}
 {%- else %}
-{% call b::button(layout.t("product-add")?) %}{% endcall %}
+{%- if let Some(n) = product.remaining %}
+<p class="product-status">{{ layout.t_count("product-remaining", n)? }}</p>
+{%- endif %}
+{%- if let Some(order) = product.order %}
+<form class="product-order" method="post" action="{{ order.action }}" hx-post="{{ order.action }}" hx-target="#mandje" hx-swap="outerHTML">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+<input type="hidden" name="product" value="{{ order.product_id }}">
+{% call f::field("number", order.qty_name(), layout.t("product-qty")?, value = order.qty, error = order.error) %}{% endcall %}
+{%- if let Some(choice) = order.price %}
+{% call f::field("money", order.price_name(), layout.t("product-your-price")?, value = choice.value, hint = choice.hint) %}{% endcall %}
+{%- endif %}
+{% call b::button(layout.t("product-add")?, kind = "submit") %}{% endcall %}
+</form>
+{%- else %}
+{% call b::button(layout.t("product-add")?, disabled = true) %}{% endcall %}
+{%- endif %}
 {%- endif %}
 </article>
 {% endmacro %}

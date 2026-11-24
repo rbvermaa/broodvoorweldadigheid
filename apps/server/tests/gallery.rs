@@ -129,9 +129,10 @@ async fn components_escape_user_text() {
             name: "<script>alert(\"x\")</script>".to_string(),
             description: "Brood & \"boter\"".to_string(),
             price_cents: 450,
-            allergens: vec!["milk"],
-            may_contain: Vec::new(),
+            allergens: None,
             sold_out: false,
+            remaining: None,
+            order: None,
         },
     }
     .render()
@@ -139,5 +140,5 @@ async fn components_escape_user_text() {
     assert!(!tile.contains("<script>"), "{tile}");
     assert!(tile.contains("&#60;script&#62;"), "{tile}");
     assert!(tile.contains("Brood &#38; &#34;boter&#34;"), "{tile}");
-    assert!(tile.contains(&dutch("allergen-milk")), "{tile}");
+    assert!(tile.contains(&dutch("product-allergens-pending")), "{tile}");
 }
