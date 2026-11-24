@@ -47,7 +47,15 @@ async fn checkout_copies_prices_and_holds_capacity(mut conn: PoolConnection<Post
     assert_eq!(order.pickup_slot_id, shop.slot);
     assert_eq!(order.created_at, domain::Clock::now(&clock));
     assert_eq!(order.hold_expires_at, Some(ts("2026-10-28T12:15:00Z")));
-    assert_eq!((order.paid_at, order.payment_ref.as_deref()), (None, None));
+    assert_eq!(order.paid_at, None);
+    assert_eq!(
+        (
+            order.customer_name.as_str(),
+            order.customer_phone.as_deref()
+        ),
+        ("Test Klant", None)
+    );
+    assert!(!order.marketing_opt_in);
     assert_eq!(order.total, eur(2295));
     let lines: Vec<_> = order
         .lines
@@ -74,7 +82,6 @@ async fn checkout_copies_prices_and_holds_capacity(mut conn: PoolConnection<Post
     assert_eq!(totals.gross(), Ok(order.total));
     assert_eq!(totals.rate(VatRate::Nine).gross(), eur(1900));
     assert_eq!(totals.rate(VatRate::TwentyOne).vat(), eur(69));
-    assert!(!order.refund_due());
 
     let history = audit::history(&mut conn, "order", order.id.get())
         .await
@@ -114,13 +121,13 @@ async fn checkout_copies_prices_and_holds_capacity(mut conn: PoolConnection<Post
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_returning_guest_keeps_one_customer_row(mut conn: PoolConnection<Postgres>) {
+async fn a_guest_checkout_never_changes_an_existing_customer(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     on_range(&mut conn, &shop, bread, None, None).await;
     let mut first = guest("Klant@Example.org");
-    first.marketing_consent = true;
+    first.marketing_opt_in = true;
     first.phone = Some("0612345678".to_owned());
     let a = checkout(
         &mut conn,
@@ -133,7 +140,8 @@ async fn a_returning_guest_keeps_one_customer_row(mut conn: PoolConnection<Postg
     .await
     .unwrap();
     let mut again = guest(" klant@example.org ");
-    again.name = "Nieuwe Naam".to_owned();
+    again.name = "Iemand Anders".to_owned();
+    again.phone = Some("0698765432".to_owned());
     let b = checkout(
         &mut conn,
         &clock,
@@ -145,6 +153,22 @@ async fn a_returning_guest_keeps_one_customer_row(mut conn: PoolConnection<Postg
     .await
     .unwrap();
     assert_eq!(a.customer_id, b.customer_id);
+    assert_eq!(
+        (
+            a.customer_name.as_str(),
+            a.customer_phone.as_deref(),
+            a.marketing_opt_in
+        ),
+        ("Test Klant", Some("0612345678"), true)
+    );
+    assert_eq!(
+        (
+            b.customer_name.as_str(),
+            b.customer_phone.as_deref(),
+            b.marketing_opt_in
+        ),
+        ("Iemand Anders", Some("0698765432"), false)
+    );
     let row: (String, String, Option<String>, bool) =
         sqlx::query_as("SELECT email, name, phone, marketing_consent FROM customer WHERE id = $1")
             .bind(a.customer_id.get())
@@ -155,9 +179,9 @@ async fn a_returning_guest_keeps_one_customer_row(mut conn: PoolConnection<Postg
         row,
         (
             "klant@example.org".to_owned(),
-            "Nieuwe Naam".to_owned(),
-            None,
-            true
+            "Test Klant".to_owned(),
+            Some("0612345678".to_owned()),
+            false
         )
     );
     let bad = guest("geen-email");
@@ -584,4 +608,89 @@ async fn concurrent_checkouts_never_both_get_the_last_loaf(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(rows, 5);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_full_slot_is_checked_under_its_lock_across_products(pool: PgPool) {
+    let clock = wednesday();
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    let cookies = product(&mut conn, &COOKIES).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, cookies, None, None).await;
+    sqlx::query("UPDATE pickup_slot SET max_orders = 1 WHERE id = $1")
+        .bind(shop.slot.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    drop(conn);
+
+    let mut first = pool.begin().await.unwrap();
+    checkout(
+        &mut first,
+        &clock,
+        &cart(&shop, &[(bread, 1, None)]),
+        &guest("eerst@example.org"),
+        shop.slot,
+        OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+
+    let mut second = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut second).await;
+    let other = cart(&shop, &[(cookies, 1, None)]);
+    let slot = shop.slot;
+    let task = tokio::spawn(async move {
+        checkout(
+            &mut second,
+            &wednesday(),
+            &other,
+            &guest("tweede@example.org"),
+            slot,
+            OrderedBy::Guest,
+        )
+        .await
+    });
+    wait_until_blocked(&pool, pid).await;
+    first.commit().await.unwrap();
+    let lost = task.await.unwrap();
+    assert!(matches!(lost, Err(Error::SlotFull)), "{lost:?}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn order_numbers_start_again_at_new_year_in_local_time(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-12-28T12:00:00Z"));
+    let shop = open_day(
+        &mut conn,
+        &clock,
+        &NewBakeDay {
+            date: "2027-01-02".parse().unwrap(),
+            bake_starts_at: ts("2027-01-02T03:00:00Z"),
+            ..saturday()
+        },
+    )
+    .await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let staff = OrderedBy::Staff(StaffUserId::new(1));
+    let mut number_at = async |now: &str| {
+        clock.set(ts(now));
+        checkout(
+            &mut conn,
+            &clock,
+            &cart(&shop, &[(bread, 1, None)]),
+            &guest("oud@example.org"),
+            shop.slot,
+            staff,
+        )
+        .await
+        .unwrap()
+        .number
+        .to_string()
+    };
+    assert_eq!(number_at("2026-12-31T22:59:00Z").await, "2026-0001");
+    assert_eq!(number_at("2026-12-31T23:30:00Z").await, "2027-0001");
+    assert_eq!(number_at("2027-01-01T08:00:00Z").await, "2027-0002");
 }

@@ -29,9 +29,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
-- [ ] **Late payments** (ADR 0012). A payment after the 15-minute hold is accepted when the
-  loaf is still there and the deadline has not passed; otherwise it is refunded. OK, or
-  refund every late payment as the spec's wording suggests?
 - [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold

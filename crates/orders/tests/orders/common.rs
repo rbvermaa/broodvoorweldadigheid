@@ -146,7 +146,7 @@ pub fn guest(email: &str) -> CustomerInput {
         email: email.to_owned(),
         name: "Test Klant".to_owned(),
         phone: None,
-        marketing_consent: false,
+        marketing_opt_in: false,
     }
 }
 

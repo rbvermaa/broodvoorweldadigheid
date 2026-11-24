@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, number_year, number_seq, customer_id, bake_day_id, pickup_slot_id,\n            channel, payment_mode, status, cancel_reason, total_cents,\n            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,\n            payment_ref,\n            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\"\n        FROM \"order\" WHERE id = $1",
+  "query": "SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,\n            marketing_opt_in, bake_day_id, pickup_slot_id,\n            channel, payment_mode, status, cancel_reason, total_cents,\n            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,\n            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\"\n        FROM \"order\" WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,39 @@
       },
       {
         "ordinal": 4,
+        "name": "customer_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "customer_name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "customer_phone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "customer_phone"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "marketing_opt_in",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "marketing_opt_in"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "bake_day_id",
         "type_info": "Int8",
         "origin": {
@@ -59,7 +92,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 8,
         "name": "pickup_slot_id",
         "type_info": "Int8",
         "origin": {
@@ -70,7 +103,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 9,
         "name": "channel",
         "type_info": "Text",
         "origin": {
@@ -81,7 +114,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "payment_mode",
         "type_info": "Text",
         "origin": {
@@ -92,7 +125,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 11,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -103,7 +136,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 12,
         "name": "cancel_reason",
         "type_info": "Text",
         "origin": {
@@ -114,7 +147,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
         "name": "total_cents",
         "type_info": "Int8",
         "origin": {
@@ -125,30 +158,19 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 14,
         "name": "hold_expires_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 12,
-        "name": "payment_ref",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "\"order\"",
-            "name": "payment_ref"
-          }
-        }
-      },
-      {
-        "ordinal": 13,
+        "ordinal": 15,
         "name": "paid_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 14,
+        "ordinal": 16,
         "name": "created_at_us!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -165,6 +187,9 @@
       false,
       false,
       false,
+      true,
+      false,
+      false,
       false,
       false,
       false,
@@ -172,10 +197,9 @@
       true,
       false,
       null,
-      true,
       null,
       null
     ]
   },
-  "hash": "c6c45de788c749631ccb03a6a42492e3c87d249606c843a36ba6bf0b3b0b3a5b"
+  "hash": "4a3c20e92a1cc09e588604c4ea3a3139d351800d53775e677a3feb4ad7e60afc"
 }

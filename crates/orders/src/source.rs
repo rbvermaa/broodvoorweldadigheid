@@ -52,8 +52,7 @@ impl OrderSource for Orders<'_> {
     }
 
     /// Orders that came in: every order except one cancelled before it was paid. A
-    /// pending order counts even after its hold, until it is released, because it may
-    /// still be paid (ADR 0012).
+    /// pending order counts until the release job cancels it (ADR 0012).
     async fn count(&self, conn: &mut PgConnection, day: BakeDayId) -> Result<u64, bakedays::Error> {
         let count = sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!" FROM "order"

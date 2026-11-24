@@ -1,4 +1,4 @@
-use domain::{Money, MoneyError, ProductId};
+use domain::{MoneyError, ProductId};
 
 use crate::cart::CartError;
 
@@ -27,8 +27,8 @@ pub enum Error {
         product_id: ProductId,
         remaining: u32,
     },
-    #[error("paid {paid:?} but the order total is {expected:?}")]
-    AmountMismatch { expected: Money, paid: Money },
+    #[error("the payment is recorded for another order")]
+    PaymentOfOtherOrder,
     #[error("amount out of range")]
     Money(#[from] MoneyError),
     #[error(transparent)]

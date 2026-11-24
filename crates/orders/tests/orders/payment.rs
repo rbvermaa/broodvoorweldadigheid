@@ -1,18 +1,20 @@
-use bakedays::{NewBakeDay, days};
-use domain::{Money, OrderId, StaffUserId};
+use std::sync::Arc;
+
+use bakedays::{NewBakeDay, PickupSlotInput, days};
+use domain::{Money, OrderId};
 use jiff::SignedDuration;
 use orders::audit;
 use orders::{
     CancelReason, Error, HOLD, Order, OrderStatus, OrderedBy, PaidOutcome, PaymentReceived,
-    RefundReason, allocations, checkout, mark_paid, release_expired_holds,
+    RefundReason, allocations, checkout, mark_paid, refunds_due, release_expired_holds,
 };
-use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
+use sqlx::{PgConnection, PgPool, Postgres};
 use testkit::FakeClock;
 
 use crate::common::{
-    BREAD, DONATION_LOAF, OpenDay, cart, charity, guest, on_range, open_day, order_as_guest,
-    product, saturday, ts, wednesday,
+    BREAD, DE_PROEF, DONATION_LOAF, OpenDay, backend_pid, cart, charity, guest, on_range, open_day,
+    order_as_guest, product, saturday, ts, wait_until_blocked, wednesday,
 };
 
 fn paid(reference: &str, order: &Order) -> PaymentReceived {
@@ -22,8 +24,36 @@ fn paid(reference: &str, order: &Order) -> PaymentReceived {
     }
 }
 
-async fn status(conn: &mut sqlx::PgConnection, id: OrderId) -> Order {
+async fn get(conn: &mut PgConnection, id: OrderId) -> Order {
     orders::order::get(conn, id).await.unwrap()
+}
+
+async fn actions(conn: &mut PgConnection, id: OrderId) -> Vec<String> {
+    audit::history(conn, "order", id.get())
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|h| h.action)
+        .collect()
+}
+
+fn refund_reason(outcome: &PaidOutcome) -> Option<RefundReason> {
+    match outcome {
+        PaidOutcome::RefundDue {
+            reason, payment, ..
+        } => {
+            assert_eq!(payment.refund_reason, Some(*reason));
+            Some(*reason)
+        }
+        _ => None,
+    }
+}
+
+async fn bread_day(conn: &mut PgConnection, clock: &FakeClock) -> (OpenDay, domain::ProductId) {
+    let shop = open_day(conn, clock, &saturday()).await;
+    let bread = product(conn, &BREAD).await;
+    on_range(conn, &shop, bread, Some(1), None).await;
+    (shop, bread)
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -58,7 +88,6 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
         panic!("{outcome:?}");
     };
     assert_eq!(paid_order.status, OrderStatus::Paid);
-    assert_eq!(paid_order.payment_ref.as_deref(), Some("tr_1"));
     assert_eq!(paid_order.paid_at, Some(ts("2026-10-28T12:03:00Z")));
     assert_eq!(allocation.charity_id, voedselbank);
     assert_eq!(allocation.amount, Money::from_cents(2500));
@@ -78,31 +107,50 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
         .await
         .unwrap();
     assert_eq!(replay, PaidOutcome::AlreadyPaid(paid_order.clone()));
+
     let twice = mark_paid(&mut conn, &clock, order.id, &paid("tr_2", &order))
         .await
         .unwrap();
-    assert_eq!(
-        twice,
-        PaidOutcome::RefundDue {
-            order: paid_order,
-            reason: RefundReason::PaidTwice
-        }
-    );
+    assert_eq!(refund_reason(&twice), Some(RefundReason::PaidTwice));
+    let again = mark_paid(&mut conn, &clock, order.id, &paid("tr_2", &order))
+        .await
+        .unwrap();
+    assert_eq!(again, twice);
     assert_eq!(allocations(&mut conn, order.id).await.unwrap().len(), 1);
+    assert_eq!(get(&mut conn, order.id).await, paid_order);
 
+    let due = refunds_due(&mut conn).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(
+        (
+            due[0].provider_payment_id.as_str(),
+            due[0].amount,
+            due[0].refunded
+        ),
+        ("tr_2", Money::from_cents(2500), Money::ZERO)
+    );
+    sqlx::query("UPDATE payment SET refunded_cents = amount_cents WHERE id = $1")
+        .bind(due[0].id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert!(refunds_due(&mut conn).await.unwrap().is_empty());
+
+    assert_eq!(
+        actions(&mut conn, order.id).await,
+        ["created", "paid", "payment_refused"]
+    );
     let history = audit::history(&mut conn, "order", order.id.get())
         .await
         .unwrap();
-    let actions: Vec<_> = history.iter().map(|h| h.action.as_str()).collect();
-    assert_eq!(actions, ["created", "paid", "second_payment"]);
     assert_eq!(history[1].actor, "system:payment");
     assert_eq!(
         history[1].after.as_ref().unwrap()["payment"]["reference"],
         "tr_1"
     );
     assert_eq!(
-        history[2].after.as_ref().unwrap()["payment"]["reference"],
-        "tr_2"
+        history[2].after.as_ref().unwrap()["payment"]["refund_reason"],
+        "paid_twice"
     );
     let earmarked = audit::history(&mut conn, "donation_allocation", allocation.id.get())
         .await
@@ -111,7 +159,9 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_normal_sale_earmarks_nothing(mut conn: PoolConnection<Postgres>) {
+async fn a_normal_sale_earmarks_nothing_and_a_wrong_amount_goes_back(
+    mut conn: PoolConnection<Postgres>,
+) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
@@ -120,17 +170,18 @@ async fn a_normal_sale_earmarks_nothing(mut conn: PoolConnection<Postgres>) {
         .await
         .unwrap();
     let wrong = PaymentReceived {
-        reference: "tr_1".to_owned(),
+        reference: "tr_0".to_owned(),
         amount: Money::from_cents(1),
     };
-    assert!(matches!(
-        mark_paid(&mut conn, &clock, order.id, &wrong).await,
-        Err(Error::AmountMismatch { .. })
-    ));
+    let outcome = mark_paid(&mut conn, &clock, order.id, &wrong)
+        .await
+        .unwrap();
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::AmountMismatch));
     assert_eq!(
-        status(&mut conn, order.id).await.status,
+        get(&mut conn, order.id).await.status,
         OrderStatus::PendingPayment
     );
+
     let outcome = mark_paid(&mut conn, &clock, order.id, &paid("tr_1", &order))
         .await
         .unwrap();
@@ -139,256 +190,92 @@ async fn a_normal_sale_earmarks_nothing(mut conn: PoolConnection<Postgres>) {
         "{outcome:?}"
     );
     assert!(allocations(&mut conn, order.id).await.unwrap().is_empty());
+    assert_eq!(
+        refunds_due(&mut conn).await.unwrap()[0].amount,
+        Money::from_cents(1)
+    );
+
+    let other = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    assert!(matches!(
+        mark_paid(&mut conn, &clock, other.id, &paid("tr_1", &other)).await,
+        Err(Error::PaymentOfOtherOrder)
+    ));
     assert!(matches!(
         mark_paid(&mut conn, &clock, OrderId::new(999), &paid("tr_9", &order)).await,
         Err(Error::NotFound)
     ));
 }
 
-async fn one_loaf_day(
-    conn: &mut sqlx::PgConnection,
-    clock: &FakeClock,
-) -> (OpenDay, domain::ProductId) {
-    let shop = open_day(conn, clock, &saturday()).await;
-    let bread = product(conn, &BREAD).await;
-    on_range(conn, &shop, bread, Some(1), None).await;
-    (shop, bread)
-}
-
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_late_payment_counts_while_the_loaf_is_still_there(mut conn: PoolConnection<Postgres>) {
-    let clock = wednesday();
-    let (shop, bread) = one_loaf_day(&mut conn, &clock).await;
-    let late = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    clock.advance(HOLD);
-    let outcome = mark_paid(&mut conn, &clock, late.id, &paid("tr_1", &late))
-        .await
-        .unwrap();
-    assert!(matches!(outcome, PaidOutcome::Paid { .. }), "{outcome:?}");
-
-    let released = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)]).await;
-    assert!(
-        matches!(released, Err(Error::CapacityExceeded { .. })),
-        "{released:?}"
-    );
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_payment_after_release_revives_the_order_if_it_fits(mut conn: PoolConnection<Postgres>) {
-    let clock = wednesday();
-    let (shop, bread) = one_loaf_day(&mut conn, &clock).await;
-    let late = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    clock.advance(HOLD);
-    release_expired_holds(&mut conn, &clock).await.unwrap();
-    let outcome = mark_paid(&mut conn, &clock, late.id, &paid("tr_1", &late))
-        .await
-        .unwrap();
-    let PaidOutcome::Paid { order, .. } = outcome else {
-        panic!("{outcome:?}");
-    };
-    assert_eq!(
-        (order.status, order.cancel_reason),
-        (OrderStatus::Paid, None)
-    );
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_late_payment_for_a_loaf_sold_since_is_refunded(mut conn: PoolConnection<Postgres>) {
-    let clock = wednesday();
-    let (shop, bread) = one_loaf_day(&mut conn, &clock).await;
-    let sloth = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    clock.advance(HOLD);
-    let quick = checkout(
-        &mut conn,
-        &clock,
-        &cart(&shop, &[(bread, 1, None)]),
-        &guest("snel@example.org"),
-        shop.slot,
-        OrderedBy::Guest,
-    )
-    .await
-    .unwrap();
-
-    let outcome = mark_paid(&mut conn, &clock, sloth.id, &paid("tr_late", &sloth))
-        .await
-        .unwrap();
-    let PaidOutcome::RefundDue { order, reason } = outcome else {
-        panic!("{outcome:?}");
-    };
-    assert_eq!(reason, RefundReason::SoldOut);
-    assert_eq!(order.status, OrderStatus::Cancelled);
-    assert_eq!(order.cancel_reason, Some(CancelReason::HoldExpired));
-    assert_eq!(order.payment_ref.as_deref(), Some("tr_late"));
-    assert!(order.refund_due());
-    assert_eq!(order.paid_at, None);
-
-    let replay = mark_paid(&mut conn, &clock, sloth.id, &paid("tr_late", &sloth))
-        .await
-        .unwrap();
-    assert_eq!(
-        replay,
-        PaidOutcome::RefundDue {
-            order: order.clone(),
-            reason: RefundReason::OrderCancelled
-        }
-    );
-    let another = mark_paid(&mut conn, &clock, sloth.id, &paid("tr_again", &sloth))
-        .await
-        .unwrap();
-    assert!(
-        matches!(another, PaidOutcome::RefundDue { reason: RefundReason::OrderCancelled, ref order } if order.payment_ref.as_deref() == Some("tr_late")),
-        "{another:?}"
-    );
-
-    let quick_paid = mark_paid(&mut conn, &clock, quick.id, &paid("tr_quick", &quick))
-        .await
-        .unwrap();
-    assert!(matches!(quick_paid, PaidOutcome::Paid { .. }));
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_full_slot_also_refuses_a_late_payment(mut conn: PoolConnection<Postgres>) {
-    let clock = wednesday();
-    let shop = open_day(&mut conn, &clock, &saturday()).await;
-    let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    sqlx::query("UPDATE pickup_slot SET max_orders = 1 WHERE id = $1")
-        .bind(shop.slot.get())
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    let sloth = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    clock.advance(HOLD);
-    order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    let outcome = mark_paid(&mut conn, &clock, sloth.id, &paid("tr_1", &sloth))
-        .await
-        .unwrap();
-    assert!(
-        matches!(
-            outcome,
-            PaidOutcome::RefundDue {
-                reason: RefundReason::SoldOut,
-                ..
-            }
-        ),
-        "{outcome:?}"
-    );
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_late_payment_after_the_deadline_is_refunded_unless_staff_took_the_order(
+async fn a_payment_after_the_hold_is_refunded_even_with_bread_left(
     mut conn: PoolConnection<Postgres>,
 ) {
-    let clock = FakeClock::new(ts("2026-10-29T18:50:00Z"));
+    let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    let web = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+    on_range(&mut conn, &shop, bread, Some(10), None).await;
+    let late = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
-    let staff = checkout(
+    let released = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    clock.advance(HOLD);
+
+    let outcome = mark_paid(&mut conn, &clock, late.id, &paid("tr_late", &late))
+        .await
+        .unwrap();
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::HoldExpired));
+    let PaidOutcome::RefundDue { order, .. } = outcome else {
+        unreachable!()
+    };
+    assert_eq!(
+        (order.status, order.cancel_reason, order.paid_at),
+        (
+            OrderStatus::Cancelled,
+            Some(CancelReason::HoldExpired),
+            None
+        )
+    );
+    assert_eq!(
+        actions(&mut conn, late.id).await,
+        ["created", "payment_refused"]
+    );
+
+    assert_eq!(
+        release_expired_holds(&mut conn, &clock).await.unwrap(),
+        [released.id]
+    );
+    let outcome = mark_paid(
         &mut conn,
         &clock,
-        &cart(&shop, &[(bread, 1, None)]),
-        &guest("balie@example.org"),
-        shop.slot,
-        OrderedBy::Staff(StaffUserId::new(2)),
+        released.id,
+        &paid("tr_released", &released),
     )
     .await
     .unwrap();
-    let within = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-
-    clock.set(ts("2026-10-29T19:04:59Z"));
-    let in_time = mark_paid(&mut conn, &clock, within.id, &paid("tr_in_time", &within))
-        .await
-        .unwrap();
-    assert!(matches!(in_time, PaidOutcome::Paid { .. }), "{in_time:?}");
-
-    clock.set(ts("2026-10-29T19:05:00Z"));
-    let outcome = mark_paid(&mut conn, &clock, web.id, &paid("tr_web", &web))
-        .await
-        .unwrap();
-    assert!(
-        matches!(
-            outcome,
-            PaidOutcome::RefundDue {
-                reason: RefundReason::PastDeadline,
-                ..
-            }
-        ),
-        "{outcome:?}"
-    );
-    let outcome = mark_paid(&mut conn, &clock, staff.id, &paid("tr_staff", &staff))
-        .await
-        .unwrap();
-    assert!(matches!(outcome, PaidOutcome::Paid { .. }), "{outcome:?}");
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::HoldExpired));
+    assert_eq!(refunds_due(&mut conn).await.unwrap().len(), 2);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_payment_for_a_cancelled_day_is_refunded(mut conn: PoolConnection<Postgres>) {
+async fn payments_for_cancelled_days_and_orders_go_back(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     on_range(&mut conn, &shop, bread, None, None).await;
-    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
-        .await
-        .unwrap();
-    let outcome = mark_paid(&mut conn, &clock, order.id, &paid("tr_1", &order))
-        .await
-        .unwrap();
-    let PaidOutcome::RefundDue { order, reason } = outcome else {
-        panic!("{outcome:?}");
-    };
-    assert_eq!(reason, RefundReason::DayFinal);
-    assert_eq!(order.cancel_reason, Some(CancelReason::DayCancelled));
-    assert!(order.refund_due());
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_payment_for_an_order_cancelled_by_staff_is_refunded(mut conn: PoolConnection<Postgres>) {
-    let clock = wednesday();
-    let shop = open_day(&mut conn, &clock, &saturday()).await;
-    let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+    let by_staff = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
     sqlx::query(
         r#"UPDATE "order" SET status = 'cancelled', cancel_reason = 'staff' WHERE id = $1"#,
     )
-    .bind(order.id.get())
+    .bind(by_staff.id.get())
     .execute(&mut *conn)
     .await
     .unwrap();
-    let outcome = mark_paid(&mut conn, &clock, order.id, &paid("tr_1", &order))
-        .await
-        .unwrap();
-    let PaidOutcome::RefundDue {
-        order: cancelled,
-        reason,
-    } = outcome
-    else {
-        panic!("{outcome:?}");
-    };
-    assert_eq!(reason, RefundReason::OrderCancelled);
-    assert_eq!(cancelled.cancel_reason, Some(CancelReason::Staff));
-    assert!(cancelled.refund_due());
-
     let confirmed = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -397,23 +284,125 @@ async fn a_payment_for_an_order_cancelled_by_staff_is_refunded(mut conn: PoolCon
         .execute(&mut *conn)
         .await
         .unwrap();
+    let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+
+    let outcome = mark_paid(&mut conn, &clock, by_staff.id, &paid("tr_1", &by_staff))
+        .await
+        .unwrap();
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::OrderCancelled));
+    assert_eq!(
+        get(&mut conn, by_staff.id).await.cancel_reason,
+        Some(CancelReason::Staff)
+    );
+
     let outcome = mark_paid(&mut conn, &clock, confirmed.id, &paid("tr_2", &confirmed))
         .await
         .unwrap();
-    assert!(
-        matches!(&outcome, PaidOutcome::RefundDue { reason: RefundReason::OrderCancelled, order } if order.status == OrderStatus::Confirmed && order.payment_ref.is_none()),
-        "{outcome:?}"
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::OrderConfirmed));
+    assert_eq!(
+        get(&mut conn, confirmed.id).await.status,
+        OrderStatus::Confirmed
     );
+
+    days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
+        .await
+        .unwrap();
+    let outcome = mark_paid(&mut conn, &clock, pending.id, &paid("tr_3", &pending))
+        .await
+        .unwrap();
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::DayFinal));
+    assert_eq!(
+        get(&mut conn, pending.id).await.cancel_reason,
+        Some(CancelReason::DayCancelled)
+    );
+    assert_eq!(refunds_due(&mut conn).await.unwrap().len(), 3);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_payment_that_waits_past_its_hold_is_checked_as_late(pool: sqlx::PgPool) {
+async fn a_payment_waiting_on_the_release_job_at_expiry_goes_back(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let clock = wednesday();
-    let (shop, bread) = one_loaf_day(&mut conn, &clock).await;
+    let (shop, bread) = bread_day(&mut conn, &clock).await;
+    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    drop(conn);
+
+    let mut job = pool.begin().await.unwrap();
+    let expiry = FakeClock::new(ts("2026-10-28T12:15:00Z"));
+    assert_eq!(
+        release_expired_holds(&mut job, &expiry).await.unwrap(),
+        [order.id]
+    );
+
+    let mut payer = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut payer).await;
+    let payment = paid("tr_1", &order);
+    let task = tokio::spawn(async move {
+        let just_in_time = FakeClock::new(ts("2026-10-28T12:14:59Z"));
+        mark_paid(&mut payer, &just_in_time, order.id, &payment).await
+    });
+    wait_until_blocked(&pool, pid).await;
+    job.commit().await.unwrap();
+    let outcome = task.await.unwrap().unwrap();
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::HoldExpired));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_release_job_skips_an_order_being_paid(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = wednesday();
+    let (shop, bread) = bread_day(&mut conn, &clock).await;
+    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+
+    let mut payer = pool.begin().await.unwrap();
+    let just_in_time = FakeClock::new(ts("2026-10-28T12:14:59Z"));
+    let outcome = mark_paid(&mut payer, &just_in_time, order.id, &paid("tr_1", &order))
+        .await
+        .unwrap();
+    assert!(matches!(outcome, PaidOutcome::Paid { .. }), "{outcome:?}");
+
+    let expiry = FakeClock::new(ts("2026-10-28T12:15:00Z"));
+    assert!(
+        release_expired_holds(&mut conn, &expiry)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    payer.commit().await.unwrap();
+    assert!(
+        release_expired_holds(&mut conn, &expiry)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(get(&mut conn, order.id).await.status, OrderStatus::Paid);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_payment_that_waits_past_its_hold_for_a_checkout_goes_back(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = wednesday();
+    let (shop, bread) = bread_day(&mut conn, &clock).await;
     let sloth = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
+    let later_slot = days::add_slot(
+        &mut conn,
+        shop.day.id,
+        DE_PROEF,
+        &PickupSlotInput {
+            starts_at: ts("2026-10-31T11:00:00Z"),
+            ends_at: ts("2026-10-31T12:00:00Z"),
+            max_orders: None,
+        },
+    )
+    .await
+    .unwrap();
     drop(conn);
 
     let expired = FakeClock::new(ts("2026-10-28T12:15:00Z"));
@@ -423,32 +412,23 @@ async fn a_payment_that_waits_past_its_hold_is_checked_as_late(pool: sqlx::PgPoo
         &expired,
         &cart(&shop, &[(bread, 1, None)]),
         &guest("snel@example.org"),
-        shop.slot,
+        later_slot,
         OrderedBy::Guest,
     )
     .await
     .unwrap();
 
-    let payer_clock = std::sync::Arc::new(FakeClock::new(ts("2026-10-28T12:14:59Z")));
+    let payer_clock = Arc::new(FakeClock::new(ts("2026-10-28T12:14:59Z")));
     let mut payer = pool.acquire().await.unwrap();
-    let pid = crate::common::backend_pid(&mut payer).await;
+    let pid = backend_pid(&mut payer).await;
     let task = tokio::spawn({
-        let clock = std::sync::Arc::clone(&payer_clock);
+        let clock = Arc::clone(&payer_clock);
         let payment = paid("tr_1", &sloth);
         async move { mark_paid(&mut payer, clock.as_ref(), sloth.id, &payment).await }
     });
-    crate::common::wait_until_blocked(&pool, pid).await;
+    wait_until_blocked(&pool, pid).await;
     payer_clock.set(ts("2026-10-28T12:15:00Z"));
     quick.commit().await.unwrap();
     let outcome = task.await.unwrap().unwrap();
-    assert!(
-        matches!(
-            outcome,
-            PaidOutcome::RefundDue {
-                reason: RefundReason::SoldOut,
-                ..
-            }
-        ),
-        "{outcome:?}"
-    );
+    assert_eq!(refund_reason(&outcome), Some(RefundReason::HoldExpired));
 }

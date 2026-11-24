@@ -58,7 +58,6 @@ async fn an_expired_hold_frees_the_loaf_and_the_job_cancels_the_order(
     let released = orders::order::get(&mut conn, held.id).await.unwrap();
     assert_eq!(released.status, OrderStatus::Cancelled);
     assert_eq!(released.cancel_reason, Some(CancelReason::HoldExpired));
-    assert!(!released.refund_due());
     assert_eq!(source.count(&mut conn, shop.day.id).await.unwrap(), 0);
 
     let history = audit::history(&mut conn, "order", held.id.get())

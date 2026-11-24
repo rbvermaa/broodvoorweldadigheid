@@ -8,8 +8,8 @@ use crate::order::{self, CancelReason};
 
 /// Cancels orders still waiting for payment after their hold, so their pieces go back to
 /// the shop. The capacity is already free once the hold passes ([`crate::Orders`]); this
-/// makes it visible in the order list and the audit log. A payment that still arrives
-/// goes through [`crate::mark_paid`] (ADR 0012).
+/// makes it visible in the order list and the audit log. A payment that still
+/// arrives is refunded ([`crate::mark_paid`], ADR 0012).
 ///
 /// Rows another session holds (a payment being recorded) are skipped and picked up by the
 /// next run, so it is safe to run from every server.

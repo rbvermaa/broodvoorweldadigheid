@@ -19,6 +19,7 @@ pub use error::Error;
 pub use holds::release_expired_holds;
 pub use order::{CancelReason, Channel, Order, OrderLine, OrderNumber, OrderStatus, PaymentMode};
 pub use payment::{
-    DonationAllocation, PaidOutcome, PaymentReceived, RefundReason, allocations, mark_paid,
+    DonationAllocation, PaidOutcome, Payment, PaymentReceived, RefundReason, allocations,
+    mark_paid, refunds_due,
 };
 pub use source::Orders;

@@ -103,6 +103,11 @@ pub struct Order {
     pub id: OrderId,
     pub number: OrderNumber,
     pub customer_id: CustomerId,
+    /// As entered for this order; the pickup list (F8) shows these.
+    pub customer_name: String,
+    pub customer_phone: Option<String>,
+    /// The customer asked for drop alerts; F9a confirms by email before subscribing.
+    pub marketing_opt_in: bool,
     pub bake_day_id: BakeDayId,
     pub pickup_slot_id: PickupSlotId,
     pub channel: Channel,
@@ -111,7 +116,6 @@ pub struct Order {
     pub cancel_reason: Option<CancelReason>,
     pub total: Money,
     pub hold_expires_at: Option<Timestamp>,
-    pub payment_ref: Option<String>,
     pub paid_at: Option<Timestamp>,
     pub created_at: Timestamp,
     pub lines: Vec<OrderLine>,
@@ -132,13 +136,6 @@ impl Order {
             .collect();
         VatTotals::from_lines(&lines)
     }
-
-    /// Money came in for an order that does not count (ADR 0012); staff or the payments
-    /// crate must refund it.
-    #[must_use]
-    pub fn refund_due(&self) -> bool {
-        self.status == OrderStatus::Cancelled && self.payment_ref.is_some()
-    }
 }
 
 pub(crate) const fn vat_to_db(rate: VatRate) -> i16 {
@@ -153,6 +150,9 @@ struct Row {
     number_year: i16,
     number_seq: i32,
     customer_id: i64,
+    customer_name: String,
+    customer_phone: Option<String>,
+    marketing_opt_in: bool,
     bake_day_id: i64,
     pickup_slot_id: i64,
     channel: String,
@@ -161,7 +161,6 @@ struct Row {
     cancel_reason: Option<String>,
     total_cents: i64,
     hold_expires_at_us: Option<i64>,
-    payment_ref: Option<String>,
     paid_at_us: Option<i64>,
     created_at_us: i64,
 }
@@ -194,6 +193,9 @@ fn order_from_row(row: Row, lines: Vec<OrderLine>) -> Result<Order, Error> {
             seq: row.number_seq,
         },
         customer_id: CustomerId::new(row.customer_id),
+        customer_name: row.customer_name,
+        customer_phone: row.customer_phone,
+        marketing_opt_in: row.marketing_opt_in,
         bake_day_id: BakeDayId::new(row.bake_day_id),
         pickup_slot_id: PickupSlotId::new(row.pickup_slot_id),
         channel: Channel::parse(&row.channel)?,
@@ -206,7 +208,6 @@ fn order_from_row(row: Row, lines: Vec<OrderLine>) -> Result<Order, Error> {
             .transpose()?,
         total: Money::from_cents(row.total_cents),
         hold_expires_at: row.hold_expires_at_us.map(from_micros).transpose()?,
-        payment_ref: row.payment_ref,
         paid_at: row.paid_at_us.map(from_micros).transpose()?,
         created_at: from_micros(row.created_at_us)?,
         lines,
@@ -220,10 +221,10 @@ fn order_from_row(row: Row, lines: Vec<OrderLine>) -> Result<Order, Error> {
 pub async fn get(conn: &mut PgConnection, id: OrderId) -> Result<Order, Error> {
     let row = sqlx::query_as!(
         Row,
-        r#"SELECT id, number_year, number_seq, customer_id, bake_day_id, pickup_slot_id,
+        r#"SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,
+            marketing_opt_in, bake_day_id, pickup_slot_id,
             channel, payment_mode, status, cancel_reason, total_cents,
             (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,
-            payment_ref,
             (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,
             (extract(epoch FROM created_at) * 1000000)::bigint AS "created_at_us!"
         FROM "order" WHERE id = $1"#,
@@ -253,7 +254,6 @@ pub(crate) fn snapshot(order: &Order) -> serde_json::Value {
         "cancel_reason": order.cancel_reason.map(CancelReason::as_str),
         "total_cents": order.total.cents(),
         "hold_expires_at": order.hold_expires_at.map(|t| t.to_string()),
-        "payment_ref": order.payment_ref,
         "paid_at": order.paid_at.map(|t| t.to_string()),
     })
 }

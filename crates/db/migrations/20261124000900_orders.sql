@@ -10,8 +10,10 @@ CREATE TABLE customer (
 
 ALTER TABLE pickup_slot ADD CONSTRAINT pickup_slot_id_bake_day_key UNIQUE (id, bake_day_id);
 
--- One row per calendar year in Europe/Amsterdam. Checkout takes it FOR UPDATE as its last
--- lock (ADR 0012), so numbers have no gaps and no duplicates.
+-- One row per calendar year in Europe/Amsterdam. Checkout bumps it with an upsert, which
+-- keeps the row locked until commit; it is the last lock checkout takes (ADR 0012).
+-- Numbers never repeat; a rolled-back checkout leaves no gap, an abandoned order keeps
+-- its number.
 CREATE TABLE order_number (
     year smallint PRIMARY KEY CHECK (year BETWEEN 2000 AND 9999),
     last integer NOT NULL CHECK (last > 0)
@@ -22,6 +24,9 @@ CREATE TABLE "order" (
     number_year smallint NOT NULL,
     number_seq integer NOT NULL CHECK (number_seq > 0),
     customer_id bigint NOT NULL REFERENCES customer (id),
+    customer_name text NOT NULL CHECK (btrim(customer_name) <> ''),
+    customer_phone text CHECK (btrim(customer_phone) <> ''),
+    marketing_opt_in boolean NOT NULL DEFAULT false,
     bake_day_id bigint NOT NULL REFERENCES bake_day (id),
     pickup_slot_id bigint NOT NULL,
     channel text NOT NULL CHECK (channel IN ('web', 'manual')),
@@ -32,7 +37,6 @@ CREATE TABLE "order" (
     cancel_reason text CHECK (cancel_reason IN ('hold_expired', 'staff', 'customer', 'day_cancelled')),
     total_cents bigint NOT NULL CHECK (total_cents >= 0),
     hold_expires_at timestamptz,
-    payment_ref text CHECK (payment_ref <> ''),
     paid_at timestamptz,
     created_at timestamptz NOT NULL,
     UNIQUE (number_year, number_seq),
@@ -45,7 +49,7 @@ CREATE TABLE "order" (
         payment_mode = 'online' OR status NOT IN ('pending_payment', 'paid')
     ),
     CONSTRAINT order_paid_has_payment CHECK (
-        status <> 'paid' OR (paid_at IS NOT NULL AND payment_ref IS NOT NULL)
+        status <> 'paid' OR paid_at IS NOT NULL
     ),
     CONSTRAINT order_cancel_reason CHECK (
         (status <> 'cancelled' OR cancel_reason IS NOT NULL)
@@ -93,6 +97,34 @@ CREATE TABLE donation_allocation (
 
 CREATE INDEX donation_allocation_order_idx ON donation_allocation (order_id);
 CREATE INDEX donation_allocation_charity_idx ON donation_allocation (charity_id, status);
+
+-- Every payment the provider reports as completed, also one the order cannot take:
+-- then refund_due is set with its reason (ADR 0012). Only refunded_cents, method and
+-- fee_cents change later, when the provider reports them.
+CREATE TABLE payment (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    order_id bigint NOT NULL REFERENCES "order" (id),
+    provider_payment_id text NOT NULL UNIQUE CHECK (provider_payment_id <> ''),
+    method text CHECK (method <> ''),
+    amount_cents bigint NOT NULL CHECK (amount_cents >= 0),
+    fee_cents bigint CHECK (fee_cents >= 0),
+    status text NOT NULL CHECK (
+        status IN ('open', 'pending', 'authorized', 'paid', 'failed', 'canceled', 'expired')
+    ),
+    refunded_cents bigint NOT NULL DEFAULT 0
+        CHECK (refunded_cents BETWEEN 0 AND amount_cents),
+    refund_due boolean NOT NULL DEFAULT false,
+    refund_reason text CHECK (refund_reason IN (
+        'hold_expired', 'day_final', 'order_cancelled', 'order_confirmed', 'paid_twice',
+        'amount_mismatch'
+    )),
+    received_at timestamptz NOT NULL,
+    CONSTRAINT payment_refund_reason CHECK (refund_due = (refund_reason IS NOT NULL))
+);
+
+CREATE INDEX payment_order_idx ON payment (order_id);
+CREATE INDEX payment_refund_due_idx ON payment (received_at)
+    WHERE refund_due AND refunded_cents < amount_cents;
 
 CREATE TABLE audit_log (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

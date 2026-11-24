@@ -191,6 +191,7 @@ pub async fn checkout(
     if cart.is_empty() {
         return Err(cart::CartError::Empty.into());
     }
+    let details = customer::validate(customer)?;
     let mut tx = conn.begin().await?;
     let facts = lock_day(&mut tx, day).await?;
     ensure_orderable(&facts, channel, now)?;
@@ -218,20 +219,24 @@ pub async fn checkout(
     .await?;
     let max_orders = lock_slot(&mut tx, day, slot).await?;
     ensure_slot_room(&mut tx, slot, max_orders, clock.now(), None).await?;
-    let customer_id = customer::upsert(&mut tx, customer, now).await?;
+    let customer_id = customer::find_or_create(&mut tx, &details, now).await?;
     let total = cart::totals(&lines)?.gross()?;
     let (year, seq) = next_number(&mut tx, now).await?;
     let hold_expires_at = now.checked_add(HOLD).map_err(|_| Error::Invalid("time"))?;
     let id = sqlx::query_scalar!(
-        r#"INSERT INTO "order" (number_year, number_seq, customer_id, bake_day_id, pickup_slot_id,
-            channel, payment_mode, status, total_cents, hold_expires_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-            timestamptz 'epoch' + $10::bigint * interval '1 microsecond',
-            timestamptz 'epoch' + $11::bigint * interval '1 microsecond')
+        r#"INSERT INTO "order" (number_year, number_seq, customer_id, customer_name,
+            customer_phone, marketing_opt_in, bake_day_id, pickup_slot_id, channel,
+            payment_mode, status, total_cents, hold_expires_at, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+            timestamptz 'epoch' + $13::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $14::bigint * interval '1 microsecond')
         RETURNING id"#,
         year,
         seq,
         customer_id.get(),
+        details.name,
+        details.phone,
+        customer.marketing_opt_in,
         day.get(),
         slot.get(),
         channel.as_str(),
