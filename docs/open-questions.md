@@ -19,16 +19,22 @@ Questions about the spec. The spec is only changed when the owner asks.
   rates? (System refunds per line for now; ADR 0005.)
 - [ ] **Gate 3 names the till.** The roadmap picture says "Gate 3: till in daily use,
   two weeks at the counter", but the till is out of scope (SumUp). What is Gate 3?
-- [ ] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
+- [x] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
+  Answer (owner, 2026-11-24): the deadline is 20:00 two days before the pickup date; the warning
+  uses that rule instead of a number of hours.
+- [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
+  balance transactions, which need an organization access token with `balances.read`,
+  not the website API key (ADR 0013). OK to add that token to the sops secrets?
 - [ ] **Cancelled drops on the public calendar.** F1a lists planned, menu announced, open,
   sold out and closed. A cancelled (sick-day) drop is shown as "cancelled" for now
   (ADR 0008). OK?
 - [ ] **Bake start time.** No default rule in the spec; staff enter `bake_starts_at` per
   bake day. Should it default from the pickup window (e.g. 04:00 on the bake date)?
-- [ ] **Default lead time vs. default deadline.** 36 h before a Saturday bake start
+- [x] **Default lead time vs. default deadline.** 36 h before a Saturday bake start
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
+  Resolved by the answer above.
 - [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold

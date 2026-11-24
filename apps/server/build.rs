@@ -3,37 +3,68 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+#[path = "src/icon_set.rs"]
+mod icon_set;
 #[path = "src/tokens.rs"]
 mod tokens;
 
 fn main() -> ExitCode {
-    let source_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design/tokens.toml");
-    println!("cargo::rerun-if-changed={}", source_path.display());
+    let design = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../design");
     println!("cargo::rerun-if-changed=src/tokens.rs");
-    let source = match std::fs::read_to_string(&source_path) {
-        Ok(source) => source,
-        Err(error) => {
-            println!(
-                "cargo::error=cannot read {}: {error}",
-                source_path.display()
-            );
-            return ExitCode::FAILURE;
-        }
-    };
-    let css = match tokens::generate(&source) {
-        Ok(css) => css,
-        Err(problems) => {
-            for problem in problems.lines() {
-                println!("cargo::error=design/tokens.toml: {problem}");
-            }
-            return ExitCode::FAILURE;
-        }
-    };
+    println!("cargo::rerun-if-changed=src/icon_set.rs");
+    println!("cargo::rerun-if-env-changed=LUCIDE_DIR");
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
-    let target = out_dir.join("tokens.css");
-    if let Err(error) = std::fs::write(&target, css) {
-        println!("cargo::error=cannot write {}: {error}", target.display());
-        return ExitCode::FAILURE;
+
+    let tokens = read(&design.join("tokens.toml")).and_then(|source| {
+        tokens::generate(&source).map_err(|problems| {
+            problems
+                .lines()
+                .map(|problem| format!("design/tokens.toml: {problem}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+    });
+    let icons = read(&design.join("icons.toml")).and_then(|source| {
+        let Some(lucide) = std::env::var_os("LUCIDE_DIR") else {
+            return Err(
+                "LUCIDE_DIR is not set; build inside `nix develop` or with `nix build`".to_string(),
+            );
+        };
+        let lucide = PathBuf::from(lucide).join("icons");
+        icon_set::generate(&source, |name| read(&lucide.join(format!("{name}.svg")))).map_err(
+            |problems| {
+                problems
+                    .lines()
+                    .map(|problem| format!("design/icons.toml: {problem}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            },
+        )
+    });
+
+    let mut ok = true;
+    for (result, file) in [(tokens, "tokens.css"), (icons, "icons.rs")] {
+        let written = result.and_then(|content| {
+            let target = out_dir.join(file);
+            std::fs::write(&target, content)
+                .map_err(|error| format!("cannot write {}: {error}", target.display()))
+        });
+        if let Err(problems) = written {
+            for problem in problems.lines() {
+                println!("cargo::error={problem}");
+            }
+            ok = false;
+        }
     }
-    ExitCode::SUCCESS
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+fn read(path: &Path) -> Result<String, String> {
+    println!("cargo::rerun-if-changed={}", path.display());
+    std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))
 }
