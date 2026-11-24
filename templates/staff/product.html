@@ -1,0 +1,48 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+{% call s::status(saved) %}{% endcall %}
+{% if recheck %}{% call fb::alert("warning", layout.t("product-recheck")?) %}{% endcall %}{% endif %}
+{% if let Some(approval) = approval %}
+{% if approval.approved %}{% call fb::alert("success", approval.text) %}{% endcall %}{% else %}{% call fb::alert("warning", approval.text) %}{% endcall %}{% endif %}
+<p><a href="{{ approve_href }}">{{ layout.t("product-approve-link")? }}</a></p>
+{% endif %}
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call s::live("name", check) %}{% call f::field("text", "name", layout.t("product-name")?, value = form.name, error = errors.get("name"), required = true) %}{% endcall %}{% endcall %}
+{% call s::live("description", check) %}{% call f::field("textarea", "description", layout.t("product-description")?, value = form.description) %}{% endcall %}{% endcall %}
+{% call s::live("price", check) %}{% call f::field("money", "price", layout.t("product-price")?, value = form.price, hint = layout.t("product-price-hint")?, error = errors.get("price"), required = true) %}{% endcall %}{% endcall %}
+{% call s::live("vat_rate", check) %}{% call f::select("vat_rate", layout.t("product-vat")?, vat_options, error = errors.get("vat_rate"), required = true) %}{% endcall %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("product-pwyw-legend")? }}</legend>
+{% call s::live("pwyw", check) %}{% call f::checkbox("pwyw", layout.t("product-pwyw")?, checked = form.pwyw) %}{% endcall %}{% endcall %}
+{% call s::live("min_price", check) %}{% call f::field("money", "min_price", layout.t("product-min-price")?, value = form.min_price, hint = layout.t("product-pwyw-hint")?, error = errors.get("min_price")) %}{% endcall %}{% endcall %}
+{% call s::live("max_price", check) %}{% call f::field("money", "max_price", layout.t("product-max-price")?, value = form.max_price, error = errors.get("max_price")) %}{% endcall %}{% endcall %}
+</fieldset>
+{% call s::live("unit_weight", check) %}{% call f::field("number", "unit_weight", layout.t("product-unit-weight")?, value = form.unit_weight, error = errors.get("unit_weight"), required = true) %}{% endcall %}{% endcall %}
+{% call s::live("lead_time", check) %}{% call f::field("number", "lead_time", layout.t("product-lead-time")?, value = form.lead_time, hint = layout.t("product-lead-time-hint")?, error = errors.get("lead_time")) %}{% endcall %}{% endcall %}
+{% call f::checkbox("sold_online", layout.t("product-sold-online")?, checked = form.sold_online) %}{% endcall %}
+{% call f::checkbox("active", layout.t("product-active")?, checked = form.active) %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("product-allergens")? }}</legend>
+<p class="field-hint">{{ layout.t("product-allergens-hint")? }}</p>
+{%- for allergen in form.allergens %}
+{% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
+{%- endfor %}
+</fieldset>
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("allergen-may-contain")? }}</legend>
+{%- for allergen in form.may_contain %}
+{% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
+{%- endfor %}
+</fieldset>
+{% call f::field("textarea", "ingredient_text", layout.t("product-ingredients")?, value = form.ingredient_text, hint = layout.t("product-ingredients-hint")?) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

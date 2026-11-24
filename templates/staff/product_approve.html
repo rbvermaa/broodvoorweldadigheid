@@ -1,0 +1,27 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("approve-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("approve-title")? }}: {{ name }}</h1>
+{% if changed %}{% call fb::alert("error", layout.t("approve-changed")?) %}{% endcall %}{% endif %}
+<p>{{ layout.t("approve-intro")? }}</p>
+{% if allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(allergens) %}{% endcall %}{% endif %}
+{% if may_contain.is_empty() %}<p>{{ layout.t("approve-no-may-contain")? }}</p>{% else %}{% call p::allergen_list(may_contain, true) %}{% endcall %}{% endif %}
+<p class="allergen-heading">{{ layout.t("product-ingredients")? }}</p>
+{% if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{%- for code in allergens %}
+<input type="hidden" name="allergens" value="{{ code }}">
+{%- endfor %}
+{%- for code in may_contain %}
+<input type="hidden" name="may_contain" value="{{ code }}">
+{%- endfor %}
+<input type="hidden" name="ingredient_text" value="{{ ingredient_text }}">
+{% call b::button(layout.t("approve-submit")?, kind = "submit") %}{% endcall %}
+</form>
+<p><a href="{{ back }}">{{ layout.t("approve-back")? }}</a></p>
+{% endblock %}

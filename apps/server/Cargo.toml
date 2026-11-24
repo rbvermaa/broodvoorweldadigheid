@@ -12,7 +12,9 @@ ai = { path = "../../crates/ai", optional = true }
 askama.workspace = true
 auth = { path = "../../crates/auth" }
 axum.workspace = true
+bakedays = { path = "../../crates/bakedays" }
 base64.workspace = true
+catalog = { path = "../../crates/catalog" }
 clap.workspace = true
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
@@ -37,6 +39,7 @@ toml.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+testkit = { path = "../../crates/testkit" }
 tower.workspace = true
 toml.workspace = true
 

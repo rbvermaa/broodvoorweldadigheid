@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod assets;
+pub mod backoffice;
 pub mod clock;
 pub mod components;
 pub mod config;
@@ -45,7 +46,8 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(pages::home))
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
-        .route("/staff/logout", post(staff::logout));
+        .route("/staff/logout", post(staff::logout))
+        .merge(backoffice::routes());
     if state.config.dev_staff_login {
         routes = routes.route(staff::DEV_LOGIN_PATH, post(staff::dev_login));
     }

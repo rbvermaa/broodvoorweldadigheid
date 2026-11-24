@@ -499,3 +499,9 @@
     justify-content: flex-end;
   }
 }
+
+.field-group {
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  border: 0;
+}

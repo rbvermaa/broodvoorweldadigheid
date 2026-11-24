@@ -1,0 +1,676 @@
+//! Products and the allergen approval (F10, F4b).
+
+use std::collections::BTreeSet;
+
+use askama::Template;
+use auth::Permission;
+use axum::extract::{Form, Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
+use catalog::{AllergenInfo, Pricing, Product, ProductInput, products};
+use domain::{Allergen, Money, PayWhatYouWant, ProductId, VatRate};
+use serde::Deserialize;
+use tower_sessions::Session;
+
+use super::form::{Errors, Fields, money_value, parse_money};
+use super::{
+    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
+    saved, t,
+};
+use crate::components::{Cell, SelectOption, Table};
+use crate::pages::{self, Layout};
+use crate::staff::Staff;
+use crate::state::AppState;
+
+const CHECK: &str = "/staff/products/check";
+const MAX_LEAD_TIME_HOURS: i32 = 168;
+
+pub struct AllergenBox {
+    pub field: String,
+    pub code: &'static str,
+    pub checked: bool,
+}
+
+/// What the product form shows, as typed.
+pub struct ProductForm {
+    pub name: String,
+    pub description: String,
+    pub price: String,
+    pub vat_rate: String,
+    pub pwyw: bool,
+    pub min_price: String,
+    pub max_price: String,
+    pub unit_weight: String,
+    pub lead_time: String,
+    pub sold_online: bool,
+    pub active: bool,
+    pub allergens: Vec<AllergenBox>,
+    pub may_contain: Vec<AllergenBox>,
+    pub ingredient_text: String,
+}
+
+fn boxes(prefix: &str, checked: impl Fn(Allergen) -> bool) -> Vec<AllergenBox> {
+    Allergen::ALL
+        .into_iter()
+        .map(|allergen| AllergenBox {
+            field: format!("{prefix}_{}", allergen.code()),
+            code: allergen.code(),
+            checked: checked(allergen),
+        })
+        .collect()
+}
+
+impl ProductForm {
+    fn empty() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            price: String::new(),
+            vat_rate: VatRate::Nine.percent().to_string(),
+            pwyw: false,
+            min_price: String::new(),
+            max_price: String::new(),
+            unit_weight: String::new(),
+            lead_time: String::new(),
+            sold_online: true,
+            active: true,
+            allergens: boxes("allergen", |_| false),
+            may_contain: boxes("may", |_| false),
+            ingredient_text: String::new(),
+        }
+    }
+
+    fn of(product: &Product) -> Self {
+        let (min, max) = match product.pricing {
+            Pricing::Fixed(_) => (String::new(), String::new()),
+            Pricing::PayWhatYouWant(pwyw) => (
+                money_value(pwyw.min().cents()),
+                money_value(pwyw.max().cents()),
+            ),
+        };
+        let info = &product.allergen_info;
+        Self {
+            name: product.name_nl.clone(),
+            description: product.description_nl.clone(),
+            price: money_value(product.pricing.price_incl().cents()),
+            vat_rate: product.vat_rate.percent().to_string(),
+            pwyw: matches!(product.pricing, Pricing::PayWhatYouWant(_)),
+            min_price: min,
+            max_price: max,
+            unit_weight: product.unit_weight_g.to_string(),
+            lead_time: product
+                .lead_time_hours
+                .map(|hours| hours.to_string())
+                .unwrap_or_default(),
+            sold_online: product.sold_online,
+            active: product.active,
+            allergens: boxes("allergen", |a| info.allergens.contains(&a)),
+            may_contain: boxes("may", |a| info.may_contain.contains(&a)),
+            ingredient_text: info.ingredient_text.clone(),
+        }
+    }
+
+    fn posted(fields: &Fields) -> Self {
+        Self {
+            name: fields.text("name").to_owned(),
+            description: fields.raw("description").to_owned(),
+            price: fields.text("price").to_owned(),
+            vat_rate: fields.text("vat_rate").to_owned(),
+            pwyw: fields.checked("pwyw"),
+            min_price: fields.text("min_price").to_owned(),
+            max_price: fields.text("max_price").to_owned(),
+            unit_weight: fields.text("unit_weight").to_owned(),
+            lead_time: fields.text("lead_time").to_owned(),
+            sold_online: fields.checked("sold_online"),
+            active: fields.checked("active"),
+            allergens: boxes("allergen", |a| {
+                fields.checked(&format!("allergen_{}", a.code()))
+            }),
+            may_contain: boxes("may", |a| fields.checked(&format!("may_{}", a.code()))),
+            ingredient_text: one_newline(fields.raw("ingredient_text").trim()),
+        }
+    }
+
+    fn vat_options(&self) -> Vec<SelectOption> {
+        VatRate::ALL
+            .into_iter()
+            .map(|rate| {
+                let value = rate.percent().to_string();
+                SelectOption {
+                    label: format!("{value}%"),
+                    selected: value == self.vat_rate,
+                    value,
+                }
+            })
+            .collect()
+    }
+
+    fn allergen_info(&self) -> AllergenInfo {
+        let set = |boxes: &[AllergenBox]| -> BTreeSet<Allergen> {
+            boxes
+                .iter()
+                .filter(|b| b.checked)
+                .filter_map(|b| b.code.parse().ok())
+                .collect()
+        };
+        AllergenInfo {
+            allergens: set(&self.allergens),
+            may_contain: set(&self.may_contain),
+            ingredient_text: self.ingredient_text.clone(),
+        }
+    }
+
+    /// The input for the catalogue, or the Dutch message per wrong field. Fields the form
+    /// does not show are taken from `existing`.
+    fn validate(
+        &self,
+        state: &AppState,
+        existing: Option<&Product>,
+    ) -> Result<ProductInput, Errors> {
+        let mut errors = Errors::default();
+        if self.name.is_empty() {
+            errors.add("name", t(state, "product-error-name"));
+        }
+        let money = |errors: &mut Errors, field: &str, value: &str| {
+            let cents = parse_money(value);
+            if cents.is_none() {
+                errors.add(field, t(state, "form-error-money"));
+            }
+            cents.map(Money::from_cents)
+        };
+        let price = money(&mut errors, "price", &self.price);
+        let vat_rate = VatRate::ALL
+            .into_iter()
+            .find(|rate| rate.percent().to_string() == self.vat_rate);
+        if vat_rate.is_none() {
+            errors.add("vat_rate", t(state, "product-error-vat"));
+        }
+        let pwyw = if self.pwyw {
+            let min = money(&mut errors, "min_price", &self.min_price);
+            let max = money(&mut errors, "max_price", &self.max_price);
+            match (price, min, max) {
+                (Some(price), Some(min), Some(max)) => {
+                    if PayWhatYouWant::new(price, min, max).is_err() {
+                        errors.add("min_price", t(state, "product-error-pwyw"));
+                    }
+                    Some((min, max))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let unit_weight = self.unit_weight.parse::<i32>().ok().filter(|g| *g > 0);
+        if unit_weight.is_none() {
+            errors.add("unit_weight", t(state, "product-error-weight"));
+        }
+        let lead_time = if self.lead_time.is_empty() {
+            Some(None)
+        } else {
+            self.lead_time
+                .parse::<i32>()
+                .ok()
+                .filter(|hours| (0..=MAX_LEAD_TIME_HOURS).contains(hours))
+                .map(Some)
+        };
+        if lead_time.is_none() {
+            errors.add("lead_time", t(state, "product-error-lead-time"));
+        }
+        match (price, vat_rate, unit_weight, lead_time) {
+            (Some(price_incl), Some(vat_rate), Some(unit_weight_g), Some(lead_time_hours))
+                if errors.is_empty() =>
+            {
+                Ok(ProductInput {
+                    name_nl: self.name.clone(),
+                    description_nl: self.description.trim().to_owned(),
+                    photo_path: existing.and_then(|p| p.photo_path.clone()),
+                    price_incl,
+                    vat_rate,
+                    pay_what_you_want: pwyw,
+                    unit_weight_g,
+                    dough_g_per_piece: existing.map_or(0, |p| p.dough_g_per_piece),
+                    freezer_days: existing.and_then(|p| p.freezer_days),
+                    lead_time_hours,
+                    allergen_info: self.allergen_info(),
+                    packaged: existing.is_some_and(|p| p.packaged),
+                    sold_online: self.sold_online,
+                    estimated_cost: existing.and_then(|p| p.estimated_cost),
+                    active: self.active,
+                })
+            }
+            _ => Err(errors),
+        }
+    }
+}
+
+/// The approval as the edit page shows it.
+pub struct ApprovalView {
+    pub approved: bool,
+    pub text: String,
+}
+
+#[derive(Template)]
+#[template(path = "staff/product.html")]
+struct ProductPage<'a> {
+    layout: Layout<'a>,
+    heading: String,
+    action: String,
+    check: &'static str,
+    form: ProductForm,
+    vat_options: Vec<SelectOption>,
+    errors: Errors,
+    saved: bool,
+    approval: Option<ApprovalView>,
+    approve_href: String,
+    recheck: bool,
+}
+
+#[derive(Template)]
+#[template(path = "staff/products.html")]
+struct ListPage<'a> {
+    layout: Layout<'a>,
+    table: Table,
+}
+
+#[derive(Template)]
+#[template(path = "staff/product_approve.html")]
+struct ApprovePage<'a> {
+    layout: Layout<'a>,
+    name: String,
+    action: String,
+    back: String,
+    allergens: Vec<&'static str>,
+    may_contain: Vec<&'static str>,
+    ingredient_text: String,
+    changed: bool,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct EditFlash {
+    opgeslagen: Option<String>,
+    herkeuren: Option<String>,
+}
+
+fn product_path(id: ProductId) -> String {
+    format!("/staff/products/{}", id.get())
+}
+
+async fn approval_view(state: &AppState, product: &Product) -> Step<ApprovalView> {
+    let Some(approval) = product.approval else {
+        return Ok(ApprovalView {
+            approved: false,
+            text: t(state, "product-not-approved"),
+        });
+    };
+    let by = auth::staff::find(&state.pool, approval.by)
+        .await
+        .map_err(|error| fail(state, &error))?
+        .map_or_else(|| approval.by.get().to_string(), |staff| staff.name);
+    let at = i18n::Amsterdam::new().local(approval.at);
+    Ok(ApprovalView {
+        approved: true,
+        text: super::t_with(
+            state,
+            "product-approved-by",
+            &[
+                ("name", by),
+                ("date", state.i18n.long_date(at.date())),
+                ("time", i18n::time(at.time())),
+            ],
+        ),
+    })
+}
+
+fn catalog_error(state: &AppState, error: &catalog::Error) -> Response {
+    match error {
+        catalog::Error::NotFound => not_found(state),
+        other => fail(state, other),
+    }
+}
+
+async fn load(state: &AppState, raw_id: &str) -> Step<Product> {
+    let id = ProductId::new(path_id(state, raw_id)?);
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    products::get(&mut conn, id)
+        .await
+        .map_err(|e| catalog_error(state, &e).into())
+}
+
+pub async fn list(State(state): State<AppState>, staff: Staff, session: Session) -> Response {
+    run_list(&state, &staff, &session)
+        .await
+        .unwrap_or_else(Rejection::into_response)
+}
+
+async fn run_list(state: &AppState, staff: &Staff, session: &Session) -> Outcome {
+    require(state, staff, Permission::EditAllergens)?;
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    let all = products::list_all(&mut conn)
+        .await
+        .map_err(|e| fail(state, &e))?;
+    let yes_no = |b: bool| t(state, if b { "form-yes" } else { "form-no" });
+    let table = Table {
+        id: "producten".to_owned(),
+        caption: t(state, "products-caption"),
+        head: vec![
+            Cell::text(t(state, "product-name")),
+            Cell::number(t(state, "product-price")),
+            Cell::number(t(state, "product-vat")),
+            Cell::text(t(state, "product-sold-online")),
+            Cell::text(t(state, "product-active")),
+            Cell::text(t(state, "product-allergen-status")),
+        ],
+        rows: all
+            .iter()
+            .map(|p| {
+                vec![
+                    Cell::link(p.name_nl.clone(), product_path(p.id)),
+                    Cell::number(i18n::money(p.pricing.price_incl().cents())),
+                    Cell::number(format!("{}%", p.vat_rate.percent())),
+                    Cell::text(yes_no(p.sold_online)),
+                    Cell::text(yes_no(p.active)),
+                    Cell::text(t(
+                        state,
+                        if p.approval.is_some() {
+                            "product-approved"
+                        } else {
+                            "product-not-approved"
+                        },
+                    )),
+                ]
+            })
+            .collect(),
+    };
+    Ok(pages::render(
+        state,
+        StatusCode::OK,
+        &ListPage {
+            layout: layout(state, session).await?,
+            table,
+        },
+    ))
+}
+
+pub async fn new_form(State(state): State<AppState>, staff: Staff, session: Session) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let form = ProductForm::empty();
+        render_form(
+            &state,
+            &session,
+            StatusCode::OK,
+            None,
+            form,
+            Errors::default(),
+            &Flash::default(),
+        )
+        .await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+async fn render_form(
+    state: &AppState,
+    session: &Session,
+    status: StatusCode,
+    product: Option<(&Product, bool)>,
+    form: ProductForm,
+    errors: Errors,
+    flash: &Flash,
+) -> Outcome {
+    let (heading, action, approval, approve_href, recheck) = match product {
+        Some((product, recheck)) => (
+            product.name_nl.clone(),
+            product_path(product.id),
+            Some(approval_view(state, product).await?),
+            format!("{}/approve", product_path(product.id)),
+            recheck,
+        ),
+        None => (
+            t(state, "product-new"),
+            "/staff/products/new".to_owned(),
+            None,
+            String::new(),
+            false,
+        ),
+    };
+    Ok(pages::render(
+        state,
+        status,
+        &ProductPage {
+            layout: layout(state, session).await?,
+            heading,
+            action,
+            check: CHECK,
+            vat_options: form.vat_options(),
+            form,
+            errors,
+            saved: flash.saved(),
+            approval,
+            approve_href,
+            recheck,
+        },
+    ))
+}
+
+pub async fn create(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let form = ProductForm::posted(&fields);
+        let input = match form.validate(&state, None) {
+            Ok(input) => input,
+            Err(errors) => {
+                return render_form(
+                    &state,
+                    &session,
+                    invalid_status(&headers),
+                    None,
+                    form,
+                    errors,
+                    &Flash::default(),
+                )
+                .await;
+            }
+        };
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let product = products::create(&mut conn, &input)
+            .await
+            .map_err(|e| fail(&state, &e))?;
+        Ok(saved(&headers, &product_path(product.id)))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Inline check while typing: the form page with this input's errors. htmx picks out
+/// the field that changed.
+pub async fn check(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let form = ProductForm::posted(&fields);
+        let errors = form.validate(&state, None).err().unwrap_or_default();
+        render_form(
+            &state,
+            &session,
+            StatusCode::OK,
+            None,
+            form,
+            errors,
+            &Flash::default(),
+        )
+        .await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+pub async fn edit_form(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Path(id): Path<String>,
+    Query(flash): Query<EditFlash>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let product = load(&state, &id).await?;
+        let form = ProductForm::of(&product);
+        render_form(
+            &state,
+            &session,
+            StatusCode::OK,
+            Some((&product, flash.herkeuren.is_some())),
+            form,
+            Errors::default(),
+            &Flash {
+                opgeslagen: flash.opgeslagen,
+            },
+        )
+        .await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let before = load(&state, &id).await?;
+        let form = ProductForm::posted(&fields);
+        let input = match form.validate(&state, Some(&before)) {
+            Ok(input) => input,
+            Err(errors) => {
+                return render_form(
+                    &state,
+                    &session,
+                    invalid_status(&headers),
+                    Some((&before, false)),
+                    form,
+                    errors,
+                    &Flash::default(),
+                )
+                .await;
+            }
+        };
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let after = products::update(&mut conn, before.id, &input)
+            .await
+            .map_err(|e| catalog_error(&state, &e))?;
+        let path = product_path(after.id);
+        if before.approval.is_some() && after.approval.is_none() {
+            return Ok(saved(&headers, &format!("{path}?herkeuren=1")));
+        }
+        Ok(saved(&headers, &path))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+fn codes(set: &BTreeSet<Allergen>) -> Vec<&'static str> {
+    set.iter().map(|a| a.code()).collect()
+}
+
+async fn render_approve(
+    state: &AppState,
+    session: &Session,
+    status: StatusCode,
+    product: &Product,
+    changed: bool,
+) -> Outcome {
+    let info = &product.allergen_info;
+    Ok(pages::render(
+        state,
+        status,
+        &ApprovePage {
+            layout: layout(state, session).await?,
+            name: product.name_nl.clone(),
+            action: format!("{}/approve", product_path(product.id)),
+            back: product_path(product.id),
+            allergens: codes(&info.allergens),
+            may_contain: codes(&info.may_contain),
+            ingredient_text: info.ingredient_text.clone(),
+            changed,
+        },
+    ))
+}
+
+pub async fn approve_form(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Path(id): Path<String>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let product = load(&state, &id).await?;
+        render_approve(&state, &session, StatusCode::OK, &product, false).await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Approves exactly the data the page showed: it comes back in hidden fields, and the
+/// catalogue refuses it when the product changed in the meantime.
+pub async fn approve(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let product = load(&state, &id).await?;
+        let reviewed = reviewed(&fields);
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        match products::approve_allergens(
+            &mut conn,
+            product.id,
+            &reviewed,
+            staff.0.id,
+            state.clock.as_ref(),
+        )
+        .await
+        {
+            Ok(_) => Ok(saved(&headers, &product_path(product.id))),
+            Err(catalog::Error::AllergensChanged) => {
+                render_approve(&state, &session, StatusCode::CONFLICT, &product, true).await
+            }
+            Err(error) => Err(catalog_error(&state, &error).into()),
+        }
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+fn reviewed(fields: &Fields) -> AllergenInfo {
+    let set = |name: &str| -> BTreeSet<Allergen> {
+        fields
+            .all(name)
+            .filter_map(|code| code.parse().ok())
+            .collect()
+    };
+    AllergenInfo {
+        allergens: set("allergens"),
+        may_contain: set("may_contain"),
+        ingredient_text: one_newline(fields.raw("ingredient_text")),
+    }
+}
+
+/// Browsers send line breaks as CRLF; the catalogue keeps LF, so an approval compares equal.
+fn one_newline(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
