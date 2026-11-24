@@ -14,8 +14,8 @@ Owner can do everything. The other roles get what their work needs.
 | Production | production list, recipes, batches, labels | ✓ | ✓ | |
 | EditAllergens | allergens, ingredient text, nutrition approval | ✓ | ✓ | |
 | ManageBakeDays | bake days, cutoffs, pickup slots, capacity | ✓ | ✓ | |
-| CloseBakeDay | sick-day cancel (F2), including that day's refunds (ADR 0026) | ✓ | | |
-| Refund | cancelling a paid order with its refund, retrying a refund (F6, ADR 0026) | ✓ | ✓ | |
+| CloseBakeDay | sick-day cancel (F2), including that day's refunds (ADR 0028) | ✓ | | |
+| Refund | cancelling a paid order with its refund, retrying a refund (F6, ADR 0028) | ✓ | ✓ | |
 | ViewReports | sales, donation and contribution reports (F11c, F11e) | ✓ | | |
 | ManageCharities | charities and payouts | ✓ | | |
 | ManageStaff | adding staff and changing roles | ✓ | | |

@@ -4,12 +4,15 @@ Questions about the spec. The spec is only changed when the owner asks.
 
 - [ ] **F19 is missing.** The requirements table goes from F18a to F20. Removed on
   purpose, or lost?
-- [ ] **GitHub instead of Forgejo** (ADR 0001). Update the spec's stack table and the
+- [x] **GitHub instead of Forgejo** (ADR 0001). Update the spec's stack table and the
   list of allowed external services?
+  **Spec updated 2026-11-24:** stack table (GitHub, GitHub Actions, Cachix), "Rules that
+  keep it safe", and a note that GitHub and Cachix hold only public code and build output.
 - [ ] **Off-site backup target.** Which host or provider does the second rustic
   repository go to?
 - [x] **Label fonts.** Which fonts go into the server image for PDFs and labels?
   **Answered:** Oswald and Inter, pinned by Nix (ADR 0009); the PDFs embed their TTFs (ADR 0016).
+  Spec updated (Design system, brand).
 - [x] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
   Done 2026-11-24: the repo is public now and `main` requires the CI jobs (ADR 0001).
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
@@ -54,10 +57,10 @@ Questions about the spec. The spec is only changed when the owner asks.
   icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
   wordmark until the server knows its public URL.
   **Answered 2026-11-24:** the owner keeps the PNG for everything; no SVG is needed (the
-  supplied DXF only wraps the same PNG).
+  supplied DXF only wraps the same PNG). Spec updated.
 - [x] **Accent colour.** The spec leaves "one accent colour" to choose.
   **Answered 2026-11-24:** none. The owner chose style "Stempel": ink #111111 on white,
-  like the logo (ADR 0023).
+  like the logo (ADR 0023). Spec updated.
 - [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
@@ -76,7 +79,7 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
-  only come from sign-ups on the site (ADR 0021).
+  only come from sign-ups on the site (ADR 0021). Spec updated (F9a, Subscriber).
 - [ ] **Refund dates in the sales report** (ADR 0017). Refunds have no date in the
   database, so the sales report takes them off on the day of the sale; a late refund
   changes a period that may already be in a BTW return. Store Mollie's refund date and
@@ -87,16 +90,19 @@ Questions about the spec. The spec is only changed when the owner asks.
   commercially without Niimbot's consent).
   **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a
   300 dpi PNG at its exact size, plus CSV rows for the Niimbot app's import; the owner
-  prints through the official Niimbot app (ADR 0024).
+  prints through the official Niimbot app (ADR 0024). Spec updated.
 - [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
-  **Answered 2026-11-24:** not needed; the owner dropped them.
-- [ ] **Spec F3 wording.** F3 still says "limits per product and per dough or oven-load
+  **Answered 2026-11-24:** not needed; the owner dropped them. Spec updated.
+- [x] **Spec F3 wording.** F3 still says "limits per product and per dough or oven-load
   pool". The owner dropped pools on 2026-11-24 (ADR 0026). Update F3 to "a maximum per
   product per bake day"?
-- [ ] **Spec wording on bake start and lead time** (ADR 0027). The data model lists
+  **Spec updated 2026-11-24:** F3, scope, data model, checkout lock rule and crate list.
+- [x] **Spec wording on bake start and lead time** (ADR 0027). The data model lists
   `bake_starts_at` as a per-day field, and "Recipe versions and batches" plus the
   deadline rule speak of a lead time per recipe ("bake_starts_at minus the longest recipe
   lead time"). The owner decided on 2026-11-24 that baking always starts at 05:00 on the
   bake date (derived, not entered) and that only the sourdough rule (20:00 two days
   before) warns. Update the spec to match, and drop `lead_time_hours` from
   `RecipeVersion`?
+  **Spec updated 2026-11-24:** F1, data model and the deadline rules. `RecipeVersion` keeps
+  its lead time as information only; it no longer drives warnings.

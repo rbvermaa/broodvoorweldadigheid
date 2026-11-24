@@ -1,4 +1,4 @@
-//! The sick-day cancel of a whole bake day (F2, ADR 0026): one page that says what will
+//! The sick-day cancel of a whole bake day (F2, ADR 0028): one page that says what will
 //! happen and takes the message for customers, and afterwards lists the refunds that still
 //! have to go out, with a button to send them again.
 

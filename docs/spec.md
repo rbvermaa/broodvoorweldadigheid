@@ -10,7 +10,7 @@ v2 covers ordering, production, recipes and labels for a pickup-only microbakery
 
 **In scope**
 
-- Bake days with order cutoffs, oven or dough capacity limits and configurable pickup windows
+- Bake days with order cutoffs, a maximum per product and configurable pickup windows
 
 - Webshop with Mollie payments (iDEAL and Wero, cards) and a sick-day cancel with automatic refunds
 
@@ -20,7 +20,7 @@ v2 covers ordering, production, recipes and labels for a pickup-only microbakery
 
 - Versioned recipes in baker's percentages, per-batch adjustments, ingredient needs per bake day and costing
 
-- Product labels and freezer labels for frozen batches on the bakery's Niimbot printer
+- Product labels and freezer labels for frozen batches, made as files the bakery prints on its Niimbot printer with the official Niimbot app
 
 - Sales report per BTW rate, exported for the accountant, and an overview of business orders to invoice by hand
 
@@ -53,10 +53,10 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 
 | ID | Feature | Must do | Phase |
 |----|----|----|----|
-| F1 | Bake-day calendar | Create, copy and repeat bake days; product range per day; every bake day (drop) has its own order deadline, filled in from a default rule and changeable per drop; ordering opens and closes automatically at the set times; a warning when a deadline leaves too little time for the sourdough; countdown in the shop; pickup day and window filled in from the location's default and changeable per bake day; a bake day can also be production-only, without online ordering | MVP |
+| F1 | Bake-day calendar | Create, copy and repeat bake days; product range per day; every bake day (drop) has its own order deadline, filled in from a default rule and changeable per drop; ordering opens and closes automatically at the set times; baking starts at 05:00 on the bake date, set by the system; a warning when a deadline is later than the sourdough allows (20:00 two days before the bake date); countdown in the shop; pickup day and window filled in from the location's default and changeable per bake day; a bake day can also be production-only, without online ordering | MVP |
 | F1a | Drop calendar | Plan drops weeks ahead and show them on a public page: date, pickup window, location, the drop's charity or a clear “normal sale” label, and status (planned, menu announced, open until the deadline, sold out, closed). The menu can follow later and is published automatically at a set time, for example Wednesday. An iCal feed lets customers add drops to their own calendar | MVP |
-| F2 | Sick-day cancel | One action closes the day, emails every customer the baker's message and refunds through Mollie | MVP |
-| F3 | Capacity limits | Limits per product and per dough or oven-load pool; stock shown live; no overselling when two customers check out at once | MVP |
+| F2 | Sick-day cancel | Owner only. One action closes the day, emails every customer the baker's message and refunds through Mollie | MVP |
+| F3 | Capacity limits | A maximum per product per bake day; stock shown live; no overselling when two customers check out at once | MVP |
 | F4 | Webshop | Dutch UI, photos, allergen icons, ingredient text, pickup location and time slot, guest checkout | MVP |
 | F4a | Pickup locations | Locations with address and default pickup windows (weekday, start and end time), all editable; starts with De Proef, Majoor van Swietenlaan 15, 8382 CE Frederiksoord, Saturday 11:00–12:00 | MVP |
 | F4b | Pay what you want | For chosen products the customer sets their own price (their donation on charity drops), with the field prefilled at a suggested amount; the baker sets the suggestion, a minimum and a maximum per product; the server checks the amount, never the browser; business accounts ordering on account pay the suggested price | MVP |
@@ -71,7 +71,7 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F7a | Extra production | Add or change pieces per product on any bake day on top of orders, with a purpose (freezer, SumUp sales, samples, other); extras count against capacity so the webshop does not oversell; changeable until the batch is mixed | MVP |
 | F8 | Pickup list | Orders per customer and time slot; tick off on a phone at pickup | MVP |
 | F9 | Emails | Order confirmation, pickup reminder, cancellation; Dutch templates | MVP |
-| F9a | Drop alerts | Opt-in email list with confirmation by email, starting with the subscribers exported from Payhip; subscribers hear when a drop's menu is published or ordering opens; one-click unsubscribe | MVP |
+| F9a | Drop alerts | Opt-in email list with confirmation by email; people sign up on the site; subscribers hear when a drop's menu is published or ordering opens; one-click unsubscribe | MVP |
 | F9b | Bread vote | The baker lists candidate breads, optionally for a specific drop; visitors vote once per confirmed email address, with an optional wish of their own; results visible to the baker and optionally on the site; the vote closes on a set date | Phase 2 |
 | F10 | Product catalogue | 14 allergens, may-contain, ingredient text, price incl. BTW, BTW rate 9% or 21%; per product whether it is sold online or only outside the system (frozen and packaged products are sold through the bakery's SumUp app) | MVP |
 | F11 | Sales report | Sales per BTW rate per day, month and quarter; CSV export; for pay-what-you-want products, the average price paid against the suggested price | MVP |
@@ -81,7 +81,7 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F11d | Public donation page | Totals per drop and per charity on the site, switched on when you are ready; never shows names or individual amounts | Phase 2 |
 | F11e | Your contribution | For admins. Per drop and per charity, the costs the bakery covers so the charity gets the full amount: BTW owed on the donations, Mollie fees, ingredient cost and other costs entered per drop (packaging, energy). Shows the total and what it means per euro donated, for example “for every €1 the charity received, you covered €0.38”. Ingredient cost uses a per-product estimate until costing (F16) ships, then the actual batch cost | MVP |
 | F12 | Privacy tools | Export and delete a customer's data; marketing consent | MVP |
-| F13 | Staff roles | Owner, baker and counter roles; passkey login | MVP |
+| F13 | Staff roles | Owner, baker and counter roles; passkey login; owner and baker can refund an order, only the owner can cancel a whole bake day | MVP |
 | F14 | Recipe versions | Base recipes in baker's percentages with sub-recipes, preferments and hydration; a version freezes once a batch uses it, and editing creates the next version | Phase 2 |
 | F14a | Batches | At cutoff, split each dough (orders plus extra production) into batches by mixer capacity, or start a batch by hand for any quantity; each batch copies the recipe version; the baker adjusts lines and quantities with an optional reason; grams recalculate live; a batch locks when mixed; actual pieces and waste are recorded after baking | Phase 2 |
 | F14b | Promote an adjustment | Save a batch formula as the next recipe version in one action | Phase 2 |
@@ -89,8 +89,8 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F16 | Costing | Standard cost per product, actual cost per batch, and the variance split into recipe, price and yield; ingredient prices with a valid-from date | Phase 2 |
 | F17 | Allergen roll-up | Allergens and ingredient text computed from the recipe and approved by the baker; a batch that swaps or adds an ingredient is re-checked and cannot be labelled until any difference is approved | Phase 2 |
 | F17a | Nutrition values | Energy, fat, saturates, carbohydrate, sugars, protein and salt per 100 g, computed from ingredient values (NEVO, the Dutch food composition table, or supplier specs) and corrected for weight lost in baking; the baker approves before it is printed | Phase 2 |
-| F18 | Product labels | Full labels for packaged products such as cookies and granola, printed on the Niimbot: name, ingredients with allergens in bold, net weight, best-before date, storage instruction, batch code, business name and address, and the nutrition table unless the small-producer exemption applies; a longer label, or a front and back label, when it does not fit; warning when a batch changes the ingredient order by weight | Phase 2 |
-| F18a | Freezer labels | After baking, enter how many pieces of a batch go into the freezer and print one label each. The label goes to the customer, so it carries product name, ingredients with allergens in bold, net weight, best-before date from a per-product freezer period, storage instruction, and business name and address; plus freeze date, batch code and a small QR code for staff. Default label size 50 × 30 mm; a long ingredient list moves to a longer label (the B21 Pro takes up to 170 mm) | Phase 2 |
+| F18 | Product labels | Full labels for packaged products such as cookies and granola, printed on the Niimbot through the official Niimbot app: name, ingredients with allergens in bold, net weight, best-before date, storage instruction, batch code, business name and address, and the nutrition table unless the small-producer exemption applies; a longer label, or a front and back label, when it does not fit; warning when a batch changes the ingredient order by weight | Phase 2 |
+| F18a | Freezer labels | After baking, enter how many pieces of a batch go into the freezer and print one label each through the Niimbot app. The label goes to the customer, so it carries product name, ingredients with allergens in bold, net weight, best-before date from a per-product freezer period, storage instruction, and business name and address; plus freeze date, batch code and a small QR code for staff. Default label size 50 × 30 mm; a long ingredient list moves to a longer label (the B21 Pro takes up to 170 mm) | Phase 2 |
 | F20 | Recipe import | Photo or Excel to a draft recipe the baker checks | Phase 3 |
 | F21 | Spec-sheet reading | Supplier spec sheet to draft allergens, ingredients and nutrition values for approval | Phase 3 |
 | F22 | Product texts | Draft shop descriptions in the bakery's tone | Phase 3 |
@@ -127,13 +127,13 @@ Sources: [Belastingdienst on retention](https://www.belastingdienst.nl/wps/wcm/c
 
 ## Architecture
 
-v2 runs on one server in the bakery: a single Rust binary plus PostgreSQL, Kanidm and backups. The Niimbot label printer and the optional AI box sit on the same local network.
+v2 runs on one server in the bakery: a single Rust binary plus PostgreSQL, Kanidm and backups. The optional AI box sits on the same local network. Labels print on the Niimbot printer from the official Niimbot app, using files the system makes.
 
 ![system architecture · on-premises server, bakery devices, external services](./media/image2.png)
 
 system architecture · on-premises server, bakery devices, external services
 
-The router forwards only ports 80 and 443 to Caddy; staff reach the back office from outside through WireGuard. Mollie, the email relay and an off-site backup copy are the only things outside the bakery.
+The router forwards only ports 80 and 443 to Caddy; staff reach the back office from outside through WireGuard. Mollie, the email relay and an off-site backup copy are the only things outside the bakery that the running system uses. GitHub and Cachix hold only the public code and its build output, never customer data or secrets.
 
 **Why one binary**
 
@@ -153,7 +153,7 @@ The router forwards only ports 80 and 443 to Caddy; staff reach the back office 
 
 - If the bakery's internet or power fails, the shop is offline until it returns (see Risks).
 
-- The site is served at https://broodvoorweldadigheid.nl/, and Caddy gets its certificate for that domain automatically. Go-live moves the domain's DNS from Payhip to the bakery's IP address, with redirects from the old Payhip links (/b/… product pages and /contact), so links already shared keep working.
+- The site is served at https://broodvoorweldadigheid.nl/, and Caddy gets its certificate for that domain automatically. Go-live moves the domain's DNS from Payhip to the bakery's IP address. Old Payhip links are not redirected.
 
 ## Technology stack
 
@@ -169,7 +169,7 @@ Everything we write is Rust. The few services we run but do not write are C, C++
 | Translations | Fluent (fluent-bundle), Dutch first | Rust |
 | Money and dates | Integer cents with rust_decimal for maths; jiff with Europe/Amsterdam (chrono + chrono-tz) | Rust |
 | Email | lettre over an SMTP relay | Rust |
-| PDFs | Typst used as a library, also rendering label bitmaps for the Niimbot | Rust |
+| PDFs | Typst used as a library, also rendering label PNGs for the Niimbot app | Rust |
 | Excel import | calamine | Rust |
 | Payments | mollie-rs, or a small own client on reqwest | Rust |
 | Staff login | Kanidm (OIDC, passkeys) with the openidconnect crate (Rauthy) | Rust |
@@ -179,12 +179,12 @@ Everything we write is Rust. The few services we run but do not write are C, C++
 | Reverse proxy, TLS | Caddy (Traefik) | Go |
 | Backups | rustic (restic) | Rust (Go) |
 | Monitoring | tracing logs, Prometheus and Grafana, Gatus health checks (plus one Gatus outside the bakery), ntfy alerts | Rust, Go |
-| Code hosting, CI | Forgejo with Forgejo Actions, on a runner with Nix | Go |
+| Code hosting, CI | GitHub, public repo rbvermaa/broodvoorweldadigheid; GitHub Actions on x86_64 runners with Nix; branch protection requires the ci-ok check; PRs merge by auto-merge through a merge queue (Forgejo with Forgejo Actions) | Hosted |
 | Deployment | Nix flake: crane builds the Rust binary, nix2container (or dockerTools) builds minimal OCI images, Docker Compose runs them | Nix |
-| Label printer | Own Niimbot driver in the labels crate, over USB serial (serialport) or Bluetooth LE (btleplug) | Rust |
+| Label printer | The labels crate makes a PNG per label and a CSV of the label text; the official Niimbot app prints them | Rust |
 | Dynamic DNS | inadyn, only if the bakery has no fixed IP address | C |
 | Testing | cargo-nextest, proptest, insta, cargo-llvm-cov, cargo-mutants, thirtyfour (see Testing and quality) | Rust |
-| Build cache | attic, a self-hosted Nix binary cache, so CI only rebuilds what changed | Rust |
+| Build cache | Cachix, the public Nix binary cache rbvermaa, so CI only rebuilds what changed (attic, self-hosted) | Hosted |
 
 mistral.rs loads Hugging Face weights directly and quantises them on load, so no Python conversion step is needed for models either. [mollie-rs](https://docs.rs/mollie-rs) is an unofficial client maintained by Suits Finance B.V., generated from Mollie's OpenAPI spec.
 
@@ -198,9 +198,9 @@ mistral.rs loads Hugging Face weights directly and quantises them on load, so no
 
 - all checks (nix flake check): formatting, Clippy, cargo-deny, cargo-audit, the test suite and coverage.
 
-Because fonts and libraries are pinned too, PDFs and label bitmaps render identically on a laptop, in CI and in production, which keeps the snapshot tests stable. Rolling back means starting the previous image. NixOS for the server itself is an option for later, but not required.
+Because fonts and libraries are pinned too, PDFs and label images render identically on a laptop, in CI and in production, which keeps the snapshot tests stable. Rolling back means starting the previous image. NixOS for the server itself is an option for later, but not required.
 
-No Rust driver for Niimbot printers exists yet, so the labels crate ports the reverse-engineered protocol from [NiimBlueLib](https://npmjs.com/package/@mmote/niimbluelib) (MIT) and [niimprint](https://github.com/Orhideous/niimprint) (MIT). The bakery's printer is a NIIMBOT B21 Pro: [300 dpi with a 50 mm print head of 591 pixels](https://printers.niim.blue/hardware/niimbot-b21_pro), so labels render at about 11.8 pixels per mm, not the 8 of the older 203-dpi models that niimprint was tested on. The B21 Pro has [confirmed open-source support](https://github.com/eigger/hass-niimbot) in a Home Assistant integration. It connects to the server by USB-C, with Bluetooth as a fallback; Typst draws each label, which is rendered to a 1-bit bitmap and sent as one print job with a copy count.
+The system has no own Niimbot driver. The printer protocol is reverse-engineered, and the authors of the open-source drivers ask that they are not used commercially without Niimbot's consent. The bakery's printer is a NIIMBOT B21 Pro: [300 dpi with a 50 mm print head of 591 pixels](https://printers.niim.blue/hardware/niimbot-b21_pro), so labels render at about 11.8 pixels per mm. Typst draws each label, and the system offers it as a 300-dpi PNG at its exact size with a copy count, plus CSV rows of the label text for the Niimbot app's import. The owner prints them with the official Niimbot app. The exact import format is checked against the app when Phase 2 builds this.
 
 ## Cargo workspace layout
 
@@ -218,7 +218,7 @@ bakflow/
 │   ├── i18n/             Fluent bundles, Dutch number and date formatting
 │   ├── auth/             staff OIDC login, customer magic links, roles
 │   ├── catalog/          products, prices, BTW rates, allergens, ingredient text
-│   ├── bakedays/         bake days, cutoffs, pickup slots, capacity pools, sick-day cancel
+│   ├── bakedays/         bake days, cutoffs, pickup slots, per-product limits, sick-day cancel
 │   ├── orders/           cart, checkout, capacity holds, order status, audit log
 │   ├── payments/         Mollie implementation of PaymentProvider, webhooks, refunds
 │   ├── production/       production list, pickup list; batches: mixer split, adjustments, actuals, actual cost (Phase 2)
@@ -226,9 +226,9 @@ bakflow/
 │   ├── notify/           email templates and sending
 │   ├── jobs/             scheduled work: open and close bake days, reminders, cleanup
 │   ├── recipes/          versioned recipes, sub-recipes, scaling, ingredient needs, standard cost, allergen and nutrition roll-up   (Phase 2)
-│   ├── labels/           Typst label templates, freezer labels, Niimbot driver                                              (Phase 2)
+│   ├── labels/           Typst label templates, freezer labels, PNG and CSV files for the Niimbot app                       (Phase 2)
 │   ├── pos-core/         reserved for a later till; not built in v2
-│   ├── testkit/          fixtures, fake Mollie, fake clock, fake label printer (tests only)
+│   ├── testkit/          fixtures, fake Mollie, fake clock (tests only)
 │   └── ai/               LLM client, extraction schemas, assistant tools, behind feature "ai"       (Phase 3)
 ├── apps/
 │   ├── server/           Axum binary: shop, back office, Mollie webhooks
@@ -258,7 +258,9 @@ bakflow/
 
     6.  Layer 5: payments, production, notify, ai
 
-    7.  Layer 6: reports, jobs and everything under apps/
+    7.  Layer 6: reports, jobs
+
+    8.  Layer 7: everything under apps/; apps may use every library crate, but not each other
 
 2.  production owns batches: it reads recipe versions from recipes and order totals from orders, and computes actual cost. reports sits above it to show variances.
 
@@ -300,11 +302,11 @@ RecipeVersion    recipe_id, version, frozen_at?, promoted_from_batch_id?, bake_l
 RecipeLine       recipe_version_id, ingredient_id | sub_recipe_id, bakers_pct
 
 BakeDay          date, online_ordering, charity_id?, menu_publish_at?, opens_at?,
-                 cutoff_at?, bake_starts_at, status (draft | open | closed | cancelled | done),
+                 cutoff_at?, bake_starts_at (05:00 on date, set by the system),
+                 status (draft | open | closed | cancelled | done),
                  cancel_message?
 PickupSlot       bake_day_id, location_id, starts_at, ends_at, max_orders?
-CapacityPool     bake_day_id, name, max_units
-BakeDayProduct   bake_day_id, product_id, max_qty?, capacity_pool_id?, units_per_item
+BakeDayProduct   bake_day_id, product_id, max_qty?
 ProductionExtra  bake_day_id, product_id, qty, purpose (freezer | sumup | samples | other), note?
 
 Batch            bake_day_id, recipe_version_id, mixer_id, mix_no, flour_g, origin (cutoff | manual),
@@ -320,6 +322,8 @@ Order            number, customer_id, bake_day_id, pickup_slot_id, channel (web 
                  total_cents, hold_expires_at, manual_invoice_id?, created_at
 OrderLine        order_id, product_id, qty, unit_price_cents, suggested_price_cents?, vat_rate
 Payment          order_id, provider_payment_id, method, amount_cents, fee_cents?, status, refunded_cents
+Refund           payment_id, amount_cents, refunded_before_cents, status (requested | done | failed),
+                 provider_refund_id?, attempts, last_error?, requested_by, requested_at
 ManualInvoice    customer_id, invoice_number, invoice_date, period_from, period_to, total_cents
 
 Charity          name, description, url, logo?, iban?, anbi_rsin?, archived_at?
@@ -328,7 +332,7 @@ DonationAllocation  order_id, charity_id?, amount_cents,
                  status (earmarked | saved | transferred), choose_token?, choose_by?
 CharityTransfer  charity_id, amount_cents, transferred_at, bank_reference
 
-Subscriber       email, confirmed_at?, unsubscribed_at?, source (site | payhip)
+Subscriber       email, confirmed_at?, unsubscribed_at?
 FaqEntry         question, answer_md, position, published
 Poll             title, bake_day_id?, closes_at, public_results
 PollOption       poll_id, product_id?, name
@@ -346,9 +350,9 @@ AuditLog         entity, entity_id, action, before, after, actor, at
 
 - Order lines copy price and BTW rate at the moment of sale, so later price changes do not alter history.
 
-- Checkout reserves capacity inside one transaction that locks the capacity pool row. An unpaid order holds its capacity until hold_expires_at (default 15 minutes), then a job releases it.
+- Checkout reserves capacity inside one transaction that locks the bake day's product rows (BakeDayProduct, in product order). An unpaid order holds its capacity until hold_expires_at (default 15 minutes), then a job releases it.
 
-- Paid orders and payments are never edited in place: changes are new rows plus an audit-log entry.
+- Paid orders and payments are never edited in place: changes are new rows plus an audit-log entry. A refund is its own Refund row and is never deleted; a failed refund is retried on the same row.
 
 - A recipe version freezes when the first batch uses it; any edit after that creates a new version.
 
@@ -374,7 +378,9 @@ AuditLog         entity, entity_id, action, before, after, actor, at
 
 - Extra production takes capacity like an order, so the webshop only offers what is left. A production-only bake day never opens in the webshop.
 
-- Every drop has its own deadline (cutoff_at), filled in from the pickup window's default, for example Thursday 20:00 for a Saturday pickup, and changeable per drop. The back office warns when a deadline is later than bake_starts_at minus the longest recipe lead time on that drop.
+- Baking starts at 05:00 Europe/Amsterdam on the bake date. The system sets bake_starts_at; staff do not enter it. A deadline is never after it.
+
+- Every drop has its own deadline (cutoff_at), filled in from the pickup window's default, for example Thursday 20:00 for a Saturday pickup, and changeable per drop. The sourdough needs orders by 20:00 two days before the bake date (a bakery setting); the back office warns only when a deadline is later than that. Products and recipes add no warnings of their own.
 
 - An order counts if checkout started before the deadline and payment completes within its 15-minute hold. After the deadline only staff can add orders, still within capacity.
 
@@ -382,7 +388,7 @@ AuditLog         entity, entity_id, action, before, after, actor, at
 
 - Every paid order creates a donation allocation for the drop's charity, or for the charity the customer chose. A saved allocation keeps a link token; if no charity is chosen by choose_by, a job moves it to the next drop's charity and emails the customer.
 
-- A charity transfer covers the allocations earmarked for that charity. Once linked to a transfer they cannot change; a refund after that appears as a correction in the next payout.
+- A charity transfer covers the allocations earmarked for that charity. Once linked to a transfer they cannot change; a refund after that appears as a correction in the next payout. A refund counts against the payout as soon as it is requested, also while it is still waiting or has failed, so a charity never gets money that goes back to a customer.
 
 - A vote counts once per confirmed email address per poll. Drop alerts go only to confirmed subscribers, and every email has a one-click unsubscribe.
 
@@ -412,7 +418,7 @@ At cutoff, orders plus extra production are summed per dough (pieces × dough we
 
 - Each flour is its own ingredient ("Tarwebloem, molen X" and "molen Y"), with its own price and allergens, so no lot tracking is needed.
 
-- Each recipe version has a lead time, for example 36 hours from levain build to bake. A drop's deadline must leave at least that much time, so the levain is always built from final order numbers; the back office warns when it does not.
+- Each recipe version can record a lead time, for example 36 hours from levain build to bake, as information for the baker. It does not drive deadline warnings: the sourdough rule (20:00 two days before the bake date) does, so the levain is always built from final order numbers.
 
 **Cost**
 
@@ -475,7 +481,7 @@ Mollie, an email relay and an off-site backup copy are the only things outside t
 |----|----|----|
 | Mollie | Online payments (iDEAL and Wero, cards, Bancontact), sick-day refunds | REST API through mollie-rs or an own client. A webhook only carries a payment id, so the server fetches the payment from Mollie before changing an order. |
 | SMTP relay | Order confirmations, pickup reminders, cancellations | lettre; SPF, DKIM and DMARC set on broodvoorweldadigheid.nl |
-| Niimbot label printer | Freezer labels for frozen batches, product labels | Own Rust driver for the B21 Pro over USB-C (Bluetooth LE as fallback); Typst renders 300-dpi bitmaps |
+| Niimbot label printer | Freezer labels for frozen batches, product labels | Typst renders a 300-dpi PNG per label plus CSV rows of the text; the owner prints them with the official Niimbot app on the B21 Pro |
 | Accountant | Sales per BTW rate | Monthly CSV download from the back office |
 
 All Mollie calls sit behind the PaymentProvider trait, so a second provider can be added without touching orders.
@@ -488,7 +494,7 @@ Only the shop and the Mollie webhook face the internet; everything else needs a 
 
 **Access**
 
-- Staff log in through Kanidm with passkeys; roles limit who can refund, edit allergens or close a bake day.
+- Staff log in through Kanidm with passkeys; roles limit who can refund, edit allergens or close a bake day. Owner and baker can refund an order; only the owner can cancel a whole bake day.
 
 - Customers log in with email magic links, so no customer passwords are stored.
 
@@ -540,7 +546,7 @@ Every screen is built from one small set of design tokens and components, so the
 
 - product and freezer labels on the Niimbot, where a black-and-white logo prints sharply; on a 50 × 30 mm label it sits in a corner at about 12 mm.
 
-The design tokens take black and white from the logo as base colours, with one accent colour still to choose. Headings use a condensed bold sans with an open font licence close to the logo's lettering, such as Oswald; body text uses a readable sans such as Inter. Nix pins both fonts. The supplied 1024-pixel PNG is enough for screens and labels, but an SVG version stays sharp at every size and makes the round mark easier to cut out.
+The style is “Stempel”: ink #111111 on white, taken from the logo, with no accent colour. Headings use Oswald, a condensed bold sans with an open font licence close to the logo's lettering; body text uses Inter. Nix pins both fonts, and PDFs and labels embed them. The supplied 1024-pixel PNG is used everywhere; no SVG is needed.
 
 **Design tokens.** Colours, type sizes, spacing, corner radius and shadows are defined once in design/tokens.toml and turned into CSS variables at build time. No other code may set a colour or size.
 
@@ -578,11 +584,10 @@ Testing runs itself: every change is tested, deployed and checked automatically,
 | HTTP tests | Axum routers called in-process with tower::ServiceExt | Checkout, Mollie webhooks, login and roles, invoice overview, extra production |
 | Payment tests | A fake PaymentProvider in-process | Paid, failed, expired, refunded and duplicate webhooks; sick-day refunds |
 | Contract tests | Nightly, against Mollie test mode | Catches changes in Mollie's API before they hit real orders |
-| Snapshot tests | insta | Email texts, production and pickup lists, and label bitmaps compared with approved versions |
+| Snapshot tests | insta | Email texts, production and pickup lists, and label images compared with approved versions |
 | Browser tests | thirtyfour (WebDriver), inside the NixOS VM test | Every main flow in the webshop and back office, in Firefox, Chromium and WebKit (the closest to Safari on iPhone that runs on Linux), at iPhone, laptop and desktop sizes; HTMX updates; Dutch error messages |
 | Fuzz tests | cargo-fuzz, nightly | Webhook payloads, Excel recipe import and other input from outside |
 | Mutation tests | cargo-mutants, weekly | Whether the tests actually catch bugs in domain, orders, recipes and labels |
-| Printer tests | A Niimbot emulator that checks recorded byte sequences | The label driver protocol; printer errors in production raise an alert |
 | AI checks | A fixed set of 30–50 real Dutch recipes and spec sheets with expected output | Rerun automatically on every model change; a lower score blocks the switch |
 | Visual tests | Screenshots of every page and of the component gallery, compared with approved images at a small tolerance (image-compare) | Broken layouts, overflowing Dutch words, unintended style changes |
 | Accessibility tests | axe-core, run inside the browser tests | WCAG 2.2 AA: contrast, labels, keyboard use, focus order |
@@ -590,7 +595,7 @@ Testing runs itself: every change is tested, deployed and checked automatically,
 
 **Built to be reliable, not flaky**
 
-- No test touches the internet: Mollie, email, the clock and the printer are faked in a testkit crate. Only the nightly contract test calls Mollie's test mode.
+- No test touches the internet: Mollie, email and the clock are faked in a testkit crate. Only the nightly contract test calls Mollie's test mode.
 
 - Each database test gets its own fresh PostgreSQL database; randomness is seeded and time is injected.
 
@@ -624,7 +629,7 @@ Measured with cargo-llvm-cov: at least 80% of lines overall, and at least 95% in
 
 **Rules that keep it safe**
 
-- No merge without a green pipeline, enforced by Forgejo branch protection rather than discipline.
+- No merge without a green pipeline, enforced by GitHub branch protection (the required ci-ok check and auto-merge) rather than discipline.
 
 - Every bug fix starts with a test that reproduces it.
 
@@ -650,7 +655,7 @@ Each phase ends at a gate; the next phase starts only when its criterion is met.
 |----|----|----|----|----|
 | 0 Foundations | Server, router and DNS set-up; workspace; Nix flake, image builds and build cache; CI with automatic tests, deploys and rollback; Compose, Caddy, Kanidm, PostgreSQL, backups, monitoring, Dutch translations | 3–4 | 110–190 | Small server with mirrored SSDs and a UPS, about €950–1,750 |
 | 1 MVP | F1–F13 (with drop calendar, charity management and reports, FAQ, contact and drop alerts), design system, component gallery, and the move from Payhip | 11–15 | 475–755 | Mollie transaction fees |
-| 2 Back office | F9b, F11d and F14–F18a, including batches, nutrition values, product and freezer labels with the Niimbot driver | 9–13 | 325–525 | Niimbot label rolls (printer already owned) |
+| 2 Back office | F9b, F11d and F14–F18a, including batches, nutrition values, product and freezer labels as files for the Niimbot app | 9–13 | 325–525 | Niimbot label rolls (printer already owned) |
 | 3 AI drafting | F20–F23 and the mistral.rs setup | 4–8 | 120–220 | AI box with a 24 GB GPU, about €2,000–4,000 |
 
 All figures are estimates, not quotes. Rust costs more per feature than v1's ERPNext plan because every screen is hand-built, but the removed modules roughly balance that out. Outsourced at €75–100 an hour, development would cost about €77,000–169,000.
@@ -667,7 +672,7 @@ The biggest risks are legal (allergens, B2B invoices) and human (one builder), n
 | No ready-made admin screens in Rust | Every back-office screen is hand-built | Keep screens few and server-rendered with HTMX |
 | Young crates (mollie-rs, model support in mistral.rs) | Breakage on upgrade | Mollie behind a trait; llama.cpp as fallback behind the same API |
 | Shop runs on the bakery's internet and power | Orders and Mollie webhooks fail during an outage | UPS; mobile-data backup on the router if it supports it; order cutoffs well before the bake day; after an outage the server re-checks open payments with Mollie |
-| Niimbot protocol is reverse-engineered | A firmware update can break the driver; NiimBlueLib's authors state it is not meant for commercial use without Niimbot's consent | Own small Rust driver; skip printer firmware updates; keep the official Niimbot app as a fallback; settle the licence question before relying on it |
+| Labels depend on the official Niimbot app | An app update can change its import or image limits | The system only makes plain PNG and CSV files; check the import when Phase 2 builds labels; the PNGs can also be printed as plain images |
 | Labels come off in the freezer | Frozen bread without a readable date | Test a roll of Niimbot labels at freezer temperature before relying on it; stick labels on dry bags before freezing; switch to freezer-grade labels if they peel |
 
 **Open questions**
@@ -696,7 +701,9 @@ Mostly fresh pre-orders and counter sales; possibly packaged cookies and granola
 
 No, frozen bread is only sold straight from the freezer, so “ontdooid” is not needed. The freezer label becomes the customer's label (see Compliance and F18a).
 
-- [ ] Get the logo as SVG, and choose one accent colour to go with its black and white.
+- [x] Get the logo as SVG, and choose one accent colour to go with its black and white.
+
+No SVG needed: the PNG is used everywhere. No accent colour: the owner chose the style “Stempel”, ink on white.
 
 - [ ] Pickup time: the current FAQ says 11:00–13:00, the homepage says 11:00–12:00. Which is right?
 
@@ -704,4 +711,6 @@ No, frozen bread is only sold straight from the freezer, so “ontdooid” is no
 
 The charity gets the full amount paid; the bakery covers BTW, fees and ingredients (F11e).
 
-- [ ] Export the subscriber list from Payhip, if Payhip allows it, so drop alerts can start with the people who already signed up.
+- [x] Export the subscriber list from Payhip, if Payhip allows it, so drop alerts can start with the people who already signed up.
+
+No: there are no Payhip subscribers. Drop alerts start with sign-ups on the site.

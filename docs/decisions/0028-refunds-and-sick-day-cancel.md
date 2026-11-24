@@ -1,4 +1,4 @@
-# 0026 Refunds, cancelling paid orders and the sick-day cancel
+# 0028 Refunds, cancelling paid orders and the sick-day cancel
 
 Status: proposed, 2026-11-24
 
