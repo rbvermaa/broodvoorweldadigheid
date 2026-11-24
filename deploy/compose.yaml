@@ -63,6 +63,7 @@ services:
       SMTP_PORT: ${BVW_SMTP_PORT:-1025}
       SMTP_TLS: ${BVW_SMTP_TLS:-none}
       MAIL_FROM: ${BVW_MAIL_FROM:-Brood voor Weldadigheid <bakker@broodvoorweldadigheid.nl>}
+      BAKERY_CONTACT_EMAIL: ${BVW_CONTACT_EMAIL:-bakkerij@example.org}
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:

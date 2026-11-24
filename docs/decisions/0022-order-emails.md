@@ -16,7 +16,7 @@ Covers F9 on top of the outbox of ADR 0014 and the webhook of ADR 0015.
 | Email links must be https (ADR 0014), so with an `http://` `PUBLIC_URL` (local runs only) no confirmation is queued; the server warns about that at startup | Production and compose use https |
 | The server builds `SmtpSender` from `SmtpConfig::from_env`. Without `SMTP_HOST` it logs that email is off and runs; emails wait in the outbox. Any other config error stops the server | A typo in the relay settings should not go unnoticed |
 | A small loop in `server::background` calls `notify::send_pending` every minute, 20 emails per round, next to the jobs runner and stopped by the same shutdown, which is checked between emails. Each send has a 40 s deadline (lettre's own timeout only covers connecting); after a send runs out, `SmtpSender` starts a fresh connection pool, because lettre would reuse the cut-off connection and read its late reply as the next answer; compose gives the server a 60 s stop grace period, enough for one send and its commit | Sending stays out of the apalis tick, so a slow relay never delays opening bake days. `FOR UPDATE SKIP LOCKED` lets several servers send |
-| The compose stack points the server at Mailpit (`SMTP_HOST=mailpit`, port 1025, TLS none), overridable with `BVW_SMTP_*` and `BVW_MAIL_FROM` | `make up` shows every email at `https://mail.localhost:8443/` |
+| The compose stack points the server at Mailpit (`SMTP_HOST=mailpit`, port 1025, TLS none), overridable with `BVW_SMTP_*` and `BVW_MAIL_FROM`. The contact form (F4f) writes to `bakkerij@example.org` there, overridable with `BVW_CONTACT_EMAIL` | `make up` shows every email at `https://mail.localhost:8443/` |
 
 Open:
 
