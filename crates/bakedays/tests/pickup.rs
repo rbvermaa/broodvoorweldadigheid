@@ -231,3 +231,16 @@ async fn database_refuses_bad_windows(mut conn: PoolConnection<Postgres>) {
         .await
         .unwrap();
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn fractional_seconds_are_refused(mut conn: PoolConnection<Postgres>) {
+    let id = pickup::list_locations(&mut conn).await.unwrap()[0].id;
+    let input = PickupWindowInput {
+        ends: time(17, 0, 0, 500_000_000),
+        ..friday_evening()
+    };
+    assert!(matches!(
+        pickup::create_window(&mut conn, id, &input).await,
+        Err(Error::Invalid("time with fractional seconds"))
+    ));
+}

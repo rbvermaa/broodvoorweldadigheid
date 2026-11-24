@@ -6,7 +6,6 @@ use sqlx::PgConnection;
 
 use crate::Error;
 
-/// Allergen data as entered by hand per product until the recipe roll-up (F17) ships.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllergenInfo {
     pub allergens: BTreeSet<Allergen>,
@@ -284,7 +283,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
 }
 
 /// Replaces every editable field. A change to the allergens, may-contain list or
-/// ingredient text clears the allergen approval, in the same statement.
+/// ingredient text clears the allergen approval (database trigger).
 ///
 /// # Errors
 /// [`Error::NotFound`], or [`Error::Invalid`] / [`Error::Price`] when the input is refused.
@@ -301,13 +300,7 @@ pub async fn update(
             vat_rate = $6, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,
             unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,
             lead_time_hours = $13, allergens = $14, may_contain = $15, ingredient_text = $16,
-            packaged = $17, sold_online = $18, estimated_cost_cents = $19, active = $20,
-            allergens_approved_by = CASE
-                WHEN allergens = $14 AND may_contain = $15 AND ingredient_text = $16
-                THEN allergens_approved_by END,
-            allergens_approved_at = CASE
-                WHEN allergens = $14 AND may_contain = $15 AND ingredient_text = $16
-                THEN allergens_approved_at END
+            packaged = $17, sold_online = $18, estimated_cost_cents = $19, active = $20
         WHERE id = $1
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
@@ -359,7 +352,8 @@ pub async fn approve_allergens(
         r#"UPDATE product SET
             allergens_approved_by = $2,
             allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
-        WHERE id = $1 AND allergens = $4 AND may_contain = $5 AND ingredient_text = $6
+        WHERE id = $1 AND allergens @> $4 AND allergens <@ $4
+            AND may_contain @> $5 AND may_contain <@ $5 AND ingredient_text = $6
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
@@ -426,8 +420,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
     .collect()
 }
 
-/// Active products the webshop may offer, by name. Products with `sold_online` off are
-/// sold through SumUp only and never appear here.
+/// Active products with `sold_online` on, by name.
 ///
 /// # Errors
 /// [`Error::Db`] or [`Error::Corrupt`].
@@ -455,13 +448,14 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
 /// [`Error::NotFound`] when there is no such product.
 pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<i32, Error> {
     sqlx::query_scalar!(
-        r#"SELECT coalesce(p.lead_time_hours, c.default_lead_time_hours) AS "hours!"
-        FROM product p CROSS JOIN company c WHERE p.id = $1"#,
+        r#"SELECT coalesce(lead_time_hours, (SELECT default_lead_time_hours FROM company)) AS hours
+        FROM product WHERE id = $1"#,
         id.get(),
     )
     .fetch_optional(conn)
     .await?
-    .ok_or(Error::NotFound)
+    .ok_or(Error::NotFound)?
+    .ok_or_else(|| Error::Corrupt("no company row".to_owned()))
 }
 
 #[cfg(test)]

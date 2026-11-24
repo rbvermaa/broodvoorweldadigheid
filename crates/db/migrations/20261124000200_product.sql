@@ -43,3 +43,20 @@ CREATE TABLE product (
 );
 
 CREATE INDEX product_active_idx ON product (name_nl) WHERE active;
+
+CREATE FUNCTION clear_allergen_approval() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.allergens IS DISTINCT FROM OLD.allergens
+        OR NEW.may_contain IS DISTINCT FROM OLD.may_contain
+        OR NEW.ingredient_text IS DISTINCT FROM OLD.ingredient_text
+    THEN
+        NEW.allergens_approved_by := NULL;
+        NEW.allergens_approved_at := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER product_clear_allergen_approval BEFORE UPDATE ON product
+    FOR EACH ROW EXECUTE FUNCTION clear_allergen_approval();

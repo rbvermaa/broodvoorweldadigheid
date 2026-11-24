@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE product SET\n            name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,\n            vat_rate = $6, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,\n            unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,\n            lead_time_hours = $13, allergens = $14, may_contain = $15, ingredient_text = $16,\n            packaged = $17, sold_online = $18, estimated_cost_cents = $19, active = $20,\n            allergens_approved_by = CASE\n                WHEN allergens = $14 AND may_contain = $15 AND ingredient_text = $16\n                THEN allergens_approved_by END,\n            allergens_approved_at = CASE\n                WHEN allergens = $14 AND may_contain = $15 AND ingredient_text = $16\n                THEN allergens_approved_at END\n        WHERE id = $1\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active",
+  "query": "UPDATE product SET\n            allergens_approved_by = $2,\n            allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        WHERE id = $1 AND allergens @> $4 AND allergens <@ $4\n            AND may_contain @> $5 AND may_contain <@ $5 AND ingredient_text = $6\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -244,25 +244,11 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Int8",
-        "Int2",
-        "Bool",
         "Int8",
         "Int8",
-        "Int4",
-        "Int4",
-        "Int4",
-        "Int4",
         "TextArray",
         "TextArray",
-        "Text",
-        "Bool",
-        "Bool",
-        "Int8",
-        "Bool"
+        "Text"
       ]
     },
     "nullable": [
@@ -290,5 +276,5 @@
       false
     ]
   },
-  "hash": "9d10828bd266d65ccb946d9fc20910ea02d76627ca7d0b4e2a01cf9448dd7d0c"
+  "hash": "83f0908dac47e0c06e9c9ad521e2e0ca0bca9ba0c5116ae20c606cefdd4fc8cb"
 }

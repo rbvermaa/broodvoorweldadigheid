@@ -8,7 +8,7 @@ use crate::Error;
 pub struct CharityInput {
     pub name: String,
     pub description: String,
-    pub url: Option<String>,
+    pub url: String,
     pub logo_path: Option<String>,
     pub iban: Option<String>,
     pub anbi_rsin: Option<String>,
@@ -19,7 +19,7 @@ pub struct Charity {
     pub id: CharityId,
     pub name: String,
     pub description: String,
-    pub url: Option<String>,
+    pub url: String,
     pub logo_path: Option<String>,
     pub iban: Option<String>,
     pub anbi_rsin: Option<String>,
@@ -38,7 +38,7 @@ struct Row {
     id: i64,
     name: String,
     description: String,
-    url: Option<String>,
+    url: String,
     logo_path: Option<String>,
     iban: Option<String>,
     anbi_rsin: Option<String>,
@@ -66,6 +66,9 @@ fn validate(input: &CharityInput) -> Result<(), Error> {
     if input.name.trim().is_empty() {
         return Err(Error::Invalid("name"));
     }
+    if input.url.trim().is_empty() {
+        return Err(Error::Invalid("url"));
+    }
     Ok(())
 }
 
@@ -81,7 +84,7 @@ pub async fn create(conn: &mut PgConnection, input: &CharityInput) -> Result<Cha
             (extract(epoch FROM archived_at) * 1000000)::bigint AS archived_at_us"#,
         input.name.trim(),
         input.description,
-        input.url,
+        input.url.trim(),
         input.logo_path,
         input.iban,
         input.anbi_rsin,
@@ -91,7 +94,7 @@ pub async fn create(conn: &mut PgConnection, input: &CharityInput) -> Result<Cha
     .try_into()
 }
 
-/// Archived charities can still be edited; archiving is not undone by an update.
+/// Archived charities can be edited and stay archived.
 ///
 /// # Errors
 /// [`Error::NotFound`], or [`Error::Invalid`] when the name is empty.
@@ -111,7 +114,7 @@ pub async fn update(
         id.get(),
         input.name.trim(),
         input.description,
-        input.url,
+        input.url.trim(),
         input.logo_path,
         input.iban,
         input.anbi_rsin,
@@ -122,8 +125,7 @@ pub async fn update(
     .try_into()
 }
 
-/// Archives the charity; the row stays so past drops and totals keep it. Archiving an
-/// archived charity keeps the first archive time.
+/// Sets `archived_at`; the row is never deleted. Archiving again keeps the first time.
 ///
 /// # Errors
 /// [`Error::NotFound`] when there is no such charity.

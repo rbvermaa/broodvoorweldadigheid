@@ -22,9 +22,8 @@ pub struct PickupLocation {
     pub notes: String,
 }
 
-/// A location's default pickup window. A new bake day copies its pickup time and its
-/// order deadline (`default_deadline_days_before` days before pickup, at
-/// `default_deadline_time`) from here (F1, F4a).
+/// The order deadline defaults to `default_deadline_days_before` days before pickup,
+/// at `default_deadline_time`. Times are whole seconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PickupWindowInput {
     pub weekday: Weekday,
@@ -108,6 +107,12 @@ fn validate_location(input: &PickupLocationInput) -> Result<(), Error> {
 }
 
 fn validate_window(input: &PickupWindowInput) -> Result<(), Error> {
+    if [input.starts, input.ends, input.default_deadline_time]
+        .iter()
+        .any(|time| time.subsec_nanosecond() != 0)
+    {
+        return Err(Error::Invalid("time with fractional seconds"));
+    }
     if input.starts >= input.ends {
         return Err(Error::Invalid("pickup window"));
     }

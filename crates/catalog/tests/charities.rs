@@ -15,7 +15,7 @@ fn charity(name: &str) -> CharityInput {
     CharityInput {
         name: name.to_owned(),
         description: "Helpt gezinnen in de regio".to_owned(),
-        url: Some("https://example.org".to_owned()),
+        url: "https://example.org".to_owned(),
         logo_path: None,
         iban: Some("NL91ABNA0417164300".to_owned()),
         anbi_rsin: Some("123456789".to_owned()),
@@ -200,4 +200,32 @@ async fn later_tables_can_reference_charities(mut conn: PoolConnection<Postgres>
             .await
             .is_err()
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_website_is_required(mut conn: PoolConnection<Postgres>) {
+    let input = CharityInput {
+        url: " ".to_owned(),
+        ..charity("Voedselbank")
+    };
+    assert!(matches!(
+        charities::create(&mut conn, &input).await,
+        Err(Error::Invalid("url"))
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_database_refuses_to_truncate_charities(mut conn: PoolConnection<Postgres>) {
+    charities::create(&mut conn, &charity("Voedselbank"))
+        .await
+        .unwrap();
+    let err = sqlx::query("TRUNCATE charity")
+        .execute(&mut *conn)
+        .await
+        .expect_err("truncate must be refused");
+    assert_eq!(
+        err.as_database_error().and_then(|e| e.code()).as_deref(),
+        Some("23001")
+    );
+    assert_eq!(charities::list_all(&mut conn).await.unwrap().len(), 1);
 }

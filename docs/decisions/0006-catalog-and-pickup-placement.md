@@ -27,5 +27,6 @@ Smaller choices in the same change:
   of day as seconds since midnight (`db::time`), instead of adding `chrono` or `time`.
 - `product.allergens_approved_by` has no foreign key yet; `staff_user` does not exist.
   The migration that adds `staff_user` adds the key.
-- A trigger refuses `DELETE` on `charity`, so "archived, never deleted" holds for every
-  writer, not only the repository.
+- Triggers enforce two rules for every writer, not only the repositories: a change to a
+  product's allergens, may-contain list or ingredient text clears its approval, and
+  `charity` and `company` rows cannot be deleted or truncated.

@@ -45,3 +45,10 @@ async fn de_proef_saturday_window_is_seeded(pool: PgPool) {
         )
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn company_row_cannot_be_removed(pool: PgPool) {
+    for sql in ["DELETE FROM company", "TRUNCATE company"] {
+        assert!(sqlx::query(sql).execute(&pool).await.is_err(), "{sql}");
+    }
+}
