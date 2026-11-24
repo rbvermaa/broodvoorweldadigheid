@@ -6,10 +6,15 @@ use std::path::{Path, PathBuf};
 pub const POSTGRES_PASSWORD_FILE: &str = "postgres-password";
 pub const DATABASE_ENV_FILE: &str = "database.env";
 pub const RUSTIC_PASSWORD_FILE: &str = "rustic-password";
+/// Filled by `make kanidm-setup` with `client-secret` and `kanidm-ca.pem`; the server mounts it.
+pub const OIDC_DIR: &str = "oidc";
 
 const PASSWORD_BYTES: usize = 32;
 const FILE_MODE: u32 = 0o644;
 const DIR_MODE: u32 = 0o700;
+/// The server container (uid 1000) reads this directory through a bind mount; the 0700
+/// parent still keeps other host users out.
+const OIDC_DIR_MODE: u32 = 0o755;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -77,6 +82,13 @@ pub fn write(
         std::fs::remove_file(temp).map_err(io(temp))?;
     }
     created.0.clear();
+    let oidc = dir.join(OIDC_DIR);
+    match DirBuilder::new().mode(OIDC_DIR_MODE).create(&oidc) {
+        Ok(()) => std::fs::set_permissions(&oidc, Permissions::from_mode(OIDC_DIR_MODE))
+            .map_err(io(&oidc))?,
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(io(&oidc)(error)),
+    }
     Ok(staged.into_iter().map(|(_, path)| path).collect())
 }
 
@@ -271,10 +283,12 @@ mod tests {
             entries(&dir.0),
             [
                 DATABASE_ENV_FILE,
+                OIDC_DIR,
                 POSTGRES_PASSWORD_FILE,
                 RUSTIC_PASSWORD_FILE
             ]
         );
+        assert_eq!(mode(&dir.0.join(OIDC_DIR)), 0o755);
     }
 
     #[test]
