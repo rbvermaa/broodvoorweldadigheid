@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,\n            on_account_allowed\n        FROM business_account ORDER BY lower(company_name), id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "customer_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "customer_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "company_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "company_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kvk",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "kvk"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "btw_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "btw_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "invoice_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "invoice_address"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "invoice_email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "invoice_email"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "on_account_allowed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "on_account_allowed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bd2a6644a397a2a7849cecac3e0aa8b1db249f951d848dfdaeb6565b47a5ca16"
+}

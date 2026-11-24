@@ -219,8 +219,8 @@ pub async fn customer(conn: &mut PgConnection, email: &str) -> CustomerId {
     CustomerId::new(id)
 }
 
-/// An on-account order, confirmed straight away. The orders crate has no on-account
-/// checkout yet, so this writes the rows itself.
+/// An on-account order, confirmed straight away, written directly so a test sets any
+/// price and creation time.
 pub async fn on_account_order(
     conn: &mut PgConnection,
     customer: CustomerId,

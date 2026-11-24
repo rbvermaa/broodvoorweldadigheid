@@ -187,7 +187,16 @@ pub async fn checkout(
     slot: PickupSlotId,
     ordered_by: OrderedBy,
 ) -> Result<Order, Error> {
-    place(conn, clock, cart, customer, slot, ordered_by, Mode::Online(None)).await
+    place(
+        conn,
+        clock,
+        cart,
+        customer,
+        slot,
+        ordered_by,
+        Mode::Online(None),
+    )
+    .await
 }
 
 /// [`checkout`] that first cancels `replaces`, a pending order of the same bake day, as

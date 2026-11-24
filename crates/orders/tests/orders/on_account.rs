@@ -8,8 +8,8 @@ use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
 
 use crate::common::{
-    BREAD, DONATION_LOAF, cart, charity, on_range, open_day, order_as_guest, product, saturday,
-    ts, wednesday,
+    BREAD, DONATION_LOAF, cart, charity, on_range, open_day, order_as_guest, product, saturday, ts,
+    wednesday,
 };
 
 const BAKER: StaffUserId = StaffUserId::new(3);
