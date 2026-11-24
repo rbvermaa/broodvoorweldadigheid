@@ -1,0 +1,111 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, date - date 'epoch' AS \"date_days!\", online_ordering, charity_id,\n            (extract(epoch FROM menu_publish_at) * 1000000)::bigint AS menu_publish_at_us,\n            (extract(epoch FROM opens_at) * 1000000)::bigint AS opens_at_us,\n            (extract(epoch FROM cutoff_at) * 1000000)::bigint AS cutoff_at_us,\n            (extract(epoch FROM bake_starts_at) * 1000000)::bigint AS \"bake_starts_at_us!\",\n            status, cancel_message\n        FROM bake_day WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "date_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "online_ordering",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "online_ordering"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "charity_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "charity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "menu_publish_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "opens_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "cutoff_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "bake_starts_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "cancel_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "cancel_message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      true,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true
+    ]
+  },
+  "hash": "3504b4333308aa614fcc2b8c3caf5006f004ab4974e346c91732654ee71b22f1"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pickup_slot SET\n            starts_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond',\n            ends_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            max_orders = $4\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4015bb53ed2f6ee3bc8439822a1147f798bc509736745e95bb531e30c99358d7"
+}

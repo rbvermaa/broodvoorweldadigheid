@@ -1,0 +1,371 @@
+use std::collections::BTreeMap;
+
+use domain::{BakeDayId, CapacityPoolId, ProductId};
+use sqlx::{Acquire, PgConnection};
+
+use crate::Error;
+use crate::capacity::{Capacity, PoolLimit, ProductLimit, Remaining, Used};
+use crate::status::BakeDayStatus;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapacityPool {
+    pub id: CapacityPoolId,
+    pub bake_day_id: BakeDayId,
+    pub name: String,
+    pub max_units: u32,
+}
+
+/// A product on a bake day's range (F1, F3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BakeDayProduct {
+    pub product_id: ProductId,
+    pub max_qty: Option<u32>,
+    pub capacity_pool_id: Option<CapacityPoolId>,
+    pub units_per_item: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Availability {
+    pub product_id: ProductId,
+    pub remaining: Remaining,
+}
+
+fn to_db(value: u32, what: &'static str) -> Result<i32, Error> {
+    i32::try_from(value).map_err(|_| Error::Invalid(what))
+}
+
+fn from_db(value: i32) -> Result<u32, Error> {
+    u32::try_from(value).map_err(|_| Error::Corrupt(format!("negative quantity {value}")))
+}
+
+/// Locks the bake day against status changes (`FOR SHARE`) and refuses done or cancelled
+/// days. Every write to a day's range, pools or extras starts here (ADR 0007).
+pub(crate) async fn lock_editable_day(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+) -> Result<(), Error> {
+    let status = sqlx::query_scalar!(
+        "SELECT status FROM bake_day WHERE id = $1 FOR SHARE",
+        day.get(),
+    )
+    .fetch_optional(conn)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let status: BakeDayStatus = status
+        .parse()
+        .map_err(|e: crate::status::UnknownStatus| Error::Corrupt(e.to_string()))?;
+    if status.is_final() {
+        return Err(Error::Final);
+    }
+    Ok(())
+}
+
+/// Takes the capacity locks for one product on a bake day, in the fixed order of ADR 0007:
+/// the `bake_day_product` row, then its `capacity_pool` row, both `FOR UPDATE`. Anything
+/// that takes capacity (extra production now, checkout later) holds these locks while it
+/// checks and writes, so two writers never both take the last piece.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn lock_capacity(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    product: ProductId,
+) -> Result<(), Error> {
+    let pool = sqlx::query_scalar!(
+        "SELECT capacity_pool_id FROM bake_day_product
+        WHERE bake_day_id = $1 AND product_id = $2 FOR UPDATE",
+        day.get(),
+        product.get(),
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten();
+    if let Some(pool) = pool {
+        sqlx::query_scalar!(
+            "SELECT id FROM capacity_pool WHERE id = $1 FOR UPDATE",
+            pool
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// # Errors
+/// [`Error::NotFound`], [`Error::Final`], or [`Error::Invalid`] for an empty or
+/// duplicate name.
+pub async fn create_pool(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    name: &str,
+    max_units: u32,
+) -> Result<CapacityPool, Error> {
+    if name.trim().is_empty() {
+        return Err(Error::Invalid("pool name"));
+    }
+    let max = to_db(max_units, "pool size")?;
+    let mut tx = conn.begin().await?;
+    lock_editable_day(&mut tx, day).await?;
+    let id = sqlx::query_scalar!(
+        "INSERT INTO capacity_pool (bake_day_id, name, max_units) VALUES ($1, $2, $3)
+        ON CONFLICT (bake_day_id, name) DO NOTHING RETURNING id",
+        day.get(),
+        name.trim(),
+        max,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::Invalid("duplicate pool name"))?;
+    tx.commit().await?;
+    Ok(CapacityPool {
+        id: CapacityPoolId::new(id),
+        bake_day_id: day,
+        name: name.trim().to_owned(),
+        max_units,
+    })
+}
+
+/// Changes a pool's size. Making it smaller than what is already taken is allowed; the
+/// remaining capacity is then zero.
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Final`] or [`Error::Invalid`].
+pub async fn resize_pool(
+    conn: &mut PgConnection,
+    id: CapacityPoolId,
+    max_units: u32,
+) -> Result<(), Error> {
+    let max = to_db(max_units, "pool size")?;
+    let mut tx = conn.begin().await?;
+    let day = sqlx::query_scalar!(
+        "SELECT bake_day_id FROM capacity_pool WHERE id = $1",
+        id.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    lock_editable_day(&mut tx, BakeDayId::new(day)).await?;
+    sqlx::query!(
+        "UPDATE capacity_pool SET max_units = $2 WHERE id = $1",
+        id.get(),
+        max,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A bake day's pools, by name.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn list_pools(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+) -> Result<Vec<CapacityPool>, Error> {
+    sqlx::query!(
+        "SELECT id, bake_day_id, name, max_units FROM capacity_pool
+        WHERE bake_day_id = $1 ORDER BY name, id",
+        day.get(),
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(CapacityPool {
+            id: CapacityPoolId::new(row.id),
+            bake_day_id: BakeDayId::new(row.bake_day_id),
+            name: row.name,
+            max_units: from_db(row.max_units)?,
+        })
+    })
+    .collect()
+}
+
+/// Adds a product to the day's range, or replaces its limits.
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Final`], or [`Error::Invalid`] for an unknown product,
+/// a pool of another day or `units_per_item == 0`.
+pub async fn set_product(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    input: &BakeDayProduct,
+) -> Result<(), Error> {
+    if input.units_per_item == 0 {
+        return Err(Error::Invalid("units per item"));
+    }
+    let max_qty = input.max_qty.map(|q| to_db(q, "maximum")).transpose()?;
+    let units = to_db(input.units_per_item, "units per item")?;
+    let mut tx = conn.begin().await?;
+    lock_editable_day(&mut tx, day).await?;
+    let product_exists = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM product WHERE id = $1) AS "exists!""#,
+        input.product_id.get(),
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !product_exists {
+        return Err(Error::Invalid("product"));
+    }
+    if let Some(pool) = input.capacity_pool_id {
+        let same_day = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM capacity_pool WHERE id = $1 AND bake_day_id = $2) AS "exists!""#,
+            pool.get(),
+            day.get(),
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !same_day {
+            return Err(Error::Invalid("capacity pool"));
+        }
+    }
+    sqlx::query!(
+        "INSERT INTO bake_day_product (bake_day_id, product_id, max_qty, capacity_pool_id, units_per_item)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (bake_day_id, product_id) DO UPDATE
+        SET max_qty = EXCLUDED.max_qty, capacity_pool_id = EXCLUDED.capacity_pool_id,
+            units_per_item = EXCLUDED.units_per_item",
+        day.get(),
+        input.product_id.get(),
+        max_qty,
+        input.capacity_pool_id.map(CapacityPoolId::get),
+        units,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// # Errors
+/// [`Error::NotFound`] when the product is not on the day, or [`Error::Final`].
+pub async fn remove_product(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    product: ProductId,
+) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    lock_editable_day(&mut tx, day).await?;
+    let removed = sqlx::query!(
+        "DELETE FROM bake_day_product WHERE bake_day_id = $1 AND product_id = $2",
+        day.get(),
+        product.get(),
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if removed == 0 {
+        return Err(Error::NotFound);
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The day's range, by product id.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn list_products(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+) -> Result<Vec<BakeDayProduct>, Error> {
+    sqlx::query!(
+        "SELECT product_id, max_qty, capacity_pool_id, units_per_item FROM bake_day_product
+        WHERE bake_day_id = $1 ORDER BY product_id",
+        day.get(),
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(BakeDayProduct {
+            product_id: ProductId::new(row.product_id),
+            max_qty: row.max_qty.map(from_db).transpose()?,
+            capacity_pool_id: row.capacity_pool_id.map(CapacityPoolId::new),
+            units_per_item: from_db(row.units_per_item)?,
+        })
+    })
+    .collect()
+}
+
+/// Extra production per product on a bake day, leaving out one row when given.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn extras_by_product(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    excluding_extra: Option<i64>,
+) -> Result<BTreeMap<ProductId, u32>, Error> {
+    sqlx::query!(
+        r#"SELECT product_id, sum(qty)::bigint AS "qty!" FROM production_extra
+        WHERE bake_day_id = $1 AND id IS DISTINCT FROM $2
+        GROUP BY product_id"#,
+        day.get(),
+        excluding_extra,
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| {
+        let qty =
+            u32::try_from(row.qty).map_err(|_| Error::Corrupt(format!("extras {}", row.qty)))?;
+        Ok((ProductId::new(row.product_id), qty))
+    })
+    .collect()
+}
+
+pub(crate) async fn load_capacity(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    ordered: &BTreeMap<ProductId, u32>,
+    excluding_extra: Option<i64>,
+) -> Result<Capacity, Error> {
+    let products = list_products(conn, day).await?;
+    let pools = list_pools(conn, day).await?;
+    let extras = extras_by_product(conn, day, excluding_extra).await?;
+    let mut used: BTreeMap<ProductId, Used> = ordered
+        .iter()
+        .map(|(&product, &ordered)| (product, Used { ordered, extras: 0 }))
+        .collect();
+    for (product, qty) in extras {
+        used.entry(product).or_default().extras = qty;
+    }
+    Ok(Capacity::new(
+        products.into_iter().map(|p| ProductLimit {
+            product_id: p.product_id,
+            max_qty: p.max_qty,
+            pool: p.capacity_pool_id,
+            units_per_item: p.units_per_item,
+        }),
+        pools.into_iter().map(|p| PoolLimit {
+            id: p.id,
+            max_units: p.max_units,
+        }),
+        used,
+    ))
+}
+
+/// Remaining pieces per product on the day's range (F3). `ordered` holds the pieces taken
+/// by orders, per product; extra production is read from the database.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn availability(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    ordered: &BTreeMap<ProductId, u32>,
+) -> Result<Vec<Availability>, Error> {
+    let capacity = load_capacity(conn, day, ordered, None).await?;
+    Ok(list_products(conn, day)
+        .await?
+        .into_iter()
+        .map(|p| Availability {
+            product_id: p.product_id,
+            remaining: capacity.remaining(p.product_id),
+        })
+        .collect())
+}
