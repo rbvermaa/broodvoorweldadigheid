@@ -1,0 +1,34 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("staff-order-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+<dl>
+{%- for (term, value) in facts %}
+<dt>{{ term }}</dt><dd>{{ value }}</dd>
+{%- endfor %}
+</dl>
+{%- for action in actions %}
+{% call b::button(action.label, opens = action.dialog) %}{% endcall %}
+{% call d::confirm_dialog(action.dialog, action.label, action.text, action.label, action.action) %}{% endcall %}
+{%- endfor %}
+{% call tb::table(lines) %}{% endcall %}
+{% if !payments.rows.is_empty() %}{% call tb::table(payments) %}{% endcall %}{% endif %}
+{% if !slots.is_empty() %}
+<h2>{{ layout.t("staff-order-move")? }}</h2>
+<form method="post" action="{{ move_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("slot", layout.t("staff-order-pickup")?, slots, required = true) %}{% endcall %}
+{% call b::button(layout.t("staff-order-move-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% call tb::table(history) %}{% endcall %}
+{% endblock %}

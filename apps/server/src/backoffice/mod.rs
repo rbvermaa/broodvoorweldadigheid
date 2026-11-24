@@ -1,6 +1,6 @@
-//! The back office under `/staff`: catalogue, pickup locations, charities, bake days and
-//! extra production. Every handler takes [`Staff`] and checks a permission (ADR 0010).
-//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks
+//! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
+//! extra production and orders. Every handler takes [`Staff`] and checks a permission
+//! (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks
 //! and partial updates on top (ADR 0019).
 
 pub mod bake_days;
@@ -8,6 +8,7 @@ pub mod charities;
 pub mod extras;
 pub mod form;
 pub mod locations;
+pub mod orders;
 pub mod products;
 
 use std::fmt::Display;
@@ -125,6 +126,12 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/extras/{extra}/remove",
             post(extras::remove),
         )
+        .route("/staff/orders", get(orders::days_list))
+        .route("/staff/bake-days/{id}/orders", get(orders::list))
+        .route("/staff/orders/{id}", get(orders::show))
+        .route("/staff/orders/{id}/pickup", post(orders::move_pickup))
+        .route("/staff/orders/{id}/picked-up", post(orders::picked_up))
+        .route("/staff/orders/{id}/cancel", post(orders::cancel))
 }
 
 /// `?opgeslagen=1` after a save, so the page shows the save confirmation.
