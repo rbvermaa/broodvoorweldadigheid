@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber s SET\n            unsubscribed_at = coalesce(s.unsubscribed_at,\n                timestamptz 'epoch' + $2::bigint * interval '1 microsecond'),\n            confirm_token_hash = NULL,\n            confirm_expires_at = NULL\n        FROM subscriber_unsubscribe_token t\n        WHERE t.token_hash = $1 AND t.subscriber_id = s.id\n        RETURNING s.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "subscriber",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3c9118cd9e86a86fd3cc2d64b77c2f1564767dbb47b3a2f8677f15dceadc83df"
+}

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM bake_day\n        WHERE id = $1 AND online_ordering\n            AND (cutoff_at IS NULL\n                OR cutoff_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n            AND (($3 = 'menu_published' AND status = 'draft'\n                    AND menu_publish_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n                OR ($3 = 'ordering_open' AND status = 'open'))\n        FOR SHARE SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aa58a9f14b9e46f97be62eec308193cc90c49b3456ddaf19d76d5bb27369cdb8"
+}
