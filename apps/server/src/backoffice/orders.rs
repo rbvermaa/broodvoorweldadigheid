@@ -1,6 +1,6 @@
 //! Orders per bake day, order details with the audit history, and the staff actions on an
 //! order: another ophaalmoment, picked up, cancel with refund and retrying a refund (F6,
-//! ADR 0025, ADR 0026).
+//! ADR 0025, ADR 0028).
 
 use std::collections::BTreeMap;
 
@@ -799,7 +799,7 @@ where
 
 /// Cancels an order and queues the cancellation email in the same transaction. An unpaid
 /// order needs `EditOrders`; a paid or confirmed one needs `Refund` and gets a refund of what
-/// was paid, sent to the provider after the commit (ADR 0026).
+/// was paid, sent to the provider after the commit (ADR 0028).
 pub async fn cancel(
     State(state): State<AppState>,
     staff: Staff,
@@ -856,7 +856,7 @@ pub async fn cancel(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-/// Sends a refund of the order again, after it failed or was never sent (ADR 0026).
+/// Sends a refund of the order again, after it failed or was never sent (ADR 0028).
 pub async fn retry_refund(
     State(state): State<AppState>,
     staff: Staff,

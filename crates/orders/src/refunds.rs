@@ -1,6 +1,6 @@
 //! Refunds through the payment provider (F5, F6) and the sick-day cancel of a whole bake
 //! day (F2). Cancelling records the refunds as rows in one transaction; [`issue`] sends
-//! them to the provider afterwards. See ADR 0026.
+//! them to the provider afterwards. See ADR 0028.
 
 use db::time::{from_micros, to_micros};
 use domain::{
@@ -15,7 +15,7 @@ use crate::audit::{self, Actor, Entry};
 use crate::checkout::lock_day;
 use crate::order::{self, CancelReason, Order, OrderNumber, OrderStatus};
 
-/// Where a refund stands. Reports subtract a refund in every state (ADR 0026).
+/// Where a refund stands. Reports subtract a refund in every state (ADR 0028).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RefundState {
     /// Recorded; not yet accepted by the provider.

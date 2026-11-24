@@ -17,7 +17,7 @@ use crate::period::local_date;
 use crate::refunds::{RefundSplit, refund_lines};
 
 /// Orders that are sales: paid, confirmed (on account), picked up, or refunded after
-/// payment. A cancelled order counts only when it was paid, with its refunds (ADR 0026);
+/// payment. A cancelled order counts only when it was paid, with its refunds (ADR 0028);
 /// pending orders never count.
 pub(crate) const COUNTED: &[&str] = &["paid", "confirmed", "picked_up", "refunded"];
 
@@ -189,7 +189,7 @@ async fn order_lines(
 
 /// Per order: refunds on accepted payments, known fees, and whether a fee is missing. A
 /// payment's refund is `payment_refunded_cents`: its refund rows in any status plus what
-/// the provider reports beyond them (ADR 0026).
+/// the provider reports beyond them (ADR 0028).
 pub(crate) async fn payments(
     conn: &mut PgConnection,
     ids: &[i64],

@@ -20,9 +20,10 @@ requires the CI checks (see the CI fan-out update below), applies to admins, and
 force-pushes and deletion. "No merge without a green pipeline" (spec, "Rules that keep
 it safe") is enforced by GitHub. PRs still also need a Claude and a Codex review.
 
-Update 2026-11-24 (later): `main` uses a merge queue. A PR is queued with auto-merge once its
-reviews are clean; the queue re-runs the checks on the PR merged with the latest `main` and
-merges only if they pass, so PRs no longer need main merged in by hand before merging.
+Update 2026-11-24 (later): merge queues need an organisation repo, and the owner keeps the
+repo on the personal account. A PR is set to auto-merge once its reviews are clean and merges
+as soon as `ci-ok` passes. Branch protection does not require PRs to be up to date with
+`main`, so a PR that conflicts with `main` still needs main merged in by hand.
 
 Update 2026-11-24 (Cachix): CI pushes and pulls build output through the public Cachix
 cache `rbvermaa` (owner's choice), and flake.nix lists it as an extra substituter, so dev1,
@@ -35,7 +36,7 @@ Update 2026-11-24 (CI fan-out): CI runs on x86_64 only (ubuntu-24.04); the arm r
 dependency artifacts and toolchain (`make ci-deps`) and pushes them to Cachix. Then one job
 per check group runs the `make` target for its flake checks, and the smoke job runs beside
 them. Every flake check still runs in CI, and `make check` still runs them all locally.
-A final `ci-ok` job fails unless every other job succeeded; it is the only check `main` and
-the merge queue require. The GitHub Actions Nix store cache (cache-nix-action) is dropped:
+A final `ci-ok` job fails unless every other job succeeded; it is the only check `main`
+requires. The GitHub Actions Nix store cache (cache-nix-action) is dropped:
 Cachix already serves everything we build, and parallel jobs would each restore and save a
 4 GB store snapshot.
