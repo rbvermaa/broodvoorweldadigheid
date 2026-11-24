@@ -5,6 +5,7 @@ use auth::staff as repo;
 use auth::{Permission, Role, StaffUser};
 use axum::Extension;
 use axum::extract::{ConnectInfo, Form, FromRequestParts, State};
+use axum::http::header::HOST;
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -115,14 +116,45 @@ fn dev_login_allowed(
     let local =
         peer.is_some_and(|Extension(ConnectInfo(peer))| peer.ip().to_canonical().is_loopback());
     let proxied = PROXY_HEADERS.iter().any(|name| headers.contains_key(*name));
-    if !local || proxied {
+    let host = headers.get(HOST).and_then(|host| host.to_str().ok());
+    let local_host = host.is_some_and(is_local_host);
+    if !local || proxied || !local_host {
         tracing::warn!(
             ?peer,
             proxied,
+            host,
             "dev login refused for a request from elsewhere"
         );
     }
-    local && !proxied
+    local && !proxied && local_host
+}
+
+/// A page on `evil.example` that resolves to 127.0.0.1 (DNS rebinding) reaches a loopback
+/// server too; its requests still carry `Host: evil.example`.
+fn is_local_host(host: &str) -> bool {
+    let name = match host.strip_prefix('[') {
+        Some(rest) => match rest.split_once(']') {
+            Some((name, port)) if port.is_empty() || is_port(port) => name,
+            _ => return false,
+        },
+        None => match host.split_once(':') {
+            Some((name, port)) if is_port(port) => name,
+            Some(_) => return false,
+            None => host,
+        },
+    };
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
+}
+
+fn is_port(suffix: &str) -> bool {
+    suffix
+        .strip_prefix(':')
+        .unwrap_or(suffix)
+        .parse::<u16>()
+        .is_ok()
 }
 
 #[derive(Template)]
@@ -234,6 +266,34 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_loopback_host_names_count_as_local() {
+        for host in [
+            "localhost",
+            "LOCALHOST:8080",
+            "127.0.0.1",
+            "127.0.0.1:8080",
+            "[::1]",
+            "[::1]:8080",
+        ] {
+            assert!(is_local_host(host), "{host}");
+        }
+        for host in [
+            "evil.example",
+            "evil.example:8080",
+            "localhost.evil.example",
+            "localhost:",
+            "localhost:http",
+            "127.0.0.2",
+            "::1",
+            "[::1]x",
+            "[::2]:8080",
+            "",
+        ] {
+            assert!(!is_local_host(host), "{host}");
+        }
+    }
 
     #[test]
     fn every_role_has_a_fluent_name() {

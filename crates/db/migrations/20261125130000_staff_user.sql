@@ -28,7 +28,9 @@ ALTER TABLE product ADD CONSTRAINT product_allergens_approved_by_fkey
 
 -- The bootstrap owner only gets in while there is no owner, so the last active owner may
 -- not be deleted, demoted or deactivated. The advisory lock is auth's BOOTSTRAP_LOCK; it
--- keeps two transactions from each removing one of the last two owners.
+-- keeps two transactions from each removing one of the last two owners. FOR UPDATE on the
+-- remaining owners makes a REPEATABLE READ transaction whose snapshot still shows an owner
+-- that was just removed fail with a serialization error instead.
 CREATE FUNCTION keep_last_owner() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -36,9 +38,10 @@ BEGIN
         AND (TG_OP = 'DELETE' OR NEW.role <> 'owner' OR NOT NEW.active)
     THEN
         PERFORM pg_advisory_xact_lock(7094989514744491634);
-        IF NOT EXISTS (
-            SELECT 1 FROM staff_user WHERE role = 'owner' AND active AND id <> OLD.id
-        ) THEN
+        PERFORM 1 FROM staff_user
+            WHERE role = 'owner' AND active AND id <> OLD.id
+            FOR UPDATE;
+        IF NOT FOUND THEN
             RAISE EXCEPTION 'staff user % is the last active owner', OLD.id
                 USING ERRCODE = 'check_violation', CONSTRAINT = 'staff_user_last_owner';
         END IF;

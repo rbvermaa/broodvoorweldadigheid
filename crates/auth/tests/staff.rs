@@ -242,3 +242,48 @@ async fn a_product_approval_must_name_a_staff_user(pool: PgPool) {
     .expect("constraint");
     assert!(constraint.is_some());
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn repeatable_read_cannot_remove_the_owner_another_transaction_kept(pool: PgPool) {
+    let first = staff::add(&pool, &new_staff("owner-1", Role::Owner))
+        .await
+        .expect("add");
+    let second = staff::add(&pool, &new_staff("owner-2", Role::Owner))
+        .await
+        .expect("add");
+    let mut one = pool.begin().await.expect("begin");
+    let mut two = pool.begin().await.expect("begin");
+    for tx in [&mut one, &mut two] {
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut **tx)
+            .await
+            .expect("isolation");
+        sqlx::query("SELECT count(*) FROM staff_user")
+            .execute(&mut **tx)
+            .await
+            .expect("take the snapshot");
+    }
+    sqlx::query("UPDATE staff_user SET role = 'baker' WHERE id = $1")
+        .bind(first.id.get())
+        .execute(&mut *one)
+        .await
+        .expect("demote the first owner");
+    one.commit().await.expect("commit");
+    let demote_second = sqlx::query("UPDATE staff_user SET role = 'baker' WHERE id = $1")
+        .bind(second.id.get())
+        .execute(&mut *two)
+        .await;
+    let error = demote_second.expect_err("the snapshot's other owner is gone");
+    let code = error
+        .as_database_error()
+        .and_then(|db| db.code())
+        .map(|code| code.into_owned());
+    assert_eq!(code.as_deref(), Some("40001"), "{error}");
+    drop(two);
+    let owners: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM staff_user WHERE role = 'owner' AND active")
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+    assert_eq!(owners, 1);
+}

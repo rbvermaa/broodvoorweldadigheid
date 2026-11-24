@@ -9,8 +9,8 @@ use auth::{NewStaff, Permission, Role, StaffUser};
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::extract::{ConnectInfo, State};
-use axum::http::header::{CONTENT_TYPE, COOKIE, LOCATION, SET_COOKIE};
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::header::{CONTENT_TYPE, COOKIE, HOST, LOCATION, SET_COOKIE};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::routing::get;
 use db::PgPool;
 use i18n::Translator;
@@ -85,6 +85,11 @@ async fn send(app: &Router, mut request: Request<Body>) -> Reply {
         .is_none()
     {
         request.extensions_mut().insert(ConnectInfo(LOCAL_PEER));
+    }
+    if !request.headers().contains_key(HOST) {
+        request
+            .headers_mut()
+            .insert(HOST, HeaderValue::from_static("localhost:8080"));
     }
     let response = app.clone().oneshot(request).await.expect("response");
     let status = response.status();
@@ -395,6 +400,15 @@ async fn dev_login_refuses_requests_from_elsewhere_or_through_a_proxy(pool: PgPo
         send(&app, request).await.status,
         StatusCode::SERVICE_UNAVAILABLE
     );
+    let request = Request::get(staff::LOGIN_PATH)
+        .header(HOST, "evil.example:8080")
+        .body(Body::empty())
+        .expect("request");
+    assert_eq!(
+        send(&app, request).await.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "DNS rebinding"
+    );
     for header in ["x-forwarded-for", "forwarded", "x-real-ip"] {
         let request = Request::get(staff::LOGIN_PATH)
             .header(header, "192.0.2.10")
@@ -415,6 +429,13 @@ async fn dev_login_refuses_requests_from_elsewhere_or_through_a_proxy(pool: PgPo
         .body(Body::from(body.clone()))
         .expect("request");
     request.extensions_mut().insert(ConnectInfo(remote));
+    assert_eq!(send(&app, request).await.status, StatusCode::NOT_FOUND);
+    let request = Request::post(staff::DEV_LOGIN_PATH)
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(COOKIE, &cookie)
+        .header(HOST, "evil.example")
+        .body(Body::from(body.clone()))
+        .expect("request");
     assert_eq!(send(&app, request).await.status, StatusCode::NOT_FOUND);
     let request = Request::post(staff::DEV_LOGIN_PATH)
         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -544,4 +565,25 @@ async fn a_request_in_flight_cannot_undo_logout(pool: PgPool) {
 
     let after = get_with(&app, "/staff", Some(&cookie)).await;
     assert_eq!(after.status, StatusCode::SEE_OTHER, "logout stays done");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn signing_in_on_a_shared_browser_ends_the_previous_login(pool: PgPool) {
+    let first = add(&pool, "uuid-first", "Eerste", Role::Counter).await;
+    let second = add(&pool, "uuid-second", "Tweede", Role::Baker).await;
+    let (cookie, token) = signed_in(&pool, &first).await;
+    let app = app(pool.clone(), DEV_LOGIN);
+    let reply = post_form(
+        &app,
+        staff::DEV_LOGIN_PATH,
+        Some(&cookie),
+        &format!("{}={token}&staff_id={}", csrf::FIELD, second.id.get()),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    let left: Vec<i64> = sqlx::query_scalar("SELECT staff_id FROM staff_login")
+        .fetch_all(&pool)
+        .await
+        .expect("logins");
+    assert_eq!(left, [second.id.get()]);
 }

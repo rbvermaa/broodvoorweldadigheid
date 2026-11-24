@@ -118,3 +118,27 @@ async fn deactivating_ends_every_login(pool: PgPool) {
         None
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn signing_in_clears_every_expired_login(pool: PgPool) {
+    let baker = baker(&pool).await;
+    let counter = staff::add(
+        &pool,
+        &NewStaff {
+            oidc_sub: "uuid-counter".to_string(),
+            name: "Toonbank Tineke".to_string(),
+            email: None,
+            role: Role::Counter,
+        },
+    )
+    .await
+    .expect("add");
+    login::start(&pool, baker.id, start()).await.expect("start");
+    let later = start() + IDLE_TIMEOUT + SignedDuration::from_mins(1);
+    let live = login::start(&pool, counter.id, later).await.expect("start");
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM staff_login")
+        .fetch_all(&pool)
+        .await
+        .expect("ids");
+    assert_eq!(ids, [live.as_str()], "the baker's idle login is gone");
+}

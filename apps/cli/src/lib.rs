@@ -46,7 +46,7 @@ pub enum StaffCommand {
         sub: String,
         #[arg(long, env = "STAFF_NAME", value_parser = trimmed)]
         name: String,
-        #[arg(long, env = "STAFF_EMAIL", value_parser = trimmed)]
+        #[arg(long, env = "STAFF_EMAIL", help = "optional; empty means none")]
         email: Option<String>,
         #[arg(long, env = "STAFF_ROLE", help = "owner, baker or counter")]
         role: auth::Role,
@@ -158,7 +158,9 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
                 &auth::NewStaff {
                     oidc_sub: sub,
                     name,
-                    email,
+                    email: email
+                        .map(|email| email.trim().to_string())
+                        .filter(|email| !email.is_empty()),
                     role,
                 },
             )
@@ -396,6 +398,26 @@ mod tests {
         };
         assert_eq!(sub, "0d2f1f9e-1c2b-4e3a-9f00-123456789abc");
         assert_eq!(name, "Bas van 't Hof");
+        let cli = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db",
+            "--sub",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789abc",
+            "--name",
+            "Bas",
+            "--role",
+            "baker",
+            "--email",
+            "",
+        ])
+        .expect("an empty email is allowed");
+        assert!(matches!(
+            cli.command,
+            Command::Staff(StaffCommand::Add { .. })
+        ));
     }
 
     #[test]

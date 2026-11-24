@@ -33,17 +33,16 @@ impl std::fmt::Debug for LoginId {
     }
 }
 
-/// Starts a login for `staff` and clears their expired ones.
+/// Starts a login for `staff`, and clears every expired login, so they do not pile up.
 ///
 /// # Errors
 /// A database error.
 pub async fn start(pool: &PgPool, staff: StaffUserId, now: Timestamp) -> Result<LoginId, Error> {
     let (now, idle, absolute) = bounds(now);
     sqlx::query!(
-        "DELETE FROM staff_login WHERE staff_id = $1
-           AND (created_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
-             OR last_seen_at <= timestamptz 'epoch' + $3::bigint * interval '1 microsecond')",
-        staff.get(),
+        "DELETE FROM staff_login
+         WHERE created_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
+            OR last_seen_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
         absolute,
         idle,
     )

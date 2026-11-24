@@ -14,12 +14,15 @@ pub enum Error {
     Staff(#[from] auth::staff::Error),
 }
 
-/// Signs `staff` in on this session, whatever way they proved who they are. The session is
-/// emptied and gets a new id first, so a planted session id and its CSRF token stop working.
+/// Signs `staff` in on this session, whatever way they proved who they are. A login already
+/// on this session ends, so a shared browser does not keep the previous person signed in.
+/// The session is emptied and gets a new id, so a planted session id and its CSRF token stop
+/// working.
 ///
 /// # Errors
 /// Fails when the session store or the database cannot be written.
 pub async fn sign_in(state: &AppState, session: &Session, staff: &StaffUser) -> Result<(), Error> {
+    end_login(state, session).await?;
     session.clear().await;
     session.cycle_id().await?;
     let login = auth::login::start(&state.pool, staff.id, state.clock.now()).await?;
@@ -48,9 +51,14 @@ pub async fn current(state: &AppState, session: &Session) -> Result<Option<Staff
 /// # Errors
 /// Fails when the session store or the database cannot be written.
 pub async fn sign_out(state: &AppState, session: &Session) -> Result<(), Error> {
+    end_login(state, session).await?;
+    session.flush().await?;
+    Ok(())
+}
+
+async fn end_login(state: &AppState, session: &Session) -> Result<(), Error> {
     if let Some(login) = session.get::<String>(STAFF_KEY).await? {
         auth::login::end(&state.pool, &LoginId::new(login)).await?;
     }
-    session.flush().await?;
     Ok(())
 }
