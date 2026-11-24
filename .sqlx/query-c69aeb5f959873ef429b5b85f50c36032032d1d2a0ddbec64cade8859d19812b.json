@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO order_line\n                (order_id, product_id, qty, unit_price_cents, suggested_price_cents, vat_rate)\n            VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Int2"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c69aeb5f959873ef429b5b85f50c36032032d1d2a0ddbec64cade8859d19812b"
+}

@@ -152,7 +152,7 @@ async fn subscribe(
         Ok(conn) => conn,
         Err(error) => return server_error(&state, &error),
     };
-    let company = match notify::load_company(&mut conn).await {
+    let company = match notify::Company::load(&mut conn).await {
         Ok(company) => company,
         Err(error) => return server_error(&state, &error),
     };

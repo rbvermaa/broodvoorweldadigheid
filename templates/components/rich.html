@@ -1,0 +1,28 @@
+{# Markdown from catalog::markdown, such as FAQ answers. Every text is escaped; links are
+   always plain https URLs. #}
+{% macro spans(spans) %}
+{%- for span in spans.iter() -%}
+{%- if let Some(href) = span.link %}<a href="{{ href }}">{% endif -%}
+{%- if span.bold %}<strong>{% endif -%}
+{%- if span.italic %}<em>{% endif -%}
+{{ span.text }}
+{%- if span.italic %}</em>{% endif -%}
+{%- if span.bold %}</strong>{% endif -%}
+{%- if span.link.is_some() %}</a>{% endif -%}
+{%- endfor -%}
+{% endmacro %}
+
+{% macro blocks(blocks) %}
+{%- for block in blocks.iter() %}
+{%- match block %}
+{%- when Block::Paragraph(spans) %}
+<p>{% call spans(spans) %}{% endcall %}</p>
+{%- when Block::List(items) %}
+<ul>
+{%- for item in items.iter() %}
+<li>{% call spans(item) %}{% endcall %}</li>
+{%- endfor %}
+</ul>
+{%- endmatch %}
+{%- endfor %}
+{% endmacro %}

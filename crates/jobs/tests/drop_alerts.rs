@@ -124,7 +124,7 @@ enum State {
 
 async fn subscriber(conn: &mut PgConnection, clock: &FakeClock, email: &str, state: State) {
     let i18n = i18n();
-    let company = notify::load_company(conn).await.unwrap();
+    let company = notify::Company::load(conn).await.unwrap();
     let composer = Composer::new(&i18n, &company);
     subscribers::subscribe(conn, clock, &composer, &links(), email)
         .await
@@ -470,7 +470,7 @@ async fn the_company_row_is_read_for_emails(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     company_details(&mut conn).await;
     assert_eq!(
-        notify::load_company(&mut conn).await.unwrap(),
+        notify::Company::load(&mut conn).await.unwrap(),
         Company {
             name: "Brood voor Weldadigheid".to_owned(),
             address: "Majoor van Swietenlaan 15, 8382 CE Frederiksoord".to_owned(),

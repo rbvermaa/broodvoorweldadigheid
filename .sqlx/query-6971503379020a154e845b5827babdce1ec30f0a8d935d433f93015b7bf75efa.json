@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT action, before::text AS before, after::text AS after, actor,\n            (extract(epoch FROM at) * 1000000)::bigint AS \"at_us!\"\n        FROM audit_log WHERE entity = $1 AND entity_id = $2 ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "action",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_log",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "before",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "after",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "actor",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_log",
+            "name": "actor"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "6971503379020a154e845b5827babdce1ec30f0a8d935d433f93015b7bf75efa"
+}

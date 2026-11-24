@@ -11,16 +11,18 @@ pub enum EmailKind {
     SickDayCancelled,
     DropAlert,
     SubscriptionConfirmation,
+    ContactMessage,
 }
 
 impl EmailKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::OrderConfirmation,
         Self::PickupReminder,
         Self::OrderCancelled,
         Self::SickDayCancelled,
         Self::DropAlert,
         Self::SubscriptionConfirmation,
+        Self::ContactMessage,
     ];
 
     /// The value stored in `email_outbox.kind`.
@@ -33,6 +35,7 @@ impl EmailKind {
             Self::SickDayCancelled => "sick_day_cancelled",
             Self::DropAlert => "drop_alert",
             Self::SubscriptionConfirmation => "subscription_confirmation",
+            Self::ContactMessage => "contact_message",
         }
     }
 
@@ -52,6 +55,8 @@ pub struct Email {
     pub html: String,
     /// The https URL for `List-Unsubscribe` (RFC 8058 one-click), on drop alerts.
     pub list_unsubscribe: Option<String>,
+    /// Where replies go when that is not the From address, such as a contact form sender.
+    pub reply_to: Option<String>,
 }
 
 /// An email taken from the outbox to send.

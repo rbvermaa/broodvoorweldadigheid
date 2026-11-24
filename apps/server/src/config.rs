@@ -15,6 +15,8 @@ pub struct Config {
     pub gallery: bool,
     /// Where customers reach the site, without a trailing slash. Links in emails use it.
     pub public_url: String,
+    /// Where the contact form (F4f) sends messages. Without it the form shows the 500 page.
+    pub contact_email: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -35,6 +37,8 @@ pub enum ConfigError {
         "PUBLIC_URL {0:?} must be an http(s) URL without path, like https://broodvoorweldadigheid.nl"
     )]
     InvalidPublicUrl(String),
+    #[error("BAKERY_CONTACT_EMAIL {0:?} is not an email address")]
+    InvalidContactEmail(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -46,6 +50,7 @@ impl std::fmt::Debug for Config {
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
             .field("public_url", &self.public_url)
+            .field("contact_email", &self.contact_email)
             .finish()
     }
 }
@@ -87,6 +92,16 @@ impl Config {
         if !is_origin(&public_url) {
             return Err(ConfigError::InvalidPublicUrl(public_url));
         }
+        let contact_email = lookup("BAKERY_CONTACT_EMAIL")
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| {
+                if notify::is_address(&raw) {
+                    Ok(raw)
+                } else {
+                    Err(ConfigError::InvalidContactEmail(raw))
+                }
+            })
+            .transpose()?;
         Ok(Self {
             bind_addr,
             database_url,
@@ -94,6 +109,7 @@ impl Config {
             trusted_proxy,
             gallery,
             public_url,
+            contact_email,
         })
     }
 }
@@ -259,6 +275,28 @@ mod tests {
             ])),
             Err(ConfigError::InvalidTrustedProxy("caddy".to_string()))
         );
+    }
+
+    #[test]
+    fn contact_email_is_optional_and_must_be_an_address() {
+        let none = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(none.contact_email, None);
+        let set = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("BAKERY_CONTACT_EMAIL", "bakker@example.org"),
+        ]))
+        .expect("config");
+        assert_eq!(set.contact_email.as_deref(), Some("bakker@example.org"));
+        for bad in ["bakker", "bakker@example.org\r\nBcc: x@example.org"] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("BAKERY_CONTACT_EMAIL", bad),
+                ])),
+                Err(ConfigError::InvalidContactEmail(bad.to_string()))
+            );
+        }
     }
 
     #[test]

@@ -13,6 +13,9 @@ This conflicts with the spec's rule that external services are limited to Mollie
 SMTP relay and the off-site backup. GitHub holds code only, never customer data or
 secrets. Tracked in `docs/open-questions.md` until the spec is updated.
 
-Branch protection is not available for private repositories on GitHub's free plan, so
-"no merge without a green pipeline" (spec, "Rules that keep it safe") is a working rule,
-not enforced by GitHub. PRs are merged only with green CI and a Claude and Codex review.
+Update 2026-11-24: the repository moved to a new public repo (rbvermaa/broodvoorweldadigheid,
+history rewritten to the owner's personal email; the old private repo is kept as
+-private). Public repos get free Actions minutes and branch protection, so `main` now
+requires the check and smoke jobs on both architectures, applies to admins, and refuses
+force-pushes and deletion. "No merge without a green pipeline" (spec, "Rules that keep
+it safe") is enforced by GitHub. PRs still also need a Claude and a Codex review.

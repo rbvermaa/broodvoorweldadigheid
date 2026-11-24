@@ -75,7 +75,7 @@ pub async fn tick(
     if due.is_empty() {
         return Ok(report);
     }
-    let company = notify::load_company(conn).await?;
+    let company = notify::Company::load(conn).await?;
     let composer = Composer::new(i18n, &company);
     for row in due {
         let Some(kind) = parse_kind(&row.kind) else {

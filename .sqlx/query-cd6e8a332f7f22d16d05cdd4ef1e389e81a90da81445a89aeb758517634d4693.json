@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT bake_day_id, pickup_slot_id FROM \"order\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pickup_slot_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "pickup_slot_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cd6e8a332f7f22d16d05cdd4ef1e389e81a90da81445a89aeb758517634d4693"
+}

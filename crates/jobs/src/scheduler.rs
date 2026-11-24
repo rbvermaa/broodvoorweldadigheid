@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use apalis::prelude::{BoxDynError, Data, TaskBuilder, TaskSink, TaskSinkError, WorkerBuilder};
 use apalis_postgres::PostgresStorage;
-use domain::Clock;
+use domain::{Clock, OrderId};
 use i18n::Translator;
 use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
 use notify::subscribers::Links;
@@ -25,8 +25,9 @@ pub const SEND_BATCH: u32 = 500;
 /// a tick, and its connection, busy past the next one.
 pub const SEND_BUDGET: Duration = Duration::from_secs(40);
 
-/// The every-minute job that opens and closes bake days. `minute` is the start of the
-/// minute it was scheduled for and makes the job unique.
+/// The every-minute job that opens and closes bake days and releases expired order
+/// holds. `minute` is the start of the minute it was scheduled for and makes the job
+/// unique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BakeDayTick {
     pub minute: Timestamp,
@@ -61,6 +62,7 @@ pub struct Mail {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TickOutcome {
     pub days: TickReport,
+    pub released: Vec<OrderId>,
     pub alerts: AlertReport,
     pub sent: SendReport,
 }
@@ -120,14 +122,15 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// One tick's work, in order: open and close bake days, queue the drop alerts that are
-/// now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
+/// One tick's work, in order: open and close bake days, release expired order holds, queue
+/// the drop alerts that are now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
 /// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
 /// step fails, so a day that should open never gets the menu alert instead; emails are
 /// sent either way. The first error is returned.
 ///
 /// # Errors
-/// The first [`Error`] of [`bake_days::tick`], [`drop_alerts::tick`] or
+/// The first [`Error`] of [`bake_days::tick`], [`orders::release_expired_holds`],
+/// [`drop_alerts::tick`] or
 /// [`notify::send_pending`].
 pub fn work<'a>(
     pool: &'a PgPool,
@@ -141,14 +144,28 @@ pub fn work<'a>(
         let mut outcome = TickOutcome::default();
         let mut first_error = None;
         let frozen = Frozen(clock.now());
-        match bake_days::tick(&mut conn, &frozen).await {
-            Ok(report) => outcome.days = report,
-            Err(err) => first_error = Some(err),
+        let days_ok = match bake_days::tick(&mut conn, &frozen).await {
+            Ok(report) => {
+                outcome.days = report;
+                true
+            }
+            Err(err) => {
+                first_error = Some(err);
+                false
+            }
+        };
+        match orders::release_expired_holds(&mut conn, &frozen).await {
+            Ok(released) => outcome.released = released,
+            Err(err) => {
+                first_error.get_or_insert(err.into());
+            }
         }
-        if first_error.is_none() {
+        if days_ok {
             match drop_alerts::tick(&mut conn, &frozen, &mail.i18n, &mail.links).await {
                 Ok(report) => outcome.alerts = report,
-                Err(err) => first_error = Some(err),
+                Err(err) => {
+                    first_error.get_or_insert(err);
+                }
             }
         }
         match drain(&mut conn, mail.sender.as_ref(), clock).await {
@@ -201,11 +218,12 @@ pub async fn handle_tick(
 ) -> Result<(), BoxDynError> {
     let outcome = work(&pool, clock.0.0.as_ref(), &mail).await?;
     let days = &outcome.days;
-    if !days.opened.is_empty() || !days.closed.is_empty() {
+    if !days.opened.is_empty() || !days.closed.is_empty() || !outcome.released.is_empty() {
         tracing::info!(
             minute = %tick.minute,
             opened = ?days.opened,
             closed = ?days.closed,
+            released = ?outcome.released,
             "bake day tick"
         );
     }

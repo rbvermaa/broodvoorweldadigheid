@@ -109,6 +109,21 @@ impl Capacity {
             _ => Ok(()),
         }
     }
+
+    /// Checks several products as one request: each line also counts the lines before
+    /// it, so products that share a pool cannot overfill it together.
+    ///
+    /// # Errors
+    /// [`Exceeded`] for the first line that does not fit.
+    pub fn check_all(&self, request: &[(ProductId, u32)]) -> Result<(), Exceeded> {
+        let mut capacity = self.clone();
+        for &(product_id, qty) in request {
+            capacity.check(product_id, qty)?;
+            let used = capacity.used.entry(product_id).or_default();
+            used.ordered = used.ordered.saturating_add(qty);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -174,6 +189,32 @@ mod tests {
         // 30 - (10 * 2 + 3) = 7 units left.
         assert_eq!(capacity.remaining(BREAD), Remaining::Pieces(3));
         assert_eq!(capacity.remaining(ROLLS), Remaining::Pieces(7));
+    }
+
+    #[test]
+    fn a_request_counts_its_own_lines_against_a_shared_pool() {
+        let capacity = Capacity::new(
+            [
+                limit(BREAD, None, Some(OVEN), 2),
+                limit(ROLLS, None, Some(OVEN), 1),
+            ],
+            [PoolLimit {
+                id: OVEN,
+                max_units: 10,
+            }],
+            BTreeMap::new(),
+        );
+        assert_eq!(capacity.check(BREAD, 4), Ok(()));
+        assert_eq!(capacity.check(ROLLS, 4), Ok(()));
+        assert_eq!(
+            capacity.check_all(&[(BREAD, 4), (ROLLS, 4)]),
+            Err(Exceeded {
+                product_id: ROLLS,
+                remaining: 2
+            })
+        );
+        assert_eq!(capacity.check_all(&[(BREAD, 4), (ROLLS, 2)]), Ok(()));
+        assert_eq!(capacity.check_all(&[]), Ok(()));
     }
 
     #[test]
@@ -276,6 +317,37 @@ mod tests {
                     .map(|p| taken.get(&p.product_id).copied().unwrap_or_default().total() * u64::from(p.units_per_item))
                     .sum();
                 prop_assert!(units <= u64::from(pool.max_units));
+            }
+        }
+
+        #[test]
+        fn an_accepted_request_never_oversells(
+            day in day(),
+            request in prop::collection::vec((0_usize..6, 0_u32..60), 0..8),
+        ) {
+            let request: Vec<(ProductId, u32)> = request
+                .into_iter()
+                .map(|(index, qty)| (day.products[index % day.products.len()].product_id, qty))
+                .collect();
+            let empty = Capacity::new(day.products.clone(), day.pools.clone(), BTreeMap::new());
+            if empty.check_all(&request).is_ok() {
+                let mut taken: BTreeMap<ProductId, Used> = BTreeMap::new();
+                for &(product_id, qty) in &request {
+                    taken.entry(product_id).or_default().ordered += qty;
+                }
+                for product in &day.products {
+                    let total = taken.get(&product.product_id).copied().unwrap_or_default().total();
+                    if let Some(max) = product.max_qty {
+                        prop_assert!(total <= u64::from(max));
+                    }
+                }
+                for pool in &day.pools {
+                    let units: u64 = day.products.iter()
+                        .filter(|p| p.pool == Some(pool.id))
+                        .map(|p| taken.get(&p.product_id).copied().unwrap_or_default().total() * u64::from(p.units_per_item))
+                        .sum();
+                    prop_assert!(units <= u64::from(pool.max_units));
+                }
             }
         }
 

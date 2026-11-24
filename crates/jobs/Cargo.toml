@@ -16,6 +16,7 @@ domain = { path = "../domain" }
 i18n = { path = "../i18n" }
 jiff.workspace = true
 notify = { path = "../notify" }
+orders = { path = "../orders" }
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true

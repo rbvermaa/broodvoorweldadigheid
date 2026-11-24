@@ -1,7 +1,6 @@
 //! Email templates and sending (F2, F9, F9a; ADR 0014).
 #![forbid(unsafe_code)]
 
-mod company;
 mod compose;
 mod content;
 mod email;
@@ -10,11 +9,10 @@ mod smtp;
 pub mod style;
 pub mod subscribers;
 
-pub use company::load_company;
 pub use compose::{
-    Company, ComposeError, Composer, Donation, DropAlert, DropAlertKind, Item, OrderCancelled,
-    OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient, SickDayCancelled,
-    SubscriptionConfirmation,
+    Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Item,
+    OrderCancelled, OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient,
+    SickDayCancelled, SubscriptionConfirmation, is_address,
 };
 pub use content::RenderError;
 pub use email::{Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture};

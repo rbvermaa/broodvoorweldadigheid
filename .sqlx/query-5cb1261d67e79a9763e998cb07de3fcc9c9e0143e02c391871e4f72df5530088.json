@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT max_orders FROM pickup_slot WHERE id = $1 AND bake_day_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_orders",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "pickup_slot",
+            "name": "max_orders"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5cb1261d67e79a9763e998cb07de3fcc9c9e0143e02c391871e4f72df5530088"
+}

@@ -12,6 +12,7 @@ ai = { path = "../../crates/ai", optional = true }
 askama.workspace = true
 axum.workspace = true
 base64.workspace = true
+catalog = { path = "../../crates/catalog" }
 clap.workspace = true
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
@@ -21,6 +22,7 @@ notify = { path = "../../crates/notify" }
 rand.workspace = true
 serde.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower-sessions.workspace = true
@@ -35,9 +37,8 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-testkit = { path = "../../crates/testkit" }
 serde_json.workspace = true
-sqlx.workspace = true
+testkit = { path = "../../crates/testkit", features = ["email"] }
 tower.workspace = true
 toml.workspace = true
 

@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE faq_entry SET question = $2, answer_md = $3,\n            updated_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n        WHERE id = $1\n        RETURNING id, question, answer_md, position, published,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\",\n            (extract(epoch FROM updated_at) * 1000000)::bigint AS \"updated_at_us!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "faq_entry",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "question",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "faq_entry",
+            "name": "question"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "answer_md",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "faq_entry",
+            "name": "answer_md"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "position",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "faq_entry",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "published",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "faq_entry",
+            "name": "published"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "a9634c4f75503a558e2c45cf9ed14b4e14c980e7225eb63fddbff817072eea12"
+}
