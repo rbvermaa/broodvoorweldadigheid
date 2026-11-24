@@ -84,7 +84,8 @@ Smaller choices in the same change:
 - A new bake day gets one pickup slot per active window of the location on that weekday.
   The deadline is the earliest of their default deadlines. An online date with no window
   is refused; staff add a window first. A production-only day may have no window: it
-  then has no slots and no deadline, and never gets a lead-time warning.
+  then has no slots and no deadline, and never gets a lead-time warning. The lead-time
+  warning itself follows the owner's sourdough rule (ADR 0006, update 2026-11-24).
 - A deadline is never after `bake_starts_at`, and `menu_publish_at` never after the
   deadline (CHECKs and validation).
 - Copying a day keeps local wall-clock times: every timestamp moves by the same number

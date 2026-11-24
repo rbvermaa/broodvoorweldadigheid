@@ -35,6 +35,7 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+notify = { path = "../../crates/notify" }
 serde_json.workspace = true
 sqlx.workspace = true
 testkit = { path = "../../crates/testkit" }

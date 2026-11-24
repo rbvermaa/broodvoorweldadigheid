@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, p.name_nl, p.description_nl\n        FROM bake_day_product r JOIN product p ON p.id = r.product_id\n        WHERE r.bake_day_id = $1 AND p.active AND p.sold_online\n        ORDER BY p.name_nl, p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "description_nl"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6934a7d0edca6778a29f0d3f1097c5e51d43dd9e089c453183b3ae9d8537b4b9"
+}
