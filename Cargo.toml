@@ -12,6 +12,7 @@ axum = "0.8"
 base64 = "0.22"
 cargo_metadata = "0.23.1"
 clap = { version = "4", features = ["derive", "env"] }
+csv = "1"
 fluent-bundle = "0.16"
 insta = "1"
 jiff = { version = "0.2", features = ["serde"] }

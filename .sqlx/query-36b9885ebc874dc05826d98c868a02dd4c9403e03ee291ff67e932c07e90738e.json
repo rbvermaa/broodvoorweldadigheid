@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ol.order_id, ol.product_id, p.name_nl, ol.qty, ol.unit_price_cents,\n            ol.suggested_price_cents, ol.vat_rate, p.estimated_cost_cents\n        FROM order_line ol JOIN product p ON p.id = ol.product_id\n        WHERE ol.order_id = ANY($1) ORDER BY ol.order_id, ol.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "qty"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "unit_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "unit_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "suggested_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "suggested_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "vat_rate"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "estimated_cost_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "estimated_cost_cents"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "36b9885ebc874dc05826d98c868a02dd4c9403e03ee291ff67e932c07e90738e"
+}
