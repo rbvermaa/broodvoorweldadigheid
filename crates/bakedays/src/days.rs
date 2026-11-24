@@ -639,6 +639,7 @@ pub async fn add_slot(
     let mut tx = conn.begin().await?;
     let bake_day = get_for_update(&mut tx, day).await?;
     bake_day.ensure_editable()?;
+    ensure_after_bake_start(&bake_day, input)?;
     pickup::get_location(&mut tx, location).await?;
     reserve_date(&mut tx, bake_day.date, &[location], Some(day)).await?;
     let id = insert_slot(&mut tx, day, location, input).await?;
@@ -646,7 +647,8 @@ pub async fn add_slot(
     Ok(id)
 }
 
-/// Changes a pickup slot's times or order limit for this drop only.
+/// Changes a pickup slot's times or order limit for this drop only, and returns the slot
+/// as it was. The pickup may move to another date, but never starts before baking does.
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Final`] or [`Error::Invalid`].
@@ -654,19 +656,12 @@ pub async fn update_slot(
     conn: &mut PgConnection,
     id: PickupSlotId,
     input: &PickupSlotInput,
-) -> Result<(), Error> {
+) -> Result<PickupSlot, Error> {
     validate_slot(input)?;
     let mut tx = conn.begin().await?;
-    let day = sqlx::query_scalar!(
-        "SELECT bake_day_id FROM pickup_slot WHERE id = $1",
-        id.get()
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(Error::NotFound)?;
-    get_for_update(&mut tx, BakeDayId::new(day))
-        .await?
-        .ensure_editable()?;
+    let (bake_day, before) = lock_slot_day(&mut tx, id).await?;
+    bake_day.ensure_editable()?;
+    ensure_after_bake_start(&bake_day, input)?;
     sqlx::query!(
         r#"UPDATE pickup_slot SET
             starts_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond',
@@ -681,6 +676,61 @@ pub async fn update_slot(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    Ok(before)
+}
+
+/// Removes a pickup slot that no order uses, cancelled ones included. A day with online
+/// ordering keeps at least one slot.
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Final`], [`Error::NoPickupSlot`] for the last slot of a
+/// day with online ordering, or [`Error::SlotHasOrders`].
+pub async fn remove_slot(conn: &mut PgConnection, id: PickupSlotId) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    let (bake_day, _) = lock_slot_day(&mut tx, id).await?;
+    bake_day.ensure_editable()?;
+    if bake_day.online_ordering && list_slots(&mut tx, bake_day.id).await?.len() <= 1 {
+        return Err(Error::NoPickupSlot);
+    }
+    let deleted = sqlx::query!("DELETE FROM pickup_slot WHERE id = $1", id.get())
+        .execute(&mut *tx)
+        .await;
+    match deleted {
+        Ok(_) => {}
+        Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
+            return Err(Error::SlotHasOrders);
+        }
+        Err(e) => return Err(e.into()),
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Locks the slot's bake day `FOR UPDATE` and returns it with the slot.
+async fn lock_slot_day(
+    conn: &mut PgConnection,
+    id: PickupSlotId,
+) -> Result<(BakeDay, PickupSlot), Error> {
+    let day = sqlx::query_scalar!(
+        "SELECT bake_day_id FROM pickup_slot WHERE id = $1",
+        id.get()
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let bake_day = get_for_update(conn, BakeDayId::new(day)).await?;
+    let slot = list_slots(conn, bake_day.id)
+        .await?
+        .into_iter()
+        .find(|slot| slot.id == id)
+        .ok_or(Error::NotFound)?;
+    Ok((bake_day, slot))
+}
+
+fn ensure_after_bake_start(day: &BakeDay, input: &PickupSlotInput) -> Result<(), Error> {
+    if input.starts_at < day.bake_starts_at {
+        return Err(Error::Invalid("pickup before bake start"));
+    }
     Ok(())
 }
 

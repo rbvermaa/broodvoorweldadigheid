@@ -24,11 +24,13 @@ live in `apps/server/src/backoffice/` and join the router in one place
 | Availability, extra production and the charity rule count orders through `orders::Orders` with the app clock, so a pending order holds capacity until its hold expires | ADR 0008, ADR 0012 |
 | The lead-time warning names the rule that sets the latest deadline: the bakery's sourdough deadline (`company.sourdough_deadline_*`) or a product's own lead time | Staff know what to change |
 | Update (ADR 0027): only the sourdough rule warns; per-product lead times are gone | Owner, 2026-11-24 |
+| Pickup slots are edited per bake day (F1, F4a): date, start and end, add, remove. A slot without orders has an inline form; a slot with orders is edited in a confirmation dialog that says the customers get an email. The dialog component takes fields as the body of its `call` | Owner: "should probably allow easy changing". Moving bread that people already ordered should not be one click away |
+| A slot never starts before baking does (`bake_starts_at`), may move to another date, and is removed only when no order uses it, cancelled ones included. A day with online ordering keeps at least one slot | The order's foreign key keeps the slot; the rule that an online day has a slot stays as it was |
+| A change of date or time queues a `pickup_moved` email to every paid or confirmed order in the slot, in the same transaction, without a dedupe key, and withdraws its unsent pickup reminder, as moving one order does (ADR 0022). Saving the same times sends nothing | Each real change is news for the customer; the reminder job queues a new reminder with the new time |
 
 Open:
 
-- Pickup slots per bake day are shown but not editable yet (`days::add_slot` and
-  `update_slot` exist). F1 asks for it.
+- A slot's order limit (`max_orders`) is kept on edit but not shown; staff cannot set it yet.
 - The charity select on a bake day uses the select component's empty "Kies…" option for
   "normal sale"; a labelled option would be clearer.
 - An inline check swaps the field wrapper with the value the request carried. On a slow

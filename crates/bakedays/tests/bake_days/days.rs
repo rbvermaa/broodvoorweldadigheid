@@ -461,6 +461,137 @@ async fn slots_change_per_drop(mut conn: PoolConnection<Postgres>) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_slot_moves_to_another_date_but_never_before_baking_starts(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let day = create_day(&mut conn, &saturday()).await;
+    let slot = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    let sunday = PickupSlotInput {
+        starts_at: ts("2026-11-01T10:00:00Z"),
+        ends_at: ts("2026-11-01T11:00:00Z"),
+        max_orders: None,
+    };
+    let before = days::update_slot(&mut conn, slot.id, &sunday)
+        .await
+        .unwrap();
+    assert_eq!(before, slot);
+    let moved = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    assert_eq!(
+        (moved.starts_at, moved.ends_at),
+        (sunday.starts_at, sunday.ends_at)
+    );
+
+    // Baking starts at 05:00 CET, 04:00 UTC.
+    let at_bake_start = PickupSlotInput {
+        starts_at: ts("2026-10-31T04:00:00Z"),
+        ends_at: ts("2026-10-31T05:00:00Z"),
+        max_orders: None,
+    };
+    days::update_slot(&mut conn, slot.id, &at_bake_start)
+        .await
+        .unwrap();
+    let too_early = PickupSlotInput {
+        starts_at: ts("2026-10-31T03:59:00Z"),
+        ..at_bake_start
+    };
+    assert!(matches!(
+        days::update_slot(&mut conn, slot.id, &too_early).await,
+        Err(Error::Invalid("pickup before bake start"))
+    ));
+    assert!(matches!(
+        days::add_slot(&mut conn, day.id, DE_PROEF, &too_early).await,
+        Err(Error::Invalid("pickup before bake start"))
+    ));
+}
+
+async fn order_in_slot(conn: &mut PgConnection, slot: &bakedays::PickupSlot) {
+    sqlx::query(
+        "WITH c AS (INSERT INTO customer (email, name, created_at)
+            VALUES ('klant@example.org', 'Test Klant', now()) RETURNING id),
+        n AS (INSERT INTO order_number (year, last) VALUES (2026, 1) RETURNING year)
+        INSERT INTO \"order\" (number_year, number_seq, customer_id, customer_name,
+            bake_day_id, pickup_slot_id, channel, payment_mode, status, cancel_reason,
+            total_cents, created_at)
+        SELECT n.year, 1, c.id, 'Test Klant', $1, $2, 'web', 'online', 'cancelled',
+            'hold_expired', 650, now()
+        FROM c, n",
+    )
+    .bind(slot.bake_day_id.get())
+    .bind(slot.id.get())
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_slot_is_removed_only_without_orders_and_an_online_day_keeps_one(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let day = create_day(&mut conn, &saturday()).await;
+    let first = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    let input = PickupSlotInput {
+        starts_at: ts("2026-10-31T12:00:00Z"),
+        ends_at: ts("2026-10-31T13:00:00Z"),
+        max_orders: None,
+    };
+    let second = days::add_slot(&mut conn, day.id, DE_PROEF, &input)
+        .await
+        .unwrap();
+    days::remove_slot(&mut conn, second).await.unwrap();
+    assert_eq!(days::list_slots(&mut conn, day.id).await.unwrap(), [first]);
+    assert!(matches!(
+        days::remove_slot(&mut conn, first.id).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert!(matches!(
+        days::remove_slot(&mut conn, second).await,
+        Err(Error::NotFound)
+    ));
+
+    let third = days::add_slot(&mut conn, day.id, DE_PROEF, &input)
+        .await
+        .unwrap();
+    let third = days::list_slots(&mut conn, day.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == third)
+        .unwrap();
+    order_in_slot(&mut conn, &third).await;
+    assert!(matches!(
+        days::remove_slot(&mut conn, third.id).await,
+        Err(Error::SlotHasOrders)
+    ));
+    assert_eq!(days::list_slots(&mut conn, day.id).await.unwrap().len(), 2);
+
+    let production = create_day(
+        &mut conn,
+        &NewBakeDay {
+            online_ordering: false,
+            ..next_saturday()
+        },
+    )
+    .await;
+    let only = days::list_slots(&mut conn, production.id).await.unwrap()[0];
+    days::remove_slot(&mut conn, only.id).await.unwrap();
+    assert!(
+        days::list_slots(&mut conn, production.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    days::cancel(&mut conn, &clock, day.id, "Ziek")
+        .await
+        .unwrap();
+    assert!(matches!(
+        days::remove_slot(&mut conn, first.id).await,
+        Err(Error::Final)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new(ts("2026-10-20T12:00:00Z"));
     let archived_later = charity(&mut conn, "Later gearchiveerd", false).await;

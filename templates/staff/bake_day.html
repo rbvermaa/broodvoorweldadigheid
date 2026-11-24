@@ -26,9 +26,48 @@
 {% if slots.is_empty() %}<p>{{ layout.t("day-no-slots")? }}</p>{% else %}
 <ul>
 {%- for slot in slots %}
-<li>{{ slot }}</li>
+<li>{{ slot.text }}
+{%- if editable %}
+{%- if slot.moves.is_empty() %}
+<form method="post" action="{{ slot.edit }}">
+{% call s::csrf() %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ slot.text }}</legend>
+{% call f::field("date", slot.date_field, layout.t("slot-date")?, value = slot.date, error = errors.get(slot.date_field), required = true) %}{% endcall %}
+{% call f::field("time", slot.starts_field, layout.t("window-starts")?, value = slot.starts, error = errors.get(slot.starts_field), required = true) %}{% endcall %}
+{% call f::field("time", slot.ends_field, layout.t("window-ends")?, value = slot.ends, error = errors.get(slot.ends_field), required = true) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</fieldset>
+</form>
+{%- else %}
+{% call b::button(layout.t("slot-move")?, variant = "secondary", opens = slot.dialog) %}{% endcall %}
+{% call d::confirm_dialog(slot.dialog, layout.t("slot-move")?, slot.moves, layout.t("slot-move-confirm")?, slot.edit) %}
+{% call f::field("date", slot.date_field, layout.t("slot-date")?, value = slot.date, error = errors.get(slot.date_field), required = true) %}{% endcall %}
+{% call f::field("time", slot.starts_field, layout.t("window-starts")?, value = slot.starts, error = errors.get(slot.starts_field), required = true) %}{% endcall %}
+{% call f::field("time", slot.ends_field, layout.t("window-ends")?, value = slot.ends, error = errors.get(slot.ends_field), required = true) %}{% endcall %}
+{% endcall %}
+{%- endif %}
+{%- if slot.removable %}
+{% call b::button(layout.t("slot-remove")?, variant = "secondary", opens = slot.remove_dialog) %}{% endcall %}
+{% call d::confirm_dialog(slot.remove_dialog, layout.t("slot-remove")?, slot.remove_text, layout.t("slot-remove")?, slot.remove_action) %}{% endcall %}
+{%- endif %}
+{%- endif %}
+</li>
 {%- endfor %}
 </ul>
+{% endif %}
+{% if editable %}
+<form method="post" action="{{ path }}/slots">
+{% call s::csrf() %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("slot-add")? }}</legend>
+{% call f::select("slot_location_new", layout.t("day-location")?, new_slot.locations, error = errors.get("slot_location_new"), required = true) %}{% endcall %}
+{% call f::field("date", "slot_date_new", layout.t("slot-date")?, value = new_slot.date, error = errors.get("slot_date_new"), required = true) %}{% endcall %}
+{% call f::field("time", "slot_starts_new", layout.t("window-starts")?, value = new_slot.starts, error = errors.get("slot_starts_new"), required = true) %}{% endcall %}
+{% call f::field("time", "slot_ends_new", layout.t("window-ends")?, value = new_slot.ends, error = errors.get("slot_ends_new"), required = true) %}{% endcall %}
+{% call b::button(layout.t("slot-add")?, kind = "submit") %}{% endcall %}
+</fieldset>
+</form>
 {% endif %}
 
 {% if editable %}

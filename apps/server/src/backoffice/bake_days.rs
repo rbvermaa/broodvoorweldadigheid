@@ -10,16 +10,23 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::capacity::Remaining;
 use bakedays::status::TransitionRefused;
-use bakedays::{BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, Schedule, days, pickup, range};
+use bakedays::{
+    BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, PickupLocation, PickupSlot,
+    PickupSlotInput, Schedule, days, pickup, range, schedule,
+};
 use catalog::{Charity, Product, charities, products};
-use domain::{BakeDayId, CharityId, PickupLocationId, ProductId};
+use domain::{BakeDayId, CharityId, PickupLocationId, PickupSlotId, ProductId};
 use jiff::Timestamp;
 use jiff::civil::Date;
+use jobs::order_emails;
 use orders::Orders;
 use serde::Deserialize;
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields, local_value, parse_count, parse_date, parse_local};
+use super::form::{
+    Errors, Fields, local_value, parse_count, parse_date, parse_local, parse_time, time_value,
+};
+use super::orders::queue_email;
 use super::{
     Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id, require,
     saved, t, t_count, t_with,
@@ -30,6 +37,9 @@ use crate::staff::Staff;
 use crate::state::AppState;
 
 const DAYS_AHEAD: i32 = 366;
+
+/// `DayForms::edit_slot` and the field suffix of the form that adds a pickup slot.
+const NEW_SLOT: &str = "new";
 
 /// A refusal from the bake day rules, as a Dutch text for one form field. `field` is
 /// empty when the message belongs to the whole page.
@@ -60,9 +70,14 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
                 "number of weeks" => ("weeks", "day-error-weeks"),
                 "quantity" => ("qty", "extra-error-qty"),
                 "date" => ("date", "form-error-date"),
+                "pickup slot" => ("slot_ends", "slot-error-order"),
+                "pickup before bake start" => ("slot_starts", "slot-error-before-bake"),
                 _ => ("", "form-has-errors"),
             };
-            let text = if id == "day-error-deadline-after-bake" {
+            let text = if matches!(
+                id,
+                "day-error-deadline-after-bake" | "slot-error-before-bake"
+            ) {
                 let time = i18n::time(bakedays::schedule::BAKE_STARTS);
                 t_with(state, id, &[("time", time)])
             } else {
@@ -97,6 +112,7 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
         E::OrdersExist => ("charity_id", t(state, "day-error-orders-exist")),
         E::Final => ("", t(state, "day-error-final")),
         E::NoPickupSlot => ("production_only", t(state, "day-error-no-pickup-slot")),
+        E::SlotHasOrders => ("", t(state, "slot-error-has-orders")),
         E::Transition(refused) => ("", t(state, transition_message(*refused))),
         E::CapacityExceeded { remaining, .. } => {
             ("qty", t_count(state, "extra-error-capacity", *remaining))
@@ -412,6 +428,12 @@ pub struct DayForms {
     pub edit_max_qty: String,
     pub copy_date: String,
     pub weeks: String,
+    /// The slot whose form was posted: its id, or `new` for the add form.
+    pub edit_slot: String,
+    pub slot_date: String,
+    pub slot_starts: String,
+    pub slot_ends: String,
+    pub slot_location: String,
 }
 
 impl DayForms {
@@ -432,8 +454,40 @@ impl DayForms {
             edit_max_qty: String::new(),
             copy_date: String::new(),
             weeks: String::new(),
+            edit_slot: String::new(),
+            slot_date: String::new(),
+            slot_starts: String::new(),
+            slot_ends: String::new(),
+            slot_location: String::new(),
         }
     }
+}
+
+/// A pickup slot on the bake day page with its edit form. A slot with orders is edited in
+/// a confirmation dialog (`moves` is its warning); one without orders inline.
+pub struct SlotRow {
+    pub text: String,
+    pub edit: String,
+    pub date_field: String,
+    pub starts_field: String,
+    pub ends_field: String,
+    pub date: String,
+    pub starts: String,
+    pub ends: String,
+    pub dialog: String,
+    pub moves: String,
+    pub removable: bool,
+    pub remove_dialog: String,
+    pub remove_action: String,
+    pub remove_text: String,
+}
+
+/// The form that adds a pickup slot.
+pub struct NewSlot {
+    pub locations: Vec<SelectOption>,
+    pub date: String,
+    pub starts: String,
+    pub ends: String,
 }
 
 pub struct RangeRow {
@@ -465,7 +519,8 @@ struct DayPage<'a> {
     saved: bool,
     alerts: Vec<String>,
     problem: String,
-    slots: Vec<String>,
+    slots: Vec<SlotRow>,
+    new_slot: NewSlot,
     forms: DayForms,
     errors: Errors,
     charities: Vec<SelectOption>,
@@ -602,6 +657,126 @@ fn actions(state: &AppState, day: &BakeDay, date: &str) -> Vec<Action> {
     }
 }
 
+fn slot_text(state: &AppState, day: &BakeDay, slot: &PickupSlot, place: &str) -> String {
+    let zone = i18n::Amsterdam::new();
+    let range = zone
+        .time_range(slot.starts_at, slot.ends_at)
+        .unwrap_or_default();
+    let date = zone.date(slot.starts_at);
+    if date == day.date {
+        format!("{range}, {place}")
+    } else {
+        format!("{}, {range}, {place}", state.i18n.short_date(date))
+    }
+}
+
+fn slot_rows(
+    state: &AppState,
+    day: &BakeDay,
+    slots: &[PickupSlot],
+    locations: &[PickupLocation],
+    orders: &BTreeMap<PickupSlotId, u32>,
+    forms: &DayForms,
+) -> Vec<SlotRow> {
+    let zone = i18n::Amsterdam::new();
+    let path = day_path(day.id);
+    slots
+        .iter()
+        .map(|slot| {
+            let id = slot.id.get();
+            let key = id.to_string();
+            let place = locations
+                .iter()
+                .find(|l| l.id == slot.location_id)
+                .map(|l| l.name.as_str())
+                .unwrap_or_default();
+            let mut text = slot_text(state, day, slot, place);
+            let count = orders.get(&slot.id).copied().unwrap_or_default();
+            if count > 0 {
+                text = format!("{text} · {}", t_count(state, "slot-orders", count));
+            }
+            let (date, starts, ends) = if forms.edit_slot == key {
+                (
+                    forms.slot_date.clone(),
+                    forms.slot_starts.clone(),
+                    forms.slot_ends.clone(),
+                )
+            } else {
+                let starts = zone.local(slot.starts_at);
+                (
+                    starts.date().to_string(),
+                    time_value(starts.time()),
+                    time_value(zone.local(slot.ends_at).time()),
+                )
+            };
+            SlotRow {
+                edit: format!("{path}/slots/{id}"),
+                date_field: format!("slot_date_{id}"),
+                starts_field: format!("slot_starts_{id}"),
+                ends_field: format!("slot_ends_{id}"),
+                date,
+                starts,
+                ends,
+                dialog: format!("slot-{id}"),
+                moves: if count > 0 {
+                    t_count(state, "slot-move-text", count)
+                } else {
+                    String::new()
+                },
+                removable: count == 0 && !(day.online_ordering && slots.len() == 1),
+                remove_dialog: format!("slot-remove-{id}"),
+                remove_action: format!("{path}/slots/{id}/remove"),
+                remove_text: t_with(state, "slot-remove-text", &[("slot", text.clone())]),
+                text,
+            }
+        })
+        .collect()
+}
+
+fn new_slot(
+    day: &BakeDay,
+    slots: &[PickupSlot],
+    locations: &[PickupLocation],
+    forms: &DayForms,
+) -> NewSlot {
+    let posted = forms.edit_slot == NEW_SLOT;
+    let location = if posted {
+        forms.slot_location.clone()
+    } else {
+        slots
+            .first()
+            .map(|s| s.location_id)
+            .or_else(|| locations.first().map(|l| l.id))
+            .map(|id| id.get().to_string())
+            .unwrap_or_default()
+    };
+    NewSlot {
+        locations: locations
+            .iter()
+            .map(|l| SelectOption {
+                value: l.id.get().to_string(),
+                label: l.name.clone(),
+                selected: l.id.get().to_string() == location,
+            })
+            .collect(),
+        date: if posted {
+            forms.slot_date.clone()
+        } else {
+            day.date.to_string()
+        },
+        starts: if posted {
+            forms.slot_starts.clone()
+        } else {
+            String::new()
+        },
+        ends: if posted {
+            forms.slot_ends.clone()
+        } else {
+            String::new()
+        },
+    }
+}
+
 async fn render_day(
     state: &AppState,
     staff: &Staff,
@@ -614,12 +789,17 @@ async fn render_day(
     let slots = days::list_slots(&mut conn, day.id)
         .await
         .map_err(|e| fail(state, &e))?;
-    let locations: BTreeMap<PickupLocationId, String> = pickup::list_locations(&mut conn)
+    let location_list = pickup::list_locations(&mut conn)
         .await
-        .map_err(|e| fail(state, &e))?
-        .into_iter()
-        .map(|l| (l.id, l.name))
-        .collect();
+        .map_err(|e| fail(state, &e))?;
+    let now = state.clock.now();
+    let mut slot_orders = BTreeMap::new();
+    for slot in &slots {
+        let count = orders::slot_orders(&mut conn, slot.id, now)
+            .await
+            .map_err(|e| fail(state, &e))?;
+        slot_orders.insert(slot.id, u32::try_from(count).unwrap_or(u32::MAX));
+    }
     let all_products = products::list_all(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
@@ -653,19 +833,8 @@ async fn render_day(
     let forms = answer.forms.unwrap_or_else(|| DayForms::of(day));
     let date = state.i18n.long_date(day.date);
     let path = day_path(day.id);
-    let slot_texts = slots
-        .iter()
-        .map(|slot| {
-            let range = i18n::Amsterdam::new()
-                .time_range(slot.starts_at, slot.ends_at)
-                .unwrap_or_default();
-            let place = locations
-                .get(&slot.location_id)
-                .cloned()
-                .unwrap_or_default();
-            format!("{range}, {place}")
-        })
-        .collect();
+    let slot_rows = slot_rows(state, day, &slots, &location_list, &slot_orders, &forms);
+    let new_slot = new_slot(day, &slots, &location_list, &forms);
     let range_rows = items
         .iter()
         .map(|item| {
@@ -716,7 +885,8 @@ async fn render_day(
             saved: answer.saved,
             alerts,
             problem: answer.problem,
-            slots: slot_texts,
+            slots: slot_rows,
+            new_slot,
             charities: charity_options(&choosable, &forms.charity_id),
             forms,
             errors: answer.errors,
@@ -1311,6 +1481,247 @@ pub async fn close(
     Path(id): Path<String>,
 ) -> Response {
     transition(state, staff, session, headers, id, Change::Close).await
+}
+
+/// The posted values of a pickup slot form; `key` is the slot's id or [`NEW_SLOT`].
+fn slot_forms(day: &BakeDay, key: &str, fields: &Fields) -> DayForms {
+    let mut forms = DayForms::of(day);
+    forms.edit_slot = key.to_owned();
+    forms.slot_date = fields.text(&format!("slot_date_{key}")).to_owned();
+    forms.slot_starts = fields.text(&format!("slot_starts_{key}")).to_owned();
+    forms.slot_ends = fields.text(&format!("slot_ends_{key}")).to_owned();
+    forms.slot_location = fields.text("slot_location_new").to_owned();
+    forms
+}
+
+type FieldErrors = Vec<(String, String)>;
+
+/// The start and end of the posted slot form, or a message per field.
+fn parse_slot(state: &AppState, forms: &DayForms) -> Result<(Timestamp, Timestamp), FieldErrors> {
+    let key = &forms.edit_slot;
+    let mut errors = Vec::new();
+    let date = parse_date(&forms.slot_date);
+    if date.is_none() {
+        errors.push((format!("slot_date_{key}"), t(state, "form-error-date")));
+    }
+    let starts = parse_time(&forms.slot_starts);
+    if starts.is_none() {
+        errors.push((format!("slot_starts_{key}"), t(state, "form-error-time")));
+    }
+    let ends = parse_time(&forms.slot_ends);
+    if ends.is_none() {
+        errors.push((format!("slot_ends_{key}"), t(state, "form-error-time")));
+    }
+    let (Some(date), Some(starts), Some(ends)) = (date, starts, ends) else {
+        return Err(errors);
+    };
+    match (
+        schedule::bakery_timestamp(date, starts),
+        schedule::bakery_timestamp(date, ends),
+    ) {
+        (Ok(starts), Ok(ends)) => Ok((starts, ends)),
+        _ => Err(vec![(
+            format!("slot_date_{key}"),
+            t(state, "form-error-date"),
+        )]),
+    }
+}
+
+/// A refused slot form. htmx (the dialog of a slot with orders) gets the messages as an
+/// alert; a plain post gets the page with each message under its field, or on top when
+/// the field is empty.
+async fn slot_refused(
+    state: &AppState,
+    staff: &Staff,
+    session: &Session,
+    headers: &HeaderMap,
+    day: &BakeDay,
+    forms: DayForms,
+    errors: FieldErrors,
+) -> Outcome {
+    if is_htmx(headers) {
+        let texts: Vec<String> = errors.into_iter().map(|(_, text)| text).collect();
+        return Ok(alert_fragment(state, texts.join(" ")));
+    }
+    let mut answer = Answer::plain(false);
+    answer.forms = Some(forms);
+    for (field, text) in errors {
+        if field.is_empty() {
+            answer.problem = text;
+        } else {
+            answer.errors.add(&field, text);
+        }
+    }
+    render_day(state, staff, session, invalid_status(headers), day, answer).await
+}
+
+/// A slot form refused by the bake day rules; errors that are ours fail.
+async fn slot_problem(
+    state: &AppState,
+    staff: &Staff,
+    session: &Session,
+    headers: &HeaderMap,
+    day: &BakeDay,
+    forms: DayForms,
+    error: &bakedays::Error,
+) -> Outcome {
+    let Some(problem) = problem(state, error) else {
+        return Err(bakedays_error(state, error).into());
+    };
+    let key = &forms.edit_slot;
+    let field = match problem.field {
+        "slot_starts" | "slot_ends" => format!("{}_{key}", problem.field),
+        "date" => format!("slot_date_{key}"),
+        _ => String::new(),
+    };
+    let errors = vec![(field, problem.text)];
+    slot_refused(state, staff, session, headers, day, forms, errors).await
+}
+
+/// The slot `raw` of `day`; any other id is not found.
+async fn day_slot(state: &AppState, day: &BakeDay, raw: &str) -> Step<PickupSlot> {
+    let id = PickupSlotId::new(path_id(state, raw)?);
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    days::list_slots(&mut conn, day.id)
+        .await
+        .map_err(|e| fail(state, &e))?
+        .into_iter()
+        .find(|slot| slot.id == id)
+        .ok_or_else(|| not_found(state).into())
+}
+
+/// Adds a pickup slot to the bake day (F1, F4a).
+pub async fn add_slot(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::ManageBakeDays)?;
+        let day = load(&state, &id).await?;
+        let forms = slot_forms(&day, NEW_SLOT, &fields);
+        let location_error = || {
+            (
+                format!("slot_location_{NEW_SLOT}"),
+                t(&state, "day-error-location"),
+            )
+        };
+        let location = forms.slot_location.parse::<i64>().ok();
+        let (location, (starts_at, ends_at)) = match (location, parse_slot(&state, &forms)) {
+            (Some(location), Ok(times)) => (PickupLocationId::new(location), times),
+            (location, parsed) => {
+                let mut errors = parsed.err().unwrap_or_default();
+                if location.is_none() {
+                    errors.push(location_error());
+                }
+                return slot_refused(&state, &staff, &session, &headers, &day, forms, errors).await;
+            }
+        };
+        let input = PickupSlotInput {
+            starts_at,
+            ends_at,
+            max_orders: None,
+        };
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let result = days::add_slot(&mut conn, day.id, location, &input).await;
+        drop(conn);
+        match result {
+            Ok(_) => Ok(saved(&headers, &day_path(day.id))),
+            Err(bakedays::Error::NotFound) => {
+                let errors = vec![location_error()];
+                slot_refused(&state, &staff, &session, &headers, &day, forms, errors).await
+            }
+            Err(error) => {
+                slot_problem(&state, &staff, &session, &headers, &day, forms, &error).await
+            }
+        }
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Changes a pickup slot's date and times (F1, F4a). When they change, every paid or
+/// confirmed order in the slot gets an email with the new ophaalmoment, and its unsent
+/// pickup reminder is withdrawn so the reminder job queues one with the new time.
+pub async fn update_slot(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path((id, slot)): Path<(String, String)>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::ManageBakeDays)?;
+        let day = load(&state, &id).await?;
+        let slot = day_slot(&state, &day, &slot).await?;
+        let forms = slot_forms(&day, &slot.id.get().to_string(), &fields);
+        let (starts_at, ends_at) = match parse_slot(&state, &forms) {
+            Ok(times) => times,
+            Err(errors) => {
+                return slot_refused(&state, &staff, &session, &headers, &day, forms, errors).await;
+            }
+        };
+        let input = PickupSlotInput {
+            starts_at,
+            ends_at,
+            max_orders: slot.max_orders,
+        };
+        let clock = state.clock.as_ref();
+        let mut tx = state.pool.begin().await.map_err(|e| fail(&state, &e))?;
+        let before = match days::update_slot(&mut tx, slot.id, &input).await {
+            Ok(before) => before,
+            Err(error) => {
+                drop(tx);
+                return slot_problem(&state, &staff, &session, &headers, &day, forms, &error).await;
+            }
+        };
+        if (before.starts_at, before.ends_at) != (starts_at, ends_at) {
+            let moved = orders::awaiting_pickup_in_slot(&mut tx, slot.id)
+                .await
+                .map_err(|e| fail(&state, &e))?;
+            for order in moved {
+                queue_email(&state, &mut tx, order, async |conn| {
+                    order_emails::enqueue_pickup_moved(conn, clock, &state.order_emails, order)
+                        .await
+                })
+                .await?;
+                order_emails::withdraw_reminder(&mut tx, order)
+                    .await
+                    .map_err(|e| fail(&state, &e))?;
+            }
+        }
+        tx.commit().await.map_err(|e| fail(&state, &e))?;
+        Ok(saved(&headers, &day_path(day.id)))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Removes a pickup slot without orders (F1, F4a).
+pub async fn remove_slot(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path((id, slot)): Path<(String, String)>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::ManageBakeDays)?;
+        let day = load(&state, &id).await?;
+        let slot = day_slot(&state, &day, &slot).await?;
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let result = days::remove_slot(&mut conn, slot.id).await;
+        drop(conn);
+        match result {
+            Ok(()) => Ok(saved(&headers, &day_path(day.id))),
+            Err(error) => {
+                transition_refused(&state, &staff, &session, &headers, &day, &error).await
+            }
+        }
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
 }
 
 /// Products by id, for the extra production page.

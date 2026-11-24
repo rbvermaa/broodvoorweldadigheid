@@ -115,6 +115,15 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/staff/bake-days/{id}/copy", post(bake_days::copy))
         .route("/staff/bake-days/{id}/repeat", post(bake_days::repeat))
+        .route("/staff/bake-days/{id}/slots", post(bake_days::add_slot))
+        .route(
+            "/staff/bake-days/{id}/slots/{slot}",
+            post(bake_days::update_slot),
+        )
+        .route(
+            "/staff/bake-days/{id}/slots/{slot}/remove",
+            post(bake_days::remove_slot),
+        )
         .route("/staff/bake-days/{id}/open", post(bake_days::open))
         .route("/staff/bake-days/{id}/close", post(bake_days::close))
         .route(

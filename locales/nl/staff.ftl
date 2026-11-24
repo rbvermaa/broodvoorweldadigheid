@@ -155,6 +155,25 @@ day-repeated = { $n ->
 day-final = Deze bakdag is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
 day-slots = Ophaalmomenten
 day-no-slots = Geen ophaalmomenten: deze bakdag is alleen voor productie.
+slot-date = Datum
+slot-add = Ophaalmoment toevoegen
+slot-orders = { $n ->
+    [one] 1 bestelling
+   *[other] { $n } bestellingen
+}
+slot-move = Ophaalmoment verplaatsen
+slot-move-text = { $n ->
+    [one] Er is al 1 bestelling voor dit ophaalmoment.
+   *[other] Er zijn al { $n } bestellingen voor dit ophaalmoment.
+} Laat die klanten weten dat de tijd verandert: ze krijgen een mail met het nieuwe ophaalmoment.
+slot-move-confirm = Verplaatsen en klanten mailen
+slot-remove = Ophaalmoment verwijderen
+# $slot: 11:00–12:00, De Proef
+slot-remove-text = Het ophaalmoment { $slot } verdwijnt van deze bakdag.
+slot-error-order = Het ophaalmoment moet eindigen na het begin.
+# $time: 05:00
+slot-error-before-bake = Het ophaalmoment kan niet beginnen voor het bakken begint, om { $time } op de bakdag.
+slot-error-has-orders = Er zijn bestellingen voor dit ophaalmoment. Verplaats het ophaalmoment of zet de bestellingen eerst over.
 day-schedule = Tijden
 day-menu-publish = Menu tonen vanaf
 day-menu-publish-hint = Leeg laten als het menu nog niet vaststaat.
