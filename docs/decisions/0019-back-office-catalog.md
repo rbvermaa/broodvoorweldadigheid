@@ -29,5 +29,10 @@ Open:
   `update_slot` exist). F1 asks for it.
 - The charity select on a bake day uses the select component's empty "Kies…" option for
   "normal sale"; a labelled option would be clearer.
+- An inline check swaps the field wrapper with the value the request carried. On a slow
+  connection, text typed into that field after leaving it and before the answer arrives
+  is replaced. Swapping only the error text needs a change to the field component.
+- Counter staff see the back-office links but get the 403 page behind them; the nav does
+  not yet follow the role.
 - Repeating weekly reports dropped (archived) charities only on a single copy, not per
   week in the repeat summary.

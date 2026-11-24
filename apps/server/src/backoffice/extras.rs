@@ -478,6 +478,9 @@ pub async fn remove(
                 let Some(problem) = problem(&state, &error) else {
                     return Err(bakedays_error(&state, &error).into());
                 };
+                if is_htmx(&headers) {
+                    return Ok(bake_days::alert_fragment(&state, problem.text));
+                }
                 let answer = Answer::Row {
                     id: extra.id,
                     posted: None,

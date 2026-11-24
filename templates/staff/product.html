@@ -21,9 +21,11 @@
 {% call s::live("vat_rate", check) %}{% call f::select("vat_rate", layout.t("product-vat")?, vat_options, error = errors.get("vat_rate"), required = true) %}{% endcall %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ layout.t("product-pwyw-legend")? }}</legend>
-{% call s::live("pwyw", check) %}{% call f::checkbox("pwyw", layout.t("product-pwyw")?, checked = form.pwyw) %}{% endcall %}{% endcall %}
-{% call s::live("min_price", check) %}{% call f::field("money", "min_price", layout.t("product-min-price")?, value = form.min_price, hint = layout.t("product-pwyw-hint")?, error = errors.get("min_price")) %}{% endcall %}{% endcall %}
-{% call s::live("max_price", check) %}{% call f::field("money", "max_price", layout.t("product-max-price")?, value = form.max_price, error = errors.get("max_price")) %}{% endcall %}{% endcall %}
+{% call s::live("pwyw", check) %}
+{% call f::checkbox("pwyw", layout.t("product-pwyw")?, checked = form.pwyw) %}{% endcall %}
+{% call f::field("money", "min_price", layout.t("product-min-price")?, value = form.min_price, hint = layout.t("product-pwyw-hint")?, error = errors.get("min_price")) %}{% endcall %}
+{% call f::field("money", "max_price", layout.t("product-max-price")?, value = form.max_price, error = errors.get("max_price")) %}{% endcall %}
+{% endcall %}
 </fieldset>
 {% call s::live("unit_weight", check) %}{% call f::field("number", "unit_weight", layout.t("product-unit-weight")?, value = form.unit_weight, error = errors.get("unit_weight"), required = true) %}{% endcall %}{% endcall %}
 {% call s::live("lead_time", check) %}{% call f::field("number", "lead_time", layout.t("product-lead-time")?, value = form.lead_time, hint = layout.t("product-lead-time-hint")?, error = errors.get("lead_time")) %}{% endcall %}{% endcall %}

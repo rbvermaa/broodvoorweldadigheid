@@ -205,6 +205,7 @@ pub async fn list(
                 .iter()
                 .filter_map(|s| location_names.get(&s.location_id).map(String::as_str))
                 .collect();
+            places.sort_unstable();
             places.dedup();
             rows.push(vec![
                 Cell::link(state.i18n.long_date(day.date), day_path(day.id)),
@@ -1140,6 +1141,18 @@ struct AlertFragment<'a> {
 
 /// A refused action from a confirmation dialog: htmx gets the alert in the dialog's
 /// result region, a plain post gets the page with the alert.
+/// The alert alone, for a confirmation dialog's result region.
+pub fn alert_fragment(state: &AppState, text: String) -> Response {
+    pages::render(
+        state,
+        StatusCode::OK,
+        &AlertFragment {
+            layout: Layout::new(state),
+            text,
+        },
+    )
+}
+
 async fn transition_refused(
     state: &AppState,
     session: &Session,
@@ -1151,14 +1164,7 @@ async fn transition_refused(
         return Err(bakedays_error(state, error).into());
     };
     if is_htmx(headers) {
-        return Ok(pages::render(
-            state,
-            StatusCode::OK,
-            &AlertFragment {
-                layout: Layout::new(state),
-                text: problem.text,
-            },
-        ));
+        return Ok(alert_fragment(state, problem.text));
     }
     let answer = Answer::refused(
         None,

@@ -1276,3 +1276,108 @@ async fn unknown_ids_get_the_dutch_404(pool: PgPool) {
         reply.shows(&dutch("error-not-found-title"));
     }
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn counter_cannot_change_anything(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let bread_id = bread.get().to_string();
+    for (url, fields) in [
+        (
+            "/staff/locations/new".to_owned(),
+            vec![("name", "X"), ("address", "Y")],
+        ),
+        (
+            format!("{path}/range"),
+            vec![("product_id", bread_id.as_str()), ("units", "1")],
+        ),
+        (
+            format!("{path}/pools"),
+            vec![("pool_name", "Oven"), ("pool_max", "4")],
+        ),
+        (format!("{path}/open"), vec![]),
+        (format!("{path}/close"), vec![]),
+        (format!("{path}/copy"), vec![("copy_date", "2026-12-12")]),
+        (
+            format!("{path}/extras"),
+            vec![
+                ("product_id", bread_id.as_str()),
+                ("qty", "1"),
+                ("purpose", "other"),
+            ],
+        ),
+    ] {
+        let reply = counter.post(&url, &fields).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{url}");
+    }
+    let mut conn = pool.acquire().await.expect("conn");
+    assert!(
+        range::list_products(&mut conn, day)
+            .await
+            .expect("range")
+            .is_empty()
+    );
+    assert!(
+        extras::list(&mut conn, day)
+            .await
+            .expect("extras")
+            .is_empty()
+    );
+    assert_eq!(
+        days::get(&mut conn, day).await.expect("day").status,
+        BakeDayStatus::Draft
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_extra_of_another_day_is_not_found_and_a_refused_removal_shows_an_alert(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let other = days::copy_to(&mut conn, day, date(2026, 12, 12))
+        .await
+        .expect("copy")
+        .day;
+    let extra = extras::add(
+        &mut conn,
+        day,
+        bread,
+        &ExtraInput {
+            qty: 2,
+            purpose: Purpose::Freezer,
+            note: None,
+        },
+        &bakedays::NoOrders,
+    )
+    .await
+    .expect("extra");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let n = extra.id.get();
+    let foreign = baker
+        .post(
+            &format!("/staff/bake-days/{}/extras/{n}/remove", other.id.get()),
+            &[],
+        )
+        .await;
+    assert_eq!(foreign.status, StatusCode::NOT_FOUND);
+
+    let mut conn = pool.acquire().await.expect("conn");
+    days::cancel(&mut conn, app.clock.as_ref(), day, "Ziek")
+        .await
+        .expect("cancel");
+    drop(conn);
+    let refused = baker
+        .htmx(
+            &format!("/staff/bake-days/{}/extras/{n}/remove", day.get()),
+            &[],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::OK);
+    refused.shows(&dutch("day-error-final"));
+    refused.lacks("<html");
+}

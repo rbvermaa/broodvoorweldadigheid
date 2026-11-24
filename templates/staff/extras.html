@@ -15,7 +15,8 @@
 {% if !capacity.rows.is_empty() %}{% call tb::table(capacity) %}{% endcall %}{% endif %}
 </div>
 {%- for row in rows %}
-<form id="{{ row.anchor }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-target="this" hx-select="#{{ row.anchor }}" hx-select-oob="#capacity" hx-swap="outerHTML">
+<div id="{{ row.anchor }}">
+<form method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-target="#{{ row.anchor }}" hx-select="#{{ row.anchor }}" hx-select-oob="#capacity" hx-swap="outerHTML">
 <h2>{{ row.heading }}</h2>
 {% call s::csrf() %}{% endcall %}
 <div role="status">{% if row.saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !row.error.is_empty() %}{% call fb::alert("error", row.error) %}{% endcall %}{% endif %}</div>
@@ -28,6 +29,7 @@
 {% endif %}
 </form>
 {% if editable %}{% call d::confirm_dialog(row.dialog, layout.t("extra-remove")?, row.remove_text, layout.t("extra-remove-confirm")?, row.remove_action) %}{% endcall %}{% endif %}
+</div>
 {%- endfor %}
 {% if editable %}
 <h2>{{ layout.t("extras-add-title")? }}</h2>

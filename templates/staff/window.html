@@ -11,8 +11,10 @@
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
 {% call f::select("weekday", layout.t("window-weekday")?, weekdays, error = errors.get("weekday"), required = true) %}{% endcall %}
-{% call s::live("starts", check) %}{% call f::field("time", "starts", layout.t("window-starts")?, value = form.starts, error = errors.get("starts"), required = true) %}{% endcall %}{% endcall %}
-{% call s::live("ends", check) %}{% call f::field("time", "ends", layout.t("window-ends")?, value = form.ends, error = errors.get("ends"), required = true) %}{% endcall %}{% endcall %}
+{% call s::live("times", check) %}
+{% call f::field("time", "starts", layout.t("window-starts")?, value = form.starts, error = errors.get("starts"), required = true) %}{% endcall %}
+{% call f::field("time", "ends", layout.t("window-ends")?, value = form.ends, error = errors.get("ends"), required = true) %}{% endcall %}
+{% endcall %}
 {% call s::live("days_before", check) %}{% call f::field("number", "days_before", layout.t("window-days-before")?, value = form.days_before, hint = layout.t("window-days-before-hint")?, error = errors.get("days_before"), required = true) %}{% endcall %}{% endcall %}
 {% call s::live("deadline_time", check) %}{% call f::field("time", "deadline_time", layout.t("window-deadline-time")?, value = form.deadline_time, error = errors.get("deadline_time"), required = true) %}{% endcall %}{% endcall %}
 {% call f::checkbox("active", layout.t("product-active")?, checked = form.active) %}{% endcall %}

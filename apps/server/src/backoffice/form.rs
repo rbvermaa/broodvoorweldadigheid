@@ -82,12 +82,12 @@ pub fn parse_money(input: &str) -> Option<i64> {
         .filter(|c| !c.is_whitespace())
         .collect();
     let (whole, fraction) = match cleaned.rsplit_once(',') {
-        Some((whole, fraction)) => (whole.replace('.', ""), fraction.to_owned()),
+        Some((whole, fraction)) => (thousands(whole)?, fraction.to_owned()),
         None => match cleaned.rsplit_once('.') {
             Some((whole, fraction)) if fraction.len() <= 2 && !whole.contains('.') => {
                 (whole.to_owned(), fraction.to_owned())
             }
-            _ => (cleaned.replace('.', ""), String::new()),
+            _ => (thousands(&cleaned)?, String::new()),
         },
     };
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
@@ -97,6 +97,20 @@ pub fn parse_money(input: &str) -> Option<i64> {
     let euros: i64 = whole.parse().ok()?;
     let cents: i64 = format!("{fraction:0<2}").parse().ok()?;
     euros.checked_mul(100)?.checked_add(cents)
+}
+
+/// `1.234.567` without its dots; `None` unless every group after a dot has 3 digits.
+fn thousands(whole: &str) -> Option<String> {
+    let mut groups = whole.split('.');
+    let first = groups.next()?;
+    let mut out = first.to_owned();
+    for group in groups {
+        if group.len() != 3 || first.is_empty() {
+            return None;
+        }
+        out.push_str(group);
+    }
+    Some(out)
 }
 
 /// The value a money field shows: `6,50`.
@@ -153,7 +167,10 @@ mod tests {
         ] {
             assert_eq!(parse_money(input), Some(cents), "{input}");
         }
-        for input in ["", "-1", "6,505", "zes", "6,5x", ",50", "1,2,3"] {
+        for input in [
+            "", "-1", "6,505", "zes", "6,5x", ",50", "1,2,3", "1.2.3", "1.234.5", "6.5000",
+            "6.5.0", "12.34,50", ".500",
+        ] {
             assert_eq!(parse_money(input), None, "{input}");
         }
         assert_eq!(parse_money(&money_value(123_456)), Some(123_456));
