@@ -15,18 +15,6 @@ macro_rules! id_type {
                 self.0
             }
         }
-
-        impl From<i64> for $name {
-            fn from(id: i64) -> Self {
-                Self(id)
-            }
-        }
-
-        impl From<$name> for i64 {
-            fn from(id: $name) -> Self {
-                id.0
-            }
-        }
     )+};
 }
 
@@ -55,8 +43,6 @@ mod tests {
     fn ids_wrap_an_i64() {
         let id = ProductId::new(42);
         assert_eq!(id.get(), 42);
-        assert_eq!(id, ProductId::from(42));
-        assert_eq!(i64::from(id), 42);
         assert!(OrderId::new(1) < OrderId::new(2));
     }
 }

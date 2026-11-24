@@ -46,6 +46,7 @@
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
               ./.sqlx
+              (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
             ];
           };
           commonArgs = {
@@ -123,6 +124,7 @@
               inherit cargoArtifacts;
               cargoNextestExtraArgs = "--workspace --all-features --no-tests=pass";
               doInstallCargoArtifacts = false;
+              TZDIR = "${pkgs.tzdata}/share/zoneinfo";
               nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
               preCheck = postgres.start;
               postCheck = postgres.stop;
@@ -174,6 +176,7 @@
             // {
               inherit cargoArtifacts;
               cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
+              TZDIR = "${pkgs.tzdata}/share/zoneinfo";
               nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
               preBuild = postgres.start;
               postBuild = postgres.stop;

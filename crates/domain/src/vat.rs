@@ -7,6 +7,22 @@ pub enum VatRate {
     TwentyOne,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("unknown BTW rate: {0}%")]
+pub struct UnknownVatRate(pub i16);
+
+impl TryFrom<i16> for VatRate {
+    type Error = UnknownVatRate;
+
+    fn try_from(percent: i16) -> Result<Self, Self::Error> {
+        match percent {
+            9 => Ok(Self::Nine),
+            21 => Ok(Self::TwentyOne),
+            other => Err(UnknownVatRate(other)),
+        }
+    }
+}
+
 impl VatRate {
     pub const ALL: [Self; 2] = [Self::Nine, Self::TwentyOne];
 
@@ -20,19 +36,15 @@ impl VatRate {
 
     /// The BTW contained in an amount that includes BTW:
     /// `gross * rate / (100 + rate)`, rounded half-up to whole cents.
-    ///
-    /// Negative amounts round the same way on their absolute value, so a refund
-    /// carries exactly the BTW of the sale it reverses. A tie can never occur:
-    /// `100 + rate` is odd (109, 121), so the exact result is never `n + 0.5`.
+    /// `vat_part(-x) == -vat_part(x)`. Ties cannot occur: `100 + rate` is odd.
     #[must_use]
     pub fn vat_part(self, gross: Money) -> Money {
-        let rate = i128::from(self.percent());
+        let rate = self.percent();
         let divisor = 100 + rate;
-        let numerator = i128::from(gross.cents()).abs() * rate;
-        let rounded = (2 * numerator + divisor) / (2 * divisor);
-        let signed = if gross.cents() < 0 { -rounded } else { rounded };
-        // |vat| <= |gross|, so it fits back into an i64.
-        Money::from_cents(i64::try_from(signed).unwrap_or_default())
+        let cents = gross.cents();
+        let remainder = (cents % divisor) * rate;
+        let rounded = (2 * remainder.abs() + divisor) / (2 * divisor);
+        Money::from_cents((cents / divisor) * rate + remainder.signum() * rounded)
     }
 
     /// The amount excluding BTW: `gross - vat_part(gross)`.
@@ -113,6 +125,14 @@ mod tests {
         );
     }
 
+    #[test]
+    fn from_stored_percentage() {
+        assert_eq!(VatRate::try_from(9_i16), Ok(VatRate::Nine));
+        assert_eq!(VatRate::try_from(21_i16), Ok(VatRate::TwentyOne));
+        assert_eq!(VatRate::try_from(6_i16), Err(UnknownVatRate(6)));
+        assert_eq!(UnknownVatRate(6).to_string(), "unknown BTW rate: 6%");
+    }
+
     fn rate() -> impl Strategy<Value = VatRate> {
         prop_oneof![Just(VatRate::Nine), Just(VatRate::TwentyOne)]
     }
@@ -123,6 +143,14 @@ mod tests {
             let gross = Money::from_cents(gross);
             let sum = rate.vat_part(gross).checked_add(rate.net_part(gross));
             prop_assert_eq!(sum, Ok(gross));
+        }
+
+        #[test]
+        fn vat_part_is_symmetric(rate in rate(), gross in (i64::MIN + 1)..=i64::MAX) {
+            prop_assert_eq!(
+                rate.vat_part(Money::from_cents(-gross)).cents(),
+                -rate.vat_part(Money::from_cents(gross)).cents()
+            );
         }
 
         #[test]

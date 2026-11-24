@@ -1,4 +1,4 @@
-/// An amount in euro cents. Negative amounts are allowed for refunds and corrections.
+/// An amount in euro cents; negative for refunds and corrections.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Money(i64);
 
@@ -37,6 +37,12 @@ impl Money {
             .checked_sub(other.0)
             .map(Self)
             .ok_or(MoneyError::Overflow)
+    }
+
+    /// # Errors
+    /// [`MoneyError::Overflow`] for `i64::MIN` cents.
+    pub fn checked_neg(self) -> Result<Self, MoneyError> {
+        self.0.checked_neg().map(Self).ok_or(MoneyError::Overflow)
     }
 
     /// # Errors
@@ -90,6 +96,18 @@ mod tests {
             Err(MoneyError::Overflow)
         );
         assert_eq!(max.checked_mul(2), Err(MoneyError::Overflow));
+    }
+
+    #[test]
+    fn negation() {
+        assert_eq!(
+            Money::from_cents(450).checked_neg(),
+            Ok(Money::from_cents(-450))
+        );
+        assert_eq!(
+            Money::from_cents(i64::MIN).checked_neg(),
+            Err(MoneyError::Overflow)
+        );
     }
 
     #[test]
