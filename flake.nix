@@ -48,6 +48,7 @@
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
           htmx = pkgs.callPackage ./nix/htmx.nix { };
+          axe = pkgs.callPackage ./nix/axe-core.nix { };
           fonts = pkgs.callPackage ./nix/fonts.nix { };
           lucide = pkgs.callPackage ./nix/lucide.nix { };
           assetEnv = {
@@ -93,6 +94,16 @@
               meta.mainProgram = "cli";
             }
           );
+          e2e = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "e2e";
+              cargoExtraArgs = "--locked --package e2e";
+              doCheck = false;
+              meta.mainProgram = "e2e";
+            }
+          );
         in
         {
           inherit
@@ -106,8 +117,34 @@
             postgres
             assetEnv
             cli
+            e2e
+            axe
             ;
         };
+
+      # KVM runners are x86_64-linux (ADR 0031).
+      e2eVm =
+        {
+          pkgs,
+          postgresql,
+          cli,
+          e2e,
+          axe,
+          ...
+        }:
+        pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") (
+          import ./nix/e2e-vm.nix {
+            inherit
+              nixpkgs
+              pkgs
+              cli
+              e2e
+              axe
+              postgresql
+              ;
+            inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) server;
+          }
+        );
 
       images =
         { pkgs, postgresql, ... }:
@@ -131,6 +168,7 @@
           ...
         }@ctx:
         (images ctx).checks or { }
+        // pkgs.lib.optionalAttrs (e2eVm ctx ? check) { e2e = (e2eVm ctx).check; }
         // {
           fmt = craneLib.cargoFmt { inherit (commonArgs) src pname version; };
 
@@ -276,6 +314,7 @@
           ...
         }@ctx:
         (images ctx).packages or { }
+        // pkgs.lib.optionalAttrs (e2eVm ctx ? toplevel) { e2e-vm-system = (e2eVm ctx).toplevel; }
         // rec {
           server = craneLib.buildPackage (
             commonArgs
@@ -301,17 +340,20 @@
           pkgs,
           craneLib,
           assetEnv,
+          axe,
           ...
         }:
         {
           default = craneLib.devShell (
             assetEnv
             // {
-              # Only the cargo checks: the image and restore checks would build the
+              AXE_JS = "${axe}/axe.min.js";
+              # Only the cargo checks: the image, restore and e2e checks would build the
               # workspace, so a stale .sqlx/ would keep the shell from starting.
               checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
                 "restore"
                 "image-contents"
+                "e2e"
               ];
               SQLX_OFFLINE = "true";
               packages = with pkgs; [
