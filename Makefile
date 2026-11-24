@@ -66,12 +66,13 @@ export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke
+.PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid deny audit coverage-report coverage server db-up \
+	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
+	images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
-	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
-	@echo "  image-NAME     Build one image and docker load it; NAME is one of: $(IMAGES)"
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+	@echo "  image-NAME       Build one image and docker load it; NAME is one of: $(IMAGES)"
 	@echo
 	@echo "Variables:"
 	@echo "  ARCH=$(ARCH)  system the images are built for"
@@ -93,6 +94,9 @@ fmt-check: ## Formatting check only
 lint: ## Clippy check only
 	$(call CHECK,clippy)
 
+nextest: ## Test suite check only (nextest in the Nix sandbox)
+	$(call CHECK,nextest)
+
 layers: ## Crate layer and dependency rules check
 	$(call CHECK,layers)
 
@@ -104,6 +108,9 @@ deny: ## Licence, ban and source checks (cargo-deny)
 
 audit: ## Known-vulnerability check (cargo-audit)
 	$(call CHECK,audit)
+
+coverage-report: ## Coverage report only (cargo llvm-cov)
+	$(call CHECK,coverage-report)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
@@ -150,6 +157,12 @@ logo: ## Remake the logo PNGs in design/ from docs/media/image1.png
 	$(LOGO_TOOLS) oxipng --opt max --strip all design/logo.png design/favicon.png design/apple-touch-icon.png
 
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
+
+ci-deps: ## Build the dependency artifacts and toolchain every check shares (CI deps job)
+	nix build --no-link --print-build-logs .\#packages.$(HOST_SYSTEM).ci-deps
+
+image-contents: ## Image contents check only, for ARCH on the Linux builder
+	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.$(ARCH).image-contents
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
