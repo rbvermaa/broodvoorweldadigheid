@@ -10,6 +10,8 @@ use tower_sessions_sqlx_store::PostgresStore;
 use crate::config::Config;
 
 pub const COOKIE_NAME: &str = "bvw_session";
+/// With `always_save` every request through the layer moves the expiry forward, so this is
+/// an idle timeout, not a lifetime.
 const IDLE_DAYS: i64 = 14;
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
@@ -29,6 +31,7 @@ pub fn layer(pool: PgPool, config: &Config) -> SessionManagerLayer<PostgresStore
         .with_secure(config.cookie_secure)
         .with_path("/")
         .with_expiry(Expiry::OnInactivity(CookieDuration::days(IDLE_DAYS)))
+        .with_always_save(true)
 }
 
 /// Keeps going when the database is down; the next tick tries again.

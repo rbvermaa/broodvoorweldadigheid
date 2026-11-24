@@ -33,21 +33,23 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
-    let routes = Router::new()
-        .route("/", get(pages::home))
-        .route("/health", get(health));
-    with_shell(routes, state)
+    with_shell(Router::new().route("/", get(pages::home)), state)
 }
 
-/// Wraps `routes` with what every page needs: static assets, the Dutch 404 page, CSRF
-/// checks, sessions and security headers.
+/// Wraps `routes` with what every page needs: the Dutch 404 and 405 pages, CSRF checks,
+/// sessions and security headers, and adds `/health` and the static assets. Those two
+/// stay outside the session layer, which saves the session on every request it sees.
 pub fn with_shell(routes: Router<AppState>, state: AppState) -> Router {
     let sessions = session::layer(state.pool.clone(), &state.config);
-    routes
-        .route("/static/{name}", get(assets::serve))
+    let sessioned = routes
         .fallback(pages::not_found)
+        .method_not_allowed_fallback(pages::method_not_allowed)
         .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
-        .layer(sessions)
+        .layer(sessions);
+    Router::new()
+        .route("/health", get(health))
+        .route("/static/{name}", get(assets::serve))
+        .merge(sessioned)
         .layer(middleware::map_response(security::headers))
         .with_state(state)
 }

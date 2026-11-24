@@ -40,6 +40,11 @@ a {
   outline-offset: var(--space-1);
 }
 
+.site-header :focus-visible,
+.site-footer :focus-visible {
+  outline-color: var(--color-white);
+}
+
 .skip-link {
   position: absolute;
   left: var(--space-2);

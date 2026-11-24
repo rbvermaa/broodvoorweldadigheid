@@ -1,4 +1,4 @@
-# htmx (0BSD) at a pinned release. apps/server/build.rs embeds it into the server binary,
+# htmx (0BSD) at a pinned release. apps/server/src/assets.rs embeds it into the server binary,
 # so nothing third-party is served from a CDN and no minified JS lives in the repository.
 { fetchurl }:
 fetchurl {

@@ -71,6 +71,7 @@ fn every_text_in_templates_and_error_pages_exists_in_fluent() {
     for status in [
         StatusCode::FORBIDDEN,
         StatusCode::NOT_FOUND,
+        StatusCode::METHOD_NOT_ALLOWED,
         StatusCode::TOO_MANY_REQUESTS,
         StatusCode::INTERNAL_SERVER_ERROR,
     ] {

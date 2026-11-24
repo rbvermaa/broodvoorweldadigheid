@@ -81,6 +81,7 @@ pub fn error_messages(status: StatusCode) -> (&'static str, &'static str) {
     match status {
         StatusCode::FORBIDDEN => ("error-forbidden-title", "error-forbidden-text"),
         StatusCode::NOT_FOUND => ("error-not-found-title", "error-not-found-text"),
+        StatusCode::METHOD_NOT_ALLOWED => ("error-method-title", "error-method-text"),
         StatusCode::TOO_MANY_REQUESTS => ("error-too-many-title", "error-too-many-text"),
         _ => ("error-server-title", "error-server-text"),
     }
@@ -124,6 +125,12 @@ pub async fn home(axum::extract::State(state): axum::extract::State<AppState>) -
 
 pub async fn not_found(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
     error(&state, StatusCode::NOT_FOUND)
+}
+
+pub async fn method_not_allowed(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Response {
+    error(&state, StatusCode::METHOD_NOT_ALLOWED)
 }
 
 #[cfg(test)]

@@ -1,10 +1,9 @@
 use std::sync::LazyLock;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::pages;
@@ -63,17 +62,12 @@ pub fn find(name: &str) -> Option<&'static Asset> {
     ASSETS.iter().find(|asset| asset.name == name)
 }
 
-#[derive(Deserialize)]
-pub struct Version {
-    v: Option<String>,
-}
-
 /// A request whose `v` matches the content hash may be cached for good: a new deploy
 /// changes the hash and so the URL. Any other request must revalidate with the ETag.
 pub async fn serve(
     State(state): State<AppState>,
     Path(name): Path<String>,
-    Query(version): Query<Version>,
+    RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
     let Some(asset) = find(&name) else {
@@ -81,11 +75,12 @@ pub async fn serve(
     };
     let etag = HeaderValue::from_str(&format!("\"{}\"", asset.hash))
         .expect("a hex ETag is a valid header value");
-    let cache = if version.v.as_deref() == Some(asset.hash.as_str()) {
-        IMMUTABLE
-    } else {
-        REVALIDATE
-    };
+    let versioned = query.as_deref().is_some_and(|query| {
+        query
+            .split('&')
+            .any(|pair| pair == format!("v={}", asset.hash))
+    });
+    let cache = if versioned { IMMUTABLE } else { REVALIDATE };
     let common = [
         (ETAG, etag),
         (CACHE_CONTROL, HeaderValue::from_static(cache)),

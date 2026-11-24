@@ -455,3 +455,87 @@ async fn rate_limit_trusts_forwarded_for_only_from_the_proxy() {
         "a spoofed first entry does not reset the quota"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn using_a_session_moves_its_expiry_forward(pool: PgPool) {
+    let app = form_app(state(pool.clone()));
+    let (cookie, token) = new_session(&app).await;
+    sqlx::query("UPDATE http_session SET expiry_date = now() + interval '1 day'")
+        .execute(&pool)
+        .await
+        .expect("age the session");
+
+    let reply = send(&app, htmx_post(Some(&cookie), Some(&token))).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    let refreshed = header(&reply, SET_COOKIE);
+    assert!(
+        refreshed.starts_with(&cookie),
+        "same session, new cookie: {refreshed}"
+    );
+    let days_left: f64 = sqlx::query_scalar(
+        "SELECT extract(epoch FROM expiry_date - now())::float8 / 86400 FROM http_session",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("expiry");
+    assert!(days_left > 13.0, "{days_left}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn health_and_assets_never_touch_the_session(pool: PgPool) {
+    let app = form_app(state(pool.clone()));
+    let (cookie, _) = new_session(&app).await;
+    for path in ["/health", "/static/app.css"] {
+        let reply = send(
+            &app,
+            Request::get(path)
+                .header(COOKIE, &cookie)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(reply.status, StatusCode::OK, "{path}");
+        assert!(reply.headers.get(SET_COOKIE).is_none(), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn wrong_method_and_odd_queries_get_dutch_pages_or_work() {
+    let app = server::router(state(unused_pool()));
+    let reply = send(
+        &app,
+        Request::delete("/").body(Body::empty()).expect("request"),
+    )
+    .await;
+    // CSRF runs first: without a session even a DELETE is refused before routing.
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+
+    let asset = &assets::ASSETS[1];
+    let reply = get_path(&app, &format!("{}&v=other&v=", asset.url())).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert_eq!(header(&reply, CACHE_CONTROL), assets::IMMUTABLE);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn wrong_method_gets_the_dutch_405_page(pool: PgPool) {
+    let routes = Router::new()
+        .route("/form", get(issue_token))
+        .route("/alleen-lezen", get(|| async { "ok" }));
+    let app = server::with_shell(routes, state(pool));
+    let (cookie, token) = new_session(&app).await;
+    let reply = send(
+        &app,
+        Request::post("/alleen-lezen")
+            .header(COOKIE, &cookie)
+            .header(csrf::HEADER, &token)
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(
+        reply.body.contains(&dutch("error-method-title")),
+        "{}",
+        reply.body
+    );
+}

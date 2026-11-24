@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -28,8 +28,8 @@ impl ClientIp {
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
-            .map(|ConnectInfo(addr)| addr.ip())?;
-        if Some(peer) != self.trusted_proxy {
+            .map(|ConnectInfo(addr)| addr.ip().to_canonical())?;
+        if Some(peer) != self.trusted_proxy.map(|proxy| proxy.to_canonical()) {
             return Some(peer);
         }
         let forwarded = request
@@ -39,8 +39,17 @@ impl ClientIp {
             .filter_map(|value| value.to_str().ok())
             .flat_map(|value| value.split(','))
             .last()
-            .and_then(|entry| entry.trim().parse().ok());
+            .and_then(|entry| entry.trim().parse::<IpAddr>().ok())
+            .map(|ip| ip.to_canonical());
         Some(forwarded.unwrap_or(peer))
+    }
+}
+
+/// One IPv6 client usually holds a whole /64, so it shares one quota.
+fn quota_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from_bits(v6.to_bits() & !u128::from(u64::MAX))),
     }
 }
 
@@ -49,6 +58,7 @@ impl KeyExtractor for ClientIp {
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
         self.client(request)
+            .map(quota_key)
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
@@ -175,6 +185,40 @@ mod tests {
         assert_eq!(
             extractor.client(&request("10.89.0.10", &["1.2.3.4, garbage"])),
             Some(ip("10.89.0.10"))
+        );
+    }
+
+    #[test]
+    fn ipv6_clients_share_a_quota_per_64_and_mapped_ipv4_is_plain_ipv4() {
+        let extractor = ClientIp {
+            trusted_proxy: Some(ip("10.89.0.10")),
+        };
+        let mut request = Request::get("/").body(()).expect("request");
+        request.extensions_mut().insert(ConnectInfo(
+            "[2001:db8:1:2:aaaa::1]:4000"
+                .parse::<SocketAddr>()
+                .expect("addr"),
+        ));
+        assert_eq!(
+            extractor.extract(&request).expect("key"),
+            ip("2001:db8:1:2::")
+        );
+        assert_eq!(quota_key(ip("2001:db8:1:2:ffff::9")), ip("2001:db8:1:2::"));
+        assert_ne!(quota_key(ip("2001:db8:1:3::1")), ip("2001:db8:1:2::"));
+        assert_eq!(quota_key(ip("192.0.2.7")), ip("192.0.2.7"));
+
+        let mut via_mapped_proxy = Request::get("/")
+            .header("x-forwarded-for", "::ffff:198.51.100.4")
+            .body(())
+            .expect("request");
+        via_mapped_proxy.extensions_mut().insert(ConnectInfo(
+            "[::ffff:10.89.0.10]:4000"
+                .parse::<SocketAddr>()
+                .expect("addr"),
+        ));
+        assert_eq!(
+            extractor.client(&via_mapped_proxy),
+            Some(ip("198.51.100.4"))
         );
     }
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{% endblock %} · {{ layout.t("app-name")? }}</title>
-<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}'>
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
 {% if let Some(token) = layout.csrf_token() %}<meta name="csrf-token" content="{{ token }}">
 {% endif %}<link rel="stylesheet" href="{{ layout.asset("tokens.css") }}">
 <link rel="stylesheet" href="{{ layout.asset("app.css") }}">

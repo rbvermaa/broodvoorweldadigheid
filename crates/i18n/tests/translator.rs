@@ -66,6 +66,8 @@ fn message_ids_lists_every_message_sorted() {
             "error-back-home",
             "error-forbidden-text",
             "error-forbidden-title",
+            "error-method-text",
+            "error-method-title",
             "error-not-found-text",
             "error-not-found-title",
             "error-server-text",
