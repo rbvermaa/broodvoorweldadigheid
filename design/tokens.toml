@@ -74,6 +74,18 @@ md = "0.5rem"
 lg = "1rem"
 full = "9999px"
 
+[border]
+thin = "1px"
+thick = "2px"
+
+# Fixed sizes: icons, touch targets (WCAG 2.2 target size) and the reading width.
+[size]
+icon = "1.25rem"
+icon-lg = "2.5rem"
+target = "2.75rem"
+tile = "16rem"
+content = "48rem"
+
 [shadow]
 sm = "0 1px 2px rgb(0 0 0 / 0.08)"
 md = "0 4px 12px rgb(0 0 0 / 0.12)"
@@ -86,6 +98,10 @@ sm = "36rem"
 md = "48rem"
 lg = "64rem"
 xl = "80rem"
+
+[[pair]]
+foreground = "grey-600"
+background = "grey-200"
 
 [[pair]]
 foreground = "text"
@@ -182,3 +198,7 @@ background = "error-surface"
 [[pair]]
 foreground = "text"
 background = "info-surface"
+
+[[pair]]
+foreground = "white"
+background = "error"

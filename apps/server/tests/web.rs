@@ -60,6 +60,8 @@ fn dutch(id: &str) -> String {
 struct Reply {
     status: StatusCode,
     headers: HeaderMap,
+    bytes: Vec<u8>,
+    /// `bytes` as text; fonts are not UTF-8.
     body: String,
 }
 
@@ -73,7 +75,8 @@ async fn send(app: &Router, request: Request<Body>) -> Reply {
     Reply {
         status,
         headers,
-        body: String::from_utf8(bytes.to_vec()).expect("utf-8 body"),
+        body: String::from_utf8_lossy(&bytes).into_owned(),
+        bytes: bytes.to_vec(),
     }
 }
 
@@ -118,12 +121,9 @@ async fn home_renders_dutch_text_through_the_layout(pool: PgPool) {
         );
     }
     assert!(reply.body.contains("name=\"viewport\""));
-    for asset in assets::ASSETS.iter() {
-        assert!(
-            reply.body.contains(&asset.url()),
-            "{} not linked",
-            asset.name
-        );
+    for name in assets::LINKED {
+        let asset = assets::find(name).expect(name);
+        assert!(reply.body.contains(&asset.url()), "{name} not linked");
     }
     let cookie = header(&reply, SET_COOKIE);
     assert!(
@@ -151,7 +151,7 @@ async fn static_assets_have_type_etag_and_cache_headers() {
         assert_eq!(header(&versioned, CONTENT_TYPE), asset.content_type);
         assert_eq!(header(&versioned, CACHE_CONTROL), assets::IMMUTABLE);
         assert_eq!(header(&versioned, ETAG), format!("\"{}\"", asset.hash));
-        assert_eq!(versioned.body, asset.body);
+        assert_eq!(versioned.bytes, asset.body.as_ref());
 
         let bare = get_path(&app, &format!("/static/{}", asset.name)).await;
         assert_eq!(bare.status, StatusCode::OK);
@@ -543,4 +543,86 @@ async fn wrong_method_gets_the_dutch_405_page(pool: PgPool) {
         "{}",
         reply.body
     );
+}
+
+#[tokio::test]
+async fn fonts_are_served_from_static_fonts() {
+    let app = server::router(state(unused_pool()));
+    for name in ["fonts/oswald.woff2", "fonts/inter.woff2"] {
+        let asset = assets::find(name).expect(name);
+        let reply = get_path(&app, &asset.url()).await;
+        assert_eq!(reply.status, StatusCode::OK, "{name}");
+        assert_eq!(header(&reply, CONTENT_TYPE), "font/woff2");
+        assert!(reply.bytes.starts_with(b"wOF2"), "{name}");
+    }
+    let css = get_path(&app, &assets::find("fonts.css").expect("fonts.css").url()).await;
+    assert!(
+        css.body.contains("/static/fonts/inter.woff2?v="),
+        "{}",
+        css.body
+    );
+    let reply = get_path(&app, "/static/fonts/nope.woff2").await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn gallery_is_off_unless_turned_on() {
+    let app = server::router(state(unused_pool()));
+    let reply = get_path(&app, "/gallery").await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn gallery_renders_and_its_dialog_posts_back_opgeslagen(pool: PgPool) {
+    let app = server::router(state_with(pool, &[("GALLERY", "true")]));
+    let reply = get_path(&app, "/gallery").await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert!(reply.body.contains(&dutch("gallery-long-word")));
+    let cookie = header(&reply, SET_COOKIE)
+        .split(';')
+        .next()
+        .expect("cookie pair")
+        .to_string();
+    let token = reply
+        .body
+        .split("<meta name=\"csrf-token\" content=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("csrf meta")
+        .to_string();
+    assert!(
+        reply
+            .body
+            .contains(&format!("name=\"_csrf\" value=\"{token}\"")),
+        "dialog form carries the token"
+    );
+    let saved = send(
+        &app,
+        Request::post("/gallery")
+            .header(COOKIE, &cookie)
+            .header(csrf::HEADER, &token)
+            .header("HX-Request", "true")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(saved.status, StatusCode::OK);
+    assert!(saved.body.contains(&dutch("saved")), "{}", saved.body);
+    assert!(saved.body.contains("class=\"saved\""), "{}", saved.body);
+
+    let plain = send(
+        &app,
+        Request::post("/gallery")
+            .header(COOKIE, &cookie)
+            .header(csrf::HEADER, &token)
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(
+        plain.status,
+        StatusCode::SEE_OTHER,
+        "no htmx: back to the page"
+    );
+    assert_eq!(header(&plain, axum::http::header::LOCATION), "/gallery");
 }

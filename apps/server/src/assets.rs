@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use axum::extract::{Path, RawQuery, State};
@@ -10,7 +11,9 @@ use crate::pages;
 use crate::state::AppState;
 
 pub const TOKENS_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/tokens.css"));
+pub const FONTS_CSS: &str = include_str!("../../../design/fonts.css");
 pub const APP_CSS: &str = include_str!("../../../design/app.css");
+pub const COMPONENTS_CSS: &str = include_str!("../../../design/components.css");
 pub const APP_JS: &str = include_str!("../../../design/app.js");
 /// `HTMX_JS` is the store path of the pinned htmx release (nix/htmx.nix), set by the flake
 /// for builds and the dev shell.
@@ -18,23 +21,45 @@ pub const HTMX_JS: &str = include_str!(env!(
     "HTMX_JS",
     "HTMX_JS is not set; build inside `nix develop` or with `nix build`"
 ));
+/// `FONTS_DIR` holds the pinned Oswald and Inter woff2 files (nix/fonts.nix).
+pub const OSWALD_WOFF2: &[u8] = include_bytes!(concat!(
+    env!(
+        "FONTS_DIR",
+        "FONTS_DIR is not set; build inside `nix develop` or with `nix build`"
+    ),
+    "/oswald.woff2"
+));
+pub const INTER_WOFF2: &[u8] = include_bytes!(concat!(
+    env!(
+        "FONTS_DIR",
+        "FONTS_DIR is not set; build inside `nix develop` or with `nix build`"
+    ),
+    "/inter.woff2"
+));
 
 const CSS: &str = "text/css; charset=utf-8";
 const JS: &str = "text/javascript; charset=utf-8";
+const WOFF2: &str = "font/woff2";
 pub const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 pub const REVALIDATE: &str = "no-cache";
 
 pub struct Asset {
+    /// The path below `/static/`.
     pub name: &'static str,
     pub content_type: &'static str,
-    pub body: &'static str,
+    pub body: Cow<'static, [u8]>,
     /// First 16 hex digits of the SHA-256 of `body`.
     pub hash: String,
 }
 
 impl Asset {
-    fn new(name: &'static str, content_type: &'static str, body: &'static str) -> Self {
-        let digest = Sha256::digest(body.as_bytes());
+    fn new(
+        name: &'static str,
+        content_type: &'static str,
+        body: impl Into<Cow<'static, [u8]>>,
+    ) -> Self {
+        let body = body.into();
+        let digest = Sha256::digest(&body);
         let hash = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
         Self {
             name,
@@ -49,14 +74,44 @@ impl Asset {
     }
 }
 
-pub static ASSETS: LazyLock<[Asset; 4]> = LazyLock::new(|| {
-    [
-        Asset::new("tokens.css", CSS, TOKENS_CSS),
-        Asset::new("app.css", CSS, APP_CSS),
-        Asset::new("htmx.min.js", JS, HTMX_JS),
-        Asset::new("app.js", JS, APP_JS),
-    ]
+/// The stylesheets and scripts `base.html` links, in order.
+pub const LINKED: [&str; 6] = [
+    "fonts.css",
+    "tokens.css",
+    "app.css",
+    "components.css",
+    "htmx.min.js",
+    "app.js",
+];
+
+pub static ASSETS: LazyLock<Vec<Asset>> = LazyLock::new(|| {
+    let fonts = [
+        Asset::new("fonts/oswald.woff2", WOFF2, OSWALD_WOFF2),
+        Asset::new("fonts/inter.woff2", WOFF2, INTER_WOFF2),
+    ];
+    let fonts_css = with_font_urls(FONTS_CSS, &fonts);
+    let mut assets = vec![
+        Asset::new("fonts.css", CSS, fonts_css.into_bytes()),
+        Asset::new("tokens.css", CSS, TOKENS_CSS.as_bytes()),
+        Asset::new("app.css", CSS, APP_CSS.as_bytes()),
+        Asset::new("components.css", CSS, COMPONENTS_CSS.as_bytes()),
+        Asset::new("htmx.min.js", JS, HTMX_JS.as_bytes()),
+        Asset::new("app.js", JS, APP_JS.as_bytes()),
+    ];
+    assets.extend(fonts);
+    assets
 });
+
+/// design/fonts.css names each font as `url("fonts/NAME")`; this points it at the
+/// font's hashed URL, so a new font file also changes the stylesheet's URL.
+fn with_font_urls(css: &str, fonts: &[Asset]) -> String {
+    fonts.iter().fold(css.to_owned(), |css, font| {
+        css.replace(
+            &format!("url(\"{}\")", font.name),
+            &format!("url(\"{}\")", font.url()),
+        )
+    })
+}
 
 pub fn find(name: &str) -> Option<&'static Asset> {
     ASSETS.iter().find(|asset| asset.name == name)
@@ -91,7 +146,7 @@ pub async fn serve(
     (
         common,
         [(CONTENT_TYPE, HeaderValue::from_static(asset.content_type))],
-        asset.body,
+        asset.body.clone(),
     )
         .into_response()
 }
@@ -144,6 +199,29 @@ mod tests {
         hashes.sort_unstable();
         hashes.dedup();
         assert_eq!(hashes.len(), ASSETS.len());
+    }
+
+    #[test]
+    fn fonts_are_the_pinned_woff2_files_linked_from_fonts_css() {
+        let css = std::str::from_utf8(&find("fonts.css").expect("fonts.css").body)
+            .expect("utf-8")
+            .to_owned();
+        for name in ["fonts/oswald.woff2", "fonts/inter.woff2"] {
+            let font = find(name).expect(name);
+            assert!(font.body.starts_with(b"wOF2"), "{name} is not woff2");
+            assert_eq!(font.content_type, "font/woff2");
+            assert!(css.contains(&format!("url(\"{}\")", font.url())), "{css}");
+        }
+        assert_eq!(css.matches("url(\"").count(), 2, "{css}");
+        assert!(css.contains("font-family: \"Oswald\""), "{css}");
+        assert!(css.contains("font-family: \"Inter\""), "{css}");
+    }
+
+    #[test]
+    fn every_linked_asset_exists() {
+        for name in LINKED {
+            assert!(find(name).is_some(), "{name}");
+        }
     }
 
     #[test]

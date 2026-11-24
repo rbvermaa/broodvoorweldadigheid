@@ -1,0 +1,17 @@
+/* Oswald and Inter (SIL OFL 1.1) from nix/fonts.nix, served from /static/fonts/.
+   The server rewrites each url() to the font's hashed URL. */
+@font-face {
+  font-family: "Oswald";
+  src: url("fonts/oswald.woff2") format("woff2");
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/inter.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}

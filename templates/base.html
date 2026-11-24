@@ -6,8 +6,10 @@
 <title>{% block title %}{% endblock %} · {{ layout.t("app-name")? }}</title>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
 {% if let Some(token) = layout.csrf_token() %}<meta name="csrf-token" content="{{ token }}">
-{% endif %}<link rel="stylesheet" href="{{ layout.asset("tokens.css") }}">
+{% endif %}<link rel="stylesheet" href="{{ layout.asset("fonts.css") }}">
+<link rel="stylesheet" href="{{ layout.asset("tokens.css") }}">
 <link rel="stylesheet" href="{{ layout.asset("app.css") }}">
+<link rel="stylesheet" href="{{ layout.asset("components.css") }}">
 <script src="{{ layout.asset("htmx.min.js") }}" defer></script>
 <script src="{{ layout.asset("app.js") }}" defer></script>
 </head>
