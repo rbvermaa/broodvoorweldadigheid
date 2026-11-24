@@ -6,8 +6,10 @@ use sqlx::PgConnection;
 use crate::Error;
 
 /// What bakedays needs to know about orders, which live in a higher crate (ADR 0008).
-/// Every method is called inside the caller's transaction, after bakedays has taken its
-/// locks, so the answer cannot go stale before the write commits.
+/// Writers in bakedays call it inside their transaction after taking their locks, so the
+/// answer cannot go stale before the write commits. [`crate::range::availability`] is the
+/// exception: an unlocked display read. A checkout must lock the `bake_day` row
+/// `FOR SHARE` and call [`crate::range::lock_capacity`] before it inserts an order.
 pub trait OrderSource: Sync {
     /// Pieces taken by orders (paid, or holding capacity) per product on the day.
     fn ordered(

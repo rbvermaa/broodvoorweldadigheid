@@ -210,13 +210,61 @@ async fn ensure_charity_active(conn: &mut PgConnection, id: CharityId) -> Result
     Ok(())
 }
 
+/// Serialises bake day writes per date and pickup location, then refuses the date when a
+/// bake day that is not cancelled (other than `own_day`) already uses one of `locations`
+/// on it. With no locations, the rule applies to days without pickup slots (ADR 0008).
+async fn reserve_date(
+    conn: &mut PgConnection,
+    date: Date,
+    locations: &[PickupLocationId],
+    own_day: Option<BakeDayId>,
+) -> Result<(), Error> {
+    let mut keys: Vec<i64> = locations.iter().map(|l| l.get()).collect();
+    keys.sort_unstable();
+    keys.dedup();
+    let days = to_epoch_days(date);
+    for key in if keys.is_empty() {
+        vec![0]
+    } else {
+        keys.clone()
+    } {
+        sqlx::query("SELECT pg_advisory_xact_lock($1, ($2::bigint % 2147483647)::integer)")
+            .bind(days)
+            .bind(key)
+            .execute(&mut *conn)
+            .await?;
+    }
+    let taken = sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+            SELECT 1 FROM bake_day d
+            WHERE d.date = date 'epoch' + $1::integer AND d.status <> 'cancelled'
+            AND d.id IS DISTINCT FROM $2
+            AND CASE WHEN cardinality($3::bigint[]) = 0
+                THEN NOT EXISTS (SELECT 1 FROM pickup_slot s WHERE s.bake_day_id = d.id)
+                ELSE EXISTS (SELECT 1 FROM pickup_slot s
+                    WHERE s.bake_day_id = d.id AND s.location_id = ANY($3))
+            END
+        ) AS "taken!""#,
+        days,
+        own_day.map(BakeDayId::get),
+        &keys,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if taken {
+        return Err(Error::DateTaken(date));
+    }
+    Ok(())
+}
+
 /// Creates a draft bake day with one pickup slot per active window of the location on
 /// the date's weekday. The deadline is the earliest of the windows' default deadlines.
 /// A production-only day may have no window; it then gets no slots and no deadline.
 ///
 /// # Errors
 /// [`Error::NotFound`] when the location does not exist, [`Error::NoPickupWindow`],
-/// [`Error::Invalid`] or [`Error::CharityArchived`].
+/// [`Error::Invalid`], [`Error::CharityArchived`], or [`Error::DateTaken`] when another
+/// bake day already uses the location on that date.
 pub async fn create(conn: &mut PgConnection, input: &NewBakeDay) -> Result<BakeDay, Error> {
     let mut tx = conn.begin().await?;
     pickup::get_location(&mut tx, input.location_id).await?;
@@ -247,6 +295,12 @@ pub async fn create(conn: &mut PgConnection, input: &NewBakeDay) -> Result<BakeD
         )?;
         cutoff = Some(cutoff.map_or(deadline, |c| c.min(deadline)));
     }
+    let locations: &[PickupLocationId] = if slots.is_empty() {
+        &[]
+    } else {
+        &[input.location_id]
+    };
+    reserve_date(&mut tx, input.date, locations, None).await?;
     let id = insert_day(
         &mut tx,
         input.date,
@@ -556,7 +610,8 @@ pub async fn list_slots(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<P
 }
 
 /// # Errors
-/// [`Error::NotFound`], [`Error::Final`] or [`Error::Invalid`].
+/// [`Error::NotFound`], [`Error::Final`], [`Error::Invalid`], or [`Error::DateTaken`] when
+/// another bake day already uses the location on that date.
 pub async fn add_slot(
     conn: &mut PgConnection,
     day: BakeDayId,
@@ -565,8 +620,10 @@ pub async fn add_slot(
 ) -> Result<PickupSlotId, Error> {
     validate_slot(input)?;
     let mut tx = conn.begin().await?;
-    get_for_update(&mut tx, day).await?.ensure_editable()?;
+    let bake_day = get_for_update(&mut tx, day).await?;
+    bake_day.ensure_editable()?;
     pickup::get_location(&mut tx, location).await?;
+    reserve_date(&mut tx, bake_day.date, &[location], Some(day)).await?;
     let id = insert_slot(&mut tx, day, location, input).await?;
     tx.commit().await?;
     Ok(id)
@@ -626,25 +683,12 @@ pub async fn copy_to(
 ) -> Result<CopiedDay, Error> {
     let mut tx = conn.begin().await?;
     let source = get(&mut tx, id).await?;
-    let taken = sqlx::query_scalar!(
-        r#"SELECT EXISTS (
-            SELECT 1 FROM bake_day d
-            WHERE d.date = date 'epoch' + $1::integer AND d.status <> 'cancelled' AND d.id <> $2
-            AND (
-                EXISTS (SELECT 1 FROM pickup_slot s JOIN pickup_slot src USING (location_id)
-                    WHERE s.bake_day_id = d.id AND src.bake_day_id = $2)
-                OR (NOT EXISTS (SELECT 1 FROM pickup_slot WHERE bake_day_id = $2)
-                    AND NOT EXISTS (SELECT 1 FROM pickup_slot WHERE bake_day_id = d.id))
-            )
-        ) AS "taken!""#,
-        to_epoch_days(date),
-        id.get(),
-    )
-    .fetch_one(&mut *tx)
-    .await?;
-    if taken {
-        return Err(Error::DateTaken(date));
-    }
+    let locations: Vec<PickupLocationId> = list_slots(&mut tx, id)
+        .await?
+        .into_iter()
+        .map(|slot| slot.location_id)
+        .collect();
+    reserve_date(&mut tx, date, &locations, None).await?;
     let days = to_epoch_days(date) - to_epoch_days(source.date);
     let shift = |t: Timestamp| schedule::shift_days(t, days);
     let shift_opt = |t: Option<Timestamp>| t.map(shift).transpose();

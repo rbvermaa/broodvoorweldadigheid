@@ -10,7 +10,10 @@ use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
 use testkit::FakeClock;
 
-use crate::common::{DE_PROEF, FixedOrders, charity, create_day, date, product, saturday, ts};
+use crate::common::{
+    DE_PROEF, FixedOrders, backend_pid, charity, create_day, date, next_saturday, product,
+    saturday, ts, wait_until_blocked,
+};
 
 fn schedule_of(day: &bakedays::BakeDay) -> Schedule {
     Schedule {
@@ -182,7 +185,7 @@ async fn production_only_days_never_open(mut conn: PoolConnection<Postgres>) {
         &mut conn,
         &NewBakeDay {
             online_ordering: false,
-            ..saturday()
+            ..next_saturday()
         },
     )
     .await;
@@ -474,6 +477,10 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
         days::copy_to(&mut conn, source.id, date("2026-10-31")).await,
         Err(Error::DateTaken(d)) if d == date("2026-10-31")
     ));
+    assert!(matches!(
+        days::copy_to(&mut conn, source.id, source.date).await,
+        Err(Error::DateTaken(_))
+    ));
     assert_ne!(copy.id, source.id);
     assert_eq!(copy.date, date("2026-10-31"));
     assert_eq!(copy.status, BakeDayStatus::Draft);
@@ -724,4 +731,68 @@ async fn a_cancelled_day_does_not_block_a_copy(mut conn: PoolConnection<Postgres
     days::copy_to(&mut conn, source.id, later.date)
         .await
         .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn one_location_gets_one_bake_day_per_date(mut conn: PoolConnection<Postgres>) {
+    let day = create_day(&mut conn, &saturday()).await;
+    assert!(matches!(
+        days::create(&mut conn, &saturday()).await,
+        Err(Error::DateTaken(d)) if d == day.date
+    ));
+    let market = pickup::create_location(
+        &mut conn,
+        &bakedays::PickupLocationInput {
+            name: "Markt".to_owned(),
+            address: "Brink 1, 8380 AA Dorp".to_owned(),
+            notes: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let slot = PickupSlotInput {
+        starts_at: ts("2026-10-31T13:00:00Z"),
+        ends_at: ts("2026-10-31T14:00:00Z"),
+        max_orders: None,
+    };
+    days::add_slot(&mut conn, day.id, market.id, &slot)
+        .await
+        .unwrap();
+    days::add_slot(&mut conn, day.id, DE_PROEF, &slot)
+        .await
+        .unwrap();
+    let other = create_day(
+        &mut conn,
+        &NewBakeDay {
+            online_ordering: false,
+            date: date("2026-10-30"),
+            ..saturday()
+        },
+    )
+    .await;
+    assert!(matches!(
+        days::copy_to(&mut conn, other.id, date("2026-10-30")).await,
+        Err(Error::DateTaken(_))
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn concurrent_copies_to_one_date_make_one_day(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let source = create_day(&mut conn, &next_saturday()).await;
+    drop(conn);
+
+    let mut first = pool.begin().await.unwrap();
+    days::create(&mut first, &saturday()).await.unwrap();
+
+    let mut second = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut second).await;
+    let task =
+        tokio::spawn(
+            async move { days::copy_to(&mut second, source.id, date("2026-10-31")).await },
+        );
+    wait_until_blocked(&pool, pid).await;
+    first.commit().await.unwrap();
+    let copied = task.await.unwrap();
+    assert!(matches!(copied, Err(Error::DateTaken(_))), "{copied:?}");
 }

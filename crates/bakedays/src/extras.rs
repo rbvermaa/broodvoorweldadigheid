@@ -143,6 +143,7 @@ pub async fn add(
     lock_capacity(&mut tx, day, &[product]).await?;
     load_capacity(&mut tx, day, orders, None)
         .await?
+        .0
         .check(product, input.qty)?;
     let row = sqlx::query_as!(
         Row,
@@ -202,6 +203,7 @@ pub async fn update(
     if input.qty > current {
         load_capacity(&mut tx, day, orders, Some(id))
             .await?
+            .0
             .check(product, input.qty)?;
     }
     let row = sqlx::query_as!(

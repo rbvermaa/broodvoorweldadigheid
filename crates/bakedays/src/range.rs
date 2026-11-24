@@ -76,7 +76,7 @@ pub async fn lock_capacity(
     products: &[ProductId],
 ) -> Result<(), Error> {
     let ids: Vec<i64> = products.iter().map(|p| p.get()).collect();
-    let pools: Vec<i64> = sqlx::query_scalar!(
+    let mut pools: Vec<i64> = sqlx::query_scalar!(
         "SELECT capacity_pool_id FROM bake_day_product
         WHERE bake_day_id = $1 AND product_id = ANY($2)
         ORDER BY product_id FOR UPDATE",
@@ -88,12 +88,15 @@ pub async fn lock_capacity(
     .into_iter()
     .flatten()
     .collect();
-    if !pools.is_empty() {
+    pools.sort_unstable();
+    pools.dedup();
+    // One pool at a time, in id order, so the lock order never depends on a query plan.
+    for pool in pools {
         sqlx::query_scalar!(
-            "SELECT id FROM capacity_pool WHERE id = ANY($1) ORDER BY id FOR UPDATE",
-            &pools,
+            "SELECT id FROM capacity_pool WHERE id = $1 FOR UPDATE",
+            pool
         )
-        .fetch_all(&mut *conn)
+        .fetch_one(&mut *conn)
         .await?;
     }
     Ok(())
@@ -326,9 +329,18 @@ pub(crate) async fn load_capacity(
     day: BakeDayId,
     orders: &impl OrderSource,
     excluding_extra: Option<ProductionExtraId>,
-) -> Result<Capacity, Error> {
+) -> Result<(Capacity, Vec<BakeDayProduct>), Error> {
     let ordered = orders.ordered(conn, day).await?;
     let products = list_products(conn, day).await?;
+    let limits: Vec<ProductLimit> = products
+        .iter()
+        .map(|p| ProductLimit {
+            product_id: p.product_id,
+            max_qty: p.max_qty,
+            pool: p.capacity_pool_id,
+            units_per_item: p.units_per_item,
+        })
+        .collect();
     let pools = list_pools(conn, day).await?;
     let extras = extras_by_product(conn, day, excluding_extra).await?;
     let mut used: BTreeMap<ProductId, Used> = ordered
@@ -338,22 +350,20 @@ pub(crate) async fn load_capacity(
     for (product, qty) in extras {
         used.entry(product).or_default().extras = qty;
     }
-    Ok(Capacity::new(
-        products.into_iter().map(|p| ProductLimit {
-            product_id: p.product_id,
-            max_qty: p.max_qty,
-            pool: p.capacity_pool_id,
-            units_per_item: p.units_per_item,
-        }),
+    let capacity = Capacity::new(
+        limits,
         pools.into_iter().map(|p| PoolLimit {
             id: p.id,
             max_units: p.max_units,
         }),
         used,
-    ))
+    );
+    Ok((capacity, products))
 }
 
 /// Remaining pieces per product on the day's range (F3), after orders and extra production.
+/// A display read: it takes no locks, so a writer must not decide on it; writers lock with
+/// [`lock_capacity`] and check inside their own transaction (ADR 0008).
 ///
 /// # Errors
 /// [`Error::Db`] or [`Error::Corrupt`].
@@ -362,9 +372,8 @@ pub async fn availability(
     day: BakeDayId,
     orders: &impl OrderSource,
 ) -> Result<Vec<Availability>, Error> {
-    let capacity = load_capacity(conn, day, orders, None).await?;
-    Ok(list_products(conn, day)
-        .await?
+    let (capacity, products) = load_capacity(conn, day, orders, None).await?;
+    Ok(products
         .into_iter()
         .map(|p| Availability {
             product_id: p.product_id,

@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use bakedays::{BakeDay, Error, NewBakeDay, OrderSource, days, extras};
 use domain::{BakeDayId, CharityId, PickupLocationId, ProductId};
 use jiff::Timestamp;
 use jiff::civil::Date;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, PgPool};
 
 pub fn ts(s: &str) -> Timestamp {
     s.parse().unwrap()
@@ -24,6 +25,15 @@ pub fn saturday() -> NewBakeDay {
         bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: true,
         charity_id: None,
+    }
+}
+
+/// The Saturday a week after [`saturday`].
+pub fn next_saturday() -> NewBakeDay {
+    NewBakeDay {
+        date: date("2026-11-07"),
+        bake_starts_at: ts("2026-11-07T03:00:00Z"),
+        ..saturday()
     }
 }
 
@@ -157,4 +167,29 @@ pub async fn extras_total(conn: &mut PgConnection, day: BakeDayId) -> BTreeMap<P
         *total.entry(extra.product_id).or_default() += extra.qty;
     }
     total
+}
+
+pub async fn backend_pid(conn: &mut PgConnection) -> i32 {
+    sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
+
+/// Waits until the backend `pid` is blocked on a lock held by another session.
+pub async fn wait_until_blocked(pool: &PgPool, pid: i32) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut conn = pool.acquire().await.unwrap();
+    loop {
+        let blocked: bool = sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1)) > 0")
+            .bind(pid)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        if blocked {
+            return;
+        }
+        assert!(Instant::now() < deadline, "backend {pid} never blocked");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }

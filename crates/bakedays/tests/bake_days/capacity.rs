@@ -7,10 +7,13 @@ use bakedays::{
 };
 use domain::{BakeDayId, CapacityPoolId, ProductId};
 use sqlx::pool::PoolConnection;
-use sqlx::{PgPool, Postgres};
+use sqlx::{Acquire, PgPool, Postgres};
 use testkit::FakeClock;
 
-use crate::common::{FixedOrders, TableOrders, create_day, extras_total, product, saturday, ts};
+use crate::common::{
+    FixedOrders, TableOrders, backend_pid, create_day, extras_total, next_saturday, product,
+    saturday, ts, wait_until_blocked,
+};
 
 fn on_day(
     product_id: ProductId,
@@ -54,7 +57,7 @@ async fn remaining(
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn pools_are_named_per_day_and_resizable(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let other = create_day(&mut conn, &saturday()).await;
+    let other = create_day(&mut conn, &next_saturday()).await;
     let oven = range::create_pool(&mut conn, day.id, " Oven ", 30)
         .await
         .unwrap();
@@ -94,7 +97,7 @@ async fn pools_are_named_per_day_and_resizable(mut conn: PoolConnection<Postgres
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn range_products_are_set_replaced_and_removed(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let other = create_day(&mut conn, &saturday()).await;
+    let other = create_day(&mut conn, &next_saturday()).await;
     let bread = product(&mut conn, "Desem", None).await;
     let foreign_pool = range::create_pool(&mut conn, other.id, "Oven", 10)
         .await
@@ -448,19 +451,35 @@ async fn two_writers_never_both_take_the_last_piece_of_a_product(pool: PgPool) {
     race_for_the_last_piece(&pool, day.id, [bread, bread]).await;
 }
 
+async fn lock_pool(
+    conn: &mut sqlx::PgConnection,
+    pool: CapacityPoolId,
+    nowait: bool,
+) -> Result<(), sqlx::Error> {
+    let sql = if nowait {
+        "SELECT id FROM capacity_pool WHERE id = $1 FOR UPDATE NOWAIT"
+    } else {
+        "SELECT id FROM capacity_pool WHERE id = $1 FOR UPDATE"
+    };
+    sqlx::query(sql)
+        .bind(pool.get())
+        .execute(conn)
+        .await
+        .map(|_| ())
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn multi_product_writers_with_crossing_pools_do_not_deadlock(pool: PgPool) {
+async fn pools_are_locked_in_id_order_whatever_the_product_order(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let day = create_day(&mut conn, &saturday()).await;
-    let first_pool = range::create_pool(&mut conn, day.id, "Oven", 1)
+    let first_pool = range::create_pool(&mut conn, day.id, "Oven", 10)
         .await
         .unwrap();
-    let second_pool = range::create_pool(&mut conn, day.id, "Plaat", 1)
+    let second_pool = range::create_pool(&mut conn, day.id, "Plaat", 10)
         .await
         .unwrap();
     let bread = product(&mut conn, "Desem", None).await;
     let rolls = product(&mut conn, "Bolletjes", None).await;
-    // Product order and pool order cross: bread uses the later pool.
     range::set_product(
         &mut conn,
         day.id,
@@ -477,37 +496,23 @@ async fn multi_product_writers_with_crossing_pools_do_not_deadlock(pool: PgPool)
     .unwrap();
     drop(conn);
 
-    let write = |products: [ProductId; 2]| {
-        let pool = pool.clone();
-        async move {
-            let mut tx = pool.begin().await.unwrap();
-            range::lock_capacity(&mut tx, day.id, &products).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            for product in products {
-                extras::add(
-                    &mut tx,
-                    day.id,
-                    product,
-                    &extra(1, Purpose::Samples),
-                    &none(),
-                )
-                .await?;
-            }
-            tx.commit().await?;
-            Ok::<(), Error>(())
-        }
-    };
-    let (a, b) = tokio::join!(write([bread, rolls]), write([rolls, bread]));
-    for result in [&a, &b] {
-        assert!(
-            matches!(
-                result,
-                Ok(()) | Err(Error::CapacityExceeded { remaining: 0, .. })
-            ),
-            "{result:?}"
-        );
-    }
-    assert!(a.is_ok() != b.is_ok(), "{a:?} {b:?}");
+    let mut holder = pool.begin().await.unwrap();
+    lock_pool(&mut holder, first_pool.id, false).await.unwrap();
+
+    let mut waiter = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut waiter).await;
+    let task = tokio::spawn(async move {
+        let mut tx = waiter.begin().await.unwrap();
+        range::lock_capacity(&mut tx, day.id, &[bread, rolls]).await?;
+        tx.commit().await?;
+        Ok::<(), Error>(())
+    });
+    wait_until_blocked(&pool, pid).await;
+    lock_pool(&mut holder, second_pool.id, true)
+        .await
+        .expect("the waiter must not hold the second pool while waiting for the first");
+    holder.commit().await.unwrap();
+    task.await.unwrap().unwrap();
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -521,44 +526,64 @@ async fn orders_are_read_after_the_locks(pool: PgPool) {
         .unwrap();
     drop(conn);
 
-    let checkout = {
-        let pool = pool.clone();
-        async move {
-            let mut tx = pool.begin().await.unwrap();
-            range::lock_capacity(&mut tx, day.id, &[bread])
-                .await
-                .unwrap();
-            TableOrders::insert(&mut tx, day.id, bread, 4).await;
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            tx.commit().await.unwrap();
-        }
-    };
-    let staff = {
-        let pool = pool.clone();
-        async move {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let mut conn = pool.acquire().await.unwrap();
-            extras::add(
-                &mut conn,
-                day.id,
-                bread,
-                &extra(4, Purpose::Freezer),
-                &TableOrders,
-            )
-            .await
-        }
-    };
-    let ((), added) = tokio::join!(checkout, staff);
+    let mut checkout = pool.begin().await.unwrap();
+    share_lock_day(&mut checkout, day.id).await;
+    range::lock_capacity(&mut checkout, day.id, &[bread])
+        .await
+        .unwrap();
+    TableOrders::insert(&mut checkout, day.id, bread, 4).await;
+
+    let mut staff = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut staff).await;
+    let task = tokio::spawn(async move {
+        extras::add(
+            &mut staff,
+            day.id,
+            bread,
+            &extra(4, Purpose::Freezer),
+            &TableOrders,
+        )
+        .await
+    });
+    wait_until_blocked(&pool, pid).await;
+    checkout.commit().await.unwrap();
+    let added = task.await.unwrap();
     assert!(
         matches!(added, Err(Error::CapacityExceeded { remaining: 2, .. })),
         "{added:?}"
     );
+}
 
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn charity_change_waits_for_a_first_order_in_flight(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
-    assert!(matches!(
-        days::set_charity(&mut conn, day.id, None, &TableOrders).await,
-        Err(Error::OrdersExist)
-    ));
+    TableOrders::create_table(&mut conn).await;
+    let day = create_day(&mut conn, &saturday()).await;
+    let bread = product(&mut conn, "Desem", None).await;
+    drop(conn);
+
+    let mut checkout = pool.begin().await.unwrap();
+    share_lock_day(&mut checkout, day.id).await;
+    TableOrders::insert(&mut checkout, day.id, bread, 1).await;
+
+    let mut staff = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut staff).await;
+    let task =
+        tokio::spawn(
+            async move { days::set_charity(&mut staff, day.id, None, &TableOrders).await },
+        );
+    wait_until_blocked(&pool, pid).await;
+    checkout.commit().await.unwrap();
+    let changed = task.await.unwrap();
+    assert!(matches!(changed, Err(Error::OrdersExist)), "{changed:?}");
+}
+
+async fn share_lock_day(conn: &mut sqlx::PgConnection, day: BakeDayId) {
+    sqlx::query("SELECT id FROM bake_day WHERE id = $1 FOR SHARE")
+        .bind(day.get())
+        .execute(conn)
+        .await
+        .unwrap();
 }
 
 #[test]
