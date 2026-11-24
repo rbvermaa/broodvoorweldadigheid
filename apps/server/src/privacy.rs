@@ -58,20 +58,22 @@ pub enum Erased {
     NotFound,
 }
 
-/// The customer's data as JSON, with the drop-alert subscription of their address.
+/// The customer's data as JSON, with the drop-alert subscription of their address. Drop
+/// alerts are the only marketing mail, so the subscription is the consent: an unsubscribe
+/// link or a sign-up on /meldingen does not touch `customer.marketing_consent`.
 ///
 /// # Errors
 /// [`PrivacyError`]; an unknown or erased customer is `Orders(NotFound)`.
 pub async fn export_json(state: &AppState, customer: CustomerId) -> Result<String, PrivacyError> {
     let mut conn = state.pool.acquire().await?;
     let mut data = privacy::export(&mut conn, customer).await?;
-    data.drop_alerts = notify::subscribers::of_address(&mut conn, &data.customer.email)
-        .await?
-        .map(|s| DropAlertsRecord {
-            signed_up_at: s.created_at.to_string(),
-            confirmed_at: s.confirmed_at.map(|t| t.to_string()),
-            unsubscribed_at: s.unsubscribed_at.map(|t| t.to_string()),
-        });
+    let subscription = notify::subscribers::of_address(&mut conn, &data.customer.email).await?;
+    data.customer.marketing_consent = subscription.as_ref().is_some_and(|s| s.is_active());
+    data.drop_alerts = subscription.map(|s| DropAlertsRecord {
+        signed_up_at: s.created_at.to_string(),
+        confirmed_at: s.confirmed_at.map(|t| t.to_string()),
+        unsubscribed_at: s.unsubscribed_at.map(|t| t.to_string()),
+    });
     Ok(data.to_json()?)
 }
 

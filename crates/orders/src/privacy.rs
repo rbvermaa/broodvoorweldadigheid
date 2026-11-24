@@ -2,8 +2,8 @@
 //! Orders, payments and donations are business records kept for 7 years (spec,
 //! Compliance), so erasing keeps them and removes what identifies the customer.
 
-use db::time::{from_micros, to_epoch_days, to_micros};
-use domain::{CustomerId, in_bakery_time};
+use db::time::{from_micros, to_micros};
+use domain::CustomerId;
 use jiff::Timestamp;
 use serde::Serialize;
 use sqlx::{Acquire, PgConnection};
@@ -25,6 +25,8 @@ fn erased_email(id: i64) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CustomerData {
     pub customer: Profile,
+    /// Company details of a business customer (F11a).
+    pub business: Option<BusinessRecord>,
     pub orders: Vec<OrderRecord>,
     pub logins: Vec<LoginRecord>,
     pub login_links: Vec<LoginLinkRecord>,
@@ -39,6 +41,15 @@ pub struct Profile {
     pub phone: Option<String>,
     pub marketing_consent: bool,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BusinessRecord {
+    pub company_name: String,
+    pub kvk: String,
+    pub btw_id: Option<String>,
+    pub invoice_address: String,
+    pub invoice_email: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -155,6 +166,14 @@ pub async fn export(conn: &mut PgConnection, customer: CustomerId) -> Result<Cus
     .fetch_optional(&mut *conn)
     .await?
     .ok_or(Error::NotFound)?;
+    let business = sqlx::query_as!(
+        BusinessRecord,
+        "SELECT company_name, kvk, btw_id, invoice_address, invoice_email
+        FROM business_account WHERE customer_id = $1",
+        id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
     let lines = sqlx::query!(
         r#"SELECT l.order_id, p.name_nl, l.qty, l.unit_price_cents, l.vat_rate
         FROM order_line l
@@ -296,6 +315,7 @@ pub async fn export(conn: &mut PgConnection, customer: CustomerId) -> Result<Cus
             marketing_consent: profile.marketing_consent,
             created_at: time(profile.created_us)?,
         },
+        business,
         orders,
         logins,
         login_links,
@@ -346,8 +366,8 @@ pub async fn set_marketing_consent(
     .ok_or(Error::NotFound)
 }
 
-/// Erases `customer`, unless an order still waits for payment or pickup (from today in
-/// Amsterdam) or they are a business customer. Their orders keep everything the
+/// Erases `customer`, unless an order still waits for payment or for the end of its
+/// pickup window, or they are a business customer. Their orders keep everything the
 /// bookkeeping and the charity reports need, with the name blanked and the phone number,
 /// marketing wish and status link removed. Saved donations stay saved, with a choose link
 /// nobody holds, so they move to the next drop's charity on their date. Login links and
@@ -382,13 +402,14 @@ pub async fn erase(
     }
     let open = sqlx::query_scalar!(
         r#"SELECT EXISTS (
-            SELECT 1 FROM "order" o JOIN bake_day d ON d.id = o.bake_day_id
+            SELECT 1 FROM "order" o JOIN pickup_slot s ON s.id = o.pickup_slot_id
             WHERE o.customer_id = $1
                 AND (o.status = 'pending_payment'
-                    OR (o.status IN ('paid', 'confirmed') AND d.date >= date 'epoch' + $2::integer))
+                    OR (o.status IN ('paid', 'confirmed')
+                        AND s.ends_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))
         ) AS "open!""#,
         id,
-        to_epoch_days(in_bakery_time(now).date()),
+        to_micros(now),
     )
     .fetch_one(&mut *tx)
     .await?;

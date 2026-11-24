@@ -244,6 +244,22 @@ async fn the_download_holds_the_customers_data_and_is_never_cached(pool: PgPool)
     assert_eq!(json["logins"].as_array().unwrap().len(), 1);
     assert_eq!(json["login_links"].as_array().unwrap().len(), 1);
     assert!(json["drop_alerts"].is_null());
+    assert_eq!(json["customer"]["marketing_consent"], false);
+
+    sqlx::query(
+        "INSERT INTO subscriber (email, confirmed_at, created_at) VALUES ($1, now(), now())",
+    )
+    .bind(KNOWN)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let file = get(&app, "/mijn-bestellingen/gegevens", Some(&cookie)).await;
+    let json: serde_json::Value = serde_json::from_str(&file.body).unwrap();
+    assert!(json["drop_alerts"]["confirmed_at"].is_string());
+    assert_eq!(
+        json["customer"]["marketing_consent"], true,
+        "the subscription decides, also when it was made on /meldingen"
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

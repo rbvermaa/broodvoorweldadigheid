@@ -3,12 +3,13 @@ use orders::audit::{self, Actor};
 use orders::donations::{self, DonationChoice};
 use orders::privacy::{self, ERASED_NAME, Erase};
 use orders::{OrderedBy, PaidOutcome, PaymentReceived, checkout, mark_paid};
-use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
+use sqlx::{PgPool, Postgres};
 use testkit::FakeClock;
 
 use crate::common::{
-    BREAD, cart, charity, guest, on_range, open_day, product, saturday, ts, wednesday,
+    BREAD, backend_pid, cart, charity, guest, on_range, open_day, product, saturday, ts,
+    wait_until_blocked, wednesday,
 };
 
 async fn pay(conn: &mut sqlx::PgConnection, clock: &testkit::FakeClock, order: &orders::Order) {
@@ -91,6 +92,7 @@ async fn the_export_holds_profile_orders_lines_payments_donations_and_logins(
     assert_eq!(data.logins.len(), 1);
     assert_eq!(data.logins[0].started_at, "2026-10-28T12:00:00Z");
     assert!(data.drop_alerts.is_none());
+    assert!(data.business.is_none());
     let json = data.to_json().unwrap();
     assert!(json.contains("\"email\": \"sanne@example.org\""), "{json}");
 
@@ -293,12 +295,12 @@ async fn an_order_still_to_pay_or_pick_up_blocks_erasing(mut conn: PoolConnectio
     );
     pay(&mut conn, &clock, &order).await;
     assert_eq!(
-        erase_at(&mut conn, customer, "2026-10-31T22:59:00Z").await,
+        erase_at(&mut conn, customer, "2026-10-31T10:59:00Z").await,
         Erase::OpenOrders,
-        "still the bake day in Amsterdam"
+        "the pickup window ends at 12:00 in Amsterdam"
     );
     assert!(matches!(
-        erase_at(&mut conn, customer, "2026-10-31T23:00:00Z").await,
+        erase_at(&mut conn, customer, "2026-10-31T11:00:00Z").await,
         Erase::Erased { .. }
     ));
 }
@@ -332,6 +334,11 @@ async fn a_business_customer_is_not_erased_here(mut conn: PoolConnection<Postgre
         .await
         .unwrap(),
         Erase::Business
+    );
+    let data = privacy::export(&mut conn, customer).await.unwrap();
+    assert_eq!(
+        data.business.map(|b| (b.company_name, b.invoice_email)),
+        Some(("Zaak BV".to_owned(), "factuur@example.org".to_owned()))
     );
     let name: String = sqlx::query_scalar("SELECT name FROM customer WHERE id = $1")
         .bind(id)
@@ -429,4 +436,54 @@ async fn an_erased_customers_saved_donation_still_moves_but_without_an_email(
         }
         other => panic!("not moved: {other:?}"),
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_erase_waits_for_a_checkout_of_the_same_customer_and_sees_its_order(pool: PgPool) {
+    let clock = wednesday();
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let first = checkout(
+        &mut conn,
+        &clock,
+        &cart(&shop, &[(bread, 1, None)]),
+        &guest("sanne@example.org"),
+        shop.slot,
+        OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE \"order\" SET status = 'cancelled', cancel_reason = 'hold_expired', hold_expires_at = NULL")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let customer = first.customer_id;
+
+    let mut ordering = pool.begin().await.unwrap();
+    checkout(
+        &mut ordering,
+        &clock,
+        &cart(&shop, &[(bread, 1, None)]),
+        &guest("sanne@example.org"),
+        shop.slot,
+        OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+    let mut erasing = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut erasing).await;
+    let task = tokio::spawn(async move {
+        privacy::erase(
+            &mut erasing,
+            customer,
+            Actor::Customer(customer),
+            ts("2026-10-28T12:00:00Z"),
+        )
+        .await
+    });
+    wait_until_blocked(&pool, pid).await;
+    ordering.commit().await.unwrap();
+    assert_eq!(task.await.unwrap().unwrap(), Erase::OpenOrders);
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE customer_login l\n         SET last_seen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n         FROM customer c\n         WHERE l.id = $1 AND c.id = l.customer_id\n           AND l.created_at > timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n           AND l.last_seen_at > timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n         RETURNING c.id, c.email, c.name",
+  "query": "UPDATE customer_login l\n         SET last_seen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n         FROM customer c\n         WHERE l.id = $1 AND c.id = l.customer_id AND c.erased_at IS NULL\n           AND l.created_at > timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n           AND l.last_seen_at > timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n         RETURNING c.id, c.email, c.name",
   "describe": {
     "columns": [
       {
@@ -51,5 +51,5 @@
       false
     ]
   },
-  "hash": "7f39b4c5a66a08c8f069936766b6dca18827c054e33c91572604fae4c89ee9ce"
+  "hash": "506ab131b0b78924f5a28773fab4744be6e0c260ecbdaf1653d18a945b49a76c"
 }

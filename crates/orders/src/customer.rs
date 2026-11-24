@@ -65,32 +65,25 @@ pub(crate) fn validate(input: &CustomerInput) -> Result<Valid, Error> {
 
 /// Finds the customer by email, or creates them from these details. A guest checkout
 /// never changes an existing customer: anyone can type any email address. The order
-/// keeps the name and phone entered for it.
+/// keeps the name and phone entered for it. The no-op update locks the row until the
+/// checkout commits, so an erase (F12) waits and then sees the new order.
 pub(crate) async fn find_or_create(
     conn: &mut PgConnection,
     valid: &Valid,
     now: Timestamp,
 ) -> Result<CustomerId, Error> {
-    let created = sqlx::query_scalar!(
+    let id = sqlx::query_scalar!(
         "INSERT INTO customer (email, name, phone, created_at)
         VALUES ($1, $2, $3, timestamptz 'epoch' + $4::bigint * interval '1 microsecond')
-        ON CONFLICT (email) DO NOTHING
+        ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
         RETURNING id",
         valid.email,
         valid.name,
         valid.phone,
         to_micros(now),
     )
-    .fetch_optional(&mut *conn)
+    .fetch_one(conn)
     .await?;
-    let id = match created {
-        Some(id) => id,
-        None => {
-            sqlx::query_scalar!("SELECT id FROM customer WHERE email = $1", valid.email)
-                .fetch_one(conn)
-                .await?
-        }
-    };
     Ok(CustomerId::new(id))
 }
 

@@ -200,7 +200,8 @@ pub async fn link_is_valid(
     .await?)
 }
 
-/// Uses up the link and gives its customer; `None` for an unknown, used or expired link.
+/// Uses up the link and gives its customer; `None` for an unknown, used or expired link,
+/// or one of an erased customer (F12).
 ///
 /// # Errors
 /// A database error.
@@ -213,11 +214,13 @@ pub async fn redeem_link(
         return Ok(None);
     };
     let id = sqlx::query_scalar!(
-        "UPDATE customer_login_link
+        "UPDATE customer_login_link l
          SET used_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
-         WHERE token_hash = $1 AND used_at IS NULL
-           AND expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
-         RETURNING customer_id",
+         FROM customer c
+         WHERE l.token_hash = $1 AND l.used_at IS NULL AND c.id = l.customer_id
+           AND c.erased_at IS NULL
+           AND l.expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
+         RETURNING l.customer_id",
         hash,
         to_micros(now),
     )
@@ -254,7 +257,8 @@ pub async fn start(pool: &PgPool, customer: CustomerId, now: Timestamp) -> Resul
 }
 
 /// The customer behind a live login, which counts as seen now. A login that timed out
-/// is ended and gives `None`.
+/// is ended and gives `None`, and so does a login of an erased customer: an erase (F12)
+/// that commits between redeeming a link and starting the login leaves one behind.
 ///
 /// # Errors
 /// A database error.
@@ -267,7 +271,7 @@ pub async fn current(
         "UPDATE customer_login l
          SET last_seen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
          FROM customer c
-         WHERE l.id = $1 AND c.id = l.customer_id
+         WHERE l.id = $1 AND c.id = l.customer_id AND c.erased_at IS NULL
            AND l.created_at > timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
            AND l.last_seen_at > timestamptz 'epoch' + $4::bigint * interval '1 microsecond'
          RETURNING c.id, c.email, c.name",

@@ -292,3 +292,26 @@ async fn the_cleanup_deletes_expired_links_and_logins_only(pool: PgPool) {
         .expect("cleanup");
     assert_eq!((cleaned.links, cleaned.logins), (1, 1));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_erased_customer_cannot_use_a_link_or_a_login(pool: PgPool) {
+    let id = customer(&pool, "klant@example.nl").await;
+    let link = issue(&pool, "klant@example.nl", start()).await;
+    let login = customer::start(&pool, id, start()).await.expect("login");
+    sqlx::query("UPDATE customer SET erased_at = now() WHERE id = $1")
+        .bind(id.get())
+        .execute(&pool)
+        .await
+        .expect("erase");
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let redeemed = customer::redeem_link(&mut conn, link.token.as_str(), start())
+        .await
+        .expect("redeem");
+    assert_eq!(redeemed, None);
+    let current = customer::current(&pool, &login, start())
+        .await
+        .expect("current");
+    assert_eq!(current, None);
+    assert_eq!(count(&pool, "SELECT count(*) FROM customer_login").await, 0);
+}
