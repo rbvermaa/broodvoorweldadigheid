@@ -36,10 +36,6 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
   balance transactions, which need an organization access token with `balances.read`,
   not the website API key (ADR 0013). OK to add that token to the sops secrets?
-- [ ] **Who runs the jobs tick?** The spec puts `jobs` and everything under `apps/` in layer 6,
-  and a crate may only depend on lower layers, so the server cannot start `jobs::run`
-  (ADR 0015). Options: a `jobs` binary run as its own compose service, `jobs` in layer 5,
-  or a rule that apps may use `jobs`. Which one?
 - [ ] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?
