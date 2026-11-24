@@ -279,8 +279,9 @@ pub async fn enqueue_due_reminders(
             continue;
         }
         let mut tx = conn.begin().await.map_err(orders::Error::from)?;
-        let still_due = orders::lock_awaiting_pickup(&mut tx, order)
-            .await?
+        let starts = orders::lock_awaiting_pickup(&mut tx, order).await?;
+        let now = clock.now();
+        let still_due = starts
             .is_some_and(|starts| now < starts && now >= reminder_due(starts, emails.reminder_at));
         if !still_due {
             continue;

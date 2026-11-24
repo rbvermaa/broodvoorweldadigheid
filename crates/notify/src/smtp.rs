@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, SystemTime};
 
 use lettre::message::header::{HeaderName, HeaderValue};
@@ -157,8 +158,10 @@ impl SmtpConfig {
 
 /// Sends through the SMTP relay with lettre.
 pub struct SmtpSender {
-    transport: AsyncSmtpTransport<Tokio1Executor>,
+    config: SmtpConfig,
+    transport: RwLock<AsyncSmtpTransport<Tokio1Executor>>,
     from: Mailbox,
+    deadline: Duration,
 }
 
 impl SmtpSender {
@@ -167,50 +170,86 @@ impl SmtpSender {
     /// # Errors
     /// [`SmtpConfigError::Transport`] when TLS cannot be set up for the host.
     pub fn new(config: &SmtpConfig) -> Result<Self, SmtpConfigError> {
-        let transport =
-            |e: lettre::transport::smtp::Error| SmtpConfigError::Transport(e.to_string());
-        let mut builder = match config.tls {
-            TlsMode::Starttls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
-                .map_err(transport)?,
-            TlsMode::Tls => {
-                AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host).map_err(transport)?
-            }
-            TlsMode::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host),
-        }
-        .port(config.port)
-        .timeout(Some(TIMEOUT))
-        .hello_name(ClientId::Domain(config.from.email.domain().to_owned()));
-        if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            builder = builder.credentials(Credentials::new(
-                username.clone(),
-                password.expose().to_owned(),
-            ));
-        }
         Ok(Self {
-            transport: builder.build(),
+            config: config.clone(),
+            transport: RwLock::new(transport(config)?),
             from: config.from.clone(),
+            deadline: SEND_DEADLINE,
         })
     }
+
+    /// How long one send may take, all SMTP replies included (default 40 s).
+    #[must_use]
+    pub fn with_send_deadline(mut self, deadline: Duration) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    fn transport(&self) -> AsyncSmtpTransport<Tokio1Executor> {
+        self.transport
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// A send cut off by the deadline can leave its connection waiting for a reply, and
+    /// lettre would put that connection back in the pool. A fresh pool drops it.
+    fn replace_pool(&self) {
+        match transport(&self.config) {
+            Ok(fresh) => {
+                *self
+                    .transport
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner) = fresh;
+            }
+            Err(error) => tracing::warn!(%error, "cannot renew the SMTP connection pool"),
+        }
+    }
+}
+
+fn transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, SmtpConfigError> {
+    let transport = |e: lettre::transport::smtp::Error| SmtpConfigError::Transport(e.to_string());
+    let mut builder = match config.tls {
+        TlsMode::Starttls => {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host).map_err(transport)?
+        }
+        TlsMode::Tls => {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host).map_err(transport)?
+        }
+        TlsMode::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host),
+    }
+    .port(config.port)
+    .timeout(Some(TIMEOUT))
+    .hello_name(ClientId::Domain(config.from.email.domain().to_owned()));
+    if let (Some(username), Some(password)) = (&config.username, &config.password) {
+        builder = builder.credentials(Credentials::new(
+            username.clone(),
+            password.expose().to_owned(),
+        ));
+    }
+    Ok(builder.build())
 }
 
 impl EmailSender for SmtpSender {
     fn send<'a>(&'a self, email: &'a OutgoingEmail) -> SendFuture<'a> {
         Box::pin(async move {
             let message = message(&self.from, email)?;
-            tokio::time::timeout(SEND_DEADLINE, self.transport.send(message))
-                .await
-                .map_err(|_| {
-                    SendError::Transient("the SMTP relay did not answer in time".to_owned())
-                })?
-                .map(|_| ())
-                .map_err(|error| {
-                    let code = error.status().map(|code| code.to_string());
-                    if error.is_permanent() && is_recipient_refusal(code.as_deref()) {
-                        SendError::Permanent(error.to_string())
-                    } else {
-                        SendError::Transient(error.to_string())
-                    }
-                })
+            let transport = self.transport();
+            let Ok(sent) = tokio::time::timeout(self.deadline, transport.send(message)).await
+            else {
+                self.replace_pool();
+                return Err(SendError::Transient(
+                    "the SMTP relay did not answer in time".to_owned(),
+                ));
+            };
+            sent.map(|_| ()).map_err(|error| {
+                let code = error.status().map(|code| code.to_string());
+                if error.is_permanent() && is_recipient_refusal(code.as_deref()) {
+                    SendError::Permanent(error.to_string())
+                } else {
+                    SendError::Transient(error.to_string())
+                }
+            })
         })
     }
 }
