@@ -33,7 +33,7 @@ endif
 NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
-IMAGES := server postgres kanidm caddy backup
+IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
@@ -56,7 +56,7 @@ BVW_IMAGE_TAG ?= dev
 BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
 export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
-COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
+COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
