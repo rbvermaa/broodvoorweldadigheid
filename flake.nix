@@ -40,6 +40,7 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
+          htmx = pkgs.callPackage ./nix/htmx.nix { };
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -47,7 +48,8 @@
               ./crates/db/migrations
               ./.sqlx
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
-              ./design/tokens.toml
+              ./design
+              ./templates
             ];
           };
           commonArgs = {
@@ -55,6 +57,7 @@
             pname = "bakflow";
             version = "0.1.0";
             strictDeps = true;
+            HTMX_JS = "${htmx}";
             # Query macros read .sqlx/, never a live database (make sqlx-prepare).
             SQLX_OFFLINE = "true";
           };
@@ -82,6 +85,7 @@
             cargoArtifacts
             postgresql
             postgres
+            htmx
             cli
             ;
         };
@@ -245,9 +249,10 @@
       );
 
       devShells = forAllSystems (
-        { pkgs, craneLib, ... }:
+        { pkgs, craneLib, htmx, ... }:
         {
           default = craneLib.devShell {
+            HTMX_JS = "${htmx}";
             # Only the cargo checks: the image and restore checks would build the
             # workspace, so a stale .sqlx/ would keep the shell from starting.
             checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
