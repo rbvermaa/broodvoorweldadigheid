@@ -33,3 +33,5 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [ ] **Typst advisories.** On the next Typst release, check whether quick-xml < 0.41 is
+  gone and drop the two ignores in `.cargo/audit.toml` (ADR 0016).

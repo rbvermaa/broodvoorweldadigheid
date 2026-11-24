@@ -43,15 +43,17 @@ neither its font search nor its package downloads.
 | Tests snapshot the JSON input and the laid-out text (runs per line, from Typst's frames), not PDF bytes | Readable diffs; layout changes still show up |
 | PDFs are monochrome with thin black rules | Paper for the bakery, not UI; the design tokens apply to the web pages |
 
-**Open: `cargo audit` fails.** Typst 0.15.1 depends on `hayagriva` (bibliographies), which
-pulls in `citationberg` 0.7.0 with `quick-xml` 0.38.4: RUSTSEC-2026-0194 and
-RUSTSEC-2026-0195 (fixed in quick-xml 0.41). No newer citationberg, hayagriva or typst
-exists yet, and hayagriva is not optional. The XML parser only reads CSL styles and
-locales for bibliographies; our templates have none and our `World` serves no other files,
-so we think the code is not reachable. The gate stays as it is until the owner decides:
-ignore these two advisories with this reasoning, or wait for an upstream release. Typst
-also brings unmaintained-crate warnings (ttf-parser, rustybuzz, yaml-rust, unsafe-libyaml,
-bincode, paste); `cargo audit` allows those.
+**Accepted advisories.** Typst 0.15.1 always depends on `hayagriva` (bibliographies). Chain:
+typst-library -> hayagriva -> citationberg 0.7.0 -> quick-xml 0.38.4, which has
+RUSTSEC-2026-0194 (quadratic duplicate-attribute check) and RUSTSEC-2026-0195 (unbounded
+namespace allocation in `NsReader`), both fixed in quick-xml 0.41. No newer citationberg,
+hayagriva or typst exists yet. The vulnerable code only parses CSL bibliography styles and
+locales; our templates use no bibliography, and our `World` serves only our own template
+and `/data.json`, so no untrusted XML reaches it. The owner decided on 2026-11-24 to
+ignore both ids in `.cargo/audit.toml`. Remove them once a Typst release no longer pulls in
+a quick-xml below 0.41; `crates/production/tests/advisories.rs` fails from then on until
+the entries are gone. Typst also brings unmaintained-crate warnings (ttf-parser, rustybuzz,
+yaml-rust, unsafe-libyaml, bincode, paste); `cargo audit` allows those.
 
 **Open: names in other scripts.** Only Inter and Oswald are embedded, and Typst does not
 warn about a missing glyph. A name in, say, Arabic or Chinese prints as empty boxes. A
