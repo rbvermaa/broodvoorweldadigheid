@@ -8,7 +8,7 @@
 <ul class="pickup-list">
 {%- for window in windows %}
 <li>
-<input class="pickup-input" type="radio" id="{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ window.value }}"{% if window.selected %} checked{% endif %}{% if window.is_full() %} disabled{% endif %}>
+<input class="pickup-input" type="radio" id="{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ window.value }}"{% if window.selected %} checked{% endif %}{% if window.is_full() %} disabled{% endif %}{% if !error.is_empty() %} aria-invalid="true"{% endif %}>
 <label class="pickup-option" for="{{ name }}-{{ loop.index }}">
 <span class="pickup-day">{{ layout.icon("calendar")? }}{{ window.day }}</span>
 <span class="pickup-time">{{ layout.icon("clock")? }}{{ window.time }}</span>

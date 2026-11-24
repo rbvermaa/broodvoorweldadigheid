@@ -245,25 +245,58 @@ fn breakpoints() -> Vec<String> {
         .collect()
 }
 
+/// Lowercase, without whitespace around `=`, so `style = "…"` reads as `style="…"`.
+fn compact(source: &str) -> String {
+    let lower = source.to_ascii_lowercase();
+    let mut out = String::with_capacity(lower.len());
+    let mut chars = lower.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            while chars.peek().is_some_and(|next| next.is_whitespace()) {
+                chars.next();
+            }
+            if chars.peek() == Some(&'=') || out.ends_with('=') {
+                continue;
+            }
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn template_problems(source: &str) -> Vec<String> {
     let mut problems = Vec::new();
-    let lower = source.to_ascii_lowercase();
-    if lower.contains("style=") {
-        problems.push("style attribute".to_owned());
+    let text = compact(source);
+    for (needle, problem) in [
+        ("style=", "style attribute"),
+        ("<style", "<style> element"),
+        ("|safe", "|safe filter"),
+        ("| safe", "|safe filter"),
+        ("filter safe", "safe filter block"),
+        ("escape(\"none\")", "escaping turned off"),
+        ("e(\"none\")", "escaping turned off"),
+        ("hx-on", "inline htmx handler"),
+        ("javascript:", "javascript: URL"),
+        (" class='", "class must use double quotes"),
+    ] {
+        if text.contains(needle) {
+            problems.push(problem.to_owned());
+        }
     }
-    if lower.contains("<style") {
-        problems.push("<style> element".to_owned());
+    for (at, _) in text.match_indices(" class=") {
+        if !text[at + " class=".len()..].starts_with(['"', '\'']) {
+            problems.push("unquoted class".to_owned());
+        }
     }
-    if lower.contains("|safe") || lower.contains("| safe") {
-        problems.push("|safe filter".to_owned());
-    }
-    for tag in lower.split("<script").skip(1) {
+    for tag in text.split("<script").skip(1) {
         let open = tag.split('>').next().unwrap_or_default();
         if !open.contains(" src=") {
             problems.push("inline <script>".to_owned());
         }
     }
-    for word in lower.split(|c: char| c.is_whitespace() || c == '<') {
+    for word in text.split(|c: char| c.is_whitespace() || c == '<' || c == '"' || c == '\'') {
         let handler = word.starts_with("on")
             && word
                 .find('=')
@@ -275,7 +308,27 @@ fn template_problems(source: &str) -> Vec<String> {
     problems
 }
 
-/// Splits CSS into `(selector or at-rule, declarations)`, without comments.
+/// What stylesheets may refer to: the breakpoint values and the token variables.
+struct Tokens {
+    breakpoints: Vec<String>,
+    variables: BTreeSet<String>,
+}
+
+fn tokens() -> Tokens {
+    let variables = server::assets::TOKENS_CSS
+        .lines()
+        .filter_map(|line| line.trim().split_once(':'))
+        .map(|(name, _)| name.to_owned())
+        .filter(|name| name.starts_with("--"))
+        .collect();
+    Tokens {
+        breakpoints: breakpoints(),
+        variables,
+    }
+}
+
+/// Splits CSS into `(selector or at-rule, declarations)`, without comments. Statements
+/// outside any rule land under the selector `""`.
 fn css_rules(css: &str) -> Vec<(String, Vec<String>)> {
     let mut text = String::new();
     for (index, part) in css.split("/*").enumerate() {
@@ -285,7 +338,7 @@ fn css_rules(css: &str) -> Vec<(String, Vec<String>)> {
             text.push_str(rest);
         }
     }
-    let mut rules: Vec<(String, Vec<String>)> = Vec::new();
+    let mut rules: Vec<(String, Vec<String>)> = vec![(String::new(), Vec::new())];
     let mut current = String::new();
     let mut open: Vec<usize> = Vec::new();
     for c in text.chars() {
@@ -297,8 +350,8 @@ fn css_rules(css: &str) -> Vec<(String, Vec<String>)> {
             }
             ';' | '}' => {
                 let declaration = current.trim().to_owned();
-                if let (false, Some(&rule)) = (declaration.is_empty(), open.last()) {
-                    rules[rule].1.push(declaration);
+                if !declaration.is_empty() {
+                    rules[open.last().copied().unwrap_or(0)].1.push(declaration);
                 }
                 current.clear();
                 if c == '}' {
@@ -308,46 +361,106 @@ fn css_rules(css: &str) -> Vec<(String, Vec<String>)> {
             c => current.push(c),
         }
     }
+    let rest = current.trim().to_owned();
+    if !rest.is_empty() {
+        rules[0].1.push(rest);
+    }
     rules
 }
 
-fn strip_vars(value: &str) -> String {
+/// Replaces each `var(--name)` with a space. A name that is not a token, or a fallback
+/// value, is a problem.
+fn strip_vars(declaration: &str, value: &str, tokens: &Tokens) -> (String, Vec<String>) {
+    let mut problems = Vec::new();
     let mut rest = value.to_owned();
     while let Some(start) = rest.find("var(") {
-        let mut depth = 0;
-        let mut end = rest.len() - 1;
-        for (offset, c) in rest[start..].char_indices() {
-            if c == '(' {
-                depth += 1;
-            } else if c == ')' {
-                depth -= 1;
-                if depth == 0 {
-                    end = start + offset;
-                    break;
-                }
-            }
+        let end = rest[start..]
+            .find(')')
+            .map_or(rest.len() - 1, |end| start + end);
+        let inner = rest[start + 4..end].trim();
+        if inner.contains(',') || inner.contains('(') {
+            problems.push(format!("var() with a fallback: {declaration}"));
+        } else if !tokens.variables.contains(inner) {
+            problems.push(format!("{inner} is not a token: {declaration}"));
         }
         rest.replace_range(start..=end, " ");
     }
-    rest
+    (rest, problems)
 }
 
-fn value_problems(declaration: &str, value: &str) -> Vec<String> {
-    let mut problems = Vec::new();
-    let rest = strip_vars(value).to_ascii_lowercase();
+/// CSS system colours (CSS Color 4) and absolute or relative size keywords.
+const KEYWORDS: &[&str] = &[
+    "accentcolor",
+    "accentcolortext",
+    "activetext",
+    "buttonborder",
+    "buttonface",
+    "buttontext",
+    "canvas",
+    "canvastext",
+    "field",
+    "fieldtext",
+    "graytext",
+    "highlight",
+    "highlighttext",
+    "linktext",
+    "mark",
+    "marktext",
+    "selecteditem",
+    "selecteditemtext",
+    "visitedtext",
+    "xx-small",
+    "x-small",
+    "small",
+    "medium",
+    "large",
+    "x-large",
+    "xx-large",
+    "xxx-large",
+    "smaller",
+    "larger",
+    "thin",
+    "thick",
+];
+
+fn value_problems(declaration: &str, property: &str, value: &str, tokens: &Tokens) -> Vec<String> {
+    let (rest, mut problems) = strip_vars(declaration, value, tokens);
+    let rest = rest.to_ascii_lowercase();
     if rest.contains('#') {
         problems.push(format!("literal colour: {declaration}"));
     }
     for function in [
-        "rgb", "hsl", "hwb", "lab(", "lch(", "oklab", "oklch", "color(",
+        "rgb",
+        "hsl",
+        "hwb",
+        "lab(",
+        "lch(",
+        "oklab",
+        "oklch",
+        "color(",
+        "color-mix",
+        "light-dark",
     ] {
         if rest.contains(function) {
             problems.push(format!("literal colour: {declaration}"));
         }
     }
+    if rest.contains("url(") {
+        problems.push(format!("url() outside @font-face: {declaration}"));
+    }
+    if rest.contains('"') || rest.contains('\'') {
+        let font = property == "font-family";
+        if !font {
+            problems.push(format!("text in CSS belongs in Fluent: {declaration}"));
+        }
+    }
+    let weight = property == "font-weight";
     for word in rest.split(|c: char| !(c.is_ascii_alphanumeric() || "%.-".contains(c))) {
         if NAMED_COLOURS.contains(&word) {
             problems.push(format!("named colour {word}: {declaration}"));
+        }
+        if KEYWORDS.contains(&word) && !(weight && word == "medium") {
+            problems.push(format!("keyword {word} outside tokens: {declaration}"));
         }
         if word.chars().any(|c| c.is_ascii_digit()) && !ALLOWED_NUMBERS.contains(&word) {
             problems.push(format!("literal size {word}: {declaration}"));
@@ -356,13 +469,21 @@ fn value_problems(declaration: &str, value: &str) -> Vec<String> {
     problems
 }
 
-fn css_problems(css: &str, breakpoints: &[String]) -> Vec<String> {
+fn css_problems(css: &str, tokens: &Tokens) -> Vec<String> {
     let mut problems = Vec::new();
     for (selector, declarations) in css_rules(css) {
+        if selector.is_empty() {
+            problems.extend(
+                declarations
+                    .iter()
+                    .map(|statement| format!("statement outside a rule: {statement}")),
+            );
+            continue;
+        }
         if let Some(query) = selector.strip_prefix("@media") {
             for word in query.split(|c: char| c.is_whitespace() || "():,".contains(c)) {
                 let digits = word.chars().any(|c| c.is_ascii_digit());
-                if digits && !breakpoints.iter().any(|b| b == word) {
+                if digits && !tokens.breakpoints.iter().any(|b| b == word) {
                     problems.push(format!("{word} in {selector:?} is not a breakpoint token"));
                 }
             }
@@ -378,7 +499,7 @@ fn css_problems(css: &str, breakpoints: &[String]) -> Vec<String> {
             if property.starts_with("--") {
                 problems.push(format!("custom property outside tokens: {declaration}"));
             } else if !(selector == "@font-face" && ["src", "font-weight"].contains(&property)) {
-                problems.extend(value_problems(&declaration, value));
+                problems.extend(value_problems(&declaration, property, value, tokens));
             }
         }
     }
@@ -407,17 +528,24 @@ fn css_classes(css: &str) -> BTreeSet<String> {
 /// Class names in `class="…"` attributes. Askama `{% %}` tags are dropped, so the literal
 /// names in every branch count; a `{{ }}` expression in a class is an error.
 fn template_classes(source: &str) -> Result<Vec<String>, String> {
+    let mut text = source.to_owned();
+    for (open, close) in [("{#", "#}"), ("{%", "%}")] {
+        while let Some(start) = text.find(open) {
+            let end = text[start..]
+                .find(close)
+                .map_or(text.len(), |end| start + end + close.len());
+            text.replace_range(start..end, " ");
+        }
+    }
     let mut classes = Vec::new();
-    for part in source.split(" class=\"").skip(1) {
-        let mut value = part.split('"').next().unwrap_or_default().to_owned();
+    for (at, _) in text.match_indices("class=\"") {
+        if !text[..at].ends_with(char::is_whitespace) {
+            continue;
+        }
+        let rest = &text[at + "class=\"".len()..];
+        let value = rest.split('"').next().unwrap_or_default();
         if value.contains("{{") {
             return Err(format!("class built from an expression: {value}"));
-        }
-        while let Some(start) = value.find("{%") {
-            let end = value[start..]
-                .find("%}")
-                .map_or(value.len(), |end| start + end + 2);
-            value.replace_range(start..end, " ");
         }
         classes.extend(value.split_whitespace().map(str::to_owned));
     }
@@ -455,11 +583,11 @@ fn templates_have_no_inline_styles_or_scripts() {
 
 #[test]
 fn stylesheets_use_only_tokens() {
-    let breakpoints = breakpoints();
+    let tokens = tokens();
     let mut declarations = 0;
     for (name, css) in stylesheets() {
         declarations += css_rules(&css).iter().map(|(_, d)| d.len()).sum::<usize>();
-        let problems = css_problems(&css, &breakpoints);
+        let problems = css_problems(&css, &tokens);
         assert!(problems.is_empty(), "{name}:\n{}", problems.join("\n"));
     }
     assert!(declarations > 100, "found only {declarations} declarations");
@@ -553,6 +681,15 @@ fn template_checker_catches_planted_violations() {
         "<script>alert(1)</script>",
         "<a href=\"#\" onclick=\"x()\">x</a>",
         "{{ text|safe }}",
+        "<p style = \"x\">",
+        "<a href=\"x\"onclick=\"y\">",
+        "<a onclick = \"y\">",
+        "<button hx-on:click=\"y\">",
+        "<a href=\"javascript:x()\">",
+        "{{ text|escape(\"none\") }}",
+        "{% filter safe %}x{% endfilter %}",
+        "<p class='a'>",
+        "<p class=a>",
     ] {
         assert!(!template_problems(bad).is_empty(), "{bad}");
     }
@@ -562,7 +699,18 @@ fn template_checker_catches_planted_violations() {
 
 #[test]
 fn css_checker_catches_planted_violations() {
-    let breakpoints = vec!["36rem".to_owned()];
+    let tokens = Tokens {
+        breakpoints: vec!["36rem".to_owned()],
+        variables: [
+            "--color-text",
+            "--color-black",
+            "--space-1",
+            "--space-2",
+            "--size-tile",
+        ]
+        .map(str::to_owned)
+        .into(),
+    };
     for bad in [
         ".a { color: #fff; }",
         ".a { color: rgb(0 0 0); }",
@@ -576,15 +724,24 @@ fn css_checker_catches_planted_violations() {
         "@keyframes spin { to { transform: rotate(1turn); } }",
         "/* fine */ .a { color: var(--color-text) } .b { font-size: 2em }",
         "@font-face { font-family: \"X\"; font-display: 2s; }",
+        ".a { color: var(--color-text, red); }",
+        ".a { padding: var(--space-9); }",
+        "@import url(x.css);",
+        ".a { color: color-mix(in srgb, var(--color-text), var(--color-black)); }",
+        ".a { color: CanvasText; }",
+        ".a { font-size: larger; }",
+        ".a { border: thin solid var(--color-text); }",
+        ".a::after { content: \"Verplicht\"; }",
+        ".a { background: url(x.png); }",
     ] {
-        assert!(!css_problems(bad, &breakpoints).is_empty(), "{bad}");
+        assert!(!css_problems(bad, &tokens).is_empty(), "{bad}");
     }
     let good = "/* #fff 12px red */ .a { color: var(--color-text); flex: 1 1 var(--size-tile); \
         clip-path: inset(50%); border-left: var(--space-1) solid currentColor; }\n\
         @media (min-width: 36rem) { .a:hover { margin: 0 var(--space-2); } }\n\
         @font-face { font-family: \"Inter\"; src: url(\"fonts/inter.woff2\") format(\"woff2\"); \
         font-weight: 100 900; }";
-    assert_eq!(css_problems(good, &breakpoints), Vec::<String>::new());
+    assert_eq!(css_problems(good, &tokens), Vec::<String>::new());
 }
 
 #[test]
@@ -595,6 +752,13 @@ fn class_checker_reads_branches_and_refuses_expressions() {
         )
         .expect("classes"),
         ["a", "b", "c", "d"]
+    );
+    assert_eq!(
+        template_classes(
+            "<b class=\"x {% if v == \"s\" %}x-s{% else if v == \"d\" %}x-d{% endif %}\" {# class=\"no\" #}>"
+        )
+        .expect("classes"),
+        ["x", "x-s", "x-d"]
     );
     assert!(template_classes("<p class=\"button-{{ variant }}\"></p>").is_err());
     let classes =

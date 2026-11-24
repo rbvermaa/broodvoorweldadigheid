@@ -33,3 +33,4 @@ allergen-sesame_seeds = Sesamzaad
 allergen-sulphur_dioxide_and_sulphites = Zwaveldioxide en sulfieten
 allergen-lupin = Lupine
 allergen-molluscs = Weekdieren
+field-currency = in euro

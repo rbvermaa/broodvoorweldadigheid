@@ -1,7 +1,8 @@
 {# Form fields. kind: text, email, number, money or textarea. #}
-{% macro label(name, label, required) %}
+{% macro label(name, label, required, currency = false) %}
 <label class="field-label" for="{{ name }}">{{ label }}
-{%- if required %} <span class="field-required">({{ layout.t("field-required")? }})</span>{% endif %}</label>
+{%- if currency %} <span class="visually-hidden">{{ layout.t("field-currency")? }}</span>{% endif %}
+{%- if required %} <span class="field-required" aria-hidden="true">({{ layout.t("field-required")? }})</span>{% endif %}</label>
 {% endmacro %}
 
 {% macro help(name, hint, error) %}
@@ -18,7 +19,7 @@
 
 {% macro field(kind, name, label, value = "", hint = "", error = "", required = false, disabled = false) %}
 <div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
-{% call label(name, label, required) %}{% endcall %}
+{% call label(name, label, required, kind == "money") %}{% endcall %}
 {% call help(name, hint, error) %}{% endcall %}
 {%- if kind == "textarea" %}
 <textarea class="field-input" id="{{ name }}" name="{{ name }}" rows="3"{% call described(name, hint, error, required, disabled) %}{% endcall %}>{{ value }}</textarea>

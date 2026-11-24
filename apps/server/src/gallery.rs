@@ -3,8 +3,8 @@
 
 use askama::Template;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::Response;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
 use i18n::Translator;
 
 use crate::components::{Cell, PickupWindow, Product, SelectOption, Table};
@@ -154,7 +154,11 @@ pub async fn page(State(state): State<AppState>, session: tower_sessions::Sessio
     }
 }
 
-pub async fn save(State(state): State<AppState>) -> Response {
+/// htmx gets the confirmation fragment; a plain form post goes back to the page.
+pub async fn save(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !headers.contains_key("hx-request") {
+        return Redirect::to("/gallery").into_response();
+    }
     pages::render(
         &state,
         StatusCode::OK,

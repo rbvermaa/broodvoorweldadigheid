@@ -26,7 +26,7 @@
 
 <section class="gallery-section" aria-labelledby="gallery-fields">
 <h2 id="gallery-fields">{{ layout.t("gallery-fields")? }}</h2>
-<form class="gallery-form" action="/gallery" method="post">
+<div class="gallery-form">
 {% call f::field("text", "naam", layout.t("gallery-name")?, hint = layout.t("gallery-name-hint")?, required = true) %}{% endcall %}
 {% call f::field("email", "email", layout.t("gallery-email")?, value = "naam@", error = layout.t("gallery-email-error")?, required = true) %}{% endcall %}
 {% call f::field("number", "aantal", layout.t("gallery-amount")?, value = "0", error = layout.t("gallery-amount-error")?) %}{% endcall %}
@@ -39,7 +39,7 @@
 {% call f::checkbox("akkoord", layout.t("gallery-terms")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-fout", layout.t("gallery-terms")?, error = layout.t("gallery-terms-error")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-uit", layout.t("gallery-terms")?, checked = true, disabled = true) %}{% endcall %}
-</form>
+</div>
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-products">

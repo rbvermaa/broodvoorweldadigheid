@@ -608,5 +608,21 @@ async fn gallery_renders_and_its_dialog_posts_back_opgeslagen(pool: PgPool) {
     .await;
     assert_eq!(saved.status, StatusCode::OK);
     assert!(saved.body.contains(&dutch("saved")), "{}", saved.body);
-    assert!(saved.body.contains("role=\"status\""), "{}", saved.body);
+    assert!(saved.body.contains("class=\"saved\""), "{}", saved.body);
+
+    let plain = send(
+        &app,
+        Request::post("/gallery")
+            .header(COOKIE, &cookie)
+            .header(csrf::HEADER, &token)
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(
+        plain.status,
+        StatusCode::SEE_OTHER,
+        "no htmx: back to the page"
+    );
+    assert_eq!(header(&plain, axum::http::header::LOCATION), "/gallery");
 }

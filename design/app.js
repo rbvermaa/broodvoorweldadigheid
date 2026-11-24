@@ -21,6 +21,9 @@ document.addEventListener("click", (event) => {
   }
 });
 
+// A failed request leaves the dialog open, so the action does not look done.
 document.addEventListener("htmx:afterRequest", (event) => {
-  event.target.closest("dialog")?.close();
+  if (event.detail.successful) {
+    event.target.closest("dialog")?.close();
+  }
 });

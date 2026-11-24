@@ -98,50 +98,59 @@ pub fn generate(
     Ok(out)
 }
 
-/// The shapes inside Lucide's `<svg>`, on one line; anything but plain shapes is refused.
+const ATTRIBUTES: [&str; 14] = [
+    "d", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "x2", "y1", "y2", "width", "height",
+];
+
+/// The shapes inside Lucide's `<svg>`, on one line. Only plain shapes with geometry
+/// attributes (and `points`) are accepted.
 fn inner_svg(svg: &str) -> Result<String, String> {
     let start = svg.find("<svg").ok_or("no <svg>")?;
     let open_end = svg[start..].find('>').ok_or("unclosed <svg>")? + start + 1;
     let close = svg.rfind("</svg>").ok_or("no </svg>")?;
-    let inner: String = svg
+    let inner = svg
         .get(open_end..close)
         .ok_or("</svg> before <svg>")?
-        .lines()
-        .map(str::trim)
-        .collect();
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("> <", "><");
     if inner.is_empty() {
         return Err("empty icon".to_string());
     }
     for element in inner.split('<').skip(1) {
-        let tag = element
-            .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
-            .next()
-            .unwrap_or_default();
+        let element = element.trim_end();
+        let body = element
+            .strip_suffix("/>")
+            .ok_or_else(|| format!("<{element} is not a self-closing shape"))?;
+        let (tag, mut attributes) = body.split_once(' ').unwrap_or((body, ""));
         if !SHAPES.contains(&tag) {
             return Err(format!("unexpected element <{tag}>"));
         }
-        if !element.trim_end().ends_with("/>") {
-            return Err(format!("<{tag}> is not self-closing"));
-        }
-        for forbidden in ["style", "class", "on", "href"] {
-            let attribute = format!(" {forbidden}");
-            if element
-                .match_indices(&attribute)
-                .any(|(at, _)| is_attribute_start(&element[at + attribute.len()..], forbidden))
-            {
-                return Err(format!("<{tag}> has a {forbidden} attribute"));
+        loop {
+            attributes = attributes.trim_start();
+            if attributes.is_empty() {
+                break;
             }
+            let (name, rest) = attributes
+                .split_once("=\"")
+                .ok_or_else(|| format!("<{tag}>: cannot read {attributes:?}"))?;
+            if !(ATTRIBUTES.contains(&name) || name == "points") {
+                return Err(format!("<{tag}> has a {name} attribute"));
+            }
+            let (value, rest) = rest
+                .split_once('"')
+                .ok_or_else(|| format!("<{tag}>: unclosed {name}"))?;
+            if !value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || " .,-".contains(c))
+            {
+                return Err(format!("<{tag}> {name} has {value:?}"));
+            }
+            attributes = rest;
         }
     }
     Ok(inner)
-}
-
-fn is_attribute_start(rest: &str, name: &str) -> bool {
-    if name == "on" {
-        rest.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
-    } else {
-        rest.starts_with('=')
-    }
 }
 
 #[cfg(test)]
@@ -205,6 +214,10 @@ mod tests {
             "<svg><path d=\"M\"></path></svg>",
             "<svg></svg>",
             "<path />",
+            "<svg><path d=\"M\"\nonload=\"x\" /></svg>",
+            "<svg><path d=\"M\"\tonload=\"x\" /></svg>",
+            "<svg><path d=\"url(#x)\" /></svg>",
+            "<svg><path d=M /></svg>",
         ] {
             assert!(inner_svg(bad).is_err(), "{bad}");
         }
