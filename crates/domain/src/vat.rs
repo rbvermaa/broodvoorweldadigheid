@@ -31,7 +31,7 @@ impl VatRate {
         let numerator = i128::from(gross.cents()).abs() * rate;
         let rounded = (2 * numerator + divisor) / (2 * divisor);
         let signed = if gross.cents() < 0 { -rounded } else { rounded };
-        // |vat| < |gross|, so it fits back into an i64.
+        // |vat| <= |gross|, so it fits back into an i64.
         Money::from_cents(i64::try_from(signed).unwrap_or_default())
     }
 
