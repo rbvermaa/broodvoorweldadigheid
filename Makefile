@@ -2,6 +2,7 @@
 # Usage: make help
 #   make db-up && make test     run the tests against a local PostgreSQL
 #   make db-down                stop it (data stays in .pg/)
+#   make db-up && make sqlx-prepare   regenerate .sqlx/ after changing a query or migration
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
@@ -42,6 +43,7 @@ PG_DIR := $(CURDIR)/.pg
 PG_PORT ?= 54331
 DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
 export DATABASE_URL
+SQLX_DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/bvw_sqlx_prepare
 
 COMPOSE_PROJECT ?= bvw
 SMOKE_PROJECT ?= bvw-smoke
@@ -57,7 +59,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
+	sqlx-prepare sqlx-check restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -97,6 +99,14 @@ audit: ## Known-vulnerability check (cargo-audit)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
+
+sqlx-prepare: ## Regenerate .sqlx/ (offline query data) against a scratch database (needs make db-up)
+	$(NIX_DEV) bash -c 'set -e; export DATABASE_URL=$(SQLX_DATABASE_URL) SQLX_OFFLINE=false; \
+		sqlx database drop -y; sqlx database create; sqlx migrate run --source crates/db/migrations; \
+		cargo sqlx prepare --workspace -- --all-targets --all-features'
+
+sqlx-check: ## Check .sqlx/ matches the queries and migrations
+	$(call CHECK,sqlx-prepare)
 
 restore-test: ## Back up a seeded database, restore it and verify (Gate 1)
 	$(call CHECK,restore)

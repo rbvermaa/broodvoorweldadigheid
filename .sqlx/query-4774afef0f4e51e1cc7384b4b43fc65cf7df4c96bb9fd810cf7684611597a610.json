@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(p.lead_time_hours, c.default_lead_time_hours) AS \"hours!\"\n        FROM product p CROSS JOIN company c WHERE p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hours!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4774afef0f4e51e1cc7384b4b43fc65cf7df4c96bb9fd810cf7684611597a610"
+}

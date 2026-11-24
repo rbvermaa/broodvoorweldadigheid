@@ -45,6 +45,7 @@
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
+              ./.sqlx
             ];
           };
           commonArgs = {
@@ -52,6 +53,8 @@
             pname = "bakflow";
             version = "0.1.0";
             strictDeps = true;
+            # Query macros read .sqlx/, never a live database (make sqlx-prepare).
+            SQLX_OFFLINE = "true";
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           postgresql = pkgs.postgresql_17;
@@ -178,6 +181,24 @@
             }
           );
 
+          sqlx-prepare = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pnameSuffix = "-sqlx-prepare";
+              SQLX_OFFLINE = "false";
+              nativeBuildInputs = postgres.packages ++ [ pkgs.sqlx-cli ];
+              preBuild = postgres.start;
+              buildPhaseCargoCommand = ''
+                sqlx migrate run --source crates/db/migrations
+                cargo sqlx prepare --workspace --check -- --all-targets --all-features
+              '';
+              postBuild = postgres.stop;
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
           restore = import ./nix/restore-check.nix { inherit pkgs cli postgres; };
 
           coverage = craneLib.mkCargoDerivation (
@@ -223,7 +244,13 @@
         { pkgs, craneLib, ... }:
         {
           default = craneLib.devShell {
-            checks = self.checks.${pkgs.stdenv.hostPlatform.system};
+            # Only the cargo checks: the image and restore checks would build the
+            # workspace, so a stale .sqlx/ would keep the shell from starting.
+            checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
+              "restore"
+              "image-contents"
+            ];
+            SQLX_OFFLINE = "true";
             packages = with pkgs; [
               gnumake
               postgresql_17
