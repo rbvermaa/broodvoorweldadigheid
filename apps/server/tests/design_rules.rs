@@ -247,9 +247,27 @@ fn breakpoints() -> Vec<String> {
 
 /// Lowercase, without whitespace around `=`, so `style = "…"` reads as `style="…"`.
 fn compact(source: &str) -> String {
-    let lower = source.to_ascii_lowercase();
-    let mut out = String::with_capacity(lower.len());
-    let mut chars = lower.chars().peekable();
+    tight(&source.to_ascii_lowercase())
+}
+
+/// Blanks out askama tags of the given kinds.
+fn without_askama(source: &str, kinds: &[(&str, &str)]) -> String {
+    let mut text = source.to_owned();
+    for (open, close) in kinds {
+        while let Some(start) = text.find(open) {
+            let end = text[start..]
+                .find(close)
+                .map_or(text.len(), |end| start + end + close.len());
+            text.replace_range(start..end, " ");
+        }
+    }
+    text
+}
+
+/// Collapses whitespace and drops it around `=`.
+fn tight(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
     while let Some(c) = chars.next() {
         if c.is_whitespace() {
             while chars.peek().is_some_and(|next| next.is_whitespace()) {
@@ -276,7 +294,7 @@ fn template_problems(source: &str) -> Vec<String> {
         ("| safe", "|safe filter"),
         ("filter safe", "safe filter block"),
         ("escape(\"none\")", "escaping turned off"),
-        ("e(\"none\")", "escaping turned off"),
+        ("|e(\"none\")", "escaping turned off"),
         ("hx-on", "inline htmx handler"),
         ("javascript:", "javascript: URL"),
         (" class='", "class must use double quotes"),
@@ -296,7 +314,11 @@ fn template_problems(source: &str) -> Vec<String> {
             problems.push("inline <script>".to_owned());
         }
     }
-    for word in text.split(|c: char| c.is_whitespace() || c == '<' || c == '"' || c == '\'') {
+    let markup = compact(&without_askama(
+        source,
+        &[("{#", "#}"), ("{%", "%}"), ("{{", "}}")],
+    ));
+    for word in markup.split(|c: char| c.is_whitespace() || c == '<' || c == '"' || c == '\'') {
         let handler = word.starts_with("on")
             && word
                 .find('=')
@@ -423,7 +445,13 @@ const KEYWORDS: &[&str] = &[
     "thick",
 ];
 
-fn value_problems(declaration: &str, property: &str, value: &str, tokens: &Tokens) -> Vec<String> {
+fn value_problems(
+    declaration: &str,
+    property: &str,
+    value: &str,
+    in_font_face: bool,
+    tokens: &Tokens,
+) -> Vec<String> {
     let (rest, mut problems) = strip_vars(declaration, value, tokens);
     let rest = rest.to_ascii_lowercase();
     if rest.contains('#') {
@@ -448,11 +476,12 @@ fn value_problems(declaration: &str, property: &str, value: &str, tokens: &Token
     if rest.contains("url(") {
         problems.push(format!("url() outside @font-face: {declaration}"));
     }
-    if rest.contains('"') || rest.contains('\'') {
-        let font = property == "font-family";
-        if !font {
-            problems.push(format!("text in CSS belongs in Fluent: {declaration}"));
+    if property == "font-family" && !in_font_face {
+        if !rest.trim().is_empty() {
+            problems.push(format!("font outside the font tokens: {declaration}"));
         }
+    } else if (rest.contains('"') || rest.contains('\'')) && !in_font_face {
+        problems.push(format!("text in CSS belongs in Fluent: {declaration}"));
     }
     let weight = property == "font-weight";
     for word in rest.split(|c: char| !(c.is_ascii_alphanumeric() || "%.-".contains(c))) {
@@ -499,7 +528,13 @@ fn css_problems(css: &str, tokens: &Tokens) -> Vec<String> {
             if property.starts_with("--") {
                 problems.push(format!("custom property outside tokens: {declaration}"));
             } else if !(selector == "@font-face" && ["src", "font-weight"].contains(&property)) {
-                problems.extend(value_problems(&declaration, property, value, tokens));
+                problems.extend(value_problems(
+                    &declaration,
+                    property,
+                    value,
+                    selector == "@font-face",
+                    tokens,
+                ));
             }
         }
     }
@@ -528,15 +563,7 @@ fn css_classes(css: &str) -> BTreeSet<String> {
 /// Class names in `class="…"` attributes. Askama `{% %}` tags are dropped, so the literal
 /// names in every branch count; a `{{ }}` expression in a class is an error.
 fn template_classes(source: &str) -> Result<Vec<String>, String> {
-    let mut text = source.to_owned();
-    for (open, close) in [("{#", "#}"), ("{%", "%}")] {
-        while let Some(start) = text.find(open) {
-            let end = text[start..]
-                .find(close)
-                .map_or(text.len(), |end| start + end + close.len());
-            text.replace_range(start..end, " ");
-        }
-    }
+    let text = tight(&without_askama(source, &[("{#", "#}"), ("{%", "%}")]));
     let mut classes = Vec::new();
     for (at, _) in text.match_indices("class=\"") {
         if !text[..at].ends_with(char::is_whitespace) {
@@ -693,7 +720,7 @@ fn template_checker_catches_planted_violations() {
     ] {
         assert!(!template_problems(bad).is_empty(), "{bad}");
     }
-    let good = "<script src=\"/x.js\" defer></script><p class=\"a\">on</p>";
+    let good = "<script src=\"/x.js\" defer></script><p class=\"a\">on</p>{% let one = 1 %}{% if online == x %}{% endif %}{{ cache(\"none\") }}";
     assert!(template_problems(good).is_empty());
 }
 
@@ -733,6 +760,8 @@ fn css_checker_catches_planted_violations() {
         ".a { border: thin solid var(--color-text); }",
         ".a::after { content: \"Verplicht\"; }",
         ".a { background: url(x.png); }",
+        ".a { font-family: \"Comic Sans MS\"; }",
+        ".a { font-family: Arial, var(--color-text); }",
     ] {
         assert!(!css_problems(bad, &tokens).is_empty(), "{bad}");
     }
@@ -761,6 +790,10 @@ fn class_checker_reads_branches_and_refuses_expressions() {
         ["x", "x-s", "x-d"]
     );
     assert!(template_classes("<p class=\"button-{{ variant }}\"></p>").is_err());
+    assert_eq!(
+        template_classes("<p\n  class = \"nope\">").expect("classes"),
+        ["nope"]
+    );
     let classes =
         css_classes(".a, .b:hover > .c-d { x: y; } @media (min-width: 1rem) { .e { z: w; } }");
     assert_eq!(

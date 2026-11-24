@@ -1,6 +1,7 @@
 # Texts of the components in templates/components/.
 field-required = verplicht
 field-error-label = Fout:
+field-currency = in euro
 select-placeholder = Kies…
 button-loading = Bezig…
 alert-info = Info
@@ -33,4 +34,3 @@ allergen-sesame_seeds = Sesamzaad
 allergen-sulphur_dioxide_and_sulphites = Zwaveldioxide en sulfieten
 allergen-lupin = Lupine
 allergen-molluscs = Weekdieren
-field-currency = in euro
