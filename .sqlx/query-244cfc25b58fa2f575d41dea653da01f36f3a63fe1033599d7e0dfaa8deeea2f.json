@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH pools AS (\n            INSERT INTO capacity_pool (bake_day_id, name, max_units)\n            SELECT $2, name, max_units FROM capacity_pool WHERE bake_day_id = $1\n            RETURNING id, name\n        )\n        INSERT INTO bake_day_product (bake_day_id, product_id, max_qty, capacity_pool_id, units_per_item)\n        SELECT $2, p.product_id, p.max_qty, new_pool.id, p.units_per_item\n        FROM bake_day_product p\n        LEFT JOIN capacity_pool old_pool ON old_pool.id = p.capacity_pool_id\n        LEFT JOIN pools new_pool ON new_pool.name = old_pool.name\n        WHERE p.bake_day_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "244cfc25b58fa2f575d41dea653da01f36f3a63fe1033599d7e0dfaa8deeea2f"
+}

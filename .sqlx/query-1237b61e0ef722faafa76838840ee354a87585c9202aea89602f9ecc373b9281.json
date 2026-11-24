@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bake_day_product (bake_day_id, product_id, max_qty, capacity_pool_id, units_per_item)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (bake_day_id, product_id) DO UPDATE\n        SET max_qty = EXCLUDED.max_qty, capacity_pool_id = EXCLUDED.capacity_pool_id,\n            units_per_item = EXCLUDED.units_per_item",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1237b61e0ef722faafa76838840ee354a87585c9202aea89602f9ecc373b9281"
+}

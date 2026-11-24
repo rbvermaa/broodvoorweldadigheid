@@ -1,0 +1,22 @@
+{# windows: components::PickupWindow. A full window is shown but cannot be chosen. #}
+{% macro pickup_picker(name, legend, windows, error = "") %}
+<fieldset class="pickup{% if !error.is_empty() %} field-invalid{% endif %}"{% if !error.is_empty() %} aria-describedby="{{ name }}-error"{% endif %}>
+<legend class="field-label">{{ legend }}</legend>
+{%- if !error.is_empty() %}
+<p class="field-error" id="{{ name }}-error">{{ layout.icon("circle-alert")? }}<span class="visually-hidden">{{ layout.t("field-error-label")? }}</span> {{ error }}</p>
+{%- endif %}
+<ul class="pickup-list">
+{%- for window in windows %}
+<li>
+<input class="pickup-input" type="radio" id="{{ name }}-{{ loop.index }}" name="{{ name }}" value="{{ window.value }}"{% if window.selected %} checked{% endif %}{% if window.is_full() %} disabled{% endif %}{% if !error.is_empty() %} aria-invalid="true"{% endif %}>
+<label class="pickup-option" for="{{ name }}-{{ loop.index }}">
+<span class="pickup-day">{{ layout.icon("calendar")? }}{{ window.day }}</span>
+<span class="pickup-time">{{ layout.icon("clock")? }}{{ window.time }}</span>
+<span class="pickup-place">{{ window.place }}</span>
+<span class="pickup-note">{% if window.is_full() %}{{ layout.t("pickup-full")? }}{% else %}{{ layout.t_count("pickup-places-left", window.places_left)? }}{% endif %}</span>
+</label>
+</li>
+{%- endfor %}
+</ul>
+</fieldset>
+{% endmacro %}

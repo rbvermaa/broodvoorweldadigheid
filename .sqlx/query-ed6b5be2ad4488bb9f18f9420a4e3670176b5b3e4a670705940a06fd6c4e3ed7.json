@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM bake_day d\n            WHERE d.date = date 'epoch' + $1::integer AND d.status <> 'cancelled'\n            AND d.id IS DISTINCT FROM $2\n            AND CASE WHEN cardinality($3::bigint[]) = 0\n                THEN NOT EXISTS (SELECT 1 FROM pickup_slot s WHERE s.bake_day_id = d.id)\n                ELSE EXISTS (SELECT 1 FROM pickup_slot s\n                    WHERE s.bake_day_id = d.id AND s.location_id = ANY($3))\n            END\n        ) AS \"taken!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "taken!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed6b5be2ad4488bb9f18f9420a4e3670176b5b3e4a670705940a06fd6c4e3ed7"
+}

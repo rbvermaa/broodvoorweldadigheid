@@ -9,7 +9,15 @@ pub const LOCALE: &str = "nl-NL";
 
 const COMMON: (&str, &str) = ("common.ftl", include_str!("../../../locales/nl/common.ftl"));
 const DATES: (&str, &str) = ("dates.ftl", include_str!("../../../locales/nl/dates.ftl"));
-const DUTCH: &[(&str, &str)] = &[COMMON, DATES];
+const COMPONENTS: (&str, &str) = (
+    "components.ftl",
+    include_str!("../../../locales/nl/components.ftl"),
+);
+const GALLERY: (&str, &str) = (
+    "gallery.ftl",
+    include_str!("../../../locales/nl/gallery.ftl"),
+);
+const DUTCH: &[(&str, &str)] = &[COMMON, DATES, COMPONENTS, GALLERY];
 
 /// Names of the `locales/nl/*.ftl` files compiled into the binary.
 pub fn resource_files() -> impl Iterator<Item = &'static str> {

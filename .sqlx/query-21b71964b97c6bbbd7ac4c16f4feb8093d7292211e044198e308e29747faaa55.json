@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bake_day (date, online_ordering, charity_id, menu_publish_at, opens_at,\n            cutoff_at, bake_starts_at)\n        VALUES (date 'epoch' + $1::integer, $2, $3,\n            timestamptz 'epoch' + $4::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $5::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $6::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $7::bigint * interval '1 microsecond')\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "21b71964b97c6bbbd7ac4c16f4feb8093d7292211e044198e308e29747faaa55"
+}

@@ -1,0 +1,24 @@
+{# kind: info, success, warning or error. Errors are announced at once. #}
+{% macro alert(kind, text) %}
+<div class="alert {% if kind == "success" %}alert-success{% else if kind == "warning" %}alert-warning{% else if kind == "error" %}alert-error{% else %}alert-info{% endif %}" role="{% if kind == "error" %}alert{% else %}status{% endif %}">
+{%- if kind == "success" %}{{ layout.icon_labelled("circle-check", layout.t("alert-success")?.as_str())? }}
+{%- else if kind == "warning" %}{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}
+{%- else if kind == "error" %}{{ layout.icon_labelled("circle-alert", layout.t("alert-error")?.as_str())? }}
+{%- else %}{{ layout.icon_labelled("info", layout.t("alert-info")?.as_str())? }}{% endif -%}
+<p class="alert-text">{{ text }}</p>
+</div>
+{% endmacro %}
+
+{% macro empty_state(title, text) %}
+<div class="empty-state">
+{{ layout.icon("inbox")? }}
+<p class="empty-state-title">{{ title }}</p>
+<p class="empty-state-text">{{ text }}</p>
+</div>
+{% endmacro %}
+
+{# The one confirmation every save shows. Swap it into an element with role="status"
+   that is already on the page, so screen readers announce it. #}
+{% macro saved() %}
+<p class="saved">{{ layout.icon("check")? }}<span>{{ layout.t("saved")? }}</span></p>
+{% endmacro %}

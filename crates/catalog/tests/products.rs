@@ -396,6 +396,12 @@ async fn lead_time_falls_back_to_the_company_default(mut conn: PoolConnection<Po
         products::lead_time_hours(&mut conn, own.id).await.unwrap(),
         48
     );
+    assert_eq!(
+        products::lead_times(&mut conn, &[own.id, ProductId::new(999), default.id])
+            .await
+            .unwrap(),
+        [(default.id, 36), (own.id, 48)]
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

@@ -1,0 +1,35 @@
+# Icons (spec: "Design system and UX": one icon set). apps/server/build.rs copies only the
+# Lucide icons named here (nix/lucide.nix) into the server binary and fails the build on
+# a name Lucide does not have. Templates use them through `layout.icon("name")`.
+lucide = [
+  "calendar",
+  "check",
+  "circle-alert",
+  "circle-check",
+  "clock",
+  "inbox",
+  "info",
+  "loader-circle",
+  "shopping-basket",
+  "trash-2",
+  "triangle-alert",
+  "x",
+]
+
+# The fixed set of 14 allergen icons, one per domain allergen code (EU 1169/2011).
+# Every icon is different, and the badge always shows the Dutch name next to it.
+[allergens]
+cereals_containing_gluten = "wheat"
+crustaceans = "shrimp"
+eggs = "egg"
+fish = "fish"
+peanuts = "bean"
+soybeans = "sprout"
+milk = "milk"
+nuts = "nut"
+celery = "leafy-green"
+mustard = "flame"
+sesame_seeds = "circle-dot"
+sulphur_dioxide_and_sulphites = "wine"
+lupin = "flower-2"
+molluscs = "shell"
