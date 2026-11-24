@@ -13,6 +13,10 @@ const CALENDAR: (&str, &str) = (
     "calendar.ftl",
     include_str!("../../../locales/nl/calendar.ftl"),
 );
+const REPORTS: (&str, &str) = (
+    "reports.ftl",
+    include_str!("../../../locales/nl/reports.ftl"),
+);
 const COMPONENTS: (&str, &str) = (
     "components.ftl",
     include_str!("../../../locales/nl/components.ftl"),
@@ -28,7 +32,7 @@ const PRODUCTION: (&str, &str) = (
 const EMAIL: (&str, &str) = ("email.ftl", include_str!("../../../locales/nl/email.ftl"));
 const SITE: (&str, &str) = ("site.ftl", include_str!("../../../locales/nl/site.ftl"));
 const DUTCH: &[(&str, &str)] = &[
-    COMMON, DATES, CALENDAR, COMPONENTS, GALLERY, EMAIL, SITE, PRODUCTION,
+    COMMON, DATES, CALENDAR, COMPONENTS, GALLERY, EMAIL, SITE, REPORTS, PRODUCTION,
 ];
 
 /// Names of the `locales/nl/*.ftl` files compiled into the binary.

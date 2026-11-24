@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO drop_cost (bake_day_id, kind, amount_cents, note, created_at)\n        SELECT id, $2, $3, $4, timestamptz 'epoch' + $5::bigint * interval '1 microsecond'\n        FROM bake_day WHERE id = $1\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "drop_cost",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f185b5a8d20684ed408e1abd65ba68acead6e1daab9e6368665502783948975"
+}

@@ -49,3 +49,9 @@ Questions about the spec. The spec is only changed when the owner asks.
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
 - [ ] **Typst advisories.** On the next Typst release, check whether quick-xml < 0.41 is
   gone and drop the two ignores in `.cargo/audit.toml` (ADR 0016).
+- [ ] **Refund dates in the sales report** (ADR 0017). Refunds have no date in the
+  database, so the sales report takes them off on the day of the sale; a late refund
+  changes a period that may already be in a BTW return. Store Mollie's refund date and
+  count refunds on that day instead?
+- [ ] **On-account orders on charity drops.** Do they create a donation allocation
+  (F4b says they pay the suggested price), and when: at confirmation or once invoiced?
