@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM customer_login_link\n         WHERE expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n           AND created_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e898cbf1aca9eaaeff201db190b923b1b5c2d68f300dca506299348026b9db73"
+}

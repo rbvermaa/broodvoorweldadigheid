@@ -8,9 +8,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+base64.workspace = true
 db = { path = "../db" }
 domain = { path = "../domain" }
 jiff.workspace = true
+rand.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 
