@@ -18,6 +18,7 @@ catalog = { path = "../../crates/catalog" }
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
+jobs = { path = "../../crates/jobs" }
 jiff.workspace = true
 orders = { path = "../../crates/orders" }
 payments = { path = "../../crates/payments" }
@@ -26,7 +27,7 @@ serde.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 tower-sessions.workspace = true
 tower-sessions-sqlx-store.workspace = true
 tower_governor.workspace = true

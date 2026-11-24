@@ -24,12 +24,10 @@ Status: proposed, 2026-11-24
 
 Not in this slice: choosing another charity or saving the donation (F4d), confirmation emails (F9).
 
-Open: the jobs runner. `jobs` and `server` are both layer 6, and the layer check forbids
-an edge between them, so the server cannot start `jobs::run`. Until that is decided
-(a `jobs` binary, moving `jobs` down a layer, or allowing apps to use `jobs`), drops do not
-open or close by themselves and expired holds are not cancelled. Capacity and payments are
-unaffected: holds stop counting the moment they expire, and checkout and `mark_paid`
-check the deadline and the hold themselves. See docs/open-questions.md.
+The jobs runner: with apps in layer 7 (ADR 0020) the server starts it next to the web
+server. `jobs::setup` runs at start, retrying every 5 s while the database is down;
+`jobs::run` then gets the worker id `hostname-pid` and the same shutdown signal as axum
+(`server::background`). The server waits for the runner before it exits.
 
 Known limits, from review:
 

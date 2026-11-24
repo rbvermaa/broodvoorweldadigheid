@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(feature = "ai")]
@@ -8,6 +9,7 @@ use ai as _;
 use clap::{Parser, Subcommand};
 use i18n::Translator;
 use server::AppState;
+use server::background::{self, Shutdown};
 use server::config::Config;
 use server::healthcheck;
 use tokio::net::TcpListener;
@@ -63,7 +65,24 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.bind_addr).await?;
     let payments = server::payment_provider::from_config(&config)?;
     let state = AppState::new(pool, Translator::dutch()?, config).with_payments(payments);
+    let (shutdown, trigger) = Shutdown::on(server::shutdown_signal());
+    tokio::spawn(trigger);
+    let runner = background::run_jobs(
+        state.pool.clone(),
+        Arc::clone(&state.clock),
+        background::worker_id(),
+        shutdown.clone(),
+    );
+    let jobs = tokio::spawn(async move {
+        if let Err(error) = runner.await {
+            tracing::error!(%error, "jobs runner stopped");
+        }
+    });
     tracing::info!(addr = %listener.local_addr()?, "listening");
-    server::serve(listener, state, server::shutdown_signal()).await?;
+    let served = server::serve(listener, state, shutdown.wait()).await;
+    if let Err(error) = jobs.await {
+        tracing::error!(%error, "jobs runner panicked");
+    }
+    served?;
     Ok(())
 }

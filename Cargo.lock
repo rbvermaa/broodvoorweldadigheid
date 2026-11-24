@@ -2266,6 +2266,7 @@ dependencies = [
  "i18n",
  "insta",
  "jiff",
+ "jobs",
  "orders",
  "payments",
  "rand 0.9.5",
