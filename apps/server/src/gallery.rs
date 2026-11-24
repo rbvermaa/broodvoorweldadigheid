@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use i18n::Translator;
 
 use crate::components::{
-    ApprovedAllergens, Cart, CartRemove, Cell, Drop, DropCharity, Message, PickupWindow,
+    ApprovedAllergens, BarChart, Cart, CartRemove, Cell, Drop, DropCharity, Message, PickupWindow,
     PriceChoice, Product, ProductOrder, SelectOption, Table,
 };
 use crate::icons::{ALLERGEN_ICONS, ICONS};
@@ -26,6 +26,7 @@ pub struct Gallery<'a> {
     prices: Vec<i64>,
     windows: Vec<PickupWindow>,
     table: Table,
+    chart: BarChart,
     drops: Vec<Drop>,
     carts: Vec<Cart>,
     icons: Vec<&'static str>,
@@ -168,6 +169,15 @@ impl<'a> Gallery<'a> {
                     false,
                 )?,
             ],
+            chart: BarChart::new(
+                "giften",
+                t("gallery-chart-caption")?,
+                vec![
+                    (long.clone(), 12_500, i18n::money(12_500)),
+                    (t("gallery-product-short")?, 4_250, i18n::money(4_250)),
+                    (t("gallery-chart-empty")?, 0, i18n::money(0)),
+                ],
+            ),
             table: Table {
                 id: "bakdag".to_string(),
                 caption: t("gallery-table-caption")?,

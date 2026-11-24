@@ -640,6 +640,32 @@ expression: without_asset_hashes(&gallery_html(&state))
 
 </section>
 
+<section class="gallery-section" aria-labelledby="gallery-charts">
+<h2 id="gallery-charts">Grafieken</h2>
+
+<figure class="chart">
+<svg class="chart-svg" viewBox="0 0 640 180" role="img" aria-labelledby="giften-title">
+<title id="giften-title">Giften per bakdag</title>
+<text class="chart-label" x="0" y="18">Zuurdesemvolkorenbrood met zonnebloempitten</text>
+<rect class="chart-bar" x="0" y="26" width="480" height="24"></rect>
+<text class="chart-value" x="488" y="44">€ 125,00</text>
+<text class="chart-label" x="0" y="78">Desem wit</text>
+<rect class="chart-bar" x="0" y="86" width="163" height="24"></rect>
+<text class="chart-value" x="171" y="104">€ 42,50</text>
+<text class="chart-label" x="0" y="138">Nog niets</text>
+<rect class="chart-bar" x="0" y="146" width="0" height="24"></rect>
+<text class="chart-value" x="8" y="164">€ 0,00</text>
+</svg>
+<ul class="visually-hidden">
+<li>Zuurdesemvolkorenbrood met zonnebloempitten: € 125,00</li>
+<li>Desem wit: € 42,50</li>
+<li>Nog niets: € 0,00</li>
+</ul>
+<figcaption class="chart-caption">Giften per bakdag</figcaption>
+</figure>
+
+</section>
+
 <section class="gallery-section" aria-labelledby="gallery-alerts">
 <h2 id="gallery-alerts">Meldingen</h2>
 

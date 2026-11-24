@@ -1,0 +1,19 @@
+{# chart: components::BarChart. The hidden list gives screen readers the same numbers. #}
+{% macro bar_chart(chart) %}
+<figure class="chart">
+<svg class="chart-svg" viewBox="0 0 640 {{ chart.height }}" role="img" aria-labelledby="{{ chart.id }}-title">
+<title id="{{ chart.id }}-title">{{ chart.caption }}</title>
+{%- for bar in chart.bars %}
+<text class="chart-label" x="0" y="{{ bar.label_y }}">{{ bar.label }}</text>
+<rect class="chart-bar" x="0" y="{{ bar.y }}" width="{{ bar.width }}" height="24"></rect>
+<text class="chart-value" x="{{ bar.value_x }}" y="{{ bar.value_y }}">{{ bar.value }}</text>
+{%- endfor %}
+</svg>
+<ul class="visually-hidden">
+{%- for bar in chart.bars %}
+<li>{{ bar.label }}: {{ bar.value }}</li>
+{%- endfor %}
+</ul>
+<figcaption class="chart-caption">{{ chart.caption }}</figcaption>
+</figure>
+{% endmacro %}

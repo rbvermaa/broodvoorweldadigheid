@@ -1,4 +1,6 @@
+{% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
 
 {% macro csrf() %}
 {%- if let Some(token) = layout.csrf_token() %}<input type="hidden" name="_csrf" value="{{ token }}">{% endif -%}
@@ -15,4 +17,14 @@
 {# The page's live region: the save confirmation after a save, or an alert. #}
 {% macro status(saved) %}
 <div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
+{% endmacro %}
+
+{# The period above a report: backoffice::reports::PeriodForm. #}
+{% macro period(form) %}
+<form method="get" action="{{ form.action }}">
+{% call f::field("date", "van", layout.t("reports-from")?, value = form.from, error = form.errors.get("van")) %}{% endcall %}
+{% call f::field("date", "tot", layout.t("reports-to")?, value = form.to, error = form.errors.get("tot")) %}{% endcall %}
+{% if !form.granularities.is_empty() %}{% call f::select("per", layout.t("reports-per")?, form.granularities) %}{% endcall %}{% endif %}
+{% call b::button(layout.t("reports-show")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
 {% endmacro %}

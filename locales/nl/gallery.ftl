@@ -8,6 +8,7 @@ gallery-allergens = Allergenen
 gallery-prices = Prijzen
 gallery-pickup = Ophaalmoment kiezen
 gallery-tables = Tabellen
+gallery-charts = Grafieken
 gallery-alerts = Meldingen
 gallery-empty = Lege toestand
 gallery-dialog = Bevestigen
@@ -50,6 +51,8 @@ gallery-pickup-legend = Wanneer haal je je bestelling op?
 gallery-pickup-place = Kerkweg, Frederiksoord
 
 gallery-table-caption = Bestellingen voor de bakdag
+gallery-chart-caption = Giften per bakdag
+gallery-chart-empty = Nog niets
 gallery-table-product = Product
 gallery-table-count = Aantal
 gallery-table-total = Totaal
