@@ -1,0 +1,37 @@
+---
+source: crates/notify/tests/emails.rs
+expression: email.html
+---
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Contactformulier: bericht van Sanne de Vries</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f5; color: #000000; font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 16px; line-height: 1.5;">
+<table role="presentation" style="background: #f5f5f5;" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding: 24px 12px;" align="center">
+<table role="presentation" style="max-width: 768px; border: 1px solid #e5e5e5; border-collapse: collapse; background: #ffffff;" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding: 24px 24px 16px; border-bottom: 2px solid #000000; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; text-transform: uppercase;">Brood voor Weldadigheid<br><span style="font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 14px; font-weight: 400; text-transform: none;">#payitforward</span></td></tr>
+<tr><td style="padding: 24px;">
+<h1 style="margin: 0 0 16px; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2;">Nieuw bericht via de site</h1>
+<p style="margin: 0 0 16px;">Hoi bakker,</p>
+<p style="margin: 0 0 16px;">Er is een bericht binnengekomen via het contactformulier.</p>
+<table role="presentation" style="width: 100%; margin: 0 0 16px; border-collapse: collapse;" cellpadding="0" cellspacing="0">
+<tr><th style="padding: 4px 12px 4px 0; color: #525252; text-align: left; vertical-align: top; white-space: nowrap;" scope="row">Naam</th><td style="padding: 4px 0; vertical-align: top;">Sanne de Vries</td></tr>
+<tr><th style="padding: 4px 12px 4px 0; color: #525252; text-align: left; vertical-align: top; white-space: nowrap;" scope="row">E-mail</th><td style="padding: 4px 0; vertical-align: top;">sanne@example.org</td></tr>
+</table>
+<blockquote style="margin: 0 0 16px; padding: 12px 16px; border-left: 2px solid #000000; background: #f5f5f5;">Hoi!<br>Kan ik ook een halfje bestellen?<br><br>&#60;b&#62;Groet&#60;/b&#62;</blockquote>
+<p style="margin: 0 0 16px;">Beantwoord deze mail om Sanne de Vries antwoord te geven.</p>
+<p style="margin: 0 0 16px;">Verstuurd via het contactformulier op de site</p>
+</td></tr>
+<tr><td style="padding: 16px 24px; border-top: 1px solid #e5e5e5; color: #525252; font-size: 14px;">
+<p style="margin: 0 0 8px;">Brood voor Weldadigheid</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

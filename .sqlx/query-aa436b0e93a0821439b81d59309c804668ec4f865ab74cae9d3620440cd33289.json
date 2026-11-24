@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"order\" (number_year, number_seq, customer_id, customer_name,\n            customer_phone, marketing_opt_in, bake_day_id, pickup_slot_id, channel,\n            payment_mode, status, total_cents, hold_expires_at, created_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,\n            timestamptz 'epoch' + $13::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $14::bigint * interval '1 microsecond')\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int2",
+        "Int4",
+        "Int8",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aa436b0e93a0821439b81d59309c804668ec4f865ab74cae9d3620440cd33289"
+}

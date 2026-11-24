@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"order\" SET status = 'paid',\n                paid_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n            WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "53b56a10fcb7a1a40457e4f55a866747ea13fbaf956f295c247849cfbfde39eb"
+}

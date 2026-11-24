@@ -14,6 +14,7 @@ pub mod pages;
 pub mod rate_limit;
 pub mod security;
 pub mod session;
+pub mod site;
 pub mod staff;
 pub mod staff_session;
 pub mod state;
@@ -41,8 +42,10 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
+    let site = site::routes(&state, std::sync::Arc::new(clock::SystemClock));
     let mut routes = Router::new()
         .route("/", get(pages::home))
+        .merge(site)
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout));

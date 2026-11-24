@@ -48,3 +48,13 @@ Questions about the spec. The spec is only changed when the owner asks.
   Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
   keys), or verify ID tokens without openidconnect? Until then staff can only sign in
   through the local dev login.
+- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
+  allergen data cannot be ordered, also not by staff. OK?
+- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
+  like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [ ] **Refund dates in the sales report** (ADR 0017). Refunds have no date in the
+  database, so the sales report takes them off on the day of the sale; a late refund
+  changes a period that may already be in a BTW return. Store Mollie's refund date and
+  count refunds on that day instead?
+- [ ] **On-account orders on charity drops.** Do they create a donation allocation
+  (F4b says they pay the suggested price), and when: at confirmation or once invoiced?

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO order_number (year, last) VALUES ($1, 1)\n        ON CONFLICT (year) DO UPDATE SET last = order_number.last + 1\n        RETURNING last",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "order_number",
+            "name": "last"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4a71203f443a4b6c6ca99ce27b36b0311bfe76693ce21690fc710e95d63092e1"
+}
