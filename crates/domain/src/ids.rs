@@ -33,6 +33,7 @@ id_type!(
     PaymentId,
     CharityId,
     DonationAllocationId,
+    RefundId,
 );
 
 #[cfg(test)]

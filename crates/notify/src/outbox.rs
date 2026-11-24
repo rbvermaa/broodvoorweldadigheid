@@ -99,6 +99,26 @@ pub async fn queued_keys(
     Ok(found)
 }
 
+/// Deletes the email queued with `dedupe_key` if it has not been sent, so the key can be
+/// queued again with new content. Returns whether one was deleted. An email being sent
+/// right now is waited for and then kept.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn withdraw_unsent(
+    conn: &mut PgConnection,
+    dedupe_key: &str,
+) -> Result<bool, OutboxError> {
+    let deleted = sqlx::query!(
+        "DELETE FROM email_outbox WHERE dedupe_key = $1 AND status <> 'sent'",
+        dedupe_key,
+    )
+    .execute(conn)
+    .await?
+    .rows_affected();
+    Ok(deleted > 0)
+}
+
 struct Due {
     id: i64,
     message_id: String,

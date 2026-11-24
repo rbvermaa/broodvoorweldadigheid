@@ -17,7 +17,8 @@ use crate::period::local_date;
 use crate::refunds::{RefundSplit, refund_lines};
 
 /// Orders that are sales: paid, confirmed (on account), picked up, or refunded after
-/// payment. Cancelled and pending orders never count.
+/// payment. A cancelled order counts only when it was paid, with its refunds (ADR 0026);
+/// pending orders never count.
 pub(crate) const COUNTED: &[&str] = &["paid", "confirmed", "picked_up", "refunded"];
 
 fn counted() -> Vec<String> {
@@ -113,7 +114,7 @@ pub(crate) async fn orders(
             (extract(epoch FROM COALESCE(o.paid_at, o.created_at)) * 1000000)::bigint
                 AS "sold_at_us!"
         FROM "order" o JOIN bake_day bd ON bd.id = o.bake_day_id
-        WHERE o.status = ANY($1)
+        WHERE (o.status = ANY($1) OR (o.status = 'cancelled' AND o.paid_at IS NOT NULL))
             AND ($2::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)
                 >= timestamptz 'epoch' + $2 * interval '1 microsecond')
             AND ($3::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)
@@ -186,18 +187,24 @@ async fn order_lines(
     Ok(out)
 }
 
-/// Per order: refunds on accepted payments, known fees, and whether a fee is missing.
+/// Per order: refunds on accepted payments, known fees, and whether a fee is missing. A
+/// payment's refund is the larger of what the provider reported and its refund rows, in
+/// any status (ADR 0026).
 pub(crate) async fn payments(
     conn: &mut PgConnection,
     ids: &[i64],
 ) -> Result<HashMap<i64, (Money, Money, bool)>, Error> {
     let rows = sqlx::query!(
         r#"SELECT order_id,
-            COALESCE(SUM(refunded_cents) FILTER (WHERE NOT refund_due), 0)::bigint
-                AS "refunded!",
+            COALESCE(SUM(GREATEST(refunded_cents, COALESCE(r.requested, 0)))
+                FILTER (WHERE NOT refund_due), 0)::bigint AS "refunded!",
             COALESCE(SUM(fee_cents), 0)::bigint AS "fees!",
             COUNT(*) FILTER (WHERE fee_cents IS NULL) AS "fees_missing!"
-        FROM payment WHERE order_id = ANY($1) AND status = 'paid'
+        FROM payment
+        LEFT JOIN (
+            SELECT payment_id, SUM(amount_cents) AS requested FROM refund GROUP BY payment_id
+        ) r ON r.payment_id = payment.id
+        WHERE order_id = ANY($1) AND status = 'paid'
         GROUP BY order_id"#,
         ids,
     )

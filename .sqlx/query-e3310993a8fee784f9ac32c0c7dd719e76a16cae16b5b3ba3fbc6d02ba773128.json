@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO refund (payment_id, amount_cents, status, requested_by, requested_at,\n            updated_at)\n        SELECT p.id, p.amount_cents - GREATEST(p.refunded_cents, COALESCE(\n                (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0)),\n            'requested', $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        FROM payment p\n        WHERE p.order_id = $1 AND p.status = 'paid' AND NOT p.refund_due\n            AND p.amount_cents > GREATEST(p.refunded_cents, COALESCE(\n                (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0))\n        ORDER BY p.id\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "refund",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e3310993a8fee784f9ac32c0c7dd719e76a16cae16b5b3ba3fbc6d02ba773128"
+}

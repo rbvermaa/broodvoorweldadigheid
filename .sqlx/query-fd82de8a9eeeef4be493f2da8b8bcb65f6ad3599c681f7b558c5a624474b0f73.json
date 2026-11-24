@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT o.id, o.number_year, o.number_seq, o.bake_day_id,\n            (bd.date - date 'epoch') AS \"drop_day!\", bd.charity_id,\n            (extract(epoch FROM COALESCE(o.paid_at, o.created_at)) * 1000000)::bigint\n                AS \"sold_at_us!\"\n        FROM \"order\" o JOIN bake_day bd ON bd.id = o.bake_day_id\n        WHERE o.status = ANY($1)\n            AND ($2::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)\n                >= timestamptz 'epoch' + $2 * interval '1 microsecond')\n            AND ($3::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)\n                < timestamptz 'epoch' + $3 * interval '1 microsecond')\n            AND ($4::integer IS NULL OR (bd.charity_id IS NOT NULL\n                AND bd.date BETWEEN date 'epoch' + $4 AND date 'epoch' + $5::integer))\n        ORDER BY o.id",
+  "query": "SELECT o.id, o.number_year, o.number_seq, o.bake_day_id,\n            (bd.date - date 'epoch') AS \"drop_day!\", bd.charity_id,\n            (extract(epoch FROM COALESCE(o.paid_at, o.created_at)) * 1000000)::bigint\n                AS \"sold_at_us!\"\n        FROM \"order\" o JOIN bake_day bd ON bd.id = o.bake_day_id\n        WHERE (o.status = ANY($1) OR (o.status = 'cancelled' AND o.paid_at IS NOT NULL))\n            AND ($2::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)\n                >= timestamptz 'epoch' + $2 * interval '1 microsecond')\n            AND ($3::bigint IS NULL OR COALESCE(o.paid_at, o.created_at)\n                < timestamptz 'epoch' + $3 * interval '1 microsecond')\n            AND ($4::integer IS NULL OR (bd.charity_id IS NOT NULL\n                AND bd.date BETWEEN date 'epoch' + $4 AND date 'epoch' + $5::integer))\n        ORDER BY o.id",
   "describe": {
     "columns": [
       {
@@ -90,5 +90,5 @@
       null
     ]
   },
-  "hash": "3f6643224ad876d6624becaa589df97351b9a946ad813c33762a8f1aadafe764"
+  "hash": "fd82de8a9eeeef4be493f2da8b8bcb65f6ad3599c681f7b558c5a624474b0f73"
 }

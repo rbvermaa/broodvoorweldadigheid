@@ -19,6 +19,8 @@ pub struct FakePaymentProvider {
 #[derive(Debug, Default)]
 struct State {
     down: bool,
+    refuse_refunds: bool,
+    lose_refund_answer: bool,
     next_payment: u64,
     next_refund: u64,
     payments: BTreeMap<ProviderPaymentId, FakePayment>,
@@ -115,6 +117,32 @@ impl FakePaymentProvider {
             .fee = Some(fee);
     }
 
+    /// While set, every new refund is refused as Mollie refuses one (422).
+    pub fn refuse_refunds(&self, refuse: bool) {
+        self.state().refuse_refunds = refuse;
+    }
+
+    /// The next refund is carried out, but the answer is lost: the call fails with
+    /// [`PaymentError::Unavailable`].
+    pub fn lose_next_refund_answer(&self) {
+        self.state().lose_refund_answer = true;
+    }
+
+    /// The amounts refunded on a payment, oldest first.
+    ///
+    /// # Panics
+    /// When the payment does not exist.
+    pub fn refunds(&self, id: &ProviderPaymentId) -> Vec<Money> {
+        self.state()
+            .payments
+            .get(id)
+            .expect("unknown fake payment")
+            .refunds
+            .iter()
+            .map(|(_, amount)| *amount)
+            .collect()
+    }
+
     /// Every create request that reached the provider, in order.
     pub fn created(&self) -> Vec<NewPayment> {
         self.state().created.clone()
@@ -195,6 +223,9 @@ impl FakePaymentProvider {
                 Err(key_reused())
             };
         }
+        if state.refuse_refunds {
+            return Err(rejected("", "The refund was refused"));
+        }
         check_description(&request.description)?;
         let refund_id = ProviderRefundId::new(format!("re_fake{}", state.next_refund + 1))
             .expect("fake ids are valid tokens");
@@ -221,6 +252,9 @@ impl FakePaymentProvider {
         state
             .refund_replays
             .insert(key.clone(), (request.clone(), created.clone()));
+        if std::mem::take(&mut state.lose_refund_answer) {
+            return Err(PaymentError::Unavailable("the answer was lost".into()));
+        }
         Ok(created)
     }
 
@@ -423,6 +457,32 @@ mod tests {
             ready(fake.get_payment(&id)).unwrap().amount_refunded,
             Money::from_cents(1000)
         );
+    }
+
+    #[test]
+    fn refused_refunds_and_lost_answers() {
+        let fake = FakePaymentProvider::new();
+        let id = create(&fake, 1000);
+        fake.pay(&id);
+        fake.refuse_refunds(true);
+        assert!(matches!(
+            ready(fake.refund(&refund(&id, 1000))),
+            Err(PaymentError::Rejected { .. })
+        ));
+        assert!(fake.refunds(&id).is_empty());
+        fake.refuse_refunds(false);
+        fake.lose_next_refund_answer();
+        assert!(matches!(
+            ready(fake.refund(&refund(&id, 400))),
+            Err(PaymentError::Unavailable(_))
+        ));
+        assert_eq!(fake.refunds(&id), [Money::from_cents(400)]);
+        assert_eq!(
+            ready(fake.refund(&refund(&id, 400))).unwrap().id.as_str(),
+            "re_fake1",
+            "a retry with the same key gets the first answer"
+        );
+        assert_eq!(fake.refunds(&id), [Money::from_cents(400)]);
     }
 
     #[test]

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE refund SET status = $2, provider_refund_id = $3, attempts = $4, last_error = $5,\n            updated_at = timestamptz 'epoch' + $6::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "928c61dad8d842aaeedb479a4a6df0c478d46507a1982af85204d148bd124d97"
+}

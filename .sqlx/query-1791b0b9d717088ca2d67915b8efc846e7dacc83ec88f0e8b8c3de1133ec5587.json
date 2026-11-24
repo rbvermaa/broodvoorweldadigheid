@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(sum(amount_cents), 0)::bigint AS \"cents!\" FROM refund\n        WHERE payment_id = $1 AND id <> $2 AND status = 'done'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1791b0b9d717088ca2d67915b8efc846e7dacc83ec88f0e8b8c3de1133ec5587"
+}
