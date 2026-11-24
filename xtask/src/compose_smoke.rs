@@ -111,6 +111,21 @@ pub fn health_ok(body: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(body).is_ok_and(|health| health["status"] == "ok")
 }
 
+/// The home page answered 200 and stored a session: the server saves the session before it
+/// responds, so a missing `http_session` table would give a 500.
+pub fn session_ok(stdout: &str) -> bool {
+    parse_curl(stdout).is_some_and(|(status, headers)| {
+        status == 200
+            && headers.lines().any(|line| {
+                let line = line.trim_end();
+                line.to_ascii_lowercase()
+                    .starts_with("set-cookie: bvw_session=")
+                    && line.split("; ").any(|part| part == "HttpOnly")
+                    && line.split("; ").any(|part| part == "Secure")
+            })
+    })
+}
+
 /// `written` is curl's `--write-out "%{http_code} %{redirect_url}"`.
 pub fn redirect_ok(written: &str, location: &str) -> bool {
     written.split_once(' ').is_some_and(|(status, url)| {
@@ -248,6 +263,31 @@ impl Stack {
         }
     }
 
+    /// Prints the response headers, then the status code on its own last line.
+    pub fn curl_headers(&self, host: &str, path: &str) -> Step {
+        let port = self.options.https_port;
+        Step {
+            program: "curl",
+            args: vec![
+                "--silent".into(),
+                "--show-error".into(),
+                "--max-time".into(),
+                "10".into(),
+                "--cacert".into(),
+                self.ca_file().display().to_string(),
+                "--resolve".into(),
+                format!("{host}:{port}:127.0.0.1"),
+                "--dump-header".into(),
+                "-".into(),
+                "--output".into(),
+                "/dev/null".into(),
+                "--write-out".into(),
+                "\n%{http_code}".into(),
+                format!("https://{host}:{port}{path}"),
+            ],
+        }
+    }
+
     pub fn curl_redirect(&self, host: &str, path: &str) -> Step {
         let port = self.options.http_port;
         Step {
@@ -360,10 +400,11 @@ fn smoke(stack: &Stack) -> Result<(), String> {
     })?;
     expect_redirect(stack, "localhost", "/health")?;
     expect_redirect(stack, "idm.localhost", "/status")?;
+    expect_session(stack)?;
     execute(stack, &stack.seed())?;
     execute(stack, &stack.backup_run())?;
     execute(stack, &stack.restore_test())?;
-    println!("compose-smoke: health, Kanidm, redirects, backup and restore test passed");
+    println!("compose-smoke: health, Kanidm, redirects, session, backup and restore test passed");
     Ok(())
 }
 
@@ -379,6 +420,19 @@ fn expect(stack: &Stack, host: &str, path: &str, body_ok: fn(&str) -> bool) -> R
         None => Err(format!(
             "https://{host}{path}: unexpected curl output {stdout:?}"
         )),
+    }
+}
+
+fn expect_session(stack: &Stack) -> Result<(), String> {
+    let output = execute(stack, &stack.curl_headers("localhost", "/"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if session_ok(&stdout) {
+        println!("compose-smoke: https://localhost/ -> 200 with a session cookie");
+        Ok(())
+    } else {
+        Err(format!(
+            "https://localhost/: expected 200 and a session cookie, got {stdout:?}"
+        ))
     }
 }
 
@@ -528,6 +582,16 @@ mod tests {
         ] {
             assert!(caddy_ip(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn session_needs_200_and_a_secure_http_only_cookie() {
+        let ok = "HTTP/2 200\r\nset-cookie: bvw_session=abc; HttpOnly; SameSite=Lax; Secure; Path=/\r\n\r\n\n200";
+        assert!(session_ok(ok));
+        assert!(!session_ok(&ok.replace("\n200", "\n500")));
+        assert!(!session_ok(&ok.replace("; Secure", "")));
+        assert!(!session_ok(&ok.replace("bvw_session", "other")));
+        assert!(!session_ok("HTTP/2 200\r\n\r\n\n200"));
     }
 
     #[test]

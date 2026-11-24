@@ -27,6 +27,11 @@ pub enum Command {
         about = "Container entrypoints: first-start setup, then exec the service"
     )]
     Entrypoint(entrypoint::Service),
+    #[command(about = "Apply the database migrations, then exit")]
+    Migrate {
+        #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
+        database_url: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -80,11 +85,19 @@ pub enum Error {
     Backup(#[from] backup::Error),
     #[error(transparent)]
     DevSecrets(#[from] dev_secrets::Error),
+    #[error(transparent)]
+    Db(#[from] db::Error),
 }
 
 pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode, Error> {
     match command {
         Command::Entrypoint(service) => return Ok(entrypoint::run(service)),
+        Command::Migrate { database_url } => {
+            let pool = db::connect(&database_url).await?;
+            db::migrate(&pool).await?;
+            pool.close().await;
+            println!("migrations applied");
+        }
         Command::DevSecrets { dir } => {
             for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
                 println!("wrote {}", path.display());

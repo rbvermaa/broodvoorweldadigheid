@@ -1,0 +1,37 @@
+{% import "components/button.html" as b %}
+
+{% macro price(cents) %}
+<span class="price">{{ layout.money(cents) }}</span>
+{% endmacro %}
+
+{% macro allergen_badge(code, may_contain = false) %}
+<li class="allergen-badge{% if may_contain %} allergen-badge-may{% endif %}">{{ layout.allergen_icon(code)? }}<span>{{ layout.allergen(code)? }}</span></li>
+{% endmacro %}
+
+{# codes: domain allergen codes. may_contain: true for the "may contain traces" list. #}
+{% macro allergen_list(codes, may_contain = false) %}
+{%- if !codes.is_empty() %}
+<p class="allergen-heading">{% if may_contain %}{{ layout.t("allergen-may-contain")? }}{% else %}{{ layout.t("allergen-contains")? }}{% endif %}</p>
+<ul class="allergen-list">
+{%- for code in codes.iter() %}
+{% call allergen_badge(code, may_contain) %}{% endcall %}
+{%- endfor %}
+</ul>
+{%- endif %}
+{% endmacro %}
+
+{% macro product_tile(product) %}
+<article class="product-tile{% if product.sold_out %} product-tile-sold-out{% endif %}">
+<h3 class="product-name">{{ product.name }}</h3>
+<p class="product-description">{{ product.description }}</p>
+{% call price(product.price_cents) %}{% endcall %}
+{% call allergen_list(product.allergens) %}{% endcall %}
+{% call allergen_list(product.may_contain, true) %}{% endcall %}
+{%- if product.sold_out %}
+<p class="product-status">{{ layout.t("product-sold-out")? }}</p>
+{% call b::button(layout.t("product-add")?, disabled = true) %}{% endcall %}
+{%- else %}
+{% call b::button(layout.t("product-add")?) %}{% endcall %}
+{%- endif %}
+</article>
+{% endmacro %}

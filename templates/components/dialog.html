@@ -1,0 +1,20 @@
+{# A native <dialog>. A button made with `opens = id` opens it (app.js). The confirm
+   button posts the form to `action`, with htmx when it is loaded; the response goes into
+   the element with id `{id}-result`, and app.js closes the dialog. `text` must say exactly
+   what will happen. Opening it needs JavaScript. #}
+{% macro confirm_dialog(id, title, text, confirm, action) %}
+<dialog class="dialog" id="{{ id }}" aria-labelledby="{{ id }}-title" aria-describedby="{{ id }}-text">
+<form class="dialog-form" method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#{{ id }}-result">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+<h2 class="dialog-title" id="{{ id }}-title">{{ title }}</h2>
+<p class="dialog-text" id="{{ id }}-text">{{ text }}</p>
+<div class="dialog-actions">
+<button type="button" class="button button-secondary" data-dialog-close>{{ layout.t("dialog-cancel")? }}</button>
+<button type="submit" class="button button-danger">{{ confirm }}</button>
+</div>
+</form>
+</dialog>
+<div id="{{ id }}-result" role="status"></div>
+{% endmacro %}
