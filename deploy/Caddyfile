@@ -5,7 +5,7 @@
 }
 
 # Caddy's own redirect would point at port 443 inside the container, not the published port.
-http://localhost, http://idm.localhost {
+http://localhost, http://idm.localhost, http://mail.localhost {
 	redir https://{host}:{$BVW_HTTPS_PORT:8443}{uri}
 }
 
@@ -23,4 +23,10 @@ idm.localhost {
 			tls_insecure_skip_verify
 		}
 	}
+}
+
+# Mailpit (compose profile "mail"); local runs only.
+mail.localhost {
+	tls internal
+	reverse_proxy mailpit:8025
 }

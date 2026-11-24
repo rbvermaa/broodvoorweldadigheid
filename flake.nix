@@ -40,6 +40,14 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
+          htmx = pkgs.callPackage ./nix/htmx.nix { };
+          fonts = pkgs.callPackage ./nix/fonts.nix { };
+          lucide = pkgs.callPackage ./nix/lucide.nix { };
+          assetEnv = {
+            HTMX_JS = "${htmx}";
+            FONTS_DIR = "${fonts}";
+            LUCIDE_DIR = "${lucide}";
+          };
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -48,7 +56,10 @@
               ./.sqlx
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
               (lib.fileset.fileFilter (file: file.hasExt "snap") ./crates)
-              ./design/tokens.toml
+              ./design
+              ./templates
+              ./apps/server/tests/snapshots
+              ./crates/notify/tests/snapshots
             ];
           };
           commonArgs = {
@@ -58,7 +69,8 @@
             strictDeps = true;
             # Query macros read .sqlx/, never a live database (make sqlx-prepare).
             SQLX_OFFLINE = "true";
-          };
+          }
+          // assetEnv;
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           postgresql = pkgs.postgresql_17;
           postgres = import ./nix/postgres.nix { inherit postgresql; };
@@ -83,6 +95,7 @@
             cargoArtifacts
             postgresql
             postgres
+            assetEnv
             cli
             ;
         };
@@ -251,31 +264,39 @@
       );
 
       devShells = forAllSystems (
-        { pkgs, craneLib, ... }:
         {
-          default = craneLib.devShell {
-            # Only the cargo checks: the image and restore checks would build the
-            # workspace, so a stale .sqlx/ would keep the shell from starting.
-            checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
-              "restore"
-              "image-contents"
-            ];
-            SQLX_OFFLINE = "true";
-            packages = with pkgs; [
-              gnumake
-              postgresql_17
-              sqlx-cli
-              cargo-nextest
-              cargo-llvm-cov
-              cargo-deny
-              cargo-audit
-              rustic
-              curl
-              sops
-              age
-              typst
-            ];
-          };
+          pkgs,
+          craneLib,
+          assetEnv,
+          ...
+        }:
+        {
+          default = craneLib.devShell (
+            assetEnv
+            // {
+              # Only the cargo checks: the image and restore checks would build the
+              # workspace, so a stale .sqlx/ would keep the shell from starting.
+              checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
+                "restore"
+                "image-contents"
+              ];
+              SQLX_OFFLINE = "true";
+              packages = with pkgs; [
+                gnumake
+                postgresql_17
+                sqlx-cli
+                cargo-nextest
+                cargo-llvm-cov
+                cargo-deny
+                cargo-audit
+                rustic
+                curl
+                sops
+                age
+                typst
+              ];
+            }
+          );
         }
       );
 

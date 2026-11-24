@@ -36,14 +36,31 @@ services:
       - kanidm:/data
     networks: [internal]
 
+  # The cli lives in the backup image. Runs once per `up`; the server waits for it.
+  migrate:
+    image: bvw-backup:${BVW_IMAGE_TAG:-dev}
+    restart: "no"
+    env_file:
+      - ${BVW_SECRETS_DIR:-./secrets}/database.env
+    command: [migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   server:
     image: bvw-server:${BVW_IMAGE_TAG:-dev}
     restart: unless-stopped
+    environment:
+      TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
+      GALLERY: "false"
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [internal]
     healthcheck:
       test: ["CMD", "server", "healthcheck", "--url", "http://127.0.0.1:8080/health"]
@@ -70,6 +87,19 @@ services:
     networks:
       internal:
         ipv4_address: ${BVW_CADDY_IP:-10.89.0.10}
+
+  # Local only: catches every email sent to SMTP mailpit:1025 on the internal network.
+  # Read them at https://mail.localhost:8443/. `make up` starts it; the smoke test does not.
+  mailpit:
+    image: bvw-mailpit:${BVW_IMAGE_TAG:-dev}
+    profiles: [mail]
+    restart: unless-stopped
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   backup:
     image: bvw-backup:${BVW_IMAGE_TAG:-dev}

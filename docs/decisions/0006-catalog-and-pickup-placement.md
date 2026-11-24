@@ -21,6 +21,18 @@ in Phase 2. Until then `product.lead_time_hours` (nullable) holds a per-product 
 to confirm with the baker. When recipes ship, the recipe value takes over and the
 product column is dropped in a later release.
 
+**Update 2026-11-24: the owner's rule replaces the 36-hour default.** The owner answered
+"sourdough lead time can just be 2 days before in the evening". The warning now uses
+`company.sourdough_deadline_days_before` (default 2, 0 to 14) and
+`company.sourdough_deadline_time` (default 20:00): the latest deadline is that local time
+on the bake date minus that many days, with the same summer/winter time handling as the
+default deadline. A product that sets its own `lead_time_hours` still adds a check
+(`bake_starts_at` minus that lead time); the earlier of the two limits wins. A product
+without one has no lead time of its own: there is no fallback any more.
+`company.default_lead_time_hours` is no longer read and is dropped in a later release
+(migrations only add). The warning applies to every online drop, also one without
+products yet.
+
 Smaller choices in the same change:
 
 - SQLx 0.9 has no jiff support. Queries move timestamps as epoch microseconds and times

@@ -374,7 +374,7 @@ async fn products_not_sold_online_never_reach_the_webshop_list(mut conn: PoolCon
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn lead_time_falls_back_to_the_company_default(mut conn: PoolConnection<Postgres>) {
+async fn only_products_with_their_own_lead_time_have_one(mut conn: PoolConnection<Postgres>) {
     let default = products::create(&mut conn, &sourdough()).await.unwrap();
     let own = products::create(
         &mut conn,
@@ -390,17 +390,17 @@ async fn lead_time_falls_back_to_the_company_default(mut conn: PoolConnection<Po
         products::lead_time_hours(&mut conn, default.id)
             .await
             .unwrap(),
-        36
+        None
     );
     assert_eq!(
         products::lead_time_hours(&mut conn, own.id).await.unwrap(),
-        48
+        Some(48)
     );
     assert_eq!(
         products::lead_times(&mut conn, &[own.id, ProductId::new(999), default.id])
             .await
             .unwrap(),
-        [(default.id, 36), (own.id, 48)]
+        [(own.id, 48)]
     );
 }
 

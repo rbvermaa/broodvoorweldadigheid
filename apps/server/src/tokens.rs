@@ -34,6 +34,10 @@ struct Tokens {
     line_height: BTreeMap<String, String>,
     space: BTreeMap<String, String>,
     radius: BTreeMap<String, String>,
+    #[serde(default)]
+    border: BTreeMap<String, String>,
+    #[serde(default)]
+    size: BTreeMap<String, String>,
     shadow: BTreeMap<String, String>,
     breakpoint: BTreeMap<String, String>,
     #[serde(default)]
@@ -91,6 +95,8 @@ pub fn generate(source: &str) -> Result<String, String> {
     });
     sheet.add_all("space", &tokens.space, length);
     sheet.add_all("radius", &tokens.radius, length);
+    sheet.add_all("border", &tokens.border, length);
+    sheet.add_all("size", &tokens.size, length);
     sheet.add_all("shadow", &tokens.shadow, shadow);
     sheet.add_all("breakpoint", &tokens.breakpoint, length);
 

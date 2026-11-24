@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sourdough_deadline_days_before AS days_before,\n            extract(epoch FROM sourdough_deadline_time)::integer AS \"at_s!\"\n        FROM company",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "days_before",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "sourdough_deadline_days_before"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "at_s!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "45f84807fb257a473ac918c361641153cbaf548384d8cbbbdbee1acb1db65956"
+}

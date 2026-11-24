@@ -1,0 +1,36 @@
+---
+source: crates/notify/tests/emails.rs
+expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
+---
+To: sanne@example.org
+Subject: Je bestelling 2026-0042 is bevestigd
+
+Bedankt voor je bestelling!
+
+Hoi Sanne,
+
+We gaan voor je bakken. Hieronder zie je wat je hebt besteld en wanneer je het kunt ophalen.
+
+Bestelling: 2026-0042
+Drop: zaterdag 5 december 2026
+Ophaalmoment: zaterdag 5 december 2026, 11:00–12:00
+Locatie: De Proef, Majoor van Swietenlaan 15, 8382 CE Frederiksoord
+
+2 × Desem wit: € 13,00 (€ 6,50 per stuk)
+1 × Volkoren spelt: € 7,25 (jouw prijs: € 7,25 per stuk)
+1 × Theedoek: € 12,50 (€ 12,50 per stuk)
+
+Totaal: € 32,75
+BTW 9% over € 18,58: € 1,67
+BTW 21% over € 10,33: € 2,17
+
+Je bewaart je donatie voor later. Kies vóór vrijdag 5 maart 2027 een goed doel. Kies je niets, dan gaat je donatie naar het goede doel van de eerstvolgende drop.
+
+Kies een goed doel: https://broodvoorweldadigheid.nl/donatie/kies/abc123
+
+Vragen? Beantwoord deze mail, dan helpen we je verder.
+
+Groetjes van de bakker
+
+-- 
+Brood voor Weldadigheid · Majoor van Swietenlaan 15, 8382 CE Frederiksoord · KvK 12345678

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
+{% import "components/product.html" as p %}
+{% import "components/picker.html" as pick %}
+{% import "components/table.html" as t %}
+{% import "components/feedback.html" as fb %}
+{% import "components/dialog.html" as d %}
+{% block title %}{{ layout.t("gallery-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("gallery-title")? }}</h1>
+<p>{{ layout.t("gallery-intro")? }}</p>
+
+<section class="gallery-section" aria-labelledby="gallery-buttons">
+<h2 id="gallery-buttons">{{ layout.t("gallery-buttons")? }}</h2>
+<div class="gallery-row">
+{% call b::button(layout.t("gallery-primary")?) %}{% endcall %}
+{% call b::button(layout.t("gallery-secondary")?, variant = "secondary") %}{% endcall %}
+{% call b::button(layout.t("gallery-danger")?, variant = "danger") %}{% endcall %}
+{% call b::button(layout.t("gallery-disabled")?, disabled = true) %}{% endcall %}
+{% call b::button(layout.t("gallery-disabled")?, variant = "secondary", disabled = true) %}{% endcall %}
+{% call b::button(layout.t("gallery-loading")?, loading = true) %}{% endcall %}
+{% call b::button(layout.t("gallery-long-button")?) %}{% endcall %}
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-fields">
+<h2 id="gallery-fields">{{ layout.t("gallery-fields")? }}</h2>
+<div class="gallery-form">
+{% call f::field("text", "naam", layout.t("gallery-name")?, hint = layout.t("gallery-name-hint")?, required = true) %}{% endcall %}
+{% call f::field("email", "email", layout.t("gallery-email")?, value = "naam@", error = layout.t("gallery-email-error")?, required = true) %}{% endcall %}
+{% call f::field("number", "aantal", layout.t("gallery-amount")?, value = "0", error = layout.t("gallery-amount-error")?) %}{% endcall %}
+{% call f::field("money", "prijs", layout.t("gallery-price")?, value = "4,50", hint = layout.t("gallery-price-hint")?) %}{% endcall %}
+{% call f::field("textarea", "opmerking", layout.t("gallery-note")?, hint = layout.t("gallery-note-hint")?) %}{% endcall %}
+{% call f::field("text", "lang", layout.t("gallery-long-word")?, value = layout.t("gallery-long-word")?) %}{% endcall %}
+{% call f::field("text", "uit", layout.t("gallery-disabled-field")?, value = layout.t("gallery-disabled")?, disabled = true) %}{% endcall %}
+{% call f::select("doel", layout.t("gallery-charity")?, charities, required = true) %}{% endcall %}
+{% call f::select("doel-fout", layout.t("gallery-charity")?, charities, error = layout.t("gallery-charity-error")?) %}{% endcall %}
+{% call f::checkbox("akkoord", layout.t("gallery-terms")?, required = true) %}{% endcall %}
+{% call f::checkbox("akkoord-fout", layout.t("gallery-terms")?, error = layout.t("gallery-terms-error")?, required = true) %}{% endcall %}
+{% call f::checkbox("akkoord-uit", layout.t("gallery-terms")?, checked = true, disabled = true) %}{% endcall %}
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-products">
+<h2 id="gallery-products">{{ layout.t("gallery-products")? }}</h2>
+<div class="product-grid">
+{%- for product in products %}
+{% call p::product_tile(product) %}{% endcall %}
+{%- endfor %}
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-allergens">
+<h2 id="gallery-allergens">{{ layout.t("gallery-allergens")? }}</h2>
+{% call p::allergen_list(allergens) %}{% endcall %}
+{% call p::allergen_list(allergens, true) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-prices">
+<h2 id="gallery-prices">{{ layout.t("gallery-prices")? }}</h2>
+<div class="gallery-row">
+{%- for cents in prices %}
+{% call p::price(cents) %}{% endcall %}
+{%- endfor %}
+</div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-pickup">
+<h2 id="gallery-pickup">{{ layout.t("gallery-pickup")? }}</h2>
+{% call pick::pickup_picker("ophaal", layout.t("gallery-pickup-legend")?, windows) %}{% endcall %}
+{% call pick::pickup_picker("ophaal-fout", layout.t("gallery-pickup-legend")?, windows, error = layout.t("gallery-pickup-error")?) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-tables">
+<h2 id="gallery-tables">{{ layout.t("gallery-tables")? }}</h2>
+{% call t::table(table) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-alerts">
+<h2 id="gallery-alerts">{{ layout.t("gallery-alerts")? }}</h2>
+{% call fb::alert("info", layout.t("gallery-alert-info")?) %}{% endcall %}
+{% call fb::alert("success", layout.t("gallery-alert-success")?) %}{% endcall %}
+{% call fb::alert("warning", layout.t("gallery-alert-warning")?) %}{% endcall %}
+{% call fb::alert("error", layout.t("gallery-alert-error")?) %}{% endcall %}
+{% call fb::alert("info", layout.t("gallery-long-word")?) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-empty">
+<h2 id="gallery-empty">{{ layout.t("gallery-empty")? }}</h2>
+{% call fb::empty_state(layout.t("gallery-empty-title")?, layout.t("gallery-empty-text")?) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-dialog">
+<h2 id="gallery-dialog">{{ layout.t("gallery-dialog")? }}</h2>
+{% call b::button(layout.t("gallery-dialog-open")?, variant = "danger", opens = "bakdag-annuleren") %}{% endcall %}
+{% call d::confirm_dialog("bakdag-annuleren", layout.t("gallery-dialog-title")?, layout.t("gallery-dialog-text")?, layout.t("gallery-dialog-confirm")?, "/gallery") %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-saved">
+<h2 id="gallery-saved">{{ layout.t("gallery-saved")? }}</h2>
+{% call fb::saved() %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-icons">
+<h2 id="gallery-icons">{{ layout.t("gallery-icons")? }}</h2>
+<ul class="icon-list">
+{%- for name in icons %}
+<li class="icon-item">{{ layout.icon(name)? }}<code>{{ name }}</code></li>
+{%- endfor %}
+</ul>
+</section>
+{% endblock %}
