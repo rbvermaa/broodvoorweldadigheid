@@ -264,7 +264,8 @@ pub async fn enqueue_sick_day(
 
 /// Queues the email that tells the customer the order's ophaalmoment changed (F1, F4a),
 /// with the time and place the order has now. Call it in the transaction that changes the
-/// slot. Each change sends its own email, so it has no dedupe key.
+/// slot. Each change sends its own email; one from an earlier change that is not sent yet
+/// is withdrawn, so an old time never arrives after the new one.
 ///
 /// # Errors
 /// [`EmailError`].
@@ -282,7 +283,16 @@ pub async fn enqueue_pickup_moved(
         })
     })
     .await?;
-    Ok(notify::enqueue(conn, clock, &email, None).await?)
+    let prefix = pickup_moved_prefix(order);
+    notify::withdraw_unsent_prefixed(conn, &prefix).await?;
+    let key = format!("{prefix}{}", db::time::to_micros(clock.now()));
+    Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
+}
+
+/// `pickup-moved:42:`, followed by the time of the change in microseconds.
+#[must_use]
+pub fn pickup_moved_prefix(order: OrderId) -> String {
+    format!("pickup-moved:{}:", order.get())
 }
 
 /// Withdraws the order's pickup reminder if it is not sent yet, after the order moved to

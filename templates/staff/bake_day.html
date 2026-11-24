@@ -42,6 +42,7 @@
 {%- else %}
 {% call b::button(layout.t("slot-move")?, variant = "secondary", opens = slot.dialog) %}{% endcall %}
 {% call d::confirm_dialog(slot.dialog, layout.t("slot-move")?, slot.moves, layout.t("slot-move-confirm")?, slot.edit) %}
+<input type="hidden" name="bevestigd" value="ja">
 {% call f::field("date", slot.date_field, layout.t("slot-date")?, value = slot.date, error = errors.get(slot.date_field), required = true) %}{% endcall %}
 {% call f::field("time", slot.starts_field, layout.t("window-starts")?, value = slot.starts, error = errors.get(slot.starts_field), required = true) %}{% endcall %}
 {% call f::field("time", slot.ends_field, layout.t("window-ends")?, value = slot.ends, error = errors.get(slot.ends_field), required = true) %}{% endcall %}

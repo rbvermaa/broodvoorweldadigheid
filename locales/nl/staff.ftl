@@ -173,7 +173,9 @@ slot-remove-text = Het ophaalmoment { $slot } verdwijnt van deze bakdag.
 slot-error-order = Het ophaalmoment moet eindigen na het begin.
 # $time: 05:00
 slot-error-before-bake = Het ophaalmoment kan niet beginnen voor het bakken begint, om { $time } op de bakdag.
-slot-error-has-orders = Er zijn bestellingen voor dit ophaalmoment. Verplaats het ophaalmoment of zet de bestellingen eerst over.
+slot-error-past = Dit ophaalmoment is dan al voorbij. Kies een tijd die nog moet komen.
+slot-error-confirm = Er zijn intussen bestellingen voor dit ophaalmoment. Kijk of je het nog steeds wilt verplaatsen.
+slot-error-has-orders =Er zijn bestellingen voor dit ophaalmoment. Verplaats het ophaalmoment of zet de bestellingen eerst over.
 day-schedule = Tijden
 day-menu-publish = Menu tonen vanaf
 day-menu-publish-hint = Leeg laten als het menu nog niet vaststaat.

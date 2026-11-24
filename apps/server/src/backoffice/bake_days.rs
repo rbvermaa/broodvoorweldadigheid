@@ -1,7 +1,7 @@
 //! Bake days: create, schedule, charity, range, copy and repeat, and
 //! opening and closing ordering (F1, F1a, F3, F4c).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use askama::Template;
 use auth::Permission;
@@ -70,8 +70,8 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
                 "number of weeks" => ("weeks", "day-error-weeks"),
                 "quantity" => ("qty", "extra-error-qty"),
                 "date" => ("date", "form-error-date"),
-                "pickup slot" => ("slot_ends", "slot-error-order"),
-                "pickup before bake start" => ("slot_starts", "slot-error-before-bake"),
+                "pickup slot" => ("", "slot-error-order"),
+                "pickup before bake start" => ("", "slot-error-before-bake"),
                 _ => ("", "form-has-errors"),
             };
             let text = if matches!(
@@ -676,6 +676,7 @@ fn slot_rows(
     slots: &[PickupSlot],
     locations: &[PickupLocation],
     orders: &BTreeMap<PickupSlotId, u32>,
+    in_use: &BTreeSet<PickupSlotId>,
     forms: &DayForms,
 ) -> Vec<SlotRow> {
     let zone = i18n::Amsterdam::new();
@@ -723,7 +724,7 @@ fn slot_rows(
                 } else {
                     String::new()
                 },
-                removable: count == 0 && !(day.online_ordering && slots.len() == 1),
+                removable: !in_use.contains(&slot.id) && !(day.online_ordering && slots.len() == 1),
                 remove_dialog: format!("slot-remove-{id}"),
                 remove_action: format!("{path}/slots/{id}/remove"),
                 remove_text: t_with(state, "slot-remove-text", &[("slot", text.clone())]),
@@ -800,6 +801,9 @@ async fn render_day(
             .map_err(|e| fail(state, &e))?;
         slot_orders.insert(slot.id, u32::try_from(count).unwrap_or(u32::MAX));
     }
+    let in_use = orders::slots_in_use(&mut conn, day.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
     let all_products = products::list_all(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
@@ -833,7 +837,15 @@ async fn render_day(
     let forms = answer.forms.unwrap_or_else(|| DayForms::of(day));
     let date = state.i18n.long_date(day.date);
     let path = day_path(day.id);
-    let slot_rows = slot_rows(state, day, &slots, &location_list, &slot_orders, &forms);
+    let slot_rows = slot_rows(
+        state,
+        day,
+        &slots,
+        &location_list,
+        &slot_orders,
+        &in_use,
+        &forms,
+    );
     let new_slot = new_slot(day, &slots, &location_list, &forms);
     let range_rows = items
         .iter()
@@ -1519,6 +1531,10 @@ fn parse_slot(state: &AppState, forms: &DayForms) -> Result<(Timestamp, Timestam
         schedule::bakery_timestamp(date, starts),
         schedule::bakery_timestamp(date, ends),
     ) {
+        (Ok(_), Ok(ends)) if ends <= state.clock.now() => Err(vec![(
+            format!("slot_ends_{key}"),
+            t(state, "slot-error-past"),
+        )]),
         (Ok(starts), Ok(ends)) => Ok((starts, ends)),
         _ => Err(vec![(
             format!("slot_date_{key}"),
@@ -1569,9 +1585,12 @@ async fn slot_problem(
         return Err(bakedays_error(state, error).into());
     };
     let key = &forms.edit_slot;
-    let field = match problem.field {
-        "slot_starts" | "slot_ends" => format!("{}_{key}", problem.field),
-        "date" => format!("slot_date_{key}"),
+    let field = match (error, problem.field) {
+        (bakedays::Error::Invalid("pickup slot"), _) => format!("slot_ends_{key}"),
+        (bakedays::Error::Invalid("pickup before bake start"), _) => {
+            format!("slot_starts_{key}")
+        }
+        (_, "date") => format!("slot_date_{key}"),
         _ => String::new(),
     };
     let errors = vec![(field, problem.text)];
@@ -1682,6 +1701,17 @@ pub async fn update_slot(
             let moved = orders::awaiting_pickup_in_slot(&mut tx, slot.id)
                 .await
                 .map_err(|e| fail(&state, &e))?;
+            if !moved.is_empty() && !fields.checked("bevestigd") {
+                drop(tx);
+                let text = t(&state, "slot-error-confirm");
+                if is_htmx(&headers) {
+                    return Ok(alert_fragment(&state, text));
+                }
+                let mut answer = Answer::plain(false);
+                answer.problem = text;
+                let status = StatusCode::CONFLICT;
+                return render_day(&state, &staff, &session, status, &day, answer).await;
+            }
             for order in moved {
                 queue_email(&state, &mut tx, order, async |conn| {
                     order_emails::enqueue_pickup_moved(conn, clock, &state.order_emails, order)

@@ -21,7 +21,7 @@ pub use checkout::{HOLD, OrderedBy, checkout, checkout_replacing, same_as_order,
 pub use customer::CustomerInput;
 pub use details::{
     OrderDetails, PickupDetails, awaiting_pickup, awaiting_pickup_in_slot, details,
-    lock_awaiting_pickup,
+    lock_awaiting_pickup, slots_in_use,
 };
 pub use error::Error;
 pub use holds::{cancel_pending, release_expired_holds};
