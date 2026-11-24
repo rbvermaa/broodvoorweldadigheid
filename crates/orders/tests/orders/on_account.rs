@@ -1,7 +1,8 @@
 use domain::{CustomerId, Money, StaffUserId, VatRate};
 use orders::audit;
 use orders::{
-    Channel, CustomerInput, Error, OrderStatus, PaymentMode, allocations, checkout_on_account,
+    Channel, CustomerInput, Error, OrderStatus, PaymentMode, allocations, check_customer,
+    checkout_on_account,
 };
 use sqlx::PgConnection;
 use sqlx::Postgres;
@@ -140,4 +141,21 @@ async fn only_business_accounts_allowed_on_account_can_order_on_account(
         .await
         .unwrap();
     assert_eq!(orders, 0);
+}
+
+#[test]
+fn stored_details_get_the_checkout_customer_check() {
+    assert!(check_customer(&company()).is_ok());
+    for bad in [
+        CustomerInput {
+            email: "inkoop@localhost".to_owned(),
+            ..company()
+        },
+        CustomerInput {
+            name: "B".repeat(201),
+            ..company()
+        },
+    ] {
+        assert!(matches!(check_customer(&bad), Err(Error::Invalid(_))));
+    }
 }
