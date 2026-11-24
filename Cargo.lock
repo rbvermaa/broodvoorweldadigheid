@@ -211,7 +211,7 @@ dependencies = [
  "domain",
  "jiff",
  "sqlx",
- "thiserror",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
@@ -308,7 +308,7 @@ dependencies = [
  "jiff",
  "sqlx",
  "testkit",
- "thiserror",
+ "thiserror 2.0.21",
  "tokio",
 ]
 
