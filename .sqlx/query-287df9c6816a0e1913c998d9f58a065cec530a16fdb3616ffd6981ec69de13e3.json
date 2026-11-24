@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE faq_entry SET position = o.position - 1,\n            updated_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        FROM unnest($1::bigint[]) WITH ORDINALITY AS o(id, position)\n        WHERE faq_entry.id = o.id\n            AND (SELECT count(DISTINCT u) FROM unnest($1::bigint[]) AS u) = cardinality($1::bigint[])\n            AND (SELECT count(*) FROM faq_entry) = cardinality($1::bigint[])\n            AND (SELECT count(*) FROM faq_entry WHERE id = ANY($1::bigint[])) = cardinality($1::bigint[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "287df9c6816a0e1913c998d9f58a065cec530a16fdb3616ffd6981ec69de13e3"
+}

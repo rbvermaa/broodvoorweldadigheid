@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/rich.html" as rich %}
+{% block title %}{{ layout.t("faq-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("faq-title")? }}</h1>
+{%- if entries.is_empty() %}
+{% call fb::empty_state(layout.t("faq-empty-title")?, layout.t("faq-contact")?) %}{% endcall %}
+{%- else %}
+{%- for entry in entries %}
+<section class="faq-item" aria-labelledby="vraag-{{ entry.id }}">
+<h2 id="vraag-{{ entry.id }}">{{ entry.question }}</h2>
+{% call rich::blocks(entry.answer) %}{% endcall %}
+</section>
+{%- endfor %}
+{%- endif %}
+<p><a href="/contact">{{ layout.t("faq-contact")? }}</a></p>
+{% endblock %}

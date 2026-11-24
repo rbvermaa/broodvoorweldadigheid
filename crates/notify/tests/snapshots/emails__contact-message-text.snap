@@ -1,0 +1,27 @@
+---
+source: crates/notify/tests/emails.rs
+expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
+---
+To: bakker@broodvoorweldadigheid.nl
+Subject: Contactformulier: bericht van Sanne de Vries
+
+Nieuw bericht via de site
+
+Hoi bakker,
+
+Er is een bericht binnengekomen via het contactformulier.
+
+Naam: Sanne de Vries
+E-mail: sanne@example.org
+
+> Hoi!
+> Kan ik ook een halfje bestellen?
+> 
+> <b>Groet</b>
+
+Beantwoord deze mail om Sanne de Vries antwoord te geven.
+
+Verstuurd via het contactformulier op de site
+
+-- 
+Brood voor Weldadigheid

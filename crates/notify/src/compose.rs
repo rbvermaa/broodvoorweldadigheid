@@ -19,6 +19,26 @@ pub struct Company {
     pub kvk: String,
 }
 
+impl Company {
+    /// The company settings row. Address and KvK number are empty until staff fill them in.
+    ///
+    /// # Errors
+    /// When the database fails.
+    pub async fn load(conn: &mut sqlx::PgConnection) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"SELECT name, coalesce(address, '') AS "address!", coalesce(kvk, '') AS "kvk!"
+            FROM company WHERE id = 1"#
+        )
+        .fetch_one(conn)
+        .await?;
+        Ok(Self {
+            name: row.name,
+            address: row.address,
+            kvk: row.kvk,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
     pub email: String,
@@ -130,6 +150,15 @@ pub struct SubscriptionConfirmation {
     pub confirm_url: String,
 }
 
+/// F4f: a message from the contact form, sent to the bakery. Replies go to `email`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactMessage {
+    pub to: String,
+    pub name: String,
+    pub email: String,
+    pub message: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeError {
     #[error(transparent)]
@@ -148,6 +177,8 @@ pub enum ComposeError {
     NoLines,
     #[error("a refund must be more than zero, got {0} cents")]
     Refund(i64),
+    #[error("the contact name or message is empty or holds control characters")]
+    Contact,
 }
 
 /// The parts that differ per email; [`Composer::email`] adds the frame.
@@ -428,7 +459,71 @@ impl<'a> Composer<'a> {
         self.email(EmailKind::SubscriptionConfirmation, &subscription.to, parts)
     }
 
+    /// To the bakery, with only the company name in the footer; the sender gets no copy.
+    ///
+    /// # Errors
+    /// [`ComposeError::Address`] for a bad recipient or sender address,
+    /// [`ComposeError::Contact`] for an empty name or message or a control character in
+    /// the name, and [`ComposeError::Company`] without a company name.
+    pub fn contact_message(&self, contact: &ContactMessage) -> Result<Email, ComposeError> {
+        if !is_address(&contact.email) {
+            return Err(ComposeError::Address);
+        }
+        let name = contact.name.trim();
+        if name.is_empty() || contact.name.chars().any(char::is_control) {
+            return Err(ComposeError::Contact);
+        }
+        let message = contact.message.trim();
+        if message.is_empty() {
+            return Err(ComposeError::Contact);
+        }
+        let company = self.company.name.trim();
+        if company.is_empty() {
+            return Err(ComposeError::Company);
+        }
+        let parts = Parts {
+            subject: self.t("email-contact-subject", &[("name", name.to_owned())])?,
+            heading: self.t("email-contact-heading", &[])?,
+            greeting: self.t("email-contact-greeting", &[])?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-contact-intro", &[])?),
+                Block::Facts(vec![
+                    self.fact("email-label-name", name.to_owned())?,
+                    self.fact("email-label-email", contact.email.clone())?,
+                ]),
+                Block::Quote(
+                    message
+                        .lines()
+                        .map(|line| line.trim_end().to_owned())
+                        .collect(),
+                ),
+                Block::Paragraph(self.t("email-contact-reply", &[("name", name.to_owned())])?),
+            ],
+            unsubscribe: None,
+        };
+        let mut email = self.frame(
+            EmailKind::ContactMessage,
+            &contact.to,
+            parts,
+            company.to_owned(),
+            "email-contact-signoff",
+        )?;
+        email.reply_to = Some(contact.email.clone());
+        Ok(email)
+    }
+
     fn email(&self, kind: EmailKind, to: &str, parts: Parts) -> Result<Email, ComposeError> {
+        self.frame(kind, to, parts, self.company_line()?, "email-signoff")
+    }
+
+    fn frame(
+        &self,
+        kind: EmailKind,
+        to: &str,
+        parts: Parts,
+        company: String,
+        signoff: &str,
+    ) -> Result<Email, ComposeError> {
         let to = address(to)?;
         let reason = match parts.unsubscribe {
             Some(_) => Some(self.t("email-drop-reason", &[])?),
@@ -441,10 +536,10 @@ impl<'a> Composer<'a> {
             heading: parts.heading,
             greeting: parts.greeting,
             blocks: parts.blocks,
-            signoff: self.t("email-signoff", &[])?,
+            signoff: self.t(signoff, &[])?,
             reason,
             unsubscribe: parts.unsubscribe,
-            company: self.company_line()?,
+            company,
         };
         Ok(Email {
             kind,
@@ -453,6 +548,7 @@ impl<'a> Composer<'a> {
             text: content.text(),
             subject: content.subject,
             list_unsubscribe: None,
+            reply_to: None,
         })
     }
 
@@ -593,6 +689,12 @@ impl<'a> Composer<'a> {
         let kvk = self.t("email-footer-kvk", &[("kvk", kvk.clone())])?;
         Ok([name.clone(), address.clone(), kvk].join(" · "))
     }
+}
+
+/// Whether `value` is exactly one email address, with nothing around it.
+#[must_use]
+pub fn is_address(value: &str) -> bool {
+    lettre::Address::from_str(value).is_ok() && lettre::message::Mailbox::from_str(value).is_ok()
 }
 
 fn address(to: &str) -> Result<String, ComposeError> {
