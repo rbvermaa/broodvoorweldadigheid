@@ -17,3 +17,5 @@ Questions about the spec. The spec is only changed when the owner asks.
   The weekly dependency-update job (spec, "Nightly and weekly") should bump it.
 - [ ] **Partial refund by amount on a mixed-rate order.** How is it split across BTW
   rates? (System refunds per line for now; ADR 0005.)
+- [ ] **Gate 3 names the till.** The roadmap picture says "Gate 3: till in daily use,
+  two weeks at the counter", but the till is out of scope (SumUp). What is Gate 3?
