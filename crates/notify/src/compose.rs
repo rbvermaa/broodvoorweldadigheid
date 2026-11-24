@@ -152,7 +152,7 @@ pub struct SubscriptionConfirmation {
     pub confirm_url: String,
 }
 
-/// A customer's magic link to sign in (spec, Security; ADR 0028).
+/// A customer's magic link to sign in (spec, Security; ADR 0029).
 #[derive(Clone, PartialEq, Eq)]
 pub struct LoginLink {
     pub to: String,

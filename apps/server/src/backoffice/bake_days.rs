@@ -472,6 +472,7 @@ struct DayPage<'a> {
     product_options: Vec<SelectOption>,
     range: Vec<RangeRow>,
     actions: Vec<Action>,
+    cancel_day: Option<String>,
 }
 
 /// What the page needs beyond the day itself: the posted form values and the refusal, if
@@ -493,6 +494,19 @@ impl Answer {
             saved,
             alerts: Vec::new(),
         }
+    }
+
+    /// The page again with `text` under the range row's `field`, or on top when `field` is
+    /// empty.
+    fn row(forms: DayForms, field: &str, text: String) -> Self {
+        let mut answer = Self::plain(false);
+        answer.forms = Some(forms);
+        if field.is_empty() {
+            answer.problem = text;
+        } else {
+            answer.errors.add(field, text);
+        }
+        answer
     }
 
     fn refused(forms: Option<DayForms>, problem: Problem) -> Self {
@@ -590,6 +604,7 @@ fn actions(state: &AppState, day: &BakeDay, date: &str) -> Vec<Action> {
 
 async fn render_day(
     state: &AppState,
+    staff: &Staff,
     session: &Session,
     status: StatusCode,
     day: &BakeDay,
@@ -708,6 +723,8 @@ async fn render_day(
             product_options,
             range: range_rows,
             actions: actions(state, day, &date),
+            cancel_day: (!day.status.is_final() && staff.0.role.can(Permission::CloseBakeDay))
+                .then(|| super::sick_day::cancel_path(day.id)),
             path,
         },
     ))
@@ -727,7 +744,7 @@ pub async fn show(
         if flash.doel.is_some() {
             answer.alerts.push(t(&state, "day-charity-dropped"));
         }
-        render_day(&state, &session, StatusCode::OK, &day, answer).await
+        render_day(&state, &staff, &session, StatusCode::OK, &day, answer).await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -735,6 +752,7 @@ pub async fn show(
 /// Shows the page again with the refusal, or fails for errors that are ours.
 async fn refused(
     state: &AppState,
+    staff: &Staff,
     session: &Session,
     headers: &HeaderMap,
     day: &BakeDay,
@@ -745,20 +763,20 @@ async fn refused(
         return Err(bakedays_error(state, error).into());
     };
     let answer = Answer::refused(forms, problem);
-    render_day(state, session, invalid_status(headers), day, answer).await
+    render_day(state, staff, session, invalid_status(headers), day, answer).await
 }
 
 async fn field_error(
     state: &AppState,
+    staff: &Staff,
     session: &Session,
     headers: &HeaderMap,
     day: &BakeDay,
     forms: DayForms,
-    field: &'static str,
-    text: String,
+    problem: Problem,
 ) -> Outcome {
-    let answer = Answer::refused(Some(forms), Problem { field, text });
-    render_day(state, session, invalid_status(headers), day, answer).await
+    let answer = Answer::refused(Some(forms), problem);
+    render_day(state, staff, session, invalid_status(headers), day, answer).await
 }
 
 pub async fn schedule(
@@ -799,7 +817,15 @@ pub async fn schedule(
                 saved: false,
                 alerts: Vec::new(),
             };
-            return render_day(&state, &session, invalid_status(&headers), &day, answer).await;
+            return render_day(
+                &state,
+                &staff,
+                &session,
+                invalid_status(&headers),
+                &day,
+                answer,
+            )
+            .await;
         }
         let schedule = Schedule {
             online_ordering: !forms.production_only,
@@ -812,7 +838,18 @@ pub async fn schedule(
         drop(conn);
         match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
+            Err(error) => {
+                refused(
+                    &state,
+                    &staff,
+                    &session,
+                    &headers,
+                    &day,
+                    Some(forms),
+                    &error,
+                )
+                .await
+            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
@@ -833,7 +870,19 @@ pub async fn charity(
         forms.charity_id = fields.text("charity_id").to_owned();
         let Ok(charity) = optional_id(&forms.charity_id) else {
             let text = t(&state, "day-error-charity-unknown");
-            return field_error(&state, &session, &headers, &day, forms, "charity_id", text).await;
+            return field_error(
+                &state,
+                &staff,
+                &session,
+                &headers,
+                &day,
+                forms,
+                Problem {
+                    field: "charity_id",
+                    text,
+                },
+            )
+            .await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         let result = days::set_charity(
@@ -846,7 +895,18 @@ pub async fn charity(
         drop(conn);
         match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
+            Err(error) => {
+                refused(
+                    &state,
+                    &staff,
+                    &session,
+                    &headers,
+                    &day,
+                    Some(forms),
+                    &error,
+                )
+                .await
+            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
@@ -901,17 +961,52 @@ pub async fn set_product(
         forms.max_qty = fields.text("max_qty").to_owned();
         let Ok(Some(product)) = optional_id(&forms.product_id) else {
             let text = t(&state, "range-error-product");
-            return field_error(&state, &session, &headers, &day, forms, "product_id", text).await;
+            return field_error(
+                &state,
+                &staff,
+                &session,
+                &headers,
+                &day,
+                forms,
+                Problem {
+                    field: "product_id",
+                    text,
+                },
+            )
+            .await;
         };
         let max_qty = match parse_max(&state, &forms.max_qty) {
             Ok(max_qty) => max_qty,
             Err(text) => {
-                return field_error(&state, &session, &headers, &day, forms, "max_qty", text).await;
+                return field_error(
+                    &state,
+                    &staff,
+                    &session,
+                    &headers,
+                    &day,
+                    forms,
+                    Problem {
+                        field: "max_qty",
+                        text,
+                    },
+                )
+                .await;
             }
         };
         match put_product(&state, day.id, ProductId::new(product), max_qty).await? {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
+            Err(error) => {
+                refused(
+                    &state,
+                    &staff,
+                    &session,
+                    &headers,
+                    &day,
+                    Some(forms),
+                    &error,
+                )
+                .await
+            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
@@ -938,8 +1033,9 @@ pub async fn update_product(
         let max_qty = match parse_max(&state, &forms.edit_max_qty) {
             Ok(max_qty) => max_qty,
             Err(text) => {
-                return row_refused(&state, &session, &headers, &day, forms, &max_field, text)
-                    .await;
+                let answer = Answer::row(forms, &max_field, text);
+                let status = invalid_status(&headers);
+                return render_day(&state, &staff, &session, status, &day, answer).await;
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
@@ -956,39 +1052,18 @@ pub async fn update_product(
             "max_qty" => max_field,
             _ => String::new(),
         };
-        row_refused(
+        let answer = Answer::row(forms, &field, problem.text);
+        render_day(
             &state,
+            &staff,
             &session,
-            &headers,
+            invalid_status(&headers),
             &day,
-            forms,
-            &field,
-            problem.text,
+            answer,
         )
         .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
-}
-
-/// The page again with `text` under the range row's `field`, or on top when `field` is
-/// empty.
-async fn row_refused(
-    state: &AppState,
-    session: &Session,
-    headers: &HeaderMap,
-    day: &BakeDay,
-    forms: DayForms,
-    field: &str,
-    text: String,
-) -> Outcome {
-    let mut answer = Answer::plain(false);
-    answer.forms = Some(forms);
-    if field.is_empty() {
-        answer.problem = text;
-    } else {
-        answer.errors.add(field, text);
-    }
-    render_day(state, session, invalid_status(headers), day, answer).await
 }
 
 pub async fn remove_product(
@@ -1007,7 +1082,9 @@ pub async fn remove_product(
         drop(conn);
         match result {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => transition_refused(&state, &session, &headers, &day, &error).await,
+            Err(error) => {
+                transition_refused(&state, &staff, &session, &headers, &day, &error).await
+            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
@@ -1028,7 +1105,19 @@ pub async fn copy(
         forms.copy_date = fields.text("copy_date").to_owned();
         let Some(date) = parse_date(&forms.copy_date) else {
             let text = t(&state, "form-error-date");
-            return field_error(&state, &session, &headers, &day, forms, "copy_date", text).await;
+            return field_error(
+                &state,
+                &staff,
+                &session,
+                &headers,
+                &day,
+                forms,
+                Problem {
+                    field: "copy_date",
+                    text,
+                },
+            )
+            .await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         match days::copy_to(&mut conn, day.id, date).await {
@@ -1048,7 +1137,15 @@ pub async fn copy(
                     problem.field = "copy_date";
                 }
                 let answer = Answer::refused(Some(forms), problem);
-                render_day(&state, &session, invalid_status(&headers), &day, answer).await
+                render_day(
+                    &state,
+                    &staff,
+                    &session,
+                    invalid_status(&headers),
+                    &day,
+                    answer,
+                )
+                .await
             }
         }
     };
@@ -1070,7 +1167,19 @@ pub async fn repeat(
         forms.weeks = fields.text("weeks").to_owned();
         let Some(weeks) = forms.weeks.parse::<u8>().ok() else {
             let text = t(&state, "day-error-weeks");
-            return field_error(&state, &session, &headers, &day, forms, "weeks", text).await;
+            return field_error(
+                &state,
+                &staff,
+                &session,
+                &headers,
+                &day,
+                forms,
+                Problem {
+                    field: "weeks",
+                    text,
+                },
+            )
+            .await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         match days::repeat_weekly(&mut conn, day.id, weeks).await {
@@ -1090,7 +1199,15 @@ pub async fn repeat(
                     problem.field = "weeks";
                 }
                 let answer = Answer::refused(Some(forms), problem);
-                render_day(&state, &session, invalid_status(&headers), &day, answer).await
+                render_day(
+                    &state,
+                    &staff,
+                    &session,
+                    invalid_status(&headers),
+                    &day,
+                    answer,
+                )
+                .await
             }
         }
     };
@@ -1120,6 +1237,7 @@ pub fn alert_fragment(state: &AppState, text: String) -> Response {
 
 async fn transition_refused(
     state: &AppState,
+    staff: &Staff,
     session: &Session,
     headers: &HeaderMap,
     day: &BakeDay,
@@ -1138,7 +1256,7 @@ async fn transition_refused(
             text: problem.text,
         },
     );
-    render_day(state, session, StatusCode::CONFLICT, day, answer).await
+    render_day(state, staff, session, StatusCode::CONFLICT, day, answer).await
 }
 
 #[derive(Clone, Copy)]
@@ -1167,7 +1285,9 @@ async fn transition(
         drop(conn);
         match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
-            Err(error) => transition_refused(&state, &session, &headers, &day, &error).await,
+            Err(error) => {
+                transition_refused(&state, &staff, &session, &headers, &day, &error).await
+            }
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)

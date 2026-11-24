@@ -322,6 +322,7 @@ staff-order-action-invoiced = Gefactureerd
 staff-order-action-refund_done = Terugbetaling verstuurd
 staff-order-action-refund_failed = Terugbetaling mislukt
 staff-orders-cancel-day = Bakdag afzeggen
+staff-day-cancel-sick = Bakdag annuleren (ziek)
 staff-sick-day-heading = Bakdag van { $date } afzeggen
 staff-sick-day-orders = Bestellingen die we annuleren
 staff-sick-day-refunds = Bestellingen die geld terugkrijgen

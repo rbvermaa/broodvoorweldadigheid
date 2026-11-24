@@ -1,4 +1,4 @@
-//! Customer login by email magic link (spec, Security; ADR 0028). A link is 32 random
+//! Customer login by email magic link (spec, Security; ADR 0029). A link is 32 random
 //! bytes, base64url; only its SHA-256 is stored. It works once, for [`LINK_VALID`].
 
 use base64::Engine;

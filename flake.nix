@@ -195,6 +195,24 @@
             }
           );
 
+          adr-numbers = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              src = pkgs.lib.fileset.toSource {
+                root = ./.;
+                fileset = pkgs.lib.fileset.unions [
+                  (craneLib.fileset.commonCargoSources ./.)
+                  ./docs/decisions
+                ];
+              };
+              pnameSuffix = "-adr-numbers";
+              buildPhaseCargoCommand = "cargo xtask adr-numbers";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
           coverage-report = craneLib.cargoLlvmCov (
             commonArgs
             // {

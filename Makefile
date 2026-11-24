@@ -40,7 +40,7 @@ IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
-LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid coverage-report coverage restore image-contents
+LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid adr-numbers coverage-report coverage restore image-contents
 IMAGE_CAT = $(if $(LINUX_STORE),nix store cat --store $(LINUX_STORE),cat)
 
 PG_DIR := $(CURDIR)/.pg
@@ -67,7 +67,7 @@ export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid deny audit coverage-report coverage server db-up \
+.PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
 	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
 	images $(addprefix image-,$(IMAGES)) up down smoke staff-add
 
@@ -103,6 +103,9 @@ layers: ## Crate layer and dependency rules check
 
 unsafe-forbid: ## Every crate root forbids unsafe code
 	$(call CHECK,unsafe-forbid)
+
+adr-numbers: ## Every ADR in docs/decisions has its own number and a title
+	$(call CHECK,adr-numbers)
 
 deny: ## Licence, ban and source checks (cargo-deny)
 	$(call CHECK,deny)
