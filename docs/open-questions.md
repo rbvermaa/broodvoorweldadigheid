@@ -50,3 +50,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
+- [ ] **Company KvK number and address.** Order emails need both (Compliance), but the
+  `company` row has neither and there is no form yet. Until they are filled in, payments
+  go through without a confirmation email (ADR 0022). What are they, and should the
+  server refuse to start without them?
