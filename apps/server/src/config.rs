@@ -1,6 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
+use jiff::civil::Time;
+
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 pub const DEFAULT_PUBLIC_URL: &str = "https://broodvoorweldadigheid.nl";
 
@@ -21,6 +23,8 @@ pub struct Config {
     pub mollie_api_key_file: Option<PathBuf>,
     /// Mollie's API base URL; tests point it at a local mock.
     pub mollie_api_url: Option<String>,
+    /// Local time on the day before pickup when pickup reminders go out (F9).
+    pub pickup_reminder_at: Time,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -41,6 +45,8 @@ pub enum ConfigError {
         "PUBLIC_URL {0:?} must be an http(s) URL without path, like https://broodvoorweldadigheid.nl"
     )]
     InvalidPublicUrl(String),
+    #[error("PICKUP_REMINDER_AT {0:?} must be a time like 18:00")]
+    InvalidPickupReminderAt(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -54,6 +60,7 @@ impl std::fmt::Debug for Config {
             .field("public_url", &self.public_url)
             .field("mollie_api_key_file", &self.mollie_api_key_file)
             .field("mollie_api_url", &self.mollie_api_url)
+            .field("pickup_reminder_at", &self.pickup_reminder_at)
             .finish()
     }
 }
@@ -99,6 +106,10 @@ impl Config {
             .filter(|path| !path.is_empty())
             .map(PathBuf::from);
         let mollie_api_url = lookup("MOLLIE_API_URL").filter(|url| !url.is_empty());
+        let pickup_reminder_at = match lookup("PICKUP_REMINDER_AT").filter(|raw| !raw.is_empty()) {
+            None => jobs::order_emails::DEFAULT_REMINDER_AT,
+            Some(raw) => parse_hh_mm(&raw).ok_or(ConfigError::InvalidPickupReminderAt(raw))?,
+        };
         Ok(Self {
             bind_addr,
             database_url,
@@ -108,6 +119,7 @@ impl Config {
             public_url,
             mollie_api_key_file,
             mollie_api_url,
+            pickup_reminder_at,
         })
     }
 
@@ -119,6 +131,16 @@ impl Config {
             .map_or(self.public_url.as_str(), |(_, rest)| rest);
         rest.split([':', '/']).next().unwrap_or(rest)
     }
+}
+
+/// `HH:MM`, 24-hour.
+fn parse_hh_mm(raw: &str) -> Option<Time> {
+    let (hour, minute) = raw.split_once(':')?;
+    let digits = |part: &str| part.len() == 2 && part.bytes().all(|b| b.is_ascii_digit());
+    if !digits(hour) || !digits(minute) {
+        return None;
+    }
+    Time::new(hour.parse().ok()?, minute.parse().ok()?, 0, 0).ok()
 }
 
 /// `http://` or `https://`, a host of letters, digits, dots and dashes, an optional
@@ -191,6 +213,23 @@ mod tests {
             Err(ConfigError::NotPostgres)
         );
         assert!(Config::from_lookup(lookup(&[("DATABASE_URL", "postgresql://db/bakery")])).is_ok());
+    }
+
+    #[test]
+    fn pickup_reminders_default_to_six_in_the_evening() {
+        let db = ("DATABASE_URL", "postgres://db/bakery");
+        let config = Config::from_lookup(lookup(&[db])).expect("config");
+        assert_eq!(config.pickup_reminder_at, jiff::civil::time(18, 0, 0, 0));
+        let config =
+            Config::from_lookup(lookup(&[db, ("PICKUP_REMINDER_AT", "07:30")])).expect("config");
+        assert_eq!(config.pickup_reminder_at, jiff::civil::time(7, 30, 0, 0));
+        for bad in ["18", "24:00", "7:30", "+1:00", "18:00:00"] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[db, ("PICKUP_REMINDER_AT", bad)])),
+                Err(ConfigError::InvalidPickupReminderAt(bad.to_owned())),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

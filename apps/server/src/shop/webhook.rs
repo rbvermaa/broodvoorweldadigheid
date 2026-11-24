@@ -2,8 +2,10 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use domain::{PaymentError, PaymentStatus, ProviderPaymentId};
-use orders::{Error as OrderError, PaidOutcome, PaymentReceived};
+use domain::{OrderId, PaymentError, PaymentStatus, ProviderPaymentId};
+use jobs::order_emails;
+use orders::{Error as OrderError, OrderStatus, PaidOutcome, PaymentReceived, RefundReason};
+use sqlx::{Acquire, PgConnection};
 
 use crate::state::AppState;
 
@@ -49,54 +51,104 @@ pub async fn settle(state: &AppState, id: &ProviderPaymentId) -> Result<Settled,
         .await
         .map_err(|err| TryAgain(err.to_string()))?;
     let clock = state.clock.as_ref();
-    let result = if payment.status == PaymentStatus::Paid {
-        orders::mark_paid(
-            &mut conn,
-            clock,
-            order,
-            &PaymentReceived {
-                reference: id.as_str().to_owned(),
-                amount: payment.amount,
-            },
-        )
-        .await
-        .map(|outcome| match outcome {
-            PaidOutcome::Paid { .. } => Settled::Paid,
-            PaidOutcome::AlreadyPaid(_) => Settled::AlreadyPaid,
-            PaidOutcome::RefundDue { reason, .. } => {
-                tracing::warn!(
-                    payment = %id,
-                    order = order.get(),
-                    reason = reason.as_str(),
-                    "payment recorded, refund due"
-                );
-                Settled::RefundDue
-            }
-        })
-    } else {
-        orders::record_payment_status(
-            &mut conn,
-            clock,
-            order,
-            id.as_str(),
-            payment.amount,
-            payment.status,
-        )
-        .await
-        .map(|_| Settled::Status(payment.status))
-    };
-    match result {
-        Ok(settled) => Ok(settled),
-        Err(OrderError::NotFound) => {
+    if payment.status == PaymentStatus::Paid {
+        let received = PaymentReceived {
+            reference: id.as_str().to_owned(),
+            amount: payment.amount,
+        };
+        return paid(state, &mut conn, id, order, &received).await;
+    }
+    match orders::record_payment_status(
+        &mut conn,
+        clock,
+        order,
+        id.as_str(),
+        payment.amount,
+        payment.status,
+    )
+    .await
+    {
+        Ok(_) => Ok(Settled::Status(payment.status)),
+        Err(err) => order_failure(err, id, order),
+    }
+}
+
+fn order_failure(
+    err: OrderError,
+    id: &ProviderPaymentId,
+    order: OrderId,
+) -> Result<Settled, TryAgain> {
+    match err {
+        OrderError::NotFound => {
             tracing::warn!(payment = %id, order = order.get(), "payment for an unknown order");
             Ok(Settled::Ignored)
         }
-        Err(OrderError::PaymentOfOtherOrder) => {
+        OrderError::PaymentOfOtherOrder => {
             tracing::error!(payment = %id, order = order.get(), "payment recorded for another order");
             Ok(Settled::Ignored)
         }
-        Err(err) => Err(TryAgain(err.to_string())),
+        err => Err(TryAgain(err.to_string())),
     }
+}
+
+/// Marks the order paid and queues its confirmation in one transaction (ADR 0022), or,
+/// for a payment that came in for a cancelled order, the cancellation with its refund.
+/// An email that cannot be composed is logged; the payment is recorded anyway.
+async fn paid(
+    state: &AppState,
+    conn: &mut PgConnection,
+    id: &ProviderPaymentId,
+    order: OrderId,
+    received: &PaymentReceived,
+) -> Result<Settled, TryAgain> {
+    let clock = state.clock.as_ref();
+    let emails = state.order_emails.as_ref();
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|err| TryAgain(err.to_string()))?;
+    let outcome = match orders::mark_paid(&mut tx, clock, order, received).await {
+        Ok(outcome) => outcome,
+        Err(err) => return order_failure(err, id, order),
+    };
+    let (settled, email) = match outcome {
+        PaidOutcome::Paid { .. } => (
+            Settled::Paid,
+            Some(order_emails::enqueue_confirmation(&mut tx, clock, emails, order).await),
+        ),
+        PaidOutcome::AlreadyPaid(_) => (Settled::AlreadyPaid, None),
+        PaidOutcome::RefundDue {
+            order: refused,
+            payment,
+            reason,
+        } => {
+            tracing::warn!(
+                payment = %id,
+                order = order.get(),
+                reason = reason.as_str(),
+                "payment recorded, refund due"
+            );
+            let cancelled = refused.status == OrderStatus::Cancelled
+                && matches!(
+                    reason,
+                    RefundReason::HoldExpired | RefundReason::OrderCancelled
+                );
+            let email = if cancelled {
+                Some(order_emails::enqueue_refund_notice(&mut tx, clock, emails, &payment).await)
+            } else {
+                None
+            };
+            (Settled::RefundDue, email)
+        }
+    };
+    if let Some(Err(error)) = email {
+        if error.is_transient() {
+            return Err(TryAgain(error.to_string()));
+        }
+        tracing::error!(payment = %id, order = order.get(), %error, "payment recorded without its email");
+    }
+    tx.commit().await.map_err(|err| TryAgain(err.to_string()))?;
+    Ok(settled)
 }
 
 /// `POST /webhooks/mollie`. 400 for a body without a valid payment id; 503 when Mollie

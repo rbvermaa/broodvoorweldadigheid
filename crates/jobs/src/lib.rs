@@ -3,8 +3,10 @@
 
 pub mod bake_days;
 mod error;
+pub mod order_emails;
 pub mod scheduler;
 
 pub use bake_days::TickReport;
 pub use error::Error;
+pub use order_emails::{EmailError, OrderEmails};
 pub use scheduler::{BakeDayTick, run, schedule_tick, setup};

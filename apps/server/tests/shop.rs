@@ -341,6 +341,31 @@ async fn charity(conn: &mut PgConnection, name: &str) -> CharityId {
     CharityId::new(id)
 }
 
+async fn company_details(conn: &mut PgConnection) {
+    sqlx::query("UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'")
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct Queued {
+    kind: String,
+    to_address: String,
+    subject: String,
+    text_body: String,
+    dedupe_key: Option<String>,
+}
+
+async fn outbox(pool: &PgPool) -> Vec<Queued> {
+    sqlx::query_as(
+        "SELECT kind, to_address, subject, text_body, dedupe_key FROM email_outbox ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
 async fn only_order(pool: &PgPool) -> orders::Order {
     let id: i64 = sqlx::query_scalar(r#"SELECT id FROM "order""#)
         .fetch_one(pool)
@@ -565,6 +590,7 @@ async fn cart_and_checkout_need_the_csrf_token_but_the_webhook_does_not(pool: Pg
 async fn a_charity_order_goes_from_cart_through_mollie_to_paid(pool: PgPool) {
     let shop = shop(pool);
     let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
     let voedselbank = charity(&mut conn, "Voedselbank").await;
     let drop = open_drop(&mut conn, &shop.clock, &saturday(Some(voedselbank), true)).await;
     let loaf = product(
@@ -685,6 +711,42 @@ async fn a_charity_order_goes_from_cart_through_mollie_to_paid(pool: PgPool) {
     assert_eq!(allocations[0].charity_id, voedselbank);
     assert_eq!(allocations[0].amount, Money::from_cents(2500));
 
+    let queued = outbox(&shop.pool).await;
+    assert_eq!(
+        queued.len(),
+        1,
+        "one confirmation for two webhooks: {queued:?}"
+    );
+    let confirmation = &queued[0];
+    assert_eq!(confirmation.kind, "order_confirmation");
+    assert_eq!(confirmation.to_address, "klant@example.org");
+    assert_eq!(
+        confirmation.dedupe_key.as_deref(),
+        Some(format!("order-confirmation:{}", paid.id.get()).as_str())
+    );
+    assert!(confirmation.subject.contains(&paid.number.to_string()));
+    for expected in [
+        "Hoi Test Klant,",
+        "2 × Donatiebrood: €\u{a0}25,00 (jouw prijs: €\u{a0}12,50 per stuk)",
+        "Voedselbank",
+        "BTW 9% over €\u{a0}22,94: €\u{a0}2,06",
+        "De Proef",
+        "KvK 12345678",
+    ] {
+        assert!(
+            confirmation.text_body.contains(expected),
+            "{expected}: {}",
+            confirmation.text_body
+        );
+    }
+    assert!(
+        confirmation
+            .text_body
+            .contains(&format!("{PUBLIC_URL}/bestelling/{token}")),
+        "status page link: {}",
+        confirmation.text_body
+    );
+
     let done = browser.get(&format!("/bestelling/{token}")).await;
     assert_eq!(done.status, StatusCode::OK);
     assert!(
@@ -714,6 +776,7 @@ async fn a_charity_order_goes_from_cart_through_mollie_to_paid(pool: PgPool) {
 async fn a_payment_after_the_hold_is_recorded_as_refund_due(pool: PgPool) {
     let shop = shop(pool);
     let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
     let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
     let bread = product(&mut conn, &BREAD).await;
     on_range(&mut conn, drop.day, bread, None).await;
@@ -736,13 +799,51 @@ async fn a_payment_after_the_hold_is_recorded_as_refund_due(pool: PgPool) {
 
     shop.mollie
         .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
-    assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    for _ in 0..2 {
+        assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    }
     let order = only_order(&shop.pool).await;
     assert_eq!(order.status, OrderStatus::Cancelled);
     let due = orders::refunds_due(&mut conn).await.unwrap();
     assert_eq!(due.len(), 1);
     assert_eq!(due[0].refund_reason, Some(RefundReason::HoldExpired));
     assert_eq!(due[0].provider_payment_id, "tr_fake1");
+
+    let queued = outbox(&shop.pool).await;
+    assert_eq!(
+        queued.len(),
+        1,
+        "no confirmation, one cancellation: {queued:?}"
+    );
+    assert_eq!(queued[0].kind, "order_cancelled");
+    assert_eq!(
+        queued[0].dedupe_key.as_deref(),
+        Some(format!("refund-due:{}", due[0].id.get()).as_str())
+    );
+    assert!(
+        queued[0]
+            .text_body
+            .contains(&dutch_with("email-refund", &[("amount", "€\u{a0}4,50")])),
+        "{}",
+        queued[0].text_body
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn without_kvk_details_the_payment_counts_but_no_email_is_queued(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    browser.checkout(drop.day, &drop.slot).await;
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    assert_eq!(only_order(&shop.pool).await.status, OrderStatus::Paid);
+    assert!(outbox(&shop.pool).await.is_empty());
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

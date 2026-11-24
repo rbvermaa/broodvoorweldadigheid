@@ -5,14 +5,24 @@ use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
-use server::background::{Shutdown, run_jobs, worker_id};
+use i18n::Translator;
+use jobs::OrderEmails;
+use notify::{Email, EmailKind};
+use server::background::{Shutdown, run_jobs, run_mail, worker_id};
 use sqlx::PgPool;
-use testkit::FakeClock;
+use testkit::{FakeClock, FakeEmailSender};
 
 const BOUND: Duration = Duration::from_secs(30);
 
 fn clock() -> Arc<FakeClock> {
     Arc::new(FakeClock::new("2026-10-28T12:00:00Z".parse().unwrap()))
+}
+
+fn emails() -> Arc<OrderEmails> {
+    Arc::new(OrderEmails::new(
+        Arc::new(Translator::dutch().unwrap()),
+        "https://shop.example.org",
+    ))
 }
 
 #[tokio::test]
@@ -41,7 +51,13 @@ async fn the_runner_registers_its_worker_and_stops_at_shutdown(pool: PgPool) {
     });
     tokio::spawn(trigger);
     let id = format!("test-{}", std::process::id());
-    let runner = tokio::spawn(run_jobs(pool.clone(), clock(), id.clone(), shutdown));
+    let runner = tokio::spawn(run_jobs(
+        pool.clone(),
+        clock(),
+        emails(),
+        id.clone(),
+        shutdown,
+    ));
     let registered = async {
         loop {
             let found: Option<i64> =
@@ -82,7 +98,7 @@ async fn the_runner_waits_for_the_database_and_still_stops() {
         stopped.await.ok();
     });
     tokio::spawn(trigger);
-    let runner = tokio::spawn(run_jobs(pool, clock(), worker_id(), shutdown));
+    let runner = tokio::spawn(run_jobs(pool, clock(), emails(), worker_id(), shutdown));
     stop.send(()).unwrap();
     tokio::time::timeout(BOUND, runner)
         .await
@@ -97,4 +113,56 @@ fn worker_ids_carry_the_process_id() {
         "{}",
         worker_id()
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_mail_loop_sends_the_outbox_and_stops_at_shutdown(pool: PgPool) {
+    let clock = clock();
+    let email = Email {
+        kind: EmailKind::OrderConfirmation,
+        to: "klant@example.org".to_owned(),
+        subject: "Je bestelling 2026-0001 is bevestigd".to_owned(),
+        text: "Hoi,\n".to_owned(),
+        html: "<p>Hoi,</p>".to_owned(),
+        list_unsubscribe: None,
+    };
+    let mut conn = pool.acquire().await.unwrap();
+    notify::enqueue(&mut conn, clock.as_ref(), &email, Some("test"))
+        .await
+        .unwrap()
+        .expect("queued");
+    let sender = Arc::new(FakeEmailSender::new());
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let (shutdown, trigger) = Shutdown::on(async {
+        stopped.await.ok();
+    });
+    tokio::spawn(trigger);
+    let mailer = tokio::spawn(run_mail(
+        pool.clone(),
+        Arc::clone(&sender) as Arc<dyn notify::EmailSender>,
+        clock,
+        Duration::from_millis(20),
+        shutdown,
+    ));
+    let delivered = async {
+        while sender.sent().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(BOUND, delivered)
+        .await
+        .expect("the outbox is sent");
+    stop.send(()).unwrap();
+    tokio::time::timeout(BOUND, mailer)
+        .await
+        .expect("stops at shutdown")
+        .unwrap();
+    let sent = sender.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].email, email);
+    let status: String = sqlx::query_scalar("SELECT status FROM email_outbox")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "sent");
 }

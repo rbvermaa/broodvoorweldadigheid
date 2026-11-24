@@ -56,6 +56,11 @@ services:
       GALLERY: "false"
       PUBLIC_URL: ${BVW_PUBLIC_URL:-https://localhost:8443}
       MOLLIE_API_KEY_FILE: ${BVW_MOLLIE_API_KEY_FILE:-}
+      # Mailpit catches every email on the local stack (ADR 0014, ADR 0022).
+      SMTP_HOST: ${BVW_SMTP_HOST:-mailpit}
+      SMTP_PORT: ${BVW_SMTP_PORT:-1025}
+      SMTP_TLS: ${BVW_SMTP_TLS:-none}
+      MAIL_FROM: ${BVW_MAIL_FROM:-Brood voor Weldadigheid <bakker@broodvoorweldadigheid.nl>}
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:

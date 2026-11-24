@@ -12,13 +12,14 @@ use tokio::time::MissedTickBehavior;
 
 use crate::Error;
 use crate::bake_days::{self, TickReport};
+use crate::order_emails::{self, OrderEmails};
 
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
 
-/// The every-minute job that opens and closes bake days and releases expired order
-/// holds. `minute` is the start of the minute it was scheduled for and makes the job
-/// unique.
+/// The every-minute job that opens and closes bake days, releases expired order holds
+/// and queues due pickup reminders. `minute` is the start of the minute it was scheduled
+/// for and makes the job unique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BakeDayTick {
     pub minute: Timestamp,
@@ -29,6 +30,10 @@ pub type TickStorage = PostgresStorage<BakeDayTick>;
 /// The clock the worker hands to each tick.
 #[derive(Clone)]
 pub struct TickClock(pub Arc<dyn Clock>);
+
+/// What the worker needs to compose order emails.
+#[derive(Clone)]
+pub struct TickEmails(pub Arc<OrderEmails>);
 
 /// Creates or upgrades the apalis tables in their own `apalis` schema.
 ///
@@ -85,8 +90,9 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// Runs one queued tick (bake days, then expired holds) against the current time, not
-/// the minute it was queued for, so a late run still does what is due.
+/// Runs one queued tick (bake days, expired holds, then pickup reminders) against the
+/// current time, not the minute it was queued for, so a late run still does what is due.
+/// Reminders that cannot be queued are logged and tried again next tick.
 ///
 /// # Errors
 /// Any [`Error`] from [`bake_days::tick`]; apalis retries the job.
@@ -94,6 +100,7 @@ pub async fn handle_tick(
     tick: BakeDayTick,
     pool: Data<PgPool>,
     clock: Data<TickClock>,
+    emails: Data<TickEmails>,
 ) -> Result<(), BoxDynError> {
     let mut conn = pool.acquire().await?;
     // Boxed as a `dyn Send` future: without it rustc cannot prove the sqlx futures inside
@@ -104,12 +111,31 @@ pub async fn handle_tick(
     let released: Pin<Box<dyn Future<Output = Result<Vec<OrderId>, orders::Error>> + Send + '_>> =
         Box::pin(orders::release_expired_holds(&mut conn, clock.0.0.as_ref()));
     let released = released.await?;
-    if !report.opened.is_empty() || !report.closed.is_empty() || !released.is_empty() {
+    let reminders: Pin<
+        Box<dyn Future<Output = Result<Vec<OrderId>, order_emails::EmailError>> + Send + '_>,
+    > = Box::pin(order_emails::enqueue_due_reminders(
+        &mut conn,
+        clock.0.0.as_ref(),
+        &emails.0.0,
+    ));
+    let reminded = match reminders.await {
+        Ok(reminded) => reminded,
+        Err(error) => {
+            tracing::error!(minute = %tick.minute, %error, "cannot queue pickup reminders");
+            Vec::new()
+        }
+    };
+    if !report.opened.is_empty()
+        || !report.closed.is_empty()
+        || !released.is_empty()
+        || !reminded.is_empty()
+    {
         tracing::info!(
             minute = %tick.minute,
             opened = ?report.opened,
             closed = ?report.closed,
             released = ?released,
+            reminded = ?reminded,
             "bake day tick"
         );
     }
@@ -124,6 +150,7 @@ pub async fn handle_tick(
 pub async fn run<F>(
     pool: PgPool,
     clock: Arc<dyn Clock>,
+    emails: Arc<OrderEmails>,
     worker_id: String,
     shutdown: F,
 ) -> Result<(), Error>
@@ -135,6 +162,7 @@ where
         .backend(storage.clone())
         .data(pool)
         .data(TickClock(Arc::clone(&clock)))
+        .data(TickEmails(emails))
         .build(handle_tick);
     let schedule = async move {
         let mut every_minute = tokio::time::interval(TICK_EVERY);

@@ -20,6 +20,7 @@ domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
 jobs = { path = "../../crates/jobs" }
 jiff.workspace = true
+notify = { path = "../../crates/notify" }
 orders = { path = "../../crates/orders" }
 payments = { path = "../../crates/payments" }
 rand.workspace = true
@@ -40,9 +41,8 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-notify = { path = "../../crates/notify" }
 serde_json.workspace = true
-testkit = { path = "../../crates/testkit" }
+testkit = { path = "../../crates/testkit", features = ["email"] }
 tower.workspace = true
 toml.workspace = true
 

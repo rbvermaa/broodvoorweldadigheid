@@ -6,7 +6,10 @@ use std::time::Duration;
 
 use db::PgPool;
 use domain::Clock;
+use jobs::OrderEmails;
+use notify::{EmailSender, SendReport};
 use tokio::sync::watch;
+use tokio::time::MissedTickBehavior;
 
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -49,11 +52,17 @@ pub fn worker_id() -> String {
     format!("{host}-{}", std::process::id())
 }
 
-/// Creates the apalis tables and runs the bake day tick until `shutdown`. Setup is raced
-/// against `shutdown`; the worker stops by itself when it fires. After a failure, such as
-/// a database restart, both start again, so scheduled work never stops while the server
-/// runs. Each restart gets a fresh worker id: apalis refuses an id it still counts as live.
-pub async fn run_jobs(pool: PgPool, clock: Arc<dyn Clock>, worker_id: String, shutdown: Shutdown) {
+/// Creates the apalis tables and runs the bake day tick, pickup reminders included, until
+/// `shutdown`. Setup is raced against `shutdown`; the worker stops by itself when it fires.
+/// After a failure, such as a database restart, both start again, so scheduled work never
+/// stops while the server runs. Each restart gets a fresh worker id: apalis refuses an id it still counts as live.
+pub async fn run_jobs(
+    pool: PgPool,
+    clock: Arc<dyn Clock>,
+    emails: Arc<OrderEmails>,
+    worker_id: String,
+    shutdown: Shutdown,
+) {
     for attempt in 1_u64.. {
         let id = if attempt == 1 {
             worker_id.clone()
@@ -67,7 +76,14 @@ pub async fn run_jobs(pool: PgPool, clock: Arc<dyn Clock>, worker_id: String, sh
         let result = match setup {
             Ok(()) => {
                 tracing::info!(worker = %id, "jobs runner started");
-                jobs::run(pool.clone(), Arc::clone(&clock), id, shutdown.wait()).await
+                jobs::run(
+                    pool.clone(),
+                    Arc::clone(&clock),
+                    Arc::clone(&emails),
+                    id,
+                    shutdown.wait(),
+                )
+                .await
             }
             Err(error) => Err(error),
         };
@@ -80,4 +96,45 @@ pub async fn run_jobs(pool: PgPool, clock: Arc<dyn Clock>, worker_id: String, sh
             () = tokio::time::sleep(RETRY) => {}
         }
     }
+}
+
+/// How many outbox emails one round sends at most; the rest wait for the next round.
+const MAIL_BATCH: u32 = 20;
+
+/// Sends due emails from the outbox (ADR 0014) every `every` until `shutdown`. A round
+/// in progress finishes first, so an email that went out is also recorded as sent.
+pub async fn run_mail(
+    pool: PgPool,
+    sender: Arc<dyn EmailSender>,
+    clock: Arc<dyn Clock>,
+    every: Duration,
+    shutdown: Shutdown,
+) {
+    let mut rounds = tokio::time::interval(every);
+    rounds.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            () = shutdown.wait() => return,
+            _ = rounds.tick() => {}
+        }
+        match send_round(&pool, sender.as_ref(), clock.as_ref()).await {
+            Ok(report) if report == SendReport::default() => {}
+            Ok(report) => tracing::info!(
+                sent = report.sent,
+                retrying = report.retrying,
+                failed = report.failed,
+                "outbox round"
+            ),
+            Err(error) => tracing::warn!(%error, "cannot send the outbox; trying next round"),
+        }
+    }
+}
+
+async fn send_round(
+    pool: &PgPool,
+    sender: &dyn EmailSender,
+    clock: &dyn Clock,
+) -> Result<SendReport, Box<dyn std::error::Error + Send + Sync>> {
+    let mut conn = pool.acquire().await?;
+    Ok(notify::send_pending(&mut conn, sender, clock, MAIL_BATCH).await?)
 }
