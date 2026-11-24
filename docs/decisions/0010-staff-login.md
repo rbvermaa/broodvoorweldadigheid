@@ -1,4 +1,4 @@
-# 0010 Staff roles and sign-in (F13)
+# 0010 Staff roles and sign-in with Kanidm (F13)
 
 Status: proposed, 2026-11-24
 
@@ -39,10 +39,9 @@ which answers with the Dutch 403 page.
 
 ## Dev login
 
-There is no real sign-in method yet (see Parked). To use and test the back office on a
-developer's own machine, `DEV_STAFF_LOGIN=true` turns on `/staff/login` as a form and
-`POST /staff/dev-login` (`staff_id`, CSRF-protected), which signs in as any active staff
-member.
+To use and test the back office on a developer's own machine without Kanidm,
+`DEV_STAFF_LOGIN=true` turns on `/staff/login` as a form and `POST /staff/dev-login`
+(`staff_id`, CSRF-protected), which signs in as any active staff member.
 
 | Choice | Why |
 |---|---|
@@ -53,10 +52,34 @@ member.
 | Without dev login, `/staff/login` answers 503 and `/staff/dev-login` is not routed (404) | |
 | Tests do not use the dev login to get a session; `tests/support::signed_in` creates a login and writes a signed-in session to the store directly | Tests do not depend on how staff sign in |
 
-## Parked: OIDC login with Kanidm
+## Login
 
-The sign-in through Kanidm (authorization code flow with PKCE, `/staff/login` and
-`/staff/oidc/callback`, `make kanidm-setup`) is on branch `rv-p1-staff-oidc`. It cannot
-merge yet: openidconnect 4.1 depends on `rsa 0.9`, which has RUSTSEC-2023-0071 (Marvin
-attack, no fix in 0.9), so `make audit` fails. The server only verifies signatures with
-public keys, which the advisory does not affect. See docs/open-questions.md.
+| Choice | Why |
+|---|---|
+| Authorization code flow with PKCE (S256), state and nonce; the client authenticates with its secret (basic auth) | Kanidm requires PKCE; a confidential client adds the secret |
+| ID tokens must be ES256 or RS256 | Kanidm signs with ES256 by default. HS256 with the client secret is refused |
+| The token's expiry is checked against the injected clock | Same rule as all domain code; tests move the clock past expiry |
+| openidconnect without its HTTP features; requests go through `auth::oidc::OidcHttp` | Its `rustls-tls` feature uses `webpki-roots` (CDLA-Permissive-2.0, not allowed). Tests use `testkit::FakeOidc`, so no network |
+| The server's client is reqwest 0.12 with `rustls-tls-manual-roots` (ring), trusting `rustls-native-certs` plus `OIDC_CA_FILE` | No webpki-roots, no aws-lc (its licence expression includes OpenSSL, which deny.toml does not allow). Kanidm's self-signed CA goes in `OIDC_CA_FILE` |
+| Discovery runs on the first login and again after 15 minutes; the HTTP client is rebuilt after a connection failure | Kanidm may start after the server, may rotate keys, and a fresh kanidm volume brings a new CA |
+| The client secret is read from `OIDC_CLIENT_SECRET_FILE` at login time; missing or empty means 503 | `make kanidm-setup` writes it after the stack is up, without a server restart |
+| Logout ends the local login only | Kanidm's own session stays; a passkey is needed again when it expires |
+| `/staff/login` and `/staff/oidc/callback` share a rate limit: 10 at once, one more every 6 s per client | Spec: rate limits on login. The limit sits inside the session layer (ADR 0007 open item stays open) |
+
+The callback ends in `staff_session::sign_in`, like the dev login. Without `OIDC_ISSUER`,
+`/staff/login` falls back to the dev login, or 503. A provider that cannot be reached
+also gives 503, with a "try again in a few minutes" text.
+
+## Local stack
+
+In compose, Kanidm has the network alias `idm.localhost`, so the server reaches the
+issuer `https://idm.localhost:8443/...` directly on Kanidm's own port and certificate.
+`make kanidm-setup` registers the OAuth2 client and copies the client secret and Kanidm's
+CA into `deploy/secrets/oidc/`, which the server mounts read-only. See deploy/README.md.
+
+## Open
+
+- openidconnect 4.1 depends on `rsa 0.9`, which has RUSTSEC-2023-0071 (Marvin attack,
+  no fix in 0.9). It affects RSA private-key operations; the server only verifies
+  signatures with public keys. `make audit` fails until openidconnect moves to rsa 0.10
+  or the advisory is accepted.

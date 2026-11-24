@@ -7,6 +7,8 @@
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
+#   make kanidm-setup           register the staff login client in the running stack (once)
+#   make kanidm-person NAME=bas DISPLAY_NAME="Bas" MAIL=bas@example.org   a person + passkey link
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
@@ -64,10 +66,16 @@ BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
 export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
+# Compose resolves a relative BVW_SECRETS_DIR against deploy/.
+SECRETS_DIR := $(if $(BVW_SECRETS_DIR),$(if $(filter /%,$(BVW_SECRETS_DIR)),$(BVW_SECRETS_DIR),deploy/$(BVW_SECRETS_DIR)),deploy/secrets)
+OIDC_DIR := $(SECRETS_DIR)/oidc
+SHOP_URL := https://localhost:$(BVW_HTTPS_PORT)
+IDM_URL := https://idm.localhost:$(BVW_HTTPS_PORT)
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add
+	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add \
+	kanidm-setup kanidm-person
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -141,6 +149,19 @@ staff-add: ## Let a person into the back office: SUB (their Kanidm UUID), NAME, 
 	@test -n "$$SUB" -a -n "$$NAME" -a -n "$$ROLE" || { echo "usage: make staff-add SUB=<uuid> NAME=\"Bas van 't Hof\" ROLE=baker [EMAIL=...]"; exit 2; }
 	STAFF_SUB="$$SUB" STAFF_NAME="$$NAME" STAFF_ROLE="$$ROLE" STAFF_EMAIL="$$EMAIL" \
 		$(COMPOSE) run --rm --no-deps -e STAFF_SUB -e STAFF_NAME -e STAFF_ROLE -e STAFF_EMAIL migrate staff add
+
+kanidm-setup: ## Register the staff OAuth2 client in Kanidm; writes deploy/secrets/oidc/ (stack must be up)
+	@mkdir -p $(OIDC_DIR) && chmod 755 $(OIDC_DIR)
+	$(COMPOSE) exec -T kanidm cli kanidm ca > $(OIDC_DIR)/.kanidm-ca.pem && chmod 644 $(OIDC_DIR)/.kanidm-ca.pem && mv $(OIDC_DIR)/.kanidm-ca.pem $(OIDC_DIR)/kanidm-ca.pem
+	$(COMPOSE) exec -T kanidm cli kanidm oauth2-client --url $(IDM_URL) \
+		--landing-url $(SHOP_URL)/staff --redirect-url $(SHOP_URL)/staff/oidc/callback \
+		> $(OIDC_DIR)/.client-secret && chmod 644 $(OIDC_DIR)/.client-secret && mv $(OIDC_DIR)/.client-secret $(OIDC_DIR)/client-secret
+	@echo "staff login is set up; next: make kanidm-person NAME=... DISPLAY_NAME=..."
+
+kanidm-person: ## Create a Kanidm person and print their sub and passkey link: NAME, DISPLAY_NAME, MAIL
+	@test -n "$(NAME)" -a -n "$(DISPLAY_NAME)" || { echo "usage: make kanidm-person NAME=bas DISPLAY_NAME=\"Bas\" [MAIL=...]"; exit 2; }
+	$(COMPOSE) exec -T kanidm cli kanidm person --url $(IDM_URL) --name '$(NAME)' \
+		--display-name '$(DISPLAY_NAME)' $(if $(MAIL),--mail '$(MAIL)')
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)

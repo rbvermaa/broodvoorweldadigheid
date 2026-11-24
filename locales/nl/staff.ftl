@@ -15,3 +15,7 @@ staff-dev-login-title = Inloggen voor ontwikkelaars
 staff-dev-login-text = Alleen voor lokaal testen. Je logt in als de medewerker met dit nummer, zonder wachtwoord.
 staff-dev-login-id = Nummer van de medewerker
 staff-dev-login-submit = Inloggen
+staff-login-failed-title = Inloggen mislukt
+staff-login-failed-text = Je inlogpoging is verlopen of klopt niet. Probeer het nog eens.
+staff-login-down-title = Inloggen lukt nu niet
+staff-login-down-text = Het inloggen voor medewerkers werkt even niet. Probeer het over een paar minuten opnieuw.
