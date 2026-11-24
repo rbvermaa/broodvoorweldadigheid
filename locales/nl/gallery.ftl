@@ -13,6 +13,9 @@ gallery-empty = Lege toestand
 gallery-dialog = Bevestigen
 gallery-saved = Opslaan
 gallery-icons = Iconen
+gallery-brand = Logo en stempel
+gallery-stamp = Opbrengst naar het goede doel
+gallery-cart = Mandje (2)
 
 gallery-primary = Opslaan
 gallery-secondary = Terug
@@ -77,5 +80,5 @@ gallery-drop-open = Open voor bestellingen
 gallery-drop-planned = Gepland
 gallery-drop-deadline = Bestel-deadline: donderdag 3 december om 20:00
 gallery-drop-charity = Deze drop is voor de Voedselbank.
-gallery-cart = Mandje
+gallery-cart-panel = Mandje
 gallery-cart-remove = Weghalen: Desem wit

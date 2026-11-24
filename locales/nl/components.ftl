@@ -24,6 +24,7 @@ cart-empty = Je mandje is nog leeg.
 cart-total = Totaal
 cart-checkout = Afrekenen
 drop-normal-sale = Normale verkoop: deze drop is niet voor een goed doel.
+logo-alt = Logo van { app-name }: een opgeheven vuist met een stokbrood tussen twee korenaren
 allergen-contains = Bevat
 allergen-may-contain = Kan sporen bevatten van
 pickup-full = Vol

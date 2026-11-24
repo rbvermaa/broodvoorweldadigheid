@@ -46,6 +46,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   the status page offer "try paying again" for the same order within its hold instead?
 - [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
+  **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
+  icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
+  wordmark until the server knows its public URL.
+- [x] **Accent colour.** The spec leaves "one accent colour" to choose.
+  **Answered 2026-11-24:** none. The owner chose style "Stempel": ink #111111 on white,
+  like the logo (ADR 0023).
 - [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
@@ -58,3 +64,9 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [ ] **Refund dates in the sales report** (ADR 0017). Refunds have no date in the
+  database, so the sales report takes them off on the day of the sale; a late refund
+  changes a period that may already be in a BTW return. Store Mollie's refund date and
+  count refunds on that day instead?
+- [ ] **On-account orders on charity drops.** Do they create a donation allocation
+  (F4b says they pay the suggested price), and when: at confirmation or once invoiced?

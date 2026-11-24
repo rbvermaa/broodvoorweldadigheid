@@ -1,6 +1,6 @@
-{# variant: primary, secondary or danger. kind: the button type. #}
+{# variant: primary, secondary, danger or stamp (double ring, for the cart). kind: the button type. #}
 {% macro button(label, variant = "primary", kind = "button", disabled = false, loading = false, opens = "") %}
-<button type="{{ kind }}" class="button {% if variant == "secondary" %}button-secondary{% else if variant == "danger" %}button-danger{% else %}button-primary{% endif %}"
+<button type="{{ kind }}" class="button {% if variant == "secondary" %}button-secondary{% else if variant == "danger" %}button-danger{% else if variant == "stamp" %}button-stamp{% else %}button-primary{% endif %}"
 {%- if disabled || loading %} disabled{% endif %}
 {%- if loading %} aria-busy="true"{% endif %}
 {%- if !opens.is_empty() %} data-dialog-open="{{ opens }}" aria-haspopup="dialog"{% endif %}>

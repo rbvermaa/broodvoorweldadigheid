@@ -10,13 +10,13 @@ expression: email.html
 <meta name="color-scheme" content="light">
 <title>Je bestelling 2026-0042 is bevestigd</title>
 </head>
-<body style="margin: 0; padding: 0; background: #f5f5f5; color: #000000; font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 16px; line-height: 1.5;">
-<table role="presentation" style="background: #f5f5f5;" width="100%" cellpadding="0" cellspacing="0">
+<body style="margin: 0; padding: 0; background: #ffffff; color: #111111; font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 16px; line-height: 1.5;">
+<table role="presentation" style="background: #ffffff;" width="100%" cellpadding="0" cellspacing="0">
 <tr><td style="padding: 24px 12px;" align="center">
-<table role="presentation" style="max-width: 768px; border: 1px solid #e5e5e5; border-collapse: collapse; background: #ffffff;" width="100%" cellpadding="0" cellspacing="0">
-<tr><td style="padding: 24px 24px 16px; border-bottom: 2px solid #000000; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; text-transform: uppercase;">Brood voor Weldadigheid<br><span style="font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 14px; font-weight: 400; text-transform: none;">#payitforward</span></td></tr>
+<table role="presentation" style="max-width: 768px; border: 2px solid #111111; border-collapse: collapse; background: #ffffff;" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding: 24px 24px 16px; border-bottom: 3px double #111111; color: #111111; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: 0.03em; text-align: center; text-transform: uppercase;">Brood voor Weldadigheid<br><span style="font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none;">#payitforward</span></td></tr>
 <tr><td style="padding: 24px;">
-<h1 style="margin: 0 0 16px; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2;">Bedankt voor je bestelling!</h1>
+<h1 style="margin: 0 0 16px; color: #111111; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: 0.03em; text-transform: uppercase;">Bedankt voor je bestelling!</h1>
 <p style="margin: 0 0 16px;">Hoi Sanne,</p>
 <p style="margin: 0 0 16px;">We gaan voor je bakken. Hieronder zie je wat je hebt besteld en wanneer je het kunt ophalen.</p>
 <table role="presentation" style="width: 100%; margin: 0 0 16px; border-collapse: collapse;" cellpadding="0" cellspacing="0">
@@ -26,7 +26,7 @@ expression: email.html
 <tr><th style="padding: 4px 12px 4px 0; color: #525252; text-align: left; vertical-align: top; white-space: nowrap;" scope="row">Locatie</th><td style="padding: 4px 0; vertical-align: top;">De Proef, Majoor van Swietenlaan 15, 8382 CE Frederiksoord</td></tr>
 </table>
 <table style="width: 100%; margin: 0 0 16px; border-collapse: collapse;" cellpadding="0" cellspacing="0">
-<thead><tr><th style="padding: 8px 8px 8px 0; border-bottom: 1px solid #767676; font-size: 14px; text-align: left;" scope="col">Product</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #767676; font-size: 14px; text-align: right;" scope="col">Aantal</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #767676; font-size: 14px; text-align: right;" scope="col">Prijs</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #767676; font-size: 14px; text-align: right;" scope="col">Bedrag</th></tr></thead>
+<thead><tr><th style="padding: 8px 8px 8px 0; border-bottom: 1px solid #111111; font-size: 14px; text-align: left;" scope="col">Product</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #111111; font-size: 14px; text-align: right;" scope="col">Aantal</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #111111; font-size: 14px; text-align: right;" scope="col">Prijs</th><th style="padding: 8px 0 8px 8px; border-bottom: 1px solid #111111; font-size: 14px; text-align: right;" scope="col">Bedrag</th></tr></thead>
 <tbody>
 <tr><td style="padding: 8px 8px 8px 0; border-bottom: 1px solid #e5e5e5; vertical-align: top;">Desem wit</td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">2</td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">€ 6,50</td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">€ 13,00</td></tr>
 <tr><td style="padding: 8px 8px 8px 0; border-bottom: 1px solid #e5e5e5; vertical-align: top;">Volkoren spelt<span style="display: block; color: #525252; font-size: 14px;">Jouw prijs</span></td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">1</td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">€ 7,25</td><td style="padding: 8px 0 8px 8px; border-bottom: 1px solid #e5e5e5; text-align: right; vertical-align: top; white-space: nowrap;">€ 7,25</td></tr>
@@ -39,7 +39,7 @@ expression: email.html
 </tfoot>
 </table>
 <p style="margin: 0 0 16px;">Alles wat je voor deze drop betaalt, gaat naar Voedselbank Westerkwartier.</p>
-<p style="margin: 24px 0;"><a style="display: inline-block; padding: 12px 24px; border-radius: 8px; background: #000000; color: #ffffff; font-weight: 700; text-decoration: none;" href="https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666">Bekijk je bestelling</a></p>
+<p style="margin: 24px 0;"><a style="display: inline-block; padding: 12px 24px; border-radius: 9999px; background: #111111; color: #ffffff; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-weight: 500; letter-spacing: 0.05em; text-decoration: none; text-transform: uppercase;" href="https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666">Bekijk je bestelling</a></p>
 <p style="margin: 0 0 16px;">Vragen? Beantwoord deze mail, dan helpen we je verder.</p>
 <p style="margin: 0 0 16px;">Groetjes van de bakker</p>
 </td></tr>

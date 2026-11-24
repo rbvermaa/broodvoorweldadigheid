@@ -1,0 +1,27 @@
+# Column names of the CSV exports (F11, F11a, F11c). The accountant and Excel read these.
+report-total = Totaal
+report-col-from = Van
+report-col-to = Tot en met
+report-col-vat-rate = BTW-tarief
+report-col-gross = Omzet incl. BTW
+report-col-vat = BTW
+report-col-net = Omzet excl. BTW
+report-col-product = Product
+report-col-pieces = Aantal
+report-col-average-paid = Gemiddeld betaald
+report-col-average-suggested = Gemiddeld voorgesteld
+report-col-order = Bestelling
+report-col-drop-date = Bakdag
+report-col-unit-price-excl = Prijs per stuk excl. BTW
+report-col-charity = Goed doel
+report-col-orders = Bestellingen
+report-col-received = Ontvangen
+report-col-refunds = Terugbetaald
+report-col-donated = Gedoneerd
+report-col-to-drop-charity = Naar goed doel van de drop
+report-col-to-other-charities = Naar ander goed doel
+report-col-saved = Bewaard
+report-col-in-period = In periode
+report-col-all-time = Totaal ooit
+report-col-transferred = Overgemaakt
+report-col-to-transfer = Nog over te maken
