@@ -474,6 +474,30 @@ async fn wrong_product_input_gets_dutch_messages(pool: PgPool) {
     check.shows("id=\"f-price\"");
     check.shows(&dutch("form-error-money"));
 
+    let too_high = dutch_with(
+        "product-error-price-high",
+        &[("max", &i18n::money(100_000))],
+    );
+    for price in ["4.500", "1.000,01"] {
+        let reply = baker
+            .post("/staff/products/new", &product_form(&[("price", price)]))
+            .await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{price}");
+        reply.shows(&too_high);
+    }
+    let pwyw_high = baker
+        .post(
+            "/staff/products/new",
+            &product_form(&[
+                ("pwyw", "ja"),
+                ("min_price", "2,50"),
+                ("max_price", "2.500"),
+            ]),
+        )
+        .await;
+    assert_eq!(pwyw_high.status, StatusCode::UNPROCESSABLE_ENTITY);
+    pwyw_high.shows(&too_high);
+
     let mut conn = pool.acquire().await.expect("conn");
     assert!(
         products::list_all(&mut conn)
@@ -1014,63 +1038,27 @@ async fn charity_choice_refuses_archived_charities(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn the_range_editor_sets_limits_and_pools(pool: PgPool) {
+async fn the_range_editor_sets_limits(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
     let path = format!("/staff/bake-days/{}", day.get());
 
-    let pool_reply = baker
-        .post(
-            &format!("{path}/pools"),
-            &[("pool_name", "Oven 1"), ("pool_max", "40")],
-        )
-        .await;
-    pool_reply.redirects_to(&format!("{path}?opgeslagen=1"));
-    let duplicate = baker
-        .post(
-            &format!("{path}/pools"),
-            &[("pool_name", "Oven 1"), ("pool_max", "10")],
-        )
-        .await;
-    assert_eq!(duplicate.status, StatusCode::UNPROCESSABLE_ENTITY);
-    duplicate.shows(&dutch("pool-error-duplicate"));
-
-    let mut conn = pool.acquire().await.expect("conn");
-    let oven = range::list_pools(&mut conn, day).await.expect("pools")[0].clone();
-    drop(conn);
     let set = baker
         .post(
             &format!("{path}/range"),
             &[
                 ("product_id", &bread.get().to_string()),
                 ("max_qty", "12"),
-                ("pool_id", &oven.id.get().to_string()),
-                ("units", "2"),
+                ("units", "1"),
             ],
         )
         .await;
     set.redirects_to(&format!("{path}?opgeslagen=1"));
     let page = baker.get(&path).await;
     page.shows(&dutch_count("range-max", 12));
-    page.shows(&dutch_with(
-        "range-in-pool",
-        &[("pool", "Oven 1"), ("units", "2")],
-    ));
     page.shows(&dutch_count("range-remaining", 12));
-
-    let resized = baker
-        .post(
-            &format!("{path}/pools/{}", oven.id.get()),
-            &[(&format!("pool_{}", oven.id.get()), "10")],
-        )
-        .await;
-    resized.redirects_to(&format!("{path}?opgeslagen=1"));
-    baker
-        .get(&path)
-        .await
-        .shows(&dutch_count("range-remaining", 5));
 
     let wrong_units = baker
         .post(
@@ -1094,6 +1082,180 @@ async fn the_range_editor_sets_limits_and_pools(pool: PgPool) {
             .await
             .expect("range")
             .is_empty()
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let spelt = {
+        let mut conn = pool.acquire().await.expect("conn");
+        products::create(
+            &mut conn,
+            &ProductInput {
+                name_nl: "Speltbrood".to_owned(),
+                ..sourdough()
+            },
+        )
+        .await
+        .expect("product")
+        .id
+    };
+    let mut conn = pool.acquire().await.expect("conn");
+    let oven = range::create_pool(&mut conn, day, "Oven 1", 40)
+        .await
+        .expect("pool");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(12),
+            capacity_pool_id: Some(oven.id),
+            units_per_item: 2,
+        },
+    )
+    .await
+    .expect("range");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let id = bread.get();
+
+    let page = baker.get(&path).await;
+    page.shows(&format!("action=\"{path}/range/{id}\""));
+    page.shows(&format!(
+        "id=\"max_qty_{id}\" name=\"max_qty_{id}\" value=\"12\""
+    ));
+    page.shows(&format!(
+        "id=\"units_{id}\" name=\"units_{id}\" value=\"2\""
+    ));
+    page.lacks("Oven 1");
+    page.lacks("pool_id");
+    page.lacks(">Desembrood wit</option>");
+    page.shows(">Speltbrood</option>");
+
+    let max = format!("max_qty_{id}");
+    let units = format!("units_{id}");
+    let changed = baker
+        .post(
+            &format!("{path}/range/{id}"),
+            &[(&max, "20"), (&units, "2")],
+        )
+        .await;
+    changed.redirects_to(&format!("{path}?opgeslagen=1"));
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        range::list_products(&mut conn, day).await.expect("range"),
+        [BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(20),
+            capacity_pool_id: Some(oven.id),
+            units_per_item: 2,
+        }]
+    );
+    drop(conn);
+
+    let stale_add = baker
+        .post(
+            &format!("{path}/range"),
+            &[
+                ("product_id", &id.to_string()),
+                ("max_qty", "8"),
+                ("units", "2"),
+            ],
+        )
+        .await;
+    stale_add.redirects_to(&format!("{path}?opgeslagen=1"));
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        range::list_products(&mut conn, day).await.expect("range")[0].capacity_pool_id,
+        Some(oven.id)
+    );
+    drop(conn);
+
+    let wrong = baker
+        .post(
+            &format!("{path}/range/{id}"),
+            &[(&max, "20"), (&units, "0")],
+        )
+        .await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch("range-error-units"));
+    wrong.shows(&format!(
+        "id=\"units_{id}\" name=\"units_{id}\" value=\"0\""
+    ));
+
+    let absent = baker
+        .post(
+            &format!("{path}/range/{}", spelt.get()),
+            &[
+                (&format!("max_qty_{}", spelt.get()), "5"),
+                (&format!("units_{}", spelt.get()), "1"),
+            ],
+        )
+        .await;
+    assert_eq!(absent.status, StatusCode::NOT_FOUND);
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        range::list_products(&mut conn, day)
+            .await
+            .expect("range")
+            .len(),
+        1
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_pickup_slots_cannot_go_online(pool: PgPool) {
+    let app = app(pool.clone());
+    let friday = {
+        let mut conn = pool.acquire().await.expect("conn");
+        days::create(
+            &mut conn,
+            &NewBakeDay {
+                date: date(2026, 12, 4),
+                location_id: DE_PROEF,
+                bake_starts_at: ts("2026-12-04T03:00:00Z"),
+                online_ordering: false,
+                charity_id: None,
+            },
+        )
+        .await
+        .expect("bake day")
+        .id
+    };
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", friday.get());
+
+    let online = baker
+        .post(
+            &format!("{path}/schedule"),
+            &[
+                ("cutoff_at", "2026-12-02T20:00"),
+                ("bake_starts_at", "2026-12-04T04:00"),
+            ],
+        )
+        .await;
+    assert_eq!(online.status, StatusCode::UNPROCESSABLE_ENTITY);
+    online.shows(&dutch("day-error-no-pickup-slot"));
+
+    sqlx::query(
+        "UPDATE bake_day SET online_ordering = true, cutoff_at = '2026-12-02T19:00:00Z' WHERE id = $1",
+    )
+    .bind(friday.get())
+    .execute(&pool)
+    .await
+    .expect("online");
+    let opened = baker.htmx(&format!("{path}/open"), &[]).await;
+    assert_eq!(opened.status, StatusCode::OK);
+    opened.shows(&dutch("day-error-no-pickup-slot"));
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        days::get(&mut conn, friday).await.expect("day").status,
+        BakeDayStatus::Draft
     );
 }
 
@@ -1344,10 +1506,7 @@ async fn counter_cannot_change_anything(pool: PgPool) {
             format!("{path}/range"),
             vec![("product_id", bread_id.as_str()), ("units", "1")],
         ),
-        (
-            format!("{path}/pools"),
-            vec![("pool_name", "Oven"), ("pool_max", "4")],
-        ),
+        (format!("{path}/range/{bread_id}"), vec![("units", "1")]),
         (format!("{path}/open"), vec![]),
         (format!("{path}/close"), vec![]),
         (format!("{path}/copy"), vec![("copy_date", "2026-12-12")]),

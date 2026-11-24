@@ -194,28 +194,23 @@ pub async fn list_pools(
     .collect()
 }
 
-/// Adds a product to the day's range, or replaces its limits.
-///
-/// # Errors
-/// [`Error::NotFound`], [`Error::Final`], or [`Error::Invalid`] for an unknown product,
-/// a pool of another day or `units_per_item == 0`.
-pub async fn set_product(
+/// Locks the day and checks `input`; the limits as stored.
+async fn checked_limits(
     conn: &mut PgConnection,
     day: BakeDayId,
     input: &BakeDayProduct,
-) -> Result<(), Error> {
+) -> Result<(Option<i32>, i32), Error> {
     if input.units_per_item == 0 {
         return Err(Error::Invalid("units per item"));
     }
     let max_qty = input.max_qty.map(|q| to_db(q, "maximum")).transpose()?;
     let units = to_db(input.units_per_item, "units per item")?;
-    let mut tx = conn.begin().await?;
-    lock_editable_day(&mut tx, day).await?;
+    lock_editable_day(conn, day).await?;
     let product_exists = sqlx::query_scalar!(
         r#"SELECT EXISTS (SELECT 1 FROM product WHERE id = $1) AS "exists!""#,
         input.product_id.get(),
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut *conn)
     .await?;
     if !product_exists {
         return Err(Error::Invalid("product"));
@@ -226,12 +221,27 @@ pub async fn set_product(
             pool.get(),
             day.get(),
         )
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut *conn)
         .await?;
         if !same_day {
             return Err(Error::Invalid("capacity pool"));
         }
     }
+    Ok((max_qty, units))
+}
+
+/// Adds a product to the day's range, or replaces its limits.
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Final`], or [`Error::Invalid`] for an unknown product,
+/// a pool of another day or `units_per_item == 0`.
+pub async fn set_product(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    input: &BakeDayProduct,
+) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    let (max_qty, units) = checked_limits(&mut tx, day, input).await?;
     sqlx::query!(
         "INSERT INTO bake_day_product (bake_day_id, product_id, max_qty, capacity_pool_id, units_per_item)
         VALUES ($1, $2, $3, $4, $5)
@@ -246,6 +256,45 @@ pub async fn set_product(
     )
     .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Changes the maximum and units per item of a product already on the day's range. Its
+/// capacity pool stays as it is.
+///
+/// # Errors
+/// [`Error::NotFound`] when the day or the product on it does not exist, [`Error::Final`],
+/// or [`Error::Invalid`] as for [`set_product`].
+pub async fn update_product(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    product: ProductId,
+    max_qty: Option<u32>,
+    units_per_item: u32,
+) -> Result<(), Error> {
+    let input = BakeDayProduct {
+        product_id: product,
+        max_qty,
+        capacity_pool_id: None,
+        units_per_item,
+    };
+    let mut tx = conn.begin().await?;
+    let (max_qty, units) = checked_limits(&mut tx, day, &input).await?;
+    let updated = sqlx::query!(
+        "UPDATE bake_day_product SET max_qty = $3, units_per_item = $4
+        WHERE bake_day_id = $1 AND product_id = $2",
+        day.get(),
+        product.get(),
+        max_qty,
+        units,
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound);
+    }
     tx.commit().await?;
     Ok(())
 }

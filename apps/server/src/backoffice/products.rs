@@ -15,7 +15,7 @@ use tower_sessions::Session;
 use super::form::{Errors, Fields, money_value, parse_money};
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t,
+    saved, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -24,6 +24,9 @@ use crate::state::AppState;
 
 const CHECK: &str = "/staff/products/check";
 const MAX_LEAD_TIME_HOURS: i32 = 168;
+/// The highest price a product may have, so that a Dutch thousands dot typed as a decimal
+/// point (`4.500`) is caught.
+const MAX_PRICE_CENTS: i64 = 100_000;
 
 pub struct AllergenBox {
     pub field: String,
@@ -173,8 +176,17 @@ impl ProductForm {
         }
         let money = |errors: &mut Errors, field: &str, value: &str| {
             let cents = parse_money(value);
-            if cents.is_none() {
-                errors.add(field, t(state, "form-error-money"));
+            match cents {
+                None => errors.add(field, t(state, "form-error-money")),
+                Some(c) if c > MAX_PRICE_CENTS => errors.add(
+                    field,
+                    t_with(
+                        state,
+                        "product-error-price-high",
+                        &[("max", i18n::money(MAX_PRICE_CENTS))],
+                    ),
+                ),
+                Some(_) => {}
             }
             cents.map(Money::from_cents)
         };
