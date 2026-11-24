@@ -25,6 +25,7 @@ fn email(to: &str) -> Email {
         text: "Hoi,\n".to_owned(),
         html: "<p>Hoi,</p>".to_owned(),
         list_unsubscribe: None,
+        reply_to: None,
     }
 }
 
@@ -343,4 +344,18 @@ async fn two_workers_never_send_the_same_email(pool: PgPool) {
             .iter()
             .all(|s| s.status == "sent" && s.attempts == 1)
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn reply_to_survives_the_outbox(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut contact = email("bakker@example.org");
+    contact.kind = EmailKind::ContactMessage;
+    contact.reply_to = Some("sanne@example.org".to_owned());
+    enqueue(&mut conn, &clock, &contact, None).await.unwrap();
+
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
+    assert_eq!(sender.sent()[0].email, contact);
 }

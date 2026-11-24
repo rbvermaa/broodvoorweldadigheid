@@ -5,9 +5,9 @@ use i18n::Translator;
 use jiff::Timestamp;
 use jiff::civil::{Date, date};
 use notify::{
-    Company, ComposeError, Composer, Donation, DropAlert, DropAlertKind, Email, EmailKind, Item,
-    OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail, Pickup, PickupReminder, Recipient,
-    SendError, SickDayCancelled, SubscriptionConfirmation,
+    Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Email,
+    EmailKind, Item, OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail, Pickup,
+    PickupReminder, Recipient, SendError, SickDayCancelled, SubscriptionConfirmation,
 };
 
 const NBSP: char = '\u{a0}';
@@ -552,4 +552,101 @@ fn a_bad_recipient_is_a_permanent_failure() {
         notify::message(&from, &outgoing),
         Err(SendError::Permanent(_))
     ));
+}
+
+fn contact() -> ContactMessage {
+    ContactMessage {
+        to: "bakker@broodvoorweldadigheid.nl".to_owned(),
+        name: "Sanne de Vries".to_owned(),
+        email: "sanne@example.org".to_owned(),
+        message: "Hoi!\nKan ik ook een halfje bestellen?\n\n<b>Groet</b>".to_owned(),
+    }
+}
+
+#[test]
+fn contact_message_goes_to_the_bakery_with_the_sender_as_reply_to() {
+    let email = compose(|c| c.contact_message(&contact()));
+    assert_eq!(email.kind, EmailKind::ContactMessage);
+    assert_eq!(email.to, "bakker@broodvoorweldadigheid.nl");
+    assert_eq!(email.reply_to.as_deref(), Some("sanne@example.org"));
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("> Kan ik ook een halfje bestellen?"));
+    assert!(!email.html.contains("<b>"));
+    snapshot("contact-message", &email);
+
+    let raw = mime(email);
+    assert!(raw.contains("Reply-To: sanne@example.org\r\n"), "{raw}");
+    assert!(
+        raw.contains("To: bakker@broodvoorweldadigheid.nl\r\n"),
+        "{raw}"
+    );
+}
+
+#[test]
+fn contact_message_refuses_header_injection_and_blanks() {
+    let i18n = i18n();
+    let company = company();
+    let c = Composer::new(&i18n, &company);
+    for email in [
+        "sanne@example.org\r\nBcc: spam@example.org",
+        "sanne@example.org\nBcc: spam@example.org",
+        "sanne",
+        "",
+    ] {
+        let message = ContactMessage {
+            email: email.to_owned(),
+            ..contact()
+        };
+        assert!(
+            matches!(c.contact_message(&message), Err(ComposeError::Address)),
+            "{email:?}"
+        );
+    }
+    for name in [
+        "Sanne\r\nBcc: spam@example.org",
+        "Sanne\n",
+        "Sa\u{0}nne",
+        " ",
+    ] {
+        let message = ContactMessage {
+            name: name.to_owned(),
+            ..contact()
+        };
+        assert!(
+            matches!(c.contact_message(&message), Err(ComposeError::Contact)),
+            "{name:?}"
+        );
+    }
+    let message = ContactMessage {
+        message: " \n ".to_owned(),
+        ..contact()
+    };
+    assert!(matches!(
+        c.contact_message(&message),
+        Err(ComposeError::Contact)
+    ));
+}
+
+#[test]
+fn contact_message_needs_only_the_company_name() {
+    let i18n = i18n();
+    let company = Company {
+        address: String::new(),
+        kvk: String::new(),
+        ..company()
+    };
+    let email = Composer::new(&i18n, &company)
+        .contact_message(&contact())
+        .expect("compose");
+    assert!(email.text.contains("Brood voor Weldadigheid"));
+}
+
+#[test]
+fn addresses_are_checked_without_composing() {
+    assert!(notify::is_address("sanne@example.org"));
+    assert!(!notify::is_address(" sanne@example.org"));
+    assert!(!notify::is_address(
+        "sanne@example.org\r\nBcc: x@example.org"
+    ));
+    assert!(!notify::is_address("sanne"));
 }
