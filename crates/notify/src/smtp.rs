@@ -207,6 +207,19 @@ impl SmtpSender {
     }
 }
 
+/// Renews the pool when dropped while armed: by our own deadline, or by a caller that
+/// drops the send future (the tick's send budget), since a cut-off connection must not go
+/// back into the pool either way.
+struct Unfinished<'a>(Option<&'a SmtpSender>);
+
+impl Drop for Unfinished<'_> {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0 {
+            sender.replace_pool();
+        }
+    }
+}
+
 fn transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, SmtpConfigError> {
     let transport = |e: lettre::transport::smtp::Error| SmtpConfigError::Transport(e.to_string());
     let mut builder = match config.tls {
@@ -235,13 +248,14 @@ impl EmailSender for SmtpSender {
         Box::pin(async move {
             let message = message(&self.from, email)?;
             let transport = self.transport();
+            let mut unfinished = Unfinished(Some(self));
             let Ok(sent) = tokio::time::timeout(self.deadline, transport.send(message)).await
             else {
-                self.replace_pool();
                 return Err(SendError::Transient(
                     "the SMTP relay did not answer in time".to_owned(),
                 ));
             };
+            unfinished.0 = None;
             sent.map(|_| ()).map_err(|error| {
                 let code = error.status().map(|code| code.to_string());
                 let reply = std::error::Error::source(&error).map(ToString::to_string);

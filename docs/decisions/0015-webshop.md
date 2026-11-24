@@ -89,3 +89,7 @@ Follow-ups from the last review (P2, not done yet):
   before placing the replacement. With two loaves and one held, raising the cart to two is
   refused, and a hold that took the last stock shows the drop as sold out. Those display
   reads should leave out the session's replaceable hold; checkout keeps its locked check.
+- The checkout's "Mail me als er een nieuwe drop is" box only stores `marketing_opt_in` on
+  the order. Nothing starts the double opt-in of drop alerts (ADR 0021), so it gives no
+  alerts. Either start `subscribers::subscribe` once the order is paid, or hide the box
+  until that exists.

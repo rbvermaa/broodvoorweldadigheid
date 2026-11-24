@@ -227,3 +227,14 @@ async fn a_send_past_its_deadline_is_temporary_and_its_connection_is_not_reused(
     sender.send(&outgoing()).await.expect("the next send works");
     assert_eq!(accepted.load(Ordering::SeqCst), 2, "a fresh connection");
 }
+
+#[tokio::test]
+async fn a_send_cancelled_from_outside_does_not_reuse_its_connection() {
+    let (port, accepted) = slow_first_relay(Duration::from_millis(500)).await;
+    let sender = sender(port);
+    let cut = tokio::time::timeout(Duration::from_millis(200), sender.send(&outgoing())).await;
+    assert!(cut.is_err(), "the caller gave up first");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    sender.send(&outgoing()).await.expect("the next send works");
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "a fresh connection");
+}
