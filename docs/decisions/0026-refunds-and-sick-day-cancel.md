@@ -26,3 +26,9 @@ Follow-ups:
 - Changing quantities and partial refunds.
 - A pickup reminder that was already sent before a move is not sent again with the new
   time.
+- Nothing writes `payment.refunded_cents` yet (the webhook ignores `amountRefunded`). A
+  refund made in Mollie's dashboard is unknown here: the cancel then asks for the full
+  remainder, Mollie refuses it and the row stays `failed`. Read `amountRefunded` before a
+  send and shrink the request, or sync it from the webhook. It never refunds twice.
+- `cancel_day` shows a 500 page when the bake day refuses the cancel for a reason other
+  than done; today no status does.
