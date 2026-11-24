@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% import "components/field.html" as f %}
+{% import "components/button.html" as b %}
+{% block title %}{{ layout.t("alerts-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("alerts-title")? }}</h1>
+<p>{{ layout.t("alerts-intro")? }}</p>
+<form method="post" action="/meldingen" novalidate>
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::field("email", "email", layout.t("alerts-email")?, value = email, error = error, required = true) %}{% endcall %}
+<p>{{ layout.t("alerts-consent")? }}</p>
+{% call b::button(layout.t("alerts-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}
