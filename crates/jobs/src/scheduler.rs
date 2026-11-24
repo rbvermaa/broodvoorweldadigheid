@@ -17,6 +17,7 @@ use crate::Error;
 use crate::bake_days::{self, TickReport};
 use crate::drop_alerts::{self, AlertReport};
 use crate::order_emails::{self, OrderEmails};
+use crate::saved_donations::{self, MoveReport};
 
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
@@ -67,6 +68,7 @@ pub struct TickOutcome {
     pub days: TickReport,
     pub released: Vec<OrderId>,
     pub reminded: Vec<OrderId>,
+    pub donations: MoveReport,
     pub alerts: AlertReport,
     pub sent: SendReport,
 }
@@ -127,7 +129,8 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
 }
 
 /// One tick's work, in order: open and close bake days, release expired order holds, queue
-/// due pickup reminders (an error there is logged and tried again next tick), queue
+/// due pickup reminders and move saved donations past their date (an error in those two is
+/// logged and tried again next tick), queue
 /// the drop alerts that are now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
 /// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
 /// step fails, so a day that should open never gets the menu alert instead; emails are
@@ -171,6 +174,13 @@ pub fn work<'a>(
                 tracing::warn!(%error, "no pickup reminders");
             }
             Err(error) => tracing::error!(%error, "cannot queue pickup reminders"),
+        }
+        match saved_donations::tick(&mut conn, &frozen, &mail.orders).await {
+            Ok(report) => outcome.donations = report,
+            Err(error @ order_emails::EmailError::CompanyIncomplete) => {
+                tracing::warn!(%error, "saved donations wait");
+            }
+            Err(error) => tracing::error!(%error, "cannot move saved donations"),
         }
         if days_ok {
             match drop_alerts::tick(&mut conn, &frozen, &mail.i18n, &mail.links).await {
@@ -267,6 +277,9 @@ pub async fn handle_tick(
     }
     if !outcome.reminded.is_empty() {
         tracing::info!(minute = %tick.minute, orders = ?outcome.reminded, "pickup reminders queued");
+    }
+    if !outcome.donations.moved.is_empty() {
+        tracing::info!(minute = %tick.minute, allocations = ?outcome.donations.moved, "saved donations moved");
     }
     if !outcome.alerts.queued.is_empty() {
         tracing::info!(minute = %tick.minute, alerts = ?outcome.alerts.queued, "drop alerts queued");

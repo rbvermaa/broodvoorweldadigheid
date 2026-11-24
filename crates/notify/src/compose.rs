@@ -170,6 +170,19 @@ impl std::fmt::Debug for LoginLink {
     }
 }
 
+/// A saved donation nobody chose a charity for went to the next drop's charity (F4d).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DonationMoved {
+    pub to: Recipient,
+    pub order_number: String,
+    pub amount: Money,
+    pub charity: String,
+    /// The drop whose charity it went to.
+    pub drop_date: Date,
+    /// The order's status page.
+    pub status_url: String,
+}
+
 /// F4f: a message from the contact form, sent to the bakery. Replies go to `email`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContactMessage {
@@ -504,6 +517,37 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::LoginLink, &link.to, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn donation_moved(&self, moved: &DonationMoved) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t(
+                "email-donation-moved-subject",
+                &[("charity", moved.charity.clone())],
+            )?,
+            heading: self.t("email-donation-moved-heading", &[])?,
+            greeting: self.greeting(moved.to.name.as_deref())?,
+            blocks: vec![
+                Block::Paragraph(self.t(
+                    "email-donation-moved-intro",
+                    &[
+                        ("amount", i18n::money(moved.amount.cents())),
+                        ("number", moved.order_number.clone()),
+                        ("charity", moved.charity.clone()),
+                        ("date", self.i18n.long_date(moved.drop_date)),
+                    ],
+                )?),
+                Block::Button(Link {
+                    label: self.t("email-order-confirmation-status", &[])?,
+                    url: https(&moved.status_url)?,
+                }),
+                Block::Paragraph(self.t("email-questions", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::DonationMoved, &moved.to.email, parts)
     }
 
     /// To the bakery, with only the company name in the footer; the sender gets no copy.

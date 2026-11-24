@@ -62,7 +62,8 @@ pub async fn enqueue(
 }
 
 /// Queues an email that carries a secret, such as a login link: it is not sent after
-/// `expires_at`, and its bodies are blanked once it is sent or failed.
+/// `expires_at`, and its bodies are blanked once it is sent or failed. A `dedupe_key`
+/// works as in [`enqueue`].
 ///
 /// # Errors
 /// [`OutboxError::Db`].
@@ -70,9 +71,10 @@ pub async fn enqueue_expiring(
     conn: &mut PgConnection,
     clock: &dyn Clock,
     email: &Email,
+    dedupe_key: Option<&str>,
     expires_at: Timestamp,
 ) -> Result<Option<OutboxId>, OutboxError> {
-    insert(conn, clock, email, None, Some(expires_at)).await
+    insert(conn, clock, email, dedupe_key, Some(expires_at)).await
 }
 
 async fn insert(
