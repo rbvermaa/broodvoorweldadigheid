@@ -55,6 +55,7 @@
               ./crates/db/migrations
               ./.sqlx
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
+              (lib.fileset.fileFilter (file: file.hasExt "snap") ./crates)
               ./design
               ./templates
               ./apps/server/tests/snapshots
@@ -207,7 +208,12 @@
               nativeBuildInputs = postgres.packages ++ [ pkgs.sqlx-cli ];
               preBuild = postgres.start;
               buildPhaseCargoCommand = ''
-                sqlx migrate run --source crates/db/migrations
+                # apalis-postgres checks its queries online too when SQLX_OFFLINE is false (ADR 0011).
+                apalis="$(cargo metadata --format-version 1 --locked \
+                  | grep -o "\"manifest_path\":\"[^\"]*apalis-postgres-[^/\"]*/Cargo.toml\"" \
+                  | sed -e "s/\"manifest_path\":\"//" -e "s|/Cargo.toml\"$||")"
+                sqlx migrate run --source "$apalis/migrations"
+                sqlx migrate run --ignore-missing --source crates/db/migrations
                 cargo sqlx prepare --workspace --check -- --all-targets --all-features
               '';
               postBuild = postgres.stop;
