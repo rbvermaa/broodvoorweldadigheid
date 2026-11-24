@@ -46,6 +46,7 @@
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
+              ./design/tokens.toml
             ];
           };
           commonArgs = {
