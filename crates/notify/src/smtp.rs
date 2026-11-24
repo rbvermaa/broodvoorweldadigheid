@@ -227,12 +227,18 @@ pub fn message(from: &Mailbox, outgoing: &OutgoingEmail) -> Result<Message, Send
     let email = &outgoing.email;
     let to = Mailbox::from_str(&email.to)
         .map_err(|error| SendError::Permanent(format!("recipient: {error}")))?;
-    let mut message = Message::builder()
+    let mut builder = Message::builder()
         .from(from.clone())
         .to(to)
         .subject(email.subject.clone())
         .message_id(Some(format!("<{}@{}>", outgoing.id, from.email.domain())))
-        .date(SystemTime::from(outgoing.date))
+        .date(SystemTime::from(outgoing.date));
+    if let Some(reply_to) = &email.reply_to {
+        let reply_to = Mailbox::from_str(reply_to)
+            .map_err(|error| SendError::Permanent(format!("reply-to: {error}")))?;
+        builder = builder.reply_to(reply_to);
+    }
+    let mut message = builder
         .multipart(MultiPart::alternative_plain_html(
             email.text.clone(),
             email.html.clone(),
