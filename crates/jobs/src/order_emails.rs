@@ -295,9 +295,10 @@ pub fn pickup_moved_prefix(order: OrderId) -> String {
     format!("pickup-moved:{}:", order.get())
 }
 
-/// Withdraws the order's pickup reminder if it is not sent yet, after the order moved to
-/// another ophaalmoment or was cancelled. The reminder job queues a new one with the new
-/// time and place when it is due.
+/// Withdraws the order's pickup reminder and pickup-moved emails that are not sent yet,
+/// after the order moved to another ophaalmoment or was cancelled. The reminder job queues
+/// a new reminder with the new time and place when it is due. Returns whether the reminder
+/// was withdrawn.
 ///
 /// # Errors
 /// [`EmailError::Outbox`].
@@ -305,6 +306,7 @@ pub async fn withdraw_reminder(
     conn: &mut PgConnection,
     order: OrderId,
 ) -> Result<bool, EmailError> {
+    notify::withdraw_unsent_prefixed(conn, &pickup_moved_prefix(order)).await?;
     Ok(notify::withdraw_unsent(conn, &reminder_key(order)).await?)
 }
 

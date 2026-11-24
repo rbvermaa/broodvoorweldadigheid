@@ -1713,14 +1713,14 @@ pub async fn update_slot(
                 return render_day(&state, &staff, &session, status, &day, answer).await;
             }
             for order in moved {
+                order_emails::withdraw_reminder(&mut tx, order)
+                    .await
+                    .map_err(|e| fail(&state, &e))?;
                 queue_email(&state, &mut tx, order, async |conn| {
                     order_emails::enqueue_pickup_moved(conn, clock, &state.order_emails, order)
                         .await
                 })
                 .await?;
-                order_emails::withdraw_reminder(&mut tx, order)
-                    .await
-                    .map_err(|e| fail(&state, &e))?;
             }
         }
         tx.commit().await.map_err(|e| fail(&state, &e))?;

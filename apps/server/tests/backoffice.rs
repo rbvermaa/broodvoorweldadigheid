@@ -2523,6 +2523,19 @@ async fn moving_a_slot_with_orders_asks_first_emails_the_customers_and_withdraws
         .await
         .lacks(&format!(r#"data-dialog-open="slot-remove-{markt}""#));
     assert_eq!(slots_of(&pool, paid.day).await.len(), 2);
+
+    let order_path = format!("/staff/orders/{}", paid.order.id.get());
+    baker
+        .post(
+            &format!("{order_path}/pickup"),
+            &[("slot", &markt.to_string())],
+        )
+        .await
+        .redirects_to(&format!("{order_path}?opgeslagen=1"));
+    assert!(
+        pickup_moved().await.is_empty(),
+        "moving or cancelling the order withdraws the unsent notice"
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

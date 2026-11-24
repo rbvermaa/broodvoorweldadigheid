@@ -573,7 +573,29 @@ async fn a_slot_is_removed_only_without_orders_and_an_online_day_keeps_one(
         },
     )
     .await;
+    let markt: i64 = sqlx::query_scalar(
+        "INSERT INTO pickup_location (name, address) VALUES ('Markt', 'Brink 1') RETURNING id",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    let slotless = create_day(
+        &mut conn,
+        &NewBakeDay {
+            location_id: PickupLocationId::new(markt),
+            online_ordering: false,
+            ..next_saturday()
+        },
+    )
+    .await;
     let only = days::list_slots(&mut conn, production.id).await.unwrap()[0];
+    assert!(matches!(
+        days::remove_slot(&mut conn, only.id).await,
+        Err(Error::DateTaken(_))
+    ));
+    days::cancel(&mut conn, &clock, slotless.id, "Geen markt")
+        .await
+        .unwrap();
     days::remove_slot(&mut conn, only.id).await.unwrap();
     assert!(
         days::list_slots(&mut conn, production.id)

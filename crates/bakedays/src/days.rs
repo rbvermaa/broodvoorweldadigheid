@@ -680,17 +680,21 @@ pub async fn update_slot(
 }
 
 /// Removes a pickup slot that no order uses, cancelled ones included. A day with online
-/// ordering keeps at least one slot.
+/// ordering keeps at least one slot; a production-only day without slots must have its
+/// date to itself, as on [`create`].
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Final`], [`Error::NoPickupSlot`] for the last slot of a
-/// day with online ordering, or [`Error::SlotHasOrders`].
+/// day with online ordering, [`Error::DateTaken`], or [`Error::SlotHasOrders`].
 pub async fn remove_slot(conn: &mut PgConnection, id: PickupSlotId) -> Result<(), Error> {
     let mut tx = conn.begin().await?;
     let (bake_day, _) = lock_slot_day(&mut tx, id).await?;
     bake_day.ensure_editable()?;
-    if bake_day.online_ordering && list_slots(&mut tx, bake_day.id).await?.len() <= 1 {
-        return Err(Error::NoPickupSlot);
+    if list_slots(&mut tx, bake_day.id).await?.len() <= 1 {
+        if bake_day.online_ordering {
+            return Err(Error::NoPickupSlot);
+        }
+        reserve_date(&mut tx, bake_day.date, &[], Some(bake_day.id)).await?;
     }
     let deleted = sqlx::query!("DELETE FROM pickup_slot WHERE id = $1", id.get())
         .execute(&mut *tx)
