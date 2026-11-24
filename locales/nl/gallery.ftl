@@ -13,6 +13,9 @@ gallery-empty = Lege toestand
 gallery-dialog = Bevestigen
 gallery-saved = Opslaan
 gallery-icons = Iconen
+gallery-brand = Logo en stempel
+gallery-stamp = Opbrengst naar het goede doel
+gallery-cart = Mandje (2)
 
 gallery-primary = Opslaan
 gallery-secondary = Terug
