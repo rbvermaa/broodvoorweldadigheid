@@ -29,6 +29,7 @@ b2b-error-required = Vul dit in.
 b2b-error-kvk = Een KvK-nummer heeft 8 cijfers.
 b2b-error-email = Vul een geldig e-mailadres in.
 b2b-error-exists = Deze klant heeft al een zakelijk account.
+b2b-error-text = Gebruik hoogstens 200 tekens, op één regel.
 
 b2b-links-invoice = Factuuroverzicht
 b2b-links-order = Bestelling op rekening plaatsen
@@ -68,3 +69,4 @@ b2b-error-slot = Kies een ophaalmoment van deze bakdag.
 b2b-error-slot-full = Dit ophaalmoment is vol.
 b2b-error-day = Deze bakdag neemt geen bestellingen aan.
 b2b-error-product = Een van de producten kan nu niet besteld worden.
+b2b-error-details = De gegevens van deze klant kloppen niet. Pas eerst het account aan.

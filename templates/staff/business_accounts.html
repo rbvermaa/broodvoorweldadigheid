@@ -7,7 +7,7 @@
 <h1>{{ layout.t("b2b-title")? }}</h1>
 {% call s::status(saved) %}{% endcall %}
 <p>{{ layout.t("b2b-intro")? }}</p>
-<p><a href="/staff/business-accounts/new">{{ layout.t("b2b-new")? }}</a></p>
+{% if invoicing %}<p><a href="/staff/business-accounts/new">{{ layout.t("b2b-new")? }}</a></p>{% endif %}
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("b2b-empty-title")?, layout.t("b2b-empty-text")?) %}{% endcall %}
 {% else %}

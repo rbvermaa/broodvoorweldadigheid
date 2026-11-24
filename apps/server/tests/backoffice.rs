@@ -3296,8 +3296,24 @@ async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
     let account = business_account(&owner).await;
     let invoice = format!("{account}/invoice");
     let csv = format!("{account}/invoice.csv");
+    assert_eq!(
+        owner.get(&format!("{csv}?van=gisteren")).await.status,
+        StatusCode::BAD_REQUEST
+    );
+    let list = baker.get("/staff/business-accounts").await;
+    assert_eq!(list.status, StatusCode::OK);
+    list.shows(&format!("href=\"{account}/order\""));
+    list.lacks(&format!("href=\"{account}\""));
+    list.lacks("href=\"/staff/business-accounts/new\"");
+    assert_eq!(
+        counter.get("/staff/business-accounts").await.status,
+        StatusCode::FORBIDDEN
+    );
+    owner
+        .get("/staff/business-accounts")
+        .await
+        .shows(&format!("href=\"{account}/invoice\""));
     for url in [
-        "/staff/business-accounts",
         "/staff/business-accounts/new",
         account.as_str(),
         invoice.as_str(),
@@ -3373,19 +3389,43 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     let day_id = day.get().to_string();
     let slot_id = slot.get().to_string();
     let pieces = format!("qty_{}", bread.get());
+    let bread_id = bread.get().to_string();
 
     let empty = baker
         .post(
             &order_page,
-            &[("dag", &day_id), ("slot", &slot_id), (&pieces, "0")],
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "0"),
+            ],
         )
         .await;
     assert_eq!(empty.status, StatusCode::UNPROCESSABLE_ENTITY);
     empty.shows(&dutch("b2b-error-empty"));
+    let gone = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", "999999"),
+                ("qty_999999", "1"),
+            ],
+        )
+        .await;
+    assert_eq!(gone.status, StatusCode::UNPROCESSABLE_ENTITY);
+    gone.shows(&dutch("b2b-error-product"));
     let too_many = baker
         .post(
             &order_page,
-            &[("dag", &day_id), ("slot", &slot_id), (&pieces, "11")],
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "11"),
+            ],
         )
         .await;
     assert_eq!(too_many.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -3397,7 +3437,12 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     let placed = baker
         .post(
             &order_page,
-            &[("dag", &day_id), ("slot", &slot_id), (&pieces, "2")],
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "2"),
+            ],
         )
         .await;
     assert_eq!(placed.status, StatusCode::SEE_OTHER, "{}", placed.text);
@@ -3480,7 +3525,12 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     let refused = baker
         .post(
             &order_page,
-            &[("dag", &day_id), ("slot", &slot_id), (&pieces, "1")],
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "1"),
+            ],
         )
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);

@@ -59,6 +59,8 @@ fn yes_no(state: &AppState, yes: bool) -> String {
 struct ListPage<'a> {
     layout: Layout<'a>,
     saved: bool,
+    /// The viewer may open and change accounts.
+    invoicing: bool,
     table: Table,
 }
 
@@ -68,7 +70,8 @@ pub async fn list(
     Query(flash): Query<Flash>,
 ) -> Response {
     let run = async {
-        require(&state, &staff, Permission::Invoicing)?;
+        require(&state, &staff, Permission::EditOrders)?;
+        let invoicing = staff.0.role.can(Permission::Invoicing);
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         let all = invoices::list_accounts(&mut conn)
             .await
@@ -77,34 +80,55 @@ pub async fn list(
         let rows = all
             .iter()
             .map(|a| {
-                vec![
-                    Cell::link(a.company_name.clone(), account_path(a.id)),
+                let path = account_path(a.id);
+                let mut row = vec![
+                    if invoicing {
+                        Cell::link(a.company_name.clone(), path.clone())
+                    } else {
+                        Cell::text(a.company_name.clone())
+                    },
                     Cell::text(a.kvk.clone()),
                     Cell::text(a.invoice_email.clone()),
                     Cell::text(yes_no(&state, a.on_account_allowed)),
-                    Cell::link(
+                ];
+                if a.on_account_allowed {
+                    row.push(Cell::link(
+                        t(&state, "b2b-links-order"),
+                        format!("{path}/order"),
+                    ));
+                } else {
+                    row.push(Cell::text(String::new()));
+                }
+                if invoicing {
+                    row.push(Cell::link(
                         t(&state, "b2b-links-invoice"),
-                        format!("{}/invoice", account_path(a.id)),
-                    ),
-                ]
+                        format!("{path}/invoice"),
+                    ));
+                }
+                row
             })
             .collect();
+        let mut head = vec![
+            Cell::text(t(&state, "b2b-col-company")),
+            Cell::text(t(&state, "b2b-col-kvk")),
+            Cell::text(t(&state, "b2b-col-invoice-email")),
+            Cell::text(t(&state, "b2b-col-on-account")),
+            Cell::text(t(&state, "b2b-links-order")),
+        ];
+        if invoicing {
+            head.push(Cell::text(t(&state, "b2b-links-invoice")));
+        }
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: Layout::new(&state),
                 saved: flash.saved(),
+                invoicing,
                 table: Table {
                     id: "zakelijke-klanten".to_owned(),
                     caption: t(&state, "b2b-title"),
-                    head: vec![
-                        Cell::text(t(&state, "b2b-col-company")),
-                        Cell::text(t(&state, "b2b-col-kvk")),
-                        Cell::text(t(&state, "b2b-col-invoice-email")),
-                        Cell::text(t(&state, "b2b-col-on-account")),
-                        Cell::text(t(&state, "b2b-links-invoice")),
-                    ],
+                    head,
                     rows,
                 },
             },
@@ -125,7 +149,26 @@ pub struct AccountForm {
 }
 
 fn plausible_email(email: &str) -> bool {
-    email.contains('@') && !email.contains(char::is_whitespace)
+    !email.contains(char::is_whitespace)
+        && email
+            .split_once('@')
+            .is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.'))
+}
+
+/// The field and message for details the crate refused after the form's own checks.
+fn refused_field(state: &AppState, error: &reports::Error) -> Option<Errors> {
+    let (field, id) = match error {
+        reports::Error::Invalid("customer already has a business account") => {
+            ("contact_email", "b2b-error-exists")
+        }
+        reports::Error::Invalid("contact email") => ("contact_email", "b2b-error-email"),
+        reports::Error::Invalid("contact name") => ("contact_name", "b2b-error-text"),
+        reports::Error::Invalid("company name") => ("company_name", "b2b-error-text"),
+        _ => return None,
+    };
+    let mut errors = Errors::default();
+    errors.add(field, t(state, id));
+    Some(errors)
 }
 
 impl AccountForm {
@@ -327,12 +370,12 @@ pub async fn create(
         drop(conn);
         match result {
             Ok(account) => Ok(saved(&headers, &account_path(account.id))),
-            Err(reports::Error::Invalid("customer already has a business account")) => {
-                let mut errors = Errors::default();
-                errors.add("contact_email", t(&state, "b2b-error-exists"));
-                render_account(&state, &session, status, None, form, errors, false).await
-            }
-            Err(error) => Err(report_error(&state, &error)),
+            Err(error) => match refused_field(&state, &error) {
+                Some(errors) => {
+                    render_account(&state, &session, status, None, form, errors, false).await
+                }
+                None => Err(report_error(&state, &error)),
+            },
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
@@ -393,16 +436,34 @@ pub async fn update(
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        invoices::update_account(
+        let result = invoices::update_account(
             &mut conn,
             state.clock.as_ref(),
             Actor::Staff(staff.0.id),
             account.id,
             &details,
         )
-        .await
-        .map_err(|e| report_error(&state, &e))?;
-        Ok(saved(&headers, &account_path(account.id)))
+        .await;
+        drop(conn);
+        match result {
+            Ok(_) => Ok(saved(&headers, &account_path(account.id))),
+            Err(error) => match refused_field(&state, &error) {
+                Some(errors) => {
+                    let status = invalid_status(&headers);
+                    render_account(
+                        &state,
+                        &session,
+                        status,
+                        Some(&account),
+                        form,
+                        errors,
+                        false,
+                    )
+                    .await
+                }
+                None => Err(report_error(&state, &error)),
+            },
+        }
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -653,6 +714,9 @@ pub async fn invoice_csv(
         require(&state, &staff, Permission::Invoicing)?;
         let account = load(&state, &id).await?;
         let chosen = choose(&state, &query, "", false)?;
+        if !chosen.form.errors.is_empty() {
+            return Ok(pages::error(&state, StatusCode::BAD_REQUEST));
+        }
         let overview = overview(&state, &account, &chosen).await?;
         let body = invoices::csv(&overview, &state.i18n).map_err(|e| report_error(&state, &e))?;
         let file = format!(
@@ -792,6 +856,7 @@ pub struct DayQuery {
 }
 
 pub struct PieceField {
+    pub product: i64,
     pub name: String,
     pub label: String,
     pub value: String,
@@ -912,6 +977,7 @@ async fn render_order(
                 .map(|(id, name)| {
                     let field = pieces_name(id);
                     PieceField {
+                        product: id.get(),
                         value: posted.map_or("", |f| f.text(&field)).to_owned(),
                         label: t_with(state, "b2b-order-pieces", &[("product", name)]),
                         name: field,
@@ -947,7 +1013,7 @@ async fn render_order(
                 "b2b-order-heading",
                 &[("company", account.company_name.clone())],
             ),
-            back: path.clone(),
+            back: LIST.to_owned(),
             choose_action: format!("{path}/order"),
             days,
             slots,
@@ -1016,6 +1082,7 @@ fn order_problem(
         | orders::Error::PastDeadline => "b2b-error-day",
         orders::Error::Cart(CartError::Empty) => "b2b-error-empty",
         orders::Error::Cart(_) | orders::Error::FreeOrder => "b2b-error-product",
+        orders::Error::Invalid(_) => "b2b-error-details",
         _ => return None,
     };
     Some(t(state, id))
@@ -1065,13 +1132,20 @@ pub async fn place_order(
         let products = day_products(&state, day).await?;
         let mut cart = Cart::new(day);
         let mut errors = Errors::default();
-        for (product, _) in &products {
-            let field = pieces_name(*product);
+        let posted: Option<Vec<ProductId>> = fields
+            .all("product")
+            .map(|raw| raw.trim().parse().ok().map(ProductId::new))
+            .collect();
+        let Some(posted) = posted else {
+            return refuse(t(&state, "b2b-error-product"), errors).await;
+        };
+        for product in posted {
+            let field = pieces_name(product);
             let raw = fields.text(&field);
             if raw.is_empty() {
                 continue;
             }
-            match parse_count(raw).map(|qty| cart.set(*product, qty, None)) {
+            match parse_count(raw).map(|qty| cart.set(product, qty, None)) {
                 Some(Ok(())) => {}
                 Some(Err(_)) | None => errors.add(&field, t(&state, "b2b-error-pieces")),
             }

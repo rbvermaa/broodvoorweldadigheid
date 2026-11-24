@@ -296,18 +296,30 @@ async fn accounts_are_opened_listed_and_changed_with_an_audit_entry(
         .await,
         Err(Error::Invalid(_))
     ));
-    for bad in [
-        contact("geen-mail"),
-        Contact {
-            name: " ".into(),
-            ..contact("a@b.example")
-        },
+    for (bad, field) in [
+        (contact("geen-mail"), "contact email"),
+        (contact("x@localhost"), "contact email"),
+        (
+            Contact {
+                name: " ".into(),
+                ..contact("a@b.example")
+            },
+            "contact name",
+        ),
     ] {
         assert!(matches!(
             invoices::open_account(&mut conn, &clock, STAFF, &bad, &details()).await,
-            Err(Error::Invalid(_))
+            Err(Error::Invalid(f)) if f == field
         ));
     }
+    let long = AccountDetails {
+        company_name: "B".repeat(201),
+        ..details()
+    };
+    assert!(matches!(
+        invoices::open_account(&mut conn, &clock, STAFF, &contact("c@b.example"), &long).await,
+        Err(Error::Invalid("company name"))
+    ));
 
     let existing = customer(&mut conn, "bestaand@example.org").await;
     let linked = invoices::open_account(

@@ -20,7 +20,8 @@ mod source;
 
 pub use cart::{Cart, CartError, CartLine, PricedLine};
 pub use checkout::{
-    HOLD, OrderedBy, checkout, checkout_on_account, checkout_replacing, same_as_order, slot_orders,
+    HOLD, OrderedBy, check_customer, checkout, checkout_on_account, checkout_replacing,
+    same_as_order, slot_orders,
 };
 pub use customer::CustomerInput;
 pub use details::{

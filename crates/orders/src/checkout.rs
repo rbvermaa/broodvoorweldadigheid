@@ -260,6 +260,15 @@ pub async fn checkout_on_account(
     .await
 }
 
+/// Whether checkout would accept these customer details, for forms that store them for
+/// later orders.
+///
+/// # Errors
+/// [`Error::Invalid`] naming the refused field.
+pub fn check_customer(customer: &CustomerInput) -> Result<(), Error> {
+    customer::validate(customer).map(|_| ())
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Mode {
     /// Waits for payment within its hold; replaces the given pending order, if any.

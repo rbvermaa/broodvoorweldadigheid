@@ -4,8 +4,8 @@ use db::time::{from_epoch_days, to_epoch_days, to_micros};
 use domain::{BusinessAccountId, Clock, CustomerId, Line, Money, OrderId, VatRate, VatTotals};
 use i18n::Translator;
 use jiff::civil::Date;
-use orders::OrderNumber;
 use orders::audit::{self, Actor, Entry};
+use orders::{CustomerInput, OrderNumber};
 use sqlx::{Acquire, PgConnection};
 
 use crate::csv_out::{self, Csv};
@@ -175,6 +175,21 @@ impl BusinessAccount {
     }
 }
 
+/// Orders on account carry the contact email and the company name, so both must pass
+/// checkout's customer check.
+fn orderable(email: &str, name: &str) -> Result<(), Error> {
+    let as_customer = |name: &str| CustomerInput {
+        email: email.to_owned(),
+        name: name.to_owned(),
+        phone: None,
+        marketing_opt_in: false,
+    };
+    orders::check_customer(&as_customer(name)).map_err(|e| match e {
+        orders::Error::Invalid("email") => Error::Invalid("contact email"),
+        _ => Error::Invalid("company name"),
+    })
+}
+
 fn email(text: &str, what: &'static str) -> Result<String, Error> {
     let email = required(text, what)?.to_lowercase();
     if !email.contains('@') || email.chars().any(char::is_whitespace) {
@@ -199,6 +214,11 @@ pub async fn open_account(
     let contact_email = email(&contact.email, "contact email")?;
     let contact_name = required(&contact.name, "contact name")?;
     let details = details.checked()?;
+    orderable(&contact_email, &contact_name).map_err(|e| match e {
+        Error::Invalid("company name") => Error::Invalid("contact name"),
+        other => other,
+    })?;
+    orderable(&contact_email, &details.company_name)?;
     let now = clock.now();
     let mut tx = conn.begin().await?;
     let created = sqlx::query_scalar!(
@@ -273,6 +293,7 @@ pub async fn update_account(
     .await?
     .ok_or(Error::NotFound)?;
     let before = account(&mut tx, CustomerId::new(before)).await?;
+    orderable(&before.contact_email, &details.company_name)?;
     sqlx::query!(
         "UPDATE business_account SET company_name = $2, kvk = $3, btw_id = $4,
             invoice_address = $5, invoice_email = $6, on_account_allowed = $7
