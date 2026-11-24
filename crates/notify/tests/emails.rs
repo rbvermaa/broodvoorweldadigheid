@@ -7,7 +7,7 @@ use jiff::civil::{Date, date};
 use notify::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
     DropAlertKind, Email, EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine,
-    OutgoingEmail, Pickup, PickupReminder, Recipient, SendError, SickDayCancelled,
+    OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient, SendError, SickDayCancelled,
     SubscriptionConfirmation,
 };
 
@@ -248,6 +248,25 @@ fn pickup_reminder() {
     });
     assert_eq!(email.kind, EmailKind::PickupReminder);
     snapshot("pickup-reminder", &email);
+}
+
+#[test]
+fn pickup_moved_names_the_new_moment() {
+    let email = compose(|c| {
+        c.pickup_moved(&PickupMoved {
+            to: sanne(),
+            order_number: "2026-0042".to_owned(),
+            pickup: Pickup {
+                starts: ts("2026-12-05T13:00:00Z"),
+                ends: ts("2026-12-05T14:30:00Z"),
+                ..pickup()
+            },
+        })
+    });
+    assert_eq!(email.kind, EmailKind::PickupMoved);
+    assert!(email.text.contains("14:00"), "{}", email.text);
+    assert!(email.text.contains("15:30"), "{}", email.text);
+    snapshot("pickup-moved", &email);
 }
 
 #[test]

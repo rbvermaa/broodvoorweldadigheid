@@ -1,0 +1,24 @@
+---
+source: crates/notify/tests/emails.rs
+assertion_line: 97
+expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
+---
+To: sanne@example.org
+Subject: Nieuw ophaalmoment voor je bestelling 2026-0042
+
+Je ophaalmoment is veranderd
+
+Hoi Sanne,
+
+We hebben het ophaalmoment van je bestelling 2026-0042 veranderd. Dit is het nieuwe moment:
+
+Bestelling: 2026-0042
+Ophaalmoment: zaterdag 5 december 2026, 14:00–15:30
+Locatie: De Proef, Majoor van Swietenlaan 15, 8382 CE Frederiksoord
+
+Past dit niet? Beantwoord deze mail, dan zoeken we samen een oplossing.
+
+Groetjes van de bakker
+
+-- 
+Brood voor Weldadigheid · Majoor van Swietenlaan 15, 8382 CE Frederiksoord · KvK 12345678

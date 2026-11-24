@@ -21,7 +21,10 @@ mod source;
 pub use cart::{Cart, CartError, CartLine, PricedLine};
 pub use checkout::{HOLD, OrderedBy, checkout, checkout_replacing, same_as_order, slot_orders};
 pub use customer::CustomerInput;
-pub use details::{OrderDetails, PickupDetails, awaiting_pickup, details, lock_awaiting_pickup};
+pub use details::{
+    OrderDetails, PickupDetails, awaiting_pickup, awaiting_pickup_in_slot, details,
+    lock_awaiting_pickup, slots_in_use,
+};
 pub use error::Error;
 pub use holds::{cancel_pending, release_expired_holds};
 pub use order::{CancelReason, Channel, Order, OrderLine, OrderNumber, OrderStatus, PaymentMode};

@@ -12,12 +12,12 @@ pub mod subscribers;
 pub use compose::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
     DropAlertKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine, Pickup,
-    PickupReminder, Recipient, SickDayCancelled, SubscriptionConfirmation, is_address,
+    PickupMoved, PickupReminder, Recipient, SickDayCancelled, SubscriptionConfirmation, is_address,
 };
 pub use content::RenderError;
 pub use email::{Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture};
 pub use outbox::{
     OutboxError, OutboxId, SendReport, enqueue, enqueue_expiring, queued_keys, send_pending,
-    withdraw_unsent,
+    withdraw_unsent, withdraw_unsent_prefixed,
 };
 pub use smtp::{Secret, SmtpConfig, SmtpConfigError, SmtpSender, TlsMode, message};
