@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT refunded_before_cents FROM refund WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "refunded_before_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "refund",
+            "name": "refunded_before_cents"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ccf3516af3bc2a70259ea3dda59a56557260c210fb4395328c31e65a7a7ddda6"
+}

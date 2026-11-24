@@ -7,7 +7,7 @@ use jiff::SignedDuration;
 use notify::outbox::{BACKOFF, MAX_ATTEMPTS};
 use notify::{
     Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport, enqueue,
-    send_pending,
+    send_pending, withdraw_unsent,
 };
 use sqlx::{Acquire, PgPool};
 use testkit::{FakeClock, FakeEmailSender};
@@ -374,4 +374,30 @@ async fn company_details_come_from_the_settings_row(pool: PgPool) {
     let filled = notify::Company::load(&mut conn).await.unwrap();
     assert_eq!(filled.address, "Dorpsstraat 1, 1234 AB Ergens");
     assert_eq!(filled.kvk, "12345678");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unsent_email_can_be_withdrawn_but_a_sent_one_stays(pool: PgPool) {
+    let clock = clock();
+    let sender = FakeEmailSender::new();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("a@example.org"), Some("sent:1"))
+        .await
+        .unwrap();
+    send(&pool, &sender, &clock, 10).await;
+    enqueue(&mut conn, &clock, &email("b@example.org"), Some("unsent:1"))
+        .await
+        .unwrap();
+
+    assert!(withdraw_unsent(&mut conn, "unsent:1").await.unwrap());
+    assert!(!withdraw_unsent(&mut conn, "unsent:1").await.unwrap());
+    assert!(!withdraw_unsent(&mut conn, "sent:1").await.unwrap());
+    assert_eq!(states(&pool).await.len(), 1);
+    assert!(
+        enqueue(&mut conn, &clock, &email("b@example.org"), Some("unsent:1"))
+            .await
+            .unwrap()
+            .is_some(),
+        "the key is free again"
+    );
 }

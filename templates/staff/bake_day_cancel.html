@@ -1,0 +1,37 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("staff-order-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+{% if cancelled %}{% call fb::alert("info", layout.t("staff-sick-day-cancelled")?) %}{% endcall %}{% endif %}
+<dl>
+{%- for (term, value) in facts %}
+<dt>{{ term }}</dt><dd>{{ value }}</dd>
+{%- endfor %}
+</dl>
+{% if !invoiced.is_empty() %}{% call fb::alert("warning", invoiced) %}{% endcall %}{% endif %}
+{% if cancelled %}
+{% if refunds.rows.is_empty() %}
+<p>{{ layout.t("staff-sick-day-all-done")? }}</p>
+{% else %}
+{% call tb::table(refunds) %}{% endcall %}
+{% call b::button(layout.t("staff-sick-day-retry")?, opens = "retry") %}{% endcall %}
+{% call d::confirm_dialog("retry", layout.t("staff-sick-day-retry")?, layout.t("staff-sick-day-retry-text")?, layout.t("staff-sick-day-retry")?, action) %}{% endcall %}
+{% endif %}
+{% else %}
+{% call fb::alert("warning", layout.t("staff-sick-day-warning")?) %}{% endcall %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("textarea", "bericht", layout.t("staff-sick-day-message")?, value = draft, hint = layout.t("staff-sick-day-message-hint")?, error = message_error, required = true) %}{% endcall %}
+{% call b::button(layout.t("staff-sick-day-confirm")?, variant = "danger", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% endblock %}

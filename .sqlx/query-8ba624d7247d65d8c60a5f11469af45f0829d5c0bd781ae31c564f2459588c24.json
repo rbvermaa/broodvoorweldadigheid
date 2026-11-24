@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.number_year, o.number_seq, o.manual_invoice_id IS NOT NULL AS \"invoiced!\",\n            COALESCE((SELECT sum(p.amount_cents - payment_refunded_cents(p.id))\n                FROM payment p\n                WHERE p.order_id = o.id AND p.status = 'paid' AND NOT p.refund_due), 0)::bigint\n                AS \"refund!\"\n        FROM \"order\" o\n        WHERE o.bake_day_id = $1 AND o.status IN ('pending_payment', 'paid', 'confirmed')\n        ORDER BY o.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "number_year",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_year"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "number_seq",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "invoiced!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "refund!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "8ba624d7247d65d8c60a5f11469af45f0829d5c0bd781ae31c564f2459588c24"
+}

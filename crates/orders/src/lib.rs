@@ -13,6 +13,7 @@ pub mod manage;
 pub mod order;
 mod payment;
 mod pickup;
+mod refunds;
 mod source;
 
 pub use cart::{Cart, CartError, CartLine, PricedLine};
@@ -27,4 +28,8 @@ pub use payment::{
     latest_payment_status, mark_paid, payment_started, record_payment_status, refunds_due,
 };
 pub use pickup::{mark_picked_up, undo_picked_up};
+pub use refunds::{
+    Cancelled, DayCancelled, DayPreview, Refund, RefundState, cancel_day, cancel_paid, day_preview,
+    issue, of_order, open_of_day,
+};
 pub use source::Orders;

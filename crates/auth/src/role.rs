@@ -18,9 +18,9 @@ pub enum Permission {
     Production,
     EditAllergens,
     ManageBakeDays,
-    /// Sick-day cancel (F2), including the refunds it sends for that day.
+    /// Sick-day cancel (F2), including the refunds it sends for that day. Owner only.
     CloseBakeDay,
-    /// Refunding a single order or line.
+    /// Cancelling a paid order with its refund, and retrying a refund (F6).
     Refund,
     ViewReports,
     ManageCharities,
@@ -68,7 +68,7 @@ impl Role {
                     | P::Production
                     | P::EditAllergens
                     | P::ManageBakeDays
-                    | P::CloseBakeDay
+                    | P::Refund
             ),
             Self::Counter => matches!(permission, P::ViewOrders | P::PickupList),
         }
@@ -111,8 +111,8 @@ mod tests {
             (P::Production, true, true, false),
             (P::EditAllergens, true, true, false),
             (P::ManageBakeDays, true, true, false),
-            (P::CloseBakeDay, true, true, false),
-            (P::Refund, true, false, false),
+            (P::CloseBakeDay, true, false, false),
+            (P::Refund, true, true, false),
             (P::ViewReports, true, false, false),
             (P::ManageCharities, true, false, false),
             (P::ManageStaff, true, false, false),

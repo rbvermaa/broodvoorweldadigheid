@@ -9,7 +9,7 @@ use jiff::civil::{Time, time};
 use jiff::{SignedDuration, Timestamp};
 use notify::{
     Company, ComposeError, Composer, Donation, Email, Item, OrderCancelled, OrderConfirmation,
-    OutboxError, OutboxId, Pickup, PickupReminder, Recipient,
+    OutboxError, OutboxId, Pickup, PickupReminder, Recipient, SickDayCancelled,
 };
 use orders::{OrderDetails, Payment};
 use sqlx::{Acquire, PgConnection};
@@ -82,6 +82,12 @@ pub fn reminder_key(order: OrderId) -> String {
 #[must_use]
 pub fn cancellation_key(order: OrderId) -> String {
     format!("order-cancelled:{}", order.get())
+}
+
+/// `sick-day:42`
+#[must_use]
+pub fn sick_day_key(order: OrderId) -> String {
+    format!("sick-day:{}", order.get())
 }
 
 /// `refund-due:7`, per payment: an order can have more than one refused payment.
@@ -219,6 +225,54 @@ pub async fn enqueue_cancellation(
 ) -> Result<Option<OutboxId>, EmailError> {
     let key = cancellation_key(order);
     enqueue_cancelled(conn, clock, emails, order, refund, &key).await
+}
+
+/// Queues the sick-day email (F2) for an order cancelled with its bake day: the baker's
+/// message and what goes back, `None` when nothing was paid. Call it in the transaction
+/// that cancels the day. Queued at most once per order, so a second run of the cancel adds
+/// nothing.
+///
+/// # Errors
+/// [`EmailError`].
+pub async fn enqueue_sick_day(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    emails: &OrderEmails,
+    order: OrderId,
+    message: &str,
+    refund: Option<Money>,
+) -> Result<Option<OutboxId>, EmailError> {
+    let key = sick_day_key(order);
+    if !notify::queued_keys(conn, std::slice::from_ref(&key))
+        .await?
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    let email = compose(conn, emails, order, |composer, details| {
+        composer.sick_day_cancelled(&SickDayCancelled {
+            to: recipient(details),
+            order_number: details.order.number.to_string(),
+            drop_date: details.drop_date,
+            message: message.to_owned(),
+            refund,
+        })
+    })
+    .await?;
+    Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
+}
+
+/// Withdraws the order's pickup reminder if it is not sent yet, after the order moved to
+/// another ophaalmoment or was cancelled. The reminder job queues a new one with the new
+/// time and place when it is due.
+///
+/// # Errors
+/// [`EmailError::Outbox`].
+pub async fn withdraw_reminder(
+    conn: &mut PgConnection,
+    order: OrderId,
+) -> Result<bool, EmailError> {
+    Ok(notify::withdraw_unsent(conn, &reminder_key(order)).await?)
 }
 
 /// Queues the cancellation email for a payment that came in for a cancelled order, such

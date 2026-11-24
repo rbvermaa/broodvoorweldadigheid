@@ -1,5 +1,6 @@
 //! Orders per bake day, order details with the audit history, and the staff actions on an
-//! order: another ophaalmoment, picked up and cancel (F6, ADR 0025).
+//! order: another ophaalmoment, picked up, cancel with refund and retrying a refund (F6,
+//! ADR 0025, ADR 0026).
 
 use std::collections::BTreeMap;
 
@@ -9,11 +10,11 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::{BakeDay, days, pickup};
-use domain::{OrderId, PickupLocationId, PickupSlotId, StaffUserId};
+use domain::{OrderId, PickupLocationId, PickupSlotId, RefundId, StaffUserId};
 use jobs::order_emails;
 use orders::audit::{self, Logged};
 use orders::manage::{self, OrderFilter};
-use orders::{OrderDetails, OrderStatus, Payment};
+use orders::{OrderDetails, OrderNumber, OrderStatus, Payment, Refund, RefundState};
 use serde::Deserialize;
 use sqlx::Acquire;
 use tower_sessions::Session;
@@ -54,9 +55,57 @@ fn action_text(state: &AppState, action: &str) -> String {
         "picked_up" => "staff-order-action-picked_up",
         "pickup_moved" => "staff-order-action-pickup_moved",
         "invoiced" => "staff-order-action-invoiced",
+        "refund_done" => "staff-order-action-refund_done",
+        "refund_failed" => "staff-order-action-refund_failed",
         other => return other.to_owned(),
     };
     t(state, id)
+}
+
+const fn refund_state_text(refund: RefundState) -> &'static str {
+    match refund {
+        RefundState::Requested => "staff-order-refund-requested",
+        RefundState::Done => "staff-order-refund-done",
+        RefundState::Failed => "staff-order-refund-failed",
+    }
+}
+
+/// What the customer sees on the refund at their bank.
+pub fn refund_description(state: &AppState, number: OrderNumber) -> String {
+    t_with(
+        state,
+        "refund-description",
+        &[("number", number.to_string())],
+    )
+}
+
+/// Sends `refunds` to the payment provider one by one. Runs after the cancel committed, so
+/// a failure is logged and kept on the refund for staff to retry, never shown as an error.
+pub async fn send_refunds(state: &AppState, refunds: &[Refund]) -> Step<()> {
+    if refunds.is_empty() {
+        return Ok(());
+    }
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    for refund in refunds {
+        let sent = orders::issue(
+            &mut conn,
+            state.payments.as_ref(),
+            state.clock.as_ref(),
+            refund.id,
+            &refund_description(state, refund.order_number),
+        )
+        .await;
+        match sent {
+            Ok(sent) if sent.state == RefundState::Done => {}
+            Ok(sent) => {
+                tracing::warn!(refund = refund.id.get(), error = ?sent.last_error, "refund not sent");
+            }
+            Err(error) => {
+                tracing::error!(refund = refund.id.get(), %error, "refund not sent");
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn order_path(id: OrderId) -> String {
@@ -135,6 +184,7 @@ struct ListPage<'a> {
     layout: Layout<'a>,
     heading: String,
     action: String,
+    cancel_day: Option<String>,
     statuses: Vec<SelectOption>,
     locations: Vec<SelectOption>,
     table: Table,
@@ -226,11 +276,15 @@ pub async fn list(
             ],
             rows,
         };
+        let cancel_day = (day.status != bakedays::BakeDayStatus::Done
+            && staff.0.role.can(Permission::CloseBakeDay))
+        .then(|| super::sick_day::cancel_path(day.id));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: Layout::new(&state),
+                cancel_day,
                 heading: t_with(
                     &state,
                     "staff-orders-day-heading",
@@ -265,6 +319,7 @@ struct DetailPage<'a> {
     facts: Vec<(String, String)>,
     lines: Table,
     payments: Table,
+    refunds: Table,
     history: Table,
     move_action: String,
     slots: Vec<SelectOption>,
@@ -305,8 +360,10 @@ async fn actor_name(state: &AppState, actor: &str, names: &mut BTreeMap<i64, Str
     }
 }
 
-fn payment_state(state: &AppState, payment: &Payment) -> String {
-    if payment.refunded.cents() > 0 {
+fn payment_state(state: &AppState, payment: &Payment, refunds: &[Refund]) -> String {
+    if refunds.iter().any(|r| r.payment_id == payment.id) {
+        t(state, "staff-order-payment-refund-requested")
+    } else if payment.refunded.cents() > 0 {
         t_with(
             state,
             "staff-order-payment-refunded",
@@ -350,6 +407,9 @@ async fn render(
         .await
         .map_err(|e| fail(state, &e))?;
     let payments = manage::payments(&mut conn, order.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
+    let refunds = orders::of_order(&mut conn, order.id)
         .await
         .map_err(|e| fail(state, &e))?;
     let logged: Vec<Logged> = audit::history(&mut conn, "order", order.id.get())
@@ -422,7 +482,26 @@ async fn render(
                 vec![
                     Cell::text(p.provider_payment_id.clone()),
                     Cell::number(i18n::money(p.amount.cents())),
-                    Cell::text(payment_state(state, p)),
+                    Cell::text(payment_state(state, p, &refunds)),
+                ]
+            })
+            .collect(),
+    };
+    let refunds_table = Table {
+        id: "terugbetalingen".to_owned(),
+        caption: t(state, "staff-order-refunds-caption"),
+        head: vec![
+            Cell::text(t(state, "staff-order-history-when")),
+            Cell::number(t(state, "staff-order-payment-amount")),
+            Cell::text(t(state, "staff-order-status")),
+        ],
+        rows: refunds
+            .iter()
+            .map(|r| {
+                vec![
+                    Cell::text(when(r.requested_at)),
+                    Cell::number(i18n::money(r.amount.cents())),
+                    Cell::text(t(state, refund_state_text(r.state))),
                 ]
             })
             .collect(),
@@ -495,6 +574,43 @@ async fn render(
             action: format!("{path}/cancel"),
         });
     }
+    if open && !invoiced && !day.status.is_final() && role.can(Permission::Refund) {
+        let paid: i64 = payments
+            .iter()
+            .filter(|p| p.refund_reason.is_none())
+            .map(|p| p.amount.cents() - p.refunded.cents())
+            .sum();
+        let text = if paid > 0 {
+            let mut args = who.to_vec();
+            args.push(("amount", i18n::money(paid)));
+            t_with(state, "staff-order-cancel-paid-text", &args)
+        } else {
+            t_with(state, "staff-order-cancel-text", &who)
+        };
+        actions.push(Confirm {
+            dialog: "cancel".to_owned(),
+            label: t(state, "staff-order-cancel"),
+            text,
+            action: format!("{path}/cancel"),
+        });
+    }
+    if role.can(Permission::Refund) {
+        for refund in refunds.iter().filter(|r| r.state != RefundState::Done) {
+            actions.push(Confirm {
+                dialog: format!("refund-{}", refund.id.get()),
+                label: t(state, "staff-order-refund-retry"),
+                text: t_with(
+                    state,
+                    "staff-order-refund-retry-text",
+                    &[
+                        ("amount", i18n::money(refund.amount.cents())),
+                        ("number", number.clone()),
+                    ],
+                ),
+                action: format!("{path}/refunds/{}/retry", refund.id.get()),
+            });
+        }
+    }
 
     Ok(pages::render(
         state,
@@ -508,6 +624,7 @@ async fn render(
             facts,
             lines,
             payments: payments_table,
+            refunds: refunds_table,
             history,
             move_action: format!("{path}/pickup"),
             slots: slot_options,
@@ -604,16 +721,25 @@ pub async fn move_pickup(
         let details = load_details(&state, &id).await?;
         let result = match fields.text("slot").parse::<i64>() {
             Ok(slot) => {
-                let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-                manage::move_pickup(
-                    &mut conn,
+                let mut tx = state.pool.begin().await.map_err(|e| fail(&state, &e))?;
+                let moved = manage::move_pickup(
+                    &mut tx,
                     state.clock.as_ref(),
                     details.order.id,
                     PickupSlotId::new(slot),
                     staff.0.id,
                 )
-                .await
-                .map(drop)
+                .await;
+                match moved {
+                    Ok(order) => {
+                        order_emails::withdraw_reminder(&mut tx, order.id)
+                            .await
+                            .map_err(|e| fail(&state, &e))?;
+                        tx.commit().await.map_err(|e| fail(&state, &e))?;
+                        Ok(())
+                    }
+                    Err(error) => Err(error),
+                }
             }
             Err(_) => Err(orders::Error::SlotNotOnDay),
         };
@@ -647,8 +773,33 @@ pub async fn picked_up(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-/// Cancels an unpaid order and queues the cancellation email in the same transaction. A failed
-/// email is logged and the cancel still counts (ADR 0022).
+/// Queues `build`'s email in a savepoint of `tx`; a failure is logged and the change still
+/// counts (ADR 0022).
+pub async fn queue_email<F>(
+    state: &AppState,
+    tx: &mut sqlx::PgConnection,
+    order: OrderId,
+    build: F,
+) -> Step<()>
+where
+    F: AsyncFnOnce(
+        &mut sqlx::PgConnection,
+    ) -> Result<Option<notify::OutboxId>, order_emails::EmailError>,
+{
+    let mut email_tx = tx.begin().await.map_err(|e| fail(state, &e))?;
+    match build(&mut email_tx).await {
+        Ok(_) => email_tx.commit().await.map_err(|e| fail(state, &e))?,
+        Err(error) => {
+            tracing::error!(order = order.get(), %error, "order cancelled without its email");
+            email_tx.rollback().await.map_err(|e| fail(state, &e))?;
+        }
+    }
+    Ok(())
+}
+
+/// Cancels an order and queues the cancellation email in the same transaction. An unpaid
+/// order needs `EditOrders`; a paid or confirmed one needs `Refund` and gets a refund of what
+/// was paid, sent to the provider after the commit (ADR 0026).
 pub async fn cancel(
     State(state): State<AppState>,
     staff: Staff,
@@ -659,28 +810,40 @@ pub async fn cancel(
     let run = async {
         require(&state, &staff, Permission::EditOrders)?;
         let details = load_details(&state, &id).await?;
+        let unpaid = details.order.status == OrderStatus::PendingPayment;
+        if !unpaid {
+            require(&state, &staff, Permission::Refund)?;
+        }
         let clock = state.clock.as_ref();
+        let order = details.order.id;
         let mut tx = state.pool.begin().await.map_err(|e| fail(&state, &e))?;
-        let result = manage::cancel_by_staff(&mut tx, clock, details.order.id, staff.0.id).await;
-        let result = match result {
-            Ok(_) => {
-                let mut email_tx = tx.begin().await.map_err(|e| fail(&state, &e))?;
-                match order_emails::enqueue_cancellation(
-                    &mut email_tx,
-                    clock,
-                    &state.order_emails,
-                    details.order.id,
-                    None,
-                )
+        let result = if unpaid {
+            manage::cancel_by_staff(&mut tx, clock, order, staff.0.id)
                 .await
-                {
-                    Ok(_) => email_tx.commit().await.map_err(|e| fail(&state, &e))?,
-                    Err(error) => {
-                        tracing::error!(order = details.order.id.get(), %error, "order cancelled without its email");
-                        email_tx.rollback().await.map_err(|e| fail(&state, &e))?;
-                    }
-                }
+                .map(|_| (None, Vec::new()))
+        } else {
+            orders::cancel_paid(&mut tx, clock, order, staff.0.id)
+                .await
+                .map(|cancelled| (cancelled.refunded(), cancelled.refunds))
+        };
+        let result = match result {
+            Ok((refund, refunds)) => {
+                queue_email(&state, &mut tx, order, async |conn| {
+                    order_emails::enqueue_cancellation(
+                        conn,
+                        clock,
+                        &state.order_emails,
+                        order,
+                        refund,
+                    )
+                    .await
+                })
+                .await?;
+                order_emails::withdraw_reminder(&mut tx, order)
+                    .await
+                    .map_err(|e| fail(&state, &e))?;
                 tx.commit().await.map_err(|e| fail(&state, &e))?;
+                send_refunds(&state, &refunds).await?;
                 Ok(())
             }
             Err(error) => {
@@ -689,6 +852,32 @@ pub async fn cancel(
             }
         };
         answer(&state, &session, &staff, &headers, &details, result).await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Sends a refund of the order again, after it failed or was never sent (ADR 0026).
+pub async fn retry_refund(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path((id, refund)): Path<(String, String)>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Refund)?;
+        let details = load_details(&state, &id).await?;
+        let refund = RefundId::new(path_id(&state, &refund)?);
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let refunds = orders::of_order(&mut conn, details.order.id)
+            .await
+            .map_err(|e| fail(&state, &e))?;
+        drop(conn);
+        let Some(found) = refunds.into_iter().find(|r| r.id == refund) else {
+            return Err(not_found(&state).into());
+        };
+        send_refunds(&state, std::slice::from_ref(&found)).await?;
+        answer(&state, &session, &staff, &headers, &details, Ok(())).await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

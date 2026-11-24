@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_outbox WHERE dedupe_key = $1 AND status <> 'sent'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00931b10c2fbfb8fc72bb5d69b08e96d0337de64b82395c87c86b24aaeb1ea14"
+}

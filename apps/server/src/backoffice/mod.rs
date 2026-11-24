@@ -10,6 +10,7 @@ pub mod form;
 pub mod locations;
 pub mod orders;
 pub mod products;
+pub mod sick_day;
 
 use std::fmt::Display;
 
@@ -131,6 +132,14 @@ pub fn routes() -> Router<AppState> {
         .route("/staff/orders/{id}/pickup", post(orders::move_pickup))
         .route("/staff/orders/{id}/picked-up", post(orders::picked_up))
         .route("/staff/orders/{id}/cancel", post(orders::cancel))
+        .route(
+            "/staff/orders/{id}/refunds/{refund}/retry",
+            post(orders::retry_refund),
+        )
+        .route(
+            "/staff/bake-days/{id}/cancel",
+            get(sick_day::page).post(sick_day::cancel),
+        )
 }
 
 /// `?opgeslagen=1` after a save, so the page shows the save confirmation.

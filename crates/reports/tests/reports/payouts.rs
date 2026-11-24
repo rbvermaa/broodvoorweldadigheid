@@ -138,3 +138,50 @@ async fn transfers_pay_paid_minus_refunds_and_correct_later_refunds(
     let shelter_payout = payouts::payout(&mut conn, shelter, oct).await.unwrap();
     assert_eq!(shelter_payout.to_transfer.cents(), 545);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn cancelled_orders_count_as_refunded_as_soon_as_the_refund_is_requested(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-20T10:00:00Z"));
+    let food_bank = charity(&mut conn, "Voedselbank").await;
+    let october = drop_on(&mut conn, &clock, "2026-10-31", Some(food_bank)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    sell(&mut conn, &october, &[bread]).await;
+    let requested = paid_order(&mut conn, &clock, &october, &[(bread, 2, None)]).await;
+    let failed = paid_order(&mut conn, &clock, &october, &[(bread, 1, None)]).await;
+    let reported = paid_order(&mut conn, &clock, &october, &[(bread, 1, None)]).await;
+    paid_order(&mut conn, &clock, &october, &[(bread, 2, None)]).await;
+    let baker = StaffUserId::new(1);
+    for order in [&requested, &failed, &reported] {
+        orders::cancel_paid(&mut conn, &clock, order.id, baker)
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "UPDATE refund SET status = 'failed', attempts = 1, last_error = 'refused'
+        WHERE payment_id IN (SELECT id FROM payment WHERE order_id = $1)",
+    )
+    .bind(failed.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    // Mollie reports the same refund on the payment: it is not counted twice.
+    refund(&mut conn, reported.id, 545).await;
+
+    let oct = Period::new(date("2026-10-01"), date("2026-10-31")).unwrap();
+    let payout = payouts::payout(&mut conn, food_bank, oct).await.unwrap();
+    assert_eq!(payout.received.cents(), 6 * 545);
+    assert_eq!(payout.refunds.cents(), 4 * 545);
+    assert_eq!(payout.to_transfer.cents(), 2 * 545);
+
+    let sold = reports::sales::report(&mut conn, oct, reports::Granularity::Month)
+        .await
+        .unwrap();
+    assert_eq!(
+        sold.total.rate(domain::VatRate::Nine).gross().cents(),
+        2 * 545,
+        "a cancelled paid order is a sale with its refund"
+    );
+    assert_eq!(sold.total.rate(domain::VatRate::Nine).vat().cents(), 90);
+}

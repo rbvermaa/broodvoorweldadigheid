@@ -14,7 +14,7 @@ pub use clock::{Clock, bakery_time_zone, in_bakery_time};
 pub use ids::{
     BakeDayId, BusinessAccountId, CapacityPoolId, CharityId, CustomerId, DonationAllocationId,
     OrderId, OrderLineId, PaymentId, PickupLocationId, PickupSlotId, PickupWindowId, ProductId,
-    StaffUserId,
+    RefundId, StaffUserId,
 };
 pub use money::{Money, MoneyError};
 pub use payment::{
