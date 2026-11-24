@@ -15,7 +15,9 @@ use sqlx::PgConnection;
 use tower_sessions::Session;
 
 use super::money::field_value;
-use super::{cart, drop_path, drop_view, find_drop, server_error, session_cart, today};
+use super::{
+    cart, drop_path, drop_view, find_drop, load_session, server_error, session_cart, today,
+};
 use crate::components::{self, ApprovedAllergens, Message, PriceChoice, ProductOrder};
 use crate::pages::{self, Layout};
 use crate::state::AppState;
@@ -105,6 +107,9 @@ pub async fn menu(
     Path(id): Path<i64>,
     session: Session,
 ) -> Response {
+    if let Err(err) = load_session(&session).await {
+        return server_error(&state, "cannot start a session", &err);
+    }
     let mut conn = match state.pool.acquire().await {
         Ok(conn) => conn,
         Err(err) => return server_error(&state, "no database connection", &err),

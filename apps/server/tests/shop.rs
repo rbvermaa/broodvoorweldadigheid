@@ -1032,3 +1032,55 @@ async fn removing_from_another_drop_keeps_the_cart(pool: PgPool) {
     let page = browser.get(&format!("/drops/{}", first.day.get())).await;
     assert!(!page.body.contains(&dutch("cart-empty")), "{}", page.body);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_failed_payment_can_be_retried_when_its_hold_has_the_last_bread(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, Some(1)).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    shop.mollie.set_down(true);
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+
+    shop.mollie.set_down(false);
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    let orders: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(&shop.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 1);
+    assert_eq!(
+        shop.mollie.created()[0].order,
+        only_order(&shop.pool).await.id
+    );
+}
+
+/// Each page loads the session before it takes its own connection, so a full pool
+/// cannot leave every request waiting for a second one.
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn pages_with_a_session_work_with_a_single_connection(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let drop = open_drop(&mut conn, &clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    std::mem::drop(conn);
+    let single = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(std::time::Duration::from_secs(2))
+        .connect_lazy_with((*pool.connect_options()).clone());
+    let shop = shop(single);
+    let menu = format!("/drops/{}", drop.day.get());
+    let (browser, _) = Browser::open(&shop, &menu).await;
+    browser.add(drop.day, bread, "1", None).await;
+    for path in [menu.clone(), format!("{menu}/afrekenen")] {
+        let reply = browser.get(&path).await;
+        assert_eq!(reply.status, StatusCode::OK, "{path}: {}", reply.body);
+    }
+}

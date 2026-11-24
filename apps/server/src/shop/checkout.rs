@@ -12,7 +12,9 @@ use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, Order
 use sqlx::PgConnection;
 use tower_sessions::Session;
 
-use super::{cart, drop_path, drop_view, find_drop, save_cart, server_error, session_cart};
+use super::{
+    cart, drop_path, drop_view, find_drop, load_session, save_cart, server_error, session_cart,
+};
 use crate::components::{self, Message, PickupWindow};
 use crate::pages::{self, Layout};
 use crate::state::AppState;
@@ -171,6 +173,9 @@ pub async fn form(
     Path(id): Path<i64>,
     session: Session,
 ) -> Response {
+    if let Err(err) = load_session(&session).await {
+        return server_error(&state, "cannot start a session", &err);
+    }
     let mut conn = match state.pool.acquire().await {
         Ok(conn) => conn,
         Err(err) => return server_error(&state, "no database connection", &err),
@@ -441,7 +446,8 @@ pub async fn submit(
 const UNPAID_KEY: &str = "unpaid_order";
 
 /// When the session remembers an order of this drop, still open for orders, whose payment
-/// did not start and whose hold still runs, tries the payment again. The idempotency key
+/// did not start and whose hold still runs, tries the payment again. A sold-out drop
+/// counts as open: the order's own hold may be what sold it out. The idempotency key
 /// makes Mollie return the same payment if the first try did reach it. `None` lets
 /// checkout go on as normal.
 async fn retry_unpaid(
@@ -461,7 +467,7 @@ async fn retry_unpaid(
     let now = state.clock.now();
     let order = orders::order::get(conn, id).await.ok().filter(|order| {
         order.bake_day_id == drop.bake_day_id
-            && drop.status == PublicStatus::Open
+            && matches!(drop.status, PublicStatus::Open | PublicStatus::SoldOut)
             && order.status == OrderStatus::PendingPayment
             && order.hold_expires_at.is_some_and(|hold| now < hold)
     });

@@ -154,6 +154,13 @@ pub(crate) fn drop_view(
     })
 }
 
+/// Reads the session from its store, which takes a pool connection of its own. Pages call
+/// it before they hold a connection, so a full pool cannot leave every request waiting
+/// for a second one. The page needs the CSRF token anyway, so that is what it reads.
+pub(crate) async fn load_session(session: &Session) -> Result<(), tower_sessions::session::Error> {
+    crate::csrf::token(session).await.map(|_| ())
+}
+
 /// The session's cart, if it is for `day`. An unreadable cart counts as none.
 pub(crate) async fn session_cart(session: &Session) -> Option<orders::Cart> {
     match session.get::<orders::Cart>(CART_KEY).await {
