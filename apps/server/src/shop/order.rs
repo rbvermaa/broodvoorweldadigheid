@@ -124,9 +124,14 @@ pub async fn page(
         && let Some((reference, _)) = latest
         && let Ok(id) = ProviderPaymentId::new(reference)
     {
+        drop(conn);
         if let Err(err) = super::settle(&state, &id).await {
             tracing::warn!(error = %err, "cannot ask Mollie about the payment");
         }
+        conn = match state.pool.acquire().await {
+            Ok(conn) => conn,
+            Err(err) => return server_error(&state, "no database connection", &err),
+        };
         order = match orders::order::get(&mut conn, order.id).await {
             Ok(order) => order,
             Err(err) => return server_error(&state, "cannot load the order", &err),

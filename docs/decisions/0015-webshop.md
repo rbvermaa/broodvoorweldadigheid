@@ -30,3 +30,22 @@ an edge between them, so the server cannot start `jobs::run`. Until that is deci
 open or close by themselves and expired holds are not cancelled. Capacity and payments are
 unaffected: holds stop counting the moment they expire, and checkout and `mark_paid`
 check the deadline and the hold themselves. See docs/open-questions.md.
+
+Known limits, from review:
+
+- When the payment cannot be started, the session remembers the order (`unpaid_order`) and
+  saves itself explicitly, since tower-sessions does not save on a 5xx answer. The next
+  checkout of that drop pays that order again with the same idempotency key, so Mollie
+  returns the same payment when the first create did reach it. The second try keeps the
+  first order's details.
+- Two checkout posts of one session at the same moment (a double click past the browser)
+  both read the cart and make two orders with two holds. A claim per session would need a
+  lock or a column; the rate limit and the 303 make it rare. The second order's hold runs
+  out unpaid.
+- Two cart changes of one session at the same moment: the last session save wins, so one
+  change can be lost. The cart panel that comes back shows what was kept.
+- `MOLLIE_API_KEY_FILE` in compose names a path inside the container; mount the file with
+  a compose override, for example a `secrets:` entry that lands on that path.
+- The webhook asks Mollie about any well-formed `tr_` id it receives, without a rate limit.
+  Ignoring ids without a payment row would lose a payment whose `open` row failed to save,
+  so it stays as is for now.

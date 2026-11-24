@@ -532,8 +532,9 @@ pub async fn payment_started(
 
 /// Records a status the provider reported for a payment that is not paid (F5): open,
 /// pending, authorized, failed, canceled or expired. The order itself does not change: an
-/// unpaid order keeps its hold until it runs out. A payment already recorded as paid
-/// keeps that status; use [`mark_paid`] for paid.
+/// unpaid order keeps its hold until it runs out. A payment in a final status (paid,
+/// failed, canceled, expired) never goes back to open, pending or authorized, so a stale
+/// report cannot reopen it; use [`mark_paid`] for paid.
 ///
 /// Returns whether anything changed.
 ///
@@ -562,7 +563,11 @@ pub async fn record_payment_status(
     let now = clock.now();
     let before = match find_status(&mut tx, reference).await? {
         Some((owner, _)) if owner != order => return Err(Error::PaymentOfOtherOrder),
-        Some((_, known)) if known == status || known == PaymentStatus::Paid => {
+        Some((_, known))
+            if known == status
+                || known == PaymentStatus::Paid
+                || (known.is_final() && !status.is_final()) =>
+        {
             tx.commit().await?;
             return Ok(false);
         }

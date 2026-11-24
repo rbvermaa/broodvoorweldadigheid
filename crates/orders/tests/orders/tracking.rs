@@ -107,6 +107,20 @@ async fn a_failed_payment_is_recorded_once_and_leaves_the_order_pending(
         .unwrap();
         assert_eq!(changed, expected);
     }
+    let stale = record_payment_status(
+        &mut conn,
+        &clock,
+        order.id,
+        "tr_9",
+        order.total,
+        PaymentStatus::Open,
+    )
+    .await
+    .unwrap();
+    assert!(
+        !stale,
+        "a stale open report does not reopen a failed payment"
+    );
     assert_eq!(
         orders::order::get(&mut conn, order.id)
             .await

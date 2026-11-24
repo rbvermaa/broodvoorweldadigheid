@@ -873,6 +873,21 @@ async fn checkout_checks_the_form_and_survives_a_mollie_outage(pool: PgPool) {
         !cart.body.contains(&dutch("cart-empty")),
         "the cart is kept"
     );
+
+    shop.mollie.set_down(false);
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    let orders: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(&shop.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 1, "no second order, no second hold");
+    assert_eq!(
+        shop.mollie.created()[0].order,
+        only_order(&shop.pool).await.id
+    );
+    let cart = browser.get(&format!("/drops/{}", drop.day.get())).await;
+    assert!(cart.body.contains(&dutch("cart-empty")), "{}", cart.body);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

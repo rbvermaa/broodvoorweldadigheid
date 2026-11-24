@@ -411,6 +411,10 @@ pub async fn submit(
             if let Err(err) = session.insert(UNPAID_KEY, order.id.get()).await {
                 tracing::warn!(error = %err, "cannot remember the unpaid order");
             }
+            // tower-sessions does not save a session on a 5xx answer.
+            if let Err(err) = session.save().await {
+                tracing::warn!(error = %err, "cannot save the session");
+            }
             let message = Some(Message {
                 kind: "error",
                 text: text(&state, "checkout-error-payment", None),
