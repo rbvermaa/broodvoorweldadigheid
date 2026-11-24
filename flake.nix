@@ -288,6 +288,7 @@
                 postgresql_17
                 sqlx-cli
                 cargo-nextest
+                cargo-insta
                 cargo-llvm-cov
                 cargo-deny
                 cargo-audit

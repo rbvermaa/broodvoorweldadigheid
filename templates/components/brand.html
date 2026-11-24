@@ -1,0 +1,20 @@
+{# The logo, from design/logo.png. size: hero (top of the home and drop pages, read out
+   with its alt text) or header (always next to the site name, so decorative). #}
+{% macro logo(size = "header") %}
+{%- if size == "hero" %}
+{%- let alt = layout.t("logo-alt")? %}
+<img class="logo logo-hero" src="{{ layout.asset("logo.png") }}" alt="{{ alt }}">
+{%- else %}
+<img class="logo logo-header" src="{{ layout.asset("logo.png") }}" alt="">
+{%- endif %}
+{% endmacro %}
+
+{# The double rule (thick and thin line) between sections. #}
+{% macro rule() %}
+<hr class="rule">
+{% endmacro %}
+
+{# A pill with the logo's double ring, for one short fact such as the drop's charity. #}
+{% macro stamp(text) %}
+<p class="stamp">{{ text }}</p>
+{% endmacro %}

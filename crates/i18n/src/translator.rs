@@ -7,33 +7,7 @@ use crate::I18nError;
 
 pub const LOCALE: &str = "nl-NL";
 
-const COMMON: (&str, &str) = ("common.ftl", include_str!("../../../locales/nl/common.ftl"));
-const DATES: (&str, &str) = ("dates.ftl", include_str!("../../../locales/nl/dates.ftl"));
-const CALENDAR: (&str, &str) = (
-    "calendar.ftl",
-    include_str!("../../../locales/nl/calendar.ftl"),
-);
-const REPORTS: (&str, &str) = (
-    "reports.ftl",
-    include_str!("../../../locales/nl/reports.ftl"),
-);
-const COMPONENTS: (&str, &str) = (
-    "components.ftl",
-    include_str!("../../../locales/nl/components.ftl"),
-);
-const GALLERY: (&str, &str) = (
-    "gallery.ftl",
-    include_str!("../../../locales/nl/gallery.ftl"),
-);
-const PRODUCTION: (&str, &str) = (
-    "production.ftl",
-    include_str!("../../../locales/nl/production.ftl"),
-);
-const EMAIL: (&str, &str) = ("email.ftl", include_str!("../../../locales/nl/email.ftl"));
-const SITE: (&str, &str) = ("site.ftl", include_str!("../../../locales/nl/site.ftl"));
-const DUTCH: &[(&str, &str)] = &[
-    COMMON, DATES, CALENDAR, COMPONENTS, GALLERY, EMAIL, SITE, REPORTS, PRODUCTION,
-];
+include!(concat!(env!("OUT_DIR"), "/dutch_resources.rs"));
 
 /// Names of the `locales/nl/*.ftl` files compiled into the binary.
 pub fn resource_files() -> impl Iterator<Item = &'static str> {
@@ -215,8 +189,15 @@ fn message_ids_in(source: &str) -> impl Iterator<Item = String> + '_ {
 mod tests {
     use super::*;
 
+    fn resource(file: &str) -> (&'static str, &'static str) {
+        *DUTCH
+            .iter()
+            .find(|(name, _)| *name == file)
+            .unwrap_or_else(|| panic!("{file} is not compiled in"))
+    }
+
     fn with_dates(file: &'static str, source: &'static str) -> Result<Translator, I18nError> {
-        Translator::from_sources(LOCALE, &[DATES, (file, source)])
+        Translator::from_sources(LOCALE, &[resource("dates.ftl"), (file, source)])
     }
 
     #[test]
@@ -286,10 +267,12 @@ mod tests {
     #[test]
     fn missing_date_messages_fail_at_construction() {
         assert_eq!(
-            Translator::from_sources(LOCALE, &[COMMON]).err(),
+            Translator::from_sources(LOCALE, &[resource("common.ftl")]).err(),
             Some(I18nError::MissingMessage("weekday".into()))
         );
-        let without_long = DATES.1.replace("date-long =", "date-lang =");
+        let without_long = resource("dates.ftl")
+            .1
+            .replace("date-long =", "date-lang =");
         let sources = [("dates.ftl", without_long.as_str())];
         assert_eq!(
             Translator::from_sources(LOCALE, &sources).err(),
@@ -299,7 +282,7 @@ mod tests {
 
     #[test]
     fn select_falling_back_to_default_is_caught() {
-        let broken = DATES.1.replace("    [3] mrt\n", "");
+        let broken = resource("dates.ftl").1.replace("    [3] mrt\n", "");
         let sources = [("dates.ftl", broken.as_str())];
         assert_eq!(
             Translator::from_sources(LOCALE, &sources).err(),
@@ -311,7 +294,7 @@ mod tests {
 
     #[test]
     fn broken_date_message_fails_at_construction() {
-        let broken = DATES.1.replace("{ $year }", "{ $jaar }");
+        let broken = resource("dates.ftl").1.replace("{ $year }", "{ $jaar }");
         let sources = [("dates.ftl", broken.as_str())];
         assert!(matches!(
             Translator::from_sources(LOCALE, &sources),

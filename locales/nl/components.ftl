@@ -11,6 +11,7 @@ alert-error = Fout
 dialog-cancel = Annuleren
 product-sold-out = Uitverkocht
 product-add = In je mandje
+logo-alt = Logo van { app-name }: een opgeheven vuist met een stokbrood tussen twee korenaren
 allergen-contains = Bevat
 allergen-may-contain = Kan sporen bevatten van
 pickup-full = Vol

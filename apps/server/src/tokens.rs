@@ -32,6 +32,8 @@ struct Tokens {
     font_size: BTreeMap<String, String>,
     font_weight: BTreeMap<String, u16>,
     line_height: BTreeMap<String, String>,
+    #[serde(default)]
+    letter_spacing: BTreeMap<String, String>,
     space: BTreeMap<String, String>,
     radius: BTreeMap<String, String>,
     #[serde(default)]
@@ -93,11 +95,15 @@ pub fn generate(source: &str) -> Result<String, String> {
             Err(format!("{value:?} is not a unitless number such as 1.5"))
         }
     });
+    sheet.add_all("letter-spacing", &tokens.letter_spacing, length);
     sheet.add_all("space", &tokens.space, length);
     sheet.add_all("radius", &tokens.radius, length);
     sheet.add_all("border", &tokens.border, length);
     sheet.add_all("size", &tokens.size, length);
-    sheet.add_all("shadow", &tokens.shadow, shadow);
+    for (name, value) in &tokens.shadow {
+        let value = shadow(value).and_then(|value| known_colours(&value, &tokens.color));
+        sheet.add("shadow", name, value);
+    }
     sheet.add_all("breakpoint", &tokens.breakpoint, length);
 
     check_pairs(&tokens.pair, &colours, &mut sheet.errors);
@@ -291,6 +297,28 @@ fn shadow(value: &str) -> Result<String, String> {
         Err(format!(
             "{value:?} is not a plain box-shadow value (lengths, #rrggbb or rgb(...), commas)"
         ))
+    }
+}
+
+/// A `#rrggbb` in a shadow must be one of the [color] values, so a colour change cannot
+/// leave a stale copy behind.
+fn known_colours(value: &str, colours: &BTreeMap<String, String>) -> Result<String, String> {
+    let unknown: Vec<&str> = value
+        .match_indices('#')
+        .map(|(at, _)| {
+            let digits = value[at + 1..].find(|c: char| !c.is_ascii_hexdigit());
+            &value[at..digits.map_or(value.len(), |end| at + 1 + end)]
+        })
+        .filter(|hex| {
+            !colours
+                .values()
+                .any(|colour| colour.eq_ignore_ascii_case(hex))
+        })
+        .collect();
+    if unknown.is_empty() {
+        Ok(value.to_owned())
+    } else {
+        Err(format!("{} not a [color] value", unknown.join(", ")))
     }
 }
 
@@ -671,5 +699,30 @@ background = "white"
         let error = error_of(&source);
         assert!(error.contains("[color] white"), "{error}");
         assert!(error.contains("[font-size] md"), "{error}");
+    }
+
+    #[test]
+    fn shadow_colours_must_be_declared_colours() {
+        let source = replaced(
+            "sm = \"0 1px 2px rgb(0 0 0 / 0.08)\"",
+            "sm = \"0 0 0 2px #000000, 0 0 0 5px #ffffff, 0 0 0 7px #111111, 0 0 0 9px #000\"",
+        );
+        let error = error_of(&source);
+        assert!(error.contains("[shadow] sm"), "{error}");
+        assert!(error.contains("#111111"), "{error}");
+        assert!(!error.contains("#000000"), "{error}");
+        assert!(!error.contains("#ffffff,"), "{error}");
+        assert!(error.contains("#000 not"), "{error}");
+    }
+
+    #[test]
+    fn letter_spacing_is_a_length() {
+        let css = generate(&with("[letter-spacing]\nheading = \"0.03em\"\n")).expect("valid");
+        assert!(
+            css.contains("  --letter-spacing-heading: 0.03em;\n"),
+            "{css}"
+        );
+        let error = error_of(&with("[letter-spacing]\nheading = \"wide\"\n"));
+        assert!(error.contains("[letter-spacing] heading"), "{error}");
     }
 }
