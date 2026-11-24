@@ -25,7 +25,7 @@ use jiff::civil::date;
 use server::AppState;
 use server::config::Config;
 use support::{signed_in, signed_in_at};
-use testkit::FakeClock;
+use testkit::{FakeClock, FakePaymentProvider};
 use tower::ServiceExt;
 
 /// Tuesday 24 November 2026, 11:00 in Frederiksoord.
@@ -40,6 +40,7 @@ struct App {
     router: Router,
     pool: PgPool,
     clock: Arc<FakeClock>,
+    mollie: Arc<FakePaymentProvider>,
 }
 
 fn app(pool: PgPool) -> App {
@@ -48,16 +49,19 @@ fn app(pool: PgPool) -> App {
     })
     .expect("config");
     let clock = Arc::new(FakeClock::new(ts(NOW)));
+    let mollie = Arc::new(FakePaymentProvider::new());
     let state = AppState::new(
         pool.clone(),
         Translator::dutch().expect("Dutch texts"),
         config,
     )
-    .with_clock(clock.clone());
+    .with_clock(clock.clone())
+    .with_payments(mollie.clone());
     App {
         router: server::router(state),
         pool,
         clock,
+        mollie,
     }
 }
 
@@ -1543,6 +1547,7 @@ struct PaidOrder {
     day: BakeDayId,
     order: orders::Order,
     markt_slot: domain::PickupSlotId,
+    payment: domain::ProviderPaymentId,
 }
 
 async fn paid_order(app: &App) -> PaidOrder {
@@ -1626,12 +1631,13 @@ async fn paid_order(app: &App) -> PaidOrder {
     )
     .await
     .expect("order");
+    let payment = pay_at_mollie(app, &order).await;
     let outcome = orders::mark_paid(
         &mut conn,
         app.clock.as_ref(),
         order.id,
         &orders::PaymentReceived {
-            reference: "tr_test1".to_owned(),
+            reference: payment.to_string(),
             amount: order.total,
         },
     )
@@ -1645,7 +1651,28 @@ async fn paid_order(app: &App) -> PaidOrder {
         day,
         order,
         markt_slot,
+        payment,
     }
+}
+
+/// Creates and pays a payment for `order` at the fake Mollie.
+async fn pay_at_mollie(app: &App, order: &orders::Order) -> domain::ProviderPaymentId {
+    use domain::PaymentProvider as _;
+    let created = app
+        .mollie
+        .create_payment(&domain::NewPayment {
+            amount: order.total,
+            description: format!("Bestelling {}", order.number),
+            redirect_url: "https://shop.test/bestelling".into(),
+            webhook_url: "https://shop.test/webhooks/mollie".into(),
+            order: order.id,
+            methods: Vec::new(),
+            idempotency_key: None,
+        })
+        .await
+        .expect("payment");
+    app.mollie.pay(&created.id);
+    created.id
 }
 
 async fn stored_order(pool: &PgPool, id: domain::OrderId) -> orders::Order {
@@ -1725,22 +1752,9 @@ async fn order_changes_need_the_csrf_token(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_baker_cancels_an_unpaid_order_but_not_a_paid_one(pool: PgPool) {
+async fn a_baker_cancels_an_unpaid_order(pool: PgPool) {
     let app = app(pool.clone());
     let paid = paid_order(&app).await;
-    let paid_path = format!("/staff/orders/{}", paid.order.id.get());
-    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
-    owner
-        .get(&paid_path)
-        .await
-        .lacks(&dutch("staff-order-cancel"));
-    let refused = owner.post(&format!("{paid_path}/cancel"), &[]).await;
-    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
-    refused.shows(&dutch("staff-order-error-status"));
-    assert_eq!(
-        stored_order(&pool, paid.order.id).await.status,
-        orders::OrderStatus::Paid
-    );
 
     let mut conn = pool.acquire().await.expect("conn");
     let mut cart = orders::Cart::new(paid.day);
@@ -1839,4 +1853,254 @@ async fn a_baker_moves_an_order_and_the_list_filters_by_location_and_status(pool
         .await;
     assert_eq!(other.status, StatusCode::UNPROCESSABLE_ENTITY);
     other.shows(&dutch("staff-order-error-slot"));
+}
+
+async fn company_details(pool: &PgPool) {
+    sqlx::query("UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'")
+        .execute(pool)
+        .await
+        .expect("company");
+}
+
+/// Kind and plain text of every queued email to `to`, oldest first.
+async fn emails_to(pool: &PgPool, to: &str) -> Vec<(String, String)> {
+    sqlx::query_as("SELECT kind, text_body FROM email_outbox WHERE to_address = $1 ORDER BY id")
+        .bind(to)
+        .fetch_all(pool)
+        .await
+        .expect("outbox")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_baker_cancels_a_paid_order_and_mollie_refunds_it_once(pool: PgPool) {
+    let app = app(pool.clone());
+    company_details(&pool).await;
+    let paid = paid_order(&app).await;
+    let path = format!("/staff/orders/{}", paid.order.id.get());
+    let amount = i18n::money(paid.order.total.cents());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+
+    baker.get(&path).await.shows(&dutch_with(
+        "staff-order-cancel-paid-text",
+        &[
+            ("number", &paid.order.number.to_string()),
+            ("name", "Test Klant"),
+            ("amount", &amount),
+        ],
+    ));
+    baker
+        .post(&format!("{path}/cancel"), &[])
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    let cancelled = stored_order(&pool, paid.order.id).await;
+    assert_eq!(cancelled.status, orders::OrderStatus::Cancelled);
+    assert_eq!(cancelled.cancel_reason, Some(orders::CancelReason::Staff));
+    assert_eq!(app.mollie.refunds(&paid.payment), [paid.order.total]);
+    let emails = emails_to(&pool, "klant@example.org").await;
+    let cancellation: Vec<_> = emails
+        .iter()
+        .filter(|(kind, _)| kind == "order_cancelled")
+        .collect();
+    assert_eq!(cancellation.len(), 1);
+    assert!(cancellation[0].1.contains(&amount), "{}", cancellation[0].1);
+
+    let page = baker.get(&path).await;
+    page.shows(&dutch("staff-order-refund-done"));
+    page.shows(&dutch("staff-order-action-refund_done"));
+    page.lacks(&dutch("staff-order-refund-retry"));
+
+    let again = baker.post(&format!("{path}/cancel"), &[]).await;
+    assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
+    again.shows(&dutch("staff-order-error-status"));
+    assert_eq!(app.mollie.refunds(&paid.payment).len(), 1);
+    assert_eq!(
+        emails_to(&pool, "klant@example.org").await.len(),
+        emails.len()
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_failed_refund_shows_and_is_retried_once(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let path = format!("/staff/orders/{}", paid.order.id.get());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    app.mollie.refuse_refunds(true);
+    owner
+        .post(&format!("{path}/cancel"), &[])
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Cancelled
+    );
+    assert!(app.mollie.refunds(&paid.payment).is_empty());
+    let page = owner.get(&path).await;
+    page.shows(&dutch("staff-order-refund-failed"));
+    page.shows(&dutch("staff-order-refund-retry"));
+    let refund: i64 = sqlx::query_scalar("SELECT id FROM refund")
+        .fetch_one(&pool)
+        .await
+        .expect("refund");
+    let retry = format!("{path}/refunds/{refund}/retry");
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    assert_eq!(
+        counter.post(&retry, &[]).await.status,
+        StatusCode::FORBIDDEN
+    );
+    let no_token = owner
+        .send(
+            Request::post(&retry)
+                .header(COOKIE, &owner.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+    assert_eq!(no_token.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        owner
+            .post(&format!("{path}/refunds/999999/retry"), &[])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+
+    app.mollie.refuse_refunds(false);
+    owner
+        .post(&retry, &[])
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    owner
+        .post(&retry, &[])
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    assert_eq!(app.mollie.refunds(&paid.payment), [paid.order.total]);
+    owner
+        .get(&path)
+        .await
+        .shows(&dutch("staff-order-refund-done"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn moving_an_order_withdraws_its_unsent_reminder(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let path = format!("/staff/orders/{}", paid.order.id.get());
+    let key = jobs::order_emails::reminder_key(paid.order.id);
+    sqlx::query(
+        "INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
+            next_attempt_at, created_at)
+        VALUES ($1, 'pickup_reminder', 'klant@example.org', 'Morgen', 'Hoi', '<p>Hoi</p>', now(),
+            now())",
+    )
+    .bind(&key)
+    .execute(&pool)
+    .await
+    .expect("reminder");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    baker
+        .post(
+            &format!("{path}/pickup"),
+            &[("slot", &paid.markt_slot.get().to_string())],
+        )
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox WHERE dedupe_key = $1")
+        .bind(&key)
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(left, 0);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_the_owner_cancels_a_bake_day_and_can_run_it_again(pool: PgPool) {
+    let app = app(pool.clone());
+    company_details(&pool).await;
+    let paid = paid_order(&app).await;
+    let cancel = format!("/staff/bake-days/{}/cancel", paid.day.get());
+    let list = format!("/staff/bake-days/{}/orders", paid.day.get());
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    baker
+        .get(&list)
+        .await
+        .lacks(&dutch("staff-orders-cancel-day"));
+    assert_eq!(baker.get(&cancel).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        baker.post(&cancel, &[("bericht", "Ziek")]).await.status,
+        StatusCode::FORBIDDEN
+    );
+
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .get(&list)
+        .await
+        .shows(&dutch("staff-orders-cancel-day"));
+    let page = owner.get(&cancel).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows(&dutch("staff-sick-day-warning"));
+    page.shows(&i18n::money(paid.order.total.cents()));
+    let no_token = owner
+        .send(
+            Request::post(&cancel)
+                .header(COOKIE, &owner.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("bericht=Ziek"))
+                .expect("request"),
+        )
+        .await;
+    assert_eq!(no_token.status, StatusCode::FORBIDDEN);
+    let empty = owner.post(&cancel, &[("bericht", " ")]).await;
+    assert_eq!(empty.status, StatusCode::UNPROCESSABLE_ENTITY);
+    empty.shows(&dutch("staff-sick-day-error-message"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    app.mollie.refuse_refunds(true);
+    owner
+        .post(&cancel, &[("bericht", "Ik ben ziek, sorry!")])
+        .await
+        .redirects_to(&format!("{cancel}?opgeslagen=1"));
+    let mut conn = pool.acquire().await.expect("conn");
+    let day = days::get(&mut conn, paid.day).await.expect("day");
+    drop(conn);
+    assert_eq!(day.status, BakeDayStatus::Cancelled);
+    assert_eq!(day.cancel_message.as_deref(), Some("Ik ben ziek, sorry!"));
+    let order = stored_order(&pool, paid.order.id).await;
+    assert_eq!(order.status, orders::OrderStatus::Cancelled);
+    assert_eq!(
+        order.cancel_reason,
+        Some(orders::CancelReason::DayCancelled)
+    );
+    let after = owner.get(&cancel).await;
+    after.shows(&dutch("staff-sick-day-cancelled"));
+    after.shows("Ik ben ziek, sorry!");
+    after.shows(&dutch("staff-order-refund-failed"));
+    after.shows(&dutch("staff-sick-day-retry"));
+    assert!(app.mollie.refunds(&paid.payment).is_empty());
+
+    app.mollie.refuse_refunds(false);
+    for _ in 0..2 {
+        owner
+            .post(&cancel, &[])
+            .await
+            .redirects_to(&format!("{cancel}?opgeslagen=1"));
+    }
+    assert_eq!(app.mollie.refunds(&paid.payment), [paid.order.total]);
+    owner
+        .get(&cancel)
+        .await
+        .shows(&dutch("staff-sick-day-all-done"));
+    let sick: Vec<_> = emails_to(&pool, "klant@example.org")
+        .await
+        .into_iter()
+        .filter(|(kind, _)| kind == "sick_day_cancelled")
+        .collect();
+    assert_eq!(sick.len(), 1);
+    assert!(sick[0].1.contains("Ik ben ziek, sorry!"));
 }

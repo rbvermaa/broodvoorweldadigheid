@@ -22,6 +22,7 @@
 {%- endfor %}
 {% call tb::table(lines) %}{% endcall %}
 {% if !payments.rows.is_empty() %}{% call tb::table(payments) %}{% endcall %}{% endif %}
+{% if !refunds.rows.is_empty() %}{% call tb::table(refunds) %}{% endcall %}{% endif %}
 {% if !slots.is_empty() %}
 <h2>{{ layout.t("staff-order-move")? }}</h2>
 <form method="post" action="{{ move_action }}">

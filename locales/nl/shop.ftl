@@ -63,6 +63,7 @@ checkout-error-free = Je mandje kost € 0. Dat kun je niet online afrekenen. Ki
 checkout-error-payment = Betalen lukt nu even niet. Probeer het over een paar minuten opnieuw.
 checkout-error-form = Kijk je gegevens nog even na.
 payment-description = Bestelling { $number } bij { app-name }
+refund-description = Terugbetaling bestelling { $number } bij { app-name }
 order-title = Je bestelling
 order-number = Bestelnummer { $number }
 order-total = Totaal
