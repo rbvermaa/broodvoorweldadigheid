@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+pub mod calendar;
 pub mod capacity;
 pub mod days;
 mod error;
 pub mod extras;
+pub mod ical;
 pub mod orders;
 pub mod pickup;
 pub mod range;
