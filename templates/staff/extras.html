@@ -1,0 +1,46 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("extras-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if !editable %}{% call fb::alert("info", layout.t("day-final")?) %}{% endcall %}{% endif %}
+<div id="capacity">
+{% if !capacity.rows.is_empty() %}{% call tb::table(capacity) %}{% endcall %}{% endif %}
+</div>
+{%- for row in rows %}
+<div id="{{ row.anchor }}">
+<form method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-target="#{{ row.anchor }}" hx-select="#{{ row.anchor }}" hx-select-oob="#capacity" hx-swap="outerHTML">
+<h2>{{ row.heading }}</h2>
+{% call s::csrf() %}{% endcall %}
+<div role="status">{% if row.saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !row.error.is_empty() %}{% call fb::alert("error", row.error) %}{% endcall %}{% endif %}</div>
+{% call f::field("number", row.qty_field, layout.t("extra-qty")?, value = row.qty, required = true, disabled = !editable) %}{% endcall %}
+{% call f::select(row.purpose_field, layout.t("extra-purpose")?, row.purposes.iter(), required = true, disabled = !editable) %}{% endcall %}
+{% call f::field("text", row.note_field, layout.t("extra-note")?, value = row.note, disabled = !editable) %}{% endcall %}
+{% if editable %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% call b::button(layout.t("extra-remove")?, variant = "secondary", opens = row.dialog) %}{% endcall %}
+{% endif %}
+</form>
+{% if editable %}{% call d::confirm_dialog(row.dialog, layout.t("extra-remove")?, row.remove_text, layout.t("extra-remove-confirm")?, row.remove_action) %}{% endcall %}{% endif %}
+</div>
+{%- endfor %}
+{% if editable %}
+<h2>{{ layout.t("extras-add-title")? }}</h2>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("product_id", layout.t("range-product")?, products, error = errors.get("product_id"), required = true) %}{% endcall %}
+{% call f::field("number", "qty", layout.t("extra-qty")?, value = add.qty, error = errors.get("qty"), required = true) %}{% endcall %}
+{% call f::select("purpose", layout.t("extra-purpose")?, purposes, error = errors.get("purpose"), required = true) %}{% endcall %}
+{% call f::field("text", "note", layout.t("extra-note")?, value = add.note) %}{% endcall %}
+{% call b::button(layout.t("extras-add")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% endblock %}

@@ -620,7 +620,7 @@ expression: without_asset_hashes(&gallery_html(&state))
 <caption class="table-caption" id="bakdag-caption">Bestellingen voor de bakdag</caption>
 <thead><tr><th scope="col">Product</th><th scope="col" class="table-number">Aantal</th><th scope="col" class="table-number">Totaal</th></tr></thead>
 <tbody>
-<tr><td>Zuurdesemvolkorenbrood met zonnebloempitten</td><td class="table-number">12</td><td class="table-number">€ 78,00</td></tr>
+<tr><td><a href="#bakdag-caption">Zuurdesemvolkorenbrood met zonnebloempitten</a></td><td class="table-number">12</td><td class="table-number">€ 78,00</td></tr>
 <tr><td>Desem wit</td><td class="table-number">3</td><td class="table-number">€ 13,50</td></tr>
 </tbody>
 </table>

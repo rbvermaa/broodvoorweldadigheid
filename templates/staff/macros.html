@@ -1,0 +1,18 @@
+{% import "components/feedback.html" as fb %}
+
+{% macro csrf() %}
+{%- if let Some(token) = layout.csrf_token() %}<input type="hidden" name="_csrf" value="{{ token }}">{% endif -%}
+{% endmacro %}
+
+{# Checks one field when it changes: the form goes to `check`, and the field's wrapper is
+   swapped for the same wrapper in the answer, with or without its error. #}
+{% macro live(name, check) %}
+<div id="f-{{ name }}" hx-post="{{ check }}" hx-trigger="change" hx-include="closest form" hx-select="#f-{{ name }}" hx-target="this" hx-swap="outerHTML">
+{{ caller() }}
+</div>
+{% endmacro %}
+
+{# The page's live region: the save confirmation after a save, or an alert. #}
+{% macro status(saved) %}
+<div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
+{% endmacro %}

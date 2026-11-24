@@ -172,7 +172,7 @@ impl<'a> Gallery<'a> {
                 ],
                 rows: vec![
                     vec![
-                        Cell::text(long.clone()),
+                        Cell::link(long.clone(), "#bakdag-caption"),
                         Cell::number("12"),
                         Cell::number(i18n::money(7_800)),
                     ],

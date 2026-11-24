@@ -406,6 +406,28 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
     .collect()
 }
 
+/// Every product, inactive ones included, by name. For the back office.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
+    sqlx::query_as!(
+        Row,
+        r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
+            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            ingredient_text, allergens_approved_by,
+            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
+            packaged, sold_online, estimated_cost_cents, active
+        FROM product ORDER BY name_nl, id"#,
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(Product::try_from)
+    .collect()
+}
+
 /// Active products with `sold_online` on, by name.
 ///
 /// # Errors

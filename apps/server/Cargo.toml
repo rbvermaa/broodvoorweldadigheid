@@ -12,9 +12,9 @@ ai = { path = "../../crates/ai", optional = true }
 askama.workspace = true
 auth = { path = "../../crates/auth" }
 axum.workspace = true
+bakedays = { path = "../../crates/bakedays" }
 base64.workspace = true
 clap.workspace = true
-bakedays = { path = "../../crates/bakedays" }
 catalog = { path = "../../crates/catalog" }
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }

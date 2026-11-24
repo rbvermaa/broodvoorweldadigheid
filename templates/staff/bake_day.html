@@ -1,0 +1,100 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p>{{ layout.t("day-status")? }}: <strong>{{ status }}</strong></p>
+{% call s::status(saved) %}{% endcall %}
+{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+{%- for alert in alerts %}
+{% call fb::alert("warning", alert) %}{% endcall %}
+{%- endfor %}
+{% if !editable %}{% call fb::alert("info", layout.t("day-final")?) %}{% endcall %}{% endif %}
+{%- for action in actions %}
+{% call b::button(action.label, opens = action.dialog) %}{% endcall %}
+{% call d::confirm_dialog(action.dialog, action.label, action.text, action.label, action.action) %}{% endcall %}
+{%- endfor %}
+<p><a href="{{ path }}/extras">{{ layout.t("extras-title")? }}</a></p>
+
+<h2>{{ layout.t("day-slots")? }}</h2>
+{% if slots.is_empty() %}<p>{{ layout.t("day-no-slots")? }}</p>{% else %}
+<ul>
+{%- for slot in slots %}
+<li>{{ slot }}</li>
+{%- endfor %}
+</ul>
+{% endif %}
+
+{% if editable %}
+<h2>{{ layout.t("day-schedule")? }}</h2>
+<form method="post" action="{{ path }}/schedule">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("datetime-local", "menu_publish_at", layout.t("day-menu-publish")?, value = forms.menu_publish_at, hint = layout.t("day-menu-publish-hint")?, error = errors.get("menu_publish_at")) %}{% endcall %}
+{% call f::field("datetime-local", "opens_at", layout.t("day-opens")?, value = forms.opens_at, hint = layout.t("day-opens-hint")?, error = errors.get("opens_at")) %}{% endcall %}
+{% call f::field("datetime-local", "cutoff_at", layout.t("day-cutoff")?, value = forms.cutoff_at, error = errors.get("cutoff_at")) %}{% endcall %}
+{% call f::field("datetime-local", "bake_starts_at", layout.t("day-bake-starts")?, value = forms.bake_starts_at, error = errors.get("bake_starts_at"), required = true) %}{% endcall %}
+{% call f::checkbox("production_only", layout.t("day-production-only-label")?, checked = forms.production_only, error = errors.get("production_only")) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+
+<h2>{{ layout.t("day-charity")? }}</h2>
+<form method="post" action="{{ path }}/charity">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("charity_id", layout.t("day-charity")?, charities, hint = layout.t("day-charity-hint")?, error = errors.get("charity_id")) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+
+<h2>{{ layout.t("range-title")? }}</h2>
+{% if range.is_empty() %}<p>{{ layout.t("range-empty")? }}</p>{% else %}
+<ul>
+{%- for row in range %}
+<li>{{ row.text }}
+{% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog) %}{% endcall %}
+{% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}
+</li>
+{%- endfor %}
+</ul>
+{% endif %}
+<form method="post" action="{{ path }}/range">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("product_id", layout.t("range-product")?, product_options, hint = layout.t("range-product-hint")?, error = errors.get("product_id"), required = true) %}{% endcall %}
+{% call f::field("number", "max_qty", layout.t("range-max-qty")?, value = forms.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get("max_qty")) %}{% endcall %}
+{% call f::select("pool_id", layout.t("range-pool")?, pool_options, hint = layout.t("range-pool-hint")?, error = errors.get("pool_id")) %}{% endcall %}
+{% call f::field("number", "units", layout.t("range-units")?, value = forms.units, hint = layout.t("range-units-hint")?, error = errors.get("units"), required = true) %}{% endcall %}
+{% call b::button(layout.t("range-add")?, kind = "submit") %}{% endcall %}
+</form>
+
+<h2>{{ layout.t("pools-title")? }}</h2>
+<p>{{ layout.t("pools-intro")? }}</p>
+{%- for pool in pools %}
+<form method="post" action="{{ pool.action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("number", pool.field, pool.label, value = pool.value, hint = layout.t("pool-size-hint")?) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{%- endfor %}
+<form method="post" action="{{ path }}/pools">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("text", "pool_name", layout.t("pool-name")?, value = forms.pool_name, hint = layout.t("pool-name-hint")?, error = errors.get("pool_name"), required = true) %}{% endcall %}
+{% call f::field("number", "pool_max", layout.t("pool-max")?, value = forms.pool_max, error = errors.get("pool_max"), required = true) %}{% endcall %}
+{% call b::button(layout.t("pool-add")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+
+<h2>{{ layout.t("day-copy-title")? }}</h2>
+<form method="post" action="{{ path }}/copy">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("date", "copy_date", layout.t("day-copy-date")?, value = forms.copy_date, hint = layout.t("day-copy-hint")?, error = errors.get("copy_date"), required = true) %}{% endcall %}
+{% call b::button(layout.t("day-copy")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+<form method="post" action="{{ path }}/repeat">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("number", "weeks", layout.t("day-repeat-weeks")?, value = forms.weeks, hint = layout.t("day-repeat-hint")?, error = errors.get("weeks"), required = true) %}{% endcall %}
+{% call b::button(layout.t("day-repeat")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

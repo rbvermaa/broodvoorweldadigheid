@@ -1,0 +1,15 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("staff-nav-charities")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("staff-nav-charities")? }}</h1>
+{% call s::status(saved) %}{% endcall %}
+<p><a href="/staff/charities/new">{{ layout.t("charity-new")? }}</a></p>
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("charities-empty-title")?, layout.t("charities-empty-text")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+{% endblock %}

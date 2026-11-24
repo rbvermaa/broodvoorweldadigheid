@@ -363,6 +363,29 @@ async fn list_active_skips_inactive_products(mut conn: PoolConnection<Postgres>)
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn list_all_includes_inactive_products_by_name(mut conn: PoolConnection<Postgres>) {
+    let active = products::create(&mut conn, &sourdough()).await.unwrap();
+    let inactive = products::create(
+        &mut conn,
+        &ProductInput {
+            name_nl: "Appeltaart".to_owned(),
+            active: false,
+            ..sourdough()
+        },
+    )
+    .await
+    .unwrap();
+
+    let ids: Vec<_> = products::list_all(&mut conn)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(ids, [inactive.id, active.id]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn products_not_sold_online_never_reach_the_webshop_list(mut conn: PoolConnection<Postgres>) {
     let online = products::create(&mut conn, &sourdough()).await.unwrap();
     for input in [
