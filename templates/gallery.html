@@ -50,6 +50,7 @@
 {% call f::field("text", "uit", layout.t("gallery-disabled-field")?, value = layout.t("gallery-disabled")?, disabled = true) %}{% endcall %}
 {% call f::select("doel", layout.t("gallery-charity")?, charities, required = true) %}{% endcall %}
 {% call f::select("doel-fout", layout.t("gallery-charity")?, charities, error = layout.t("gallery-charity-error")?) %}{% endcall %}
+{% call f::select("locatie", layout.t("gallery-location")?, locations, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord", layout.t("gallery-terms")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-fout", layout.t("gallery-terms")?, error = layout.t("gallery-terms-error")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-uit", layout.t("gallery-terms")?, checked = true, disabled = true) %}{% endcall %}

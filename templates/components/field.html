@@ -33,14 +33,19 @@
 </div>
 {% endmacro %}
 
+{# A single option is chosen up front. An optional select keeps the empty option, so the
+   choice can still be cleared. #}
 {% macro select(name, label, options, hint = "", error = "", required = false, disabled = false) %}
+{%- let only = options.len() == 1 %}
 <div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
 {% call label(name, label, required) %}{% endcall %}
 {% call help(name, hint, error) %}{% endcall %}
 <select class="field-input" id="{{ name }}" name="{{ name }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
+{%- if !only || !required %}
 <option value="">{{ layout.t("select-placeholder")? }}</option>
+{%- endif %}
 {%- for option in options %}
-<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+<option value="{{ option.value }}"{% if option.selected || only %} selected{% endif %}>{{ option.label }}</option>
 {%- endfor %}
 </select>
 </div>

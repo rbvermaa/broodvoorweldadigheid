@@ -20,6 +20,7 @@ use crate::state::AppState;
 pub struct Gallery<'a> {
     layout: Layout<'a>,
     charities: Vec<SelectOption>,
+    locations: Vec<SelectOption>,
     products: Vec<Product>,
     allergens: Vec<&'static str>,
     prices: Vec<i64>,
@@ -72,6 +73,11 @@ impl<'a> Gallery<'a> {
                     selected: true,
                 },
             ],
+            locations: vec![SelectOption {
+                value: "kerkweg".to_string(),
+                label: place.clone(),
+                selected: false,
+            }],
             products: vec![
                 Product {
                     name: long.clone(),

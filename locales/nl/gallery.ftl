@@ -36,6 +36,7 @@ gallery-note-hint = Bijvoorbeeld: graag gesneden.
 gallery-charity = Goed doel
 gallery-charity-a = Voedselbank Westerveld
 gallery-charity-b = Stichting Kinderhulp Frederiksoord
+gallery-location = Afhaallocatie
 gallery-terms = Ik ga akkoord met de voorwaarden
 gallery-terms-error = Je moet akkoord gaan om te bestellen.
 gallery-disabled-field = Uitgeschakeld veld
