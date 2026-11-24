@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} · {{ layout.t("app-name")? }}</title>
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
+{% if let Some(token) = layout.csrf_token() %}<meta name="csrf-token" content="{{ token }}">
+{% endif %}<link rel="stylesheet" href="{{ layout.asset("fonts.css") }}">
+<link rel="stylesheet" href="{{ layout.asset("tokens.css") }}">
+<link rel="stylesheet" href="{{ layout.asset("app.css") }}">
+<link rel="stylesheet" href="{{ layout.asset("components.css") }}">
+<script src="{{ layout.asset("htmx.min.js") }}" defer></script>
+<script src="{{ layout.asset("app.js") }}" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#inhoud">{{ layout.t("skip-to-content")? }}</a>
+<header class="site-header">
+<a class="site-name" href="/">{{ layout.t("app-name")? }}</a>
+</header>
+<main id="inhoud" class="site-main">
+{% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+<p>{{ layout.t("app-name")? }} {{ layout.t("tagline")? }}</p>
+</footer>
+</body>
+</html>
