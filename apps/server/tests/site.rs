@@ -280,6 +280,7 @@ async fn faq_without_entries_says_so(pool: PgPool) {
     let reply = get(&site(pool).app, "/faq", None).await;
     assert_eq!(reply.status, StatusCode::OK);
     assert!(reply.body.contains(&dutch("faq-empty-title")));
+    assert!(reply.body.contains("href=\"/contact\""));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -523,4 +524,18 @@ async fn a_submit_without_showing_the_form_first_is_refused(pool: PgPool) {
     let sent = submit(&site, &visitor, &GOOD).await;
     assert_eq!(sent.status, StatusCode::OK, "the refusal started the timer");
     assert_eq!(queued(&site.pool).await.len(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn two_tabs_with_different_messages_both_arrive(pool: PgPool) {
+    let site = site(pool);
+    let first = open_form(&site).await;
+    let reply = get(&site.app, "/contact", Some(&first.cookie)).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    wait(&site);
+    let other = with("message", "En nog een vraag over zaterdag.");
+    assert_eq!(submit(&site, &first, &GOOD).await.status, StatusCode::OK);
+    assert_eq!(submit(&site, &first, &other).await.status, StatusCode::OK);
+    assert_eq!(submit(&site, &first, &other).await.status, StatusCode::OK);
+    assert_eq!(queued(&site.pool).await.len(), 2);
 }
