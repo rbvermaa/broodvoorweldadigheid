@@ -73,6 +73,9 @@ fn confirmation(donation: Donation) -> OrderConfirmation {
         pickup: pickup(),
         lines: lines(),
         donation,
+        status_url:
+            "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+                .to_owned(),
     }
 }
 
@@ -116,6 +119,14 @@ fn order_confirmation_for_a_charity_drop() {
     });
     assert_eq!(email.kind, EmailKind::OrderConfirmation);
     assert_eq!(email.list_unsubscribe, None);
+    for part in [&email.text, &email.html] {
+        assert!(
+            part.contains(
+                "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+            ),
+            "status page link: {part}"
+        );
+    }
     snapshot("order-confirmation-charity", &email);
 }
 
@@ -417,6 +428,13 @@ fn bad_inputs_are_refused() {
     assert!(matches!(
         c.order_confirmation(&order),
         Err(ComposeError::Money(_))
+    ));
+
+    let mut order = confirmation(Donation::NormalSale);
+    order.status_url = "http://broodvoorweldadigheid.nl/bestelling/x".to_owned();
+    assert!(matches!(
+        c.order_confirmation(&order),
+        Err(ComposeError::Url)
     ));
 
     let mut alert = drop_alert(DropAlertKind::MenuPublished);

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM payment\n            WHERE order_id = $1 AND status IN ('paid', 'authorized')) AS \"settling!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "settling!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6e4cb04ccb0d02d73edcdf24280dc7124105bbc5cbff79b0baa94bf5db8603f4"
+}

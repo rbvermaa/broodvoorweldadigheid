@@ -13,7 +13,7 @@
 <span class="pickup-day">{{ layout.icon("calendar")? }}{{ window.day }}</span>
 <span class="pickup-time">{{ layout.icon("clock")? }}{{ window.time }}</span>
 <span class="pickup-place">{{ window.place }}</span>
-<span class="pickup-note">{% if window.is_full() %}{{ layout.t("pickup-full")? }}{% else %}{{ layout.t_count("pickup-places-left", window.places_left)? }}{% endif %}</span>
+{% if window.is_full() %}<span class="pickup-note">{{ layout.t("pickup-full")? }}</span>{% else if let Some(n) = window.places_left %}<span class="pickup-note">{{ layout.t_count("pickup-places-left", n)? }}</span>{% endif %}
 </label>
 </li>
 {%- endfor %}

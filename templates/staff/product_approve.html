@@ -10,7 +10,7 @@
 <p>{{ layout.t("approve-intro")? }}</p>
 {% if allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(allergens) %}{% endcall %}{% endif %}
 {% if may_contain.is_empty() %}<p>{{ layout.t("approve-no-may-contain")? }}</p>{% else %}{% call p::allergen_list(may_contain, true) %}{% endcall %}{% endif %}
-<p class="allergen-heading">{{ layout.t("product-ingredients")? }}</p>
+<p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
 {% if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}

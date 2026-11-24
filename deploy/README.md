@@ -24,3 +24,10 @@ postgres volume to start fresh (`bvw` is the `make up` project name):
 
 Do not use `docker compose down --volumes`: it also deletes Kanidm, the Caddy CA and the
 backup repository.
+
+The server sends email through Mailpit (`SMTP_HOST=mailpit`). Order emails need the
+company's address and KvK number, which have no form yet; until they are set, payments
+go through without an email and the server logs why. For the local stack:
+
+    docker compose --file deploy/compose.yaml --project-name bvw exec postgres \
+      psql -U postgres -c "UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'"

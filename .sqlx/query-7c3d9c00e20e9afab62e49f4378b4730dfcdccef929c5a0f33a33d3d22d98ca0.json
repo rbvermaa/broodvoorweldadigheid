@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber SET\n            confirmed_at = CASE WHEN confirmed_at IS NULL OR unsubscribed_at IS NOT NULL\n                THEN timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n                ELSE confirmed_at END,\n            unsubscribed_at = NULL\n        WHERE confirm_token_hash = $1\n            AND confirm_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "subscriber",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7c3d9c00e20e9afab62e49f4378b4730dfcdccef929c5a0f33a33d3d22d98ca0"
+}

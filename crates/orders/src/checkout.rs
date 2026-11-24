@@ -8,7 +8,8 @@ use crate::Error;
 use crate::audit::{self, Actor, Entry};
 use crate::cart::{self, Cart, PricedLine};
 use crate::customer::{self, CustomerInput};
-use crate::order::{self, Channel, Order, OrderStatus, PaymentMode, vat_to_db};
+use crate::holds;
+use crate::order::{self, CancelReason, Channel, Order, OrderStatus, PaymentMode, vat_to_db};
 use crate::source::Orders;
 
 /// How long an unpaid order holds its capacity (spec, "Data model").
@@ -176,7 +177,8 @@ async fn insert_lines(
 /// [`Error::DayFinal`], [`Error::NotOpen`] or [`Error::PastDeadline`] when the day takes
 /// no orders from this channel; [`Error::SlotNotOnDay`], [`Error::SlotFull`];
 /// [`Error::Cart`] for a product that is not for sale or a refused price;
-/// [`Error::CapacityExceeded`]; [`Error::Invalid`] for customer details.
+/// [`Error::CapacityExceeded`]; [`Error::FreeOrder`] when the total is zero, since
+/// Mollie cannot take a payment of €0; [`Error::Invalid`] for customer details.
 pub async fn checkout(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -184,6 +186,47 @@ pub async fn checkout(
     customer: &CustomerInput,
     slot: PickupSlotId,
     ordered_by: OrderedBy,
+) -> Result<Order, Error> {
+    place(conn, clock, cart, customer, slot, ordered_by, None).await
+}
+
+/// [`checkout`] that first cancels `replaces`, a pending order of the same bake day, as
+/// replaced by the customer (F5, ADR 0015). Both happen in one transaction: when the new
+/// order is refused for any reason, the old one stays as it was. The old order's
+/// products and slot are locked with the new ones, in the usual order, before its row.
+///
+/// # Errors
+/// Those of [`checkout`], and [`Error::NotReplaceable`] when `replaces` is no longer
+/// pending, has a payment that is paid or authorized, or belongs to another bake day.
+pub async fn checkout_replacing(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+    ordered_by: OrderedBy,
+    replaces: OrderId,
+) -> Result<Order, Error> {
+    place(
+        conn,
+        clock,
+        cart,
+        customer,
+        slot,
+        ordered_by,
+        Some(replaces),
+    )
+    .await
+}
+
+async fn place(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+    ordered_by: OrderedBy,
+    replaces: Option<OrderId>,
 ) -> Result<Order, Error> {
     let now = clock.now();
     let channel = ordered_by.channel();
@@ -196,7 +239,43 @@ pub async fn checkout(
     let facts = lock_day(&mut tx, day).await?;
     ensure_orderable(&facts, channel, now)?;
     let products = cart.products();
-    range::lock_capacity(&mut tx, day, &products).await?;
+    let replaced = match replaces {
+        Some(id) => Some(order::get(&mut tx, id).await?),
+        None => None,
+    };
+    let mut locked = products.clone();
+    if let Some(old) = &replaced {
+        if old.bake_day_id != day {
+            return Err(Error::NotReplaceable);
+        }
+        locked.extend(old.lines.iter().map(|line| line.product_id));
+        locked.sort_unstable();
+        locked.dedup();
+    }
+    range::lock_capacity(&mut tx, day, &locked).await?;
+    if let Some(old) = &replaced {
+        let mut slots = vec![old.pickup_slot_id, slot];
+        slots.sort_unstable();
+        slots.dedup();
+        for s in slots {
+            lock_slot(&mut tx, day, s).await?;
+        }
+        let actor = match ordered_by {
+            OrderedBy::Guest => None,
+            OrderedBy::Staff(staff) => Some(Actor::Staff(staff)),
+        };
+        let cancelled = holds::cancel_locked(
+            &mut tx,
+            old.id,
+            CancelReason::ReplacedByCustomer,
+            actor,
+            now,
+        )
+        .await?;
+        if !cancelled {
+            return Err(Error::NotReplaceable);
+        }
+    }
     let mut catalog = Vec::with_capacity(products.len());
     for &id in &products {
         match catalog::products::get(&mut tx, id).await {
@@ -207,6 +286,10 @@ pub async fn checkout(
     }
     let on_range = range::list_products(&mut tx, day).await?;
     let lines = cart.price(&catalog, &on_range)?;
+    let total = cart::totals(&lines)?.gross()?;
+    if total <= domain::Money::ZERO {
+        return Err(Error::FreeOrder);
+    }
     range::check_order(
         &mut tx,
         day,
@@ -220,7 +303,6 @@ pub async fn checkout(
     let max_orders = lock_slot(&mut tx, day, slot).await?;
     ensure_slot_room(&mut tx, slot, max_orders, clock.now(), None).await?;
     let customer_id = customer::find_or_create(&mut tx, &details, now).await?;
-    let total = cart::totals(&lines)?.gross()?;
     let (year, seq) = next_number(&mut tx, now).await?;
     let hold_expires_at = now.checked_add(HOLD).map_err(|_| Error::Invalid("time"))?;
     let id = sqlx::query_scalar!(
@@ -269,6 +351,86 @@ pub async fn checkout(
     .await?;
     tx.commit().await?;
     Ok(order)
+}
+
+/// Whether checking out `cart` for `customer` and `slot` now would place `order` again:
+/// the same lines at the same prices, email, name, phone, pickup slot and marketing wish.
+/// Details or a cart that checkout would refuse count as different. A display read
+/// without locks; checkout decides under its own.
+///
+/// # Errors
+/// [`Error::Db`], [`Error::Catalog`] or [`Error::BakeDays`].
+pub async fn same_as_order(
+    conn: &mut PgConnection,
+    order: &Order,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+) -> Result<bool, Error> {
+    let Ok(details) = customer::validate(customer) else {
+        return Ok(false);
+    };
+    if order.bake_day_id != cart.bake_day()
+        || order.pickup_slot_id != slot
+        || order.customer_name != details.name
+        || order.customer_phone != details.phone
+        || order.marketing_opt_in != customer.marketing_opt_in
+    {
+        return Ok(false);
+    }
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM customer WHERE id = $1",
+        order.customer_id.get()
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if email != details.email {
+        return Ok(false);
+    }
+    let mut catalog = Vec::new();
+    for id in cart.products() {
+        match catalog::products::get(&mut *conn, id).await {
+            Ok(product) => catalog.push(product),
+            Err(catalog::Error::NotFound) => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+    let on_range = range::list_products(&mut *conn, cart.bake_day()).await?;
+    let Ok(lines) = cart.price(&catalog, &on_range) else {
+        return Ok(false);
+    };
+    Ok(lines.len() == order.lines.len()
+        && lines.iter().all(|line| {
+            order.lines.iter().any(|placed| {
+                placed.product_id == line.product_id
+                    && placed.qty == line.qty
+                    && placed.unit_price == line.unit_price
+            })
+        }))
+}
+
+/// Orders that take a place in the slot at `now`: paid, confirmed, picked up, or pending
+/// within their hold. A display read without locks, for the pickup picker; checkout checks
+/// again under the slot lock.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn slot_orders(
+    conn: &mut PgConnection,
+    slot: PickupSlotId,
+    now: Timestamp,
+) -> Result<i64, Error> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM "order"
+        WHERE pickup_slot_id = $1
+            AND (status IN ('paid', 'confirmed', 'picked_up')
+                OR (status = 'pending_payment'
+                    AND hold_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))"#,
+        slot.get(),
+        to_micros(now),
+    )
+    .fetch_one(conn)
+    .await?)
 }
 
 #[cfg(test)]

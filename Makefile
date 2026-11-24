@@ -5,6 +5,7 @@
 #   make db-up && make sqlx-prepare   regenerate .sqlx/ after changing a query or migration
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
+#   make logo                   remake design/logo.png, favicon.png and apple-touch-icon.png
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
@@ -66,12 +67,13 @@ export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
 COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add
+.PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid deny audit coverage-report coverage server db-up \
+	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
+	images $(addprefix image-,$(IMAGES)) up down smoke staff-add
 
 help: ## List targets
-	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
-	@echo "  image-NAME     Build one image and docker load it; NAME is one of: $(IMAGES)"
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+	@echo "  image-NAME       Build one image and docker load it; NAME is one of: $(IMAGES)"
 	@echo
 	@echo "Variables:"
 	@echo "  ARCH=$(ARCH)  system the images are built for"
@@ -93,6 +95,9 @@ fmt-check: ## Formatting check only
 lint: ## Clippy check only
 	$(call CHECK,clippy)
 
+nextest: ## Test suite check only (nextest in the Nix sandbox)
+	$(call CHECK,nextest)
+
 layers: ## Crate layer and dependency rules check
 	$(call CHECK,layers)
 
@@ -104,6 +109,9 @@ deny: ## Licence, ban and source checks (cargo-deny)
 
 audit: ## Known-vulnerability check (cargo-audit)
 	$(call CHECK,audit)
+
+coverage-report: ## Coverage report only (cargo llvm-cov)
+	$(call CHECK,coverage-report)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
@@ -145,7 +153,24 @@ staff-add: ## Let a person into the back office: SUB (their Kanidm UUID), NAME, 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
 
+# The logo and the icons cut from its inner disc (ADR 0023). The outputs are committed.
+LOGO_SRC := docs/media/image1.png
+LOGO_TOOLS := nix shell --inputs-from . nixpkgs\#imagemagick nixpkgs\#oxipng --command
+LOGO_DISC := \( -size 600x600 xc:black -fill white -draw "circle 299.5,299.5 299.5,0" \) \
+	-alpha off -compose CopyOpacity -composite -background white -compose Over -flatten
+logo: ## Remake the logo PNGs in design/ from docs/media/image1.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -filter Lanczos -resize 420x420 -strip design/logo.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 64x64 -strip design/favicon.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 180x180 -strip design/apple-touch-icon.png
+	$(LOGO_TOOLS) oxipng --opt max --strip all design/logo.png design/favicon.png design/apple-touch-icon.png
+
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
+
+ci-deps: ## Build the dependency artifacts and toolchain every check shares (CI deps job)
+	nix build --no-link --print-build-logs .\#packages.$(HOST_SYSTEM).ci-deps
+
+image-contents: ## Image contents check only, for ARCH on the Linux builder
+	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.$(ARCH).image-contents
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))

@@ -17,10 +17,12 @@ body {
 h1,
 h2,
 h3 {
+  margin: 0 0 var(--space-4);
   font-family: var(--font-heading);
   font-weight: var(--font-weight-bold);
   line-height: var(--line-height-tight);
-  margin: 0 0 var(--space-4);
+  letter-spacing: var(--letter-spacing-heading);
+  text-transform: uppercase;
 }
 
 h1 {
@@ -32,17 +34,12 @@ p {
 }
 
 a {
-  color: var(--color-accent);
+  color: var(--color-text);
 }
 
 :focus-visible {
-  outline: var(--space-1) solid var(--color-accent);
+  outline: var(--border-rule) solid var(--color-ink);
   outline-offset: var(--space-1);
-}
-
-.site-header :focus-visible,
-.site-footer :focus-visible {
-  outline-color: var(--color-white);
 }
 
 .skip-link {
@@ -50,8 +47,8 @@ a {
   left: var(--space-2);
   top: 0;
   padding: var(--space-2) var(--space-3);
-  background: var(--color-black);
-  color: var(--color-white);
+  background: var(--color-ink);
+  color: var(--color-paper);
   transform: translateY(-100%);
 }
 
@@ -60,28 +57,69 @@ a {
   transform: none;
 }
 
-.site-header,
-.site-footer {
-  padding: var(--space-4);
-  background: var(--color-black);
-  color: var(--color-white);
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  max-width: var(--size-content);
+  min-height: var(--size-target);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
 }
 
-.site-name {
-  color: var(--color-white);
-  font-family: var(--font-heading);
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-bold);
+.site-header-hero {
+  justify-content: center;
+  padding-top: var(--space-5);
+}
+
+.site-header-hero .logo-hero {
+  margin: 0;
+}
+
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--color-text);
   text-decoration: none;
 }
 
+.site-name {
+  font-family: var(--font-heading);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-heading);
+  text-transform: uppercase;
+}
+
 .site-main {
+  max-width: var(--size-content);
+  margin: 0 auto;
   padding: var(--space-5) var(--space-4);
+}
+
+.site-footer {
+  max-width: var(--size-content);
+  margin: 0 auto;
+  padding: 0 var(--space-4) var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
 }
 
 .site-footer p {
   margin: 0;
   font-size: var(--font-size-sm);
+}
+
+.site-footer-name {
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-heading);
+  text-transform: uppercase;
 }
 
 .htmx-indicator {

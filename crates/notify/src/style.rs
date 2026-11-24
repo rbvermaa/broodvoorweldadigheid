@@ -37,7 +37,7 @@ pub enum StyleError {
     UnknownClass(String),
 }
 
-/// Every token as the CSS variable `apps/server` generates: `--color-black` → `#000000`.
+/// Every token as the CSS variable `apps/server` generates: `--color-ink` → `#111111`.
 ///
 /// # Errors
 /// [`StyleError::Tokens`] when the file does not parse.
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn tokens_read_like_the_generated_css_variables() {
         let tokens = tokens();
-        assert_eq!(tokens["--color-black"], "#000000");
+        assert_eq!(tokens["--color-ink"], "#111111");
         assert_eq!(tokens["--space-4"], "1rem");
         assert_eq!(tokens["--font-weight-bold"], "700");
         assert!(tokens["--font-body"].starts_with("\"Inter\", system-ui,"));
@@ -232,7 +232,7 @@ mod tests {
     fn email_css_parses_and_resolves_every_token() {
         let rules = RULES.as_ref().expect("rules");
         let body = &rules["email-body"];
-        assert!(body.contains("background: #f5f5f5;"), "{body}");
+        assert!(body.contains("background: #ffffff;"), "{body}");
         assert!(body.contains("font-size: 16px;"), "{body}");
         assert!(body.contains("font-family: 'Inter', system-ui"), "{body}");
         for style in rules.values() {

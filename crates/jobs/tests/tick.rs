@@ -224,6 +224,15 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
         let handle = tokio::spawn(jobs::run(
             pool.clone(),
             Arc::clone(&clock),
+            jobs::Mail {
+                sender: Some(Arc::new(testkit::FakeEmailSender::new())),
+                i18n: Arc::new(i18n::Translator::dutch().unwrap()),
+                links: notify::subscribers::Links::new("https://broodvoorweldadigheid.nl"),
+                orders: Arc::new(jobs::OrderEmails::new(
+                    Arc::new(i18n::Translator::dutch().unwrap()),
+                    "https://shop.example.org",
+                )),
+            },
             name.to_owned(),
             async {
                 stopped.await.ok();
@@ -251,5 +260,17 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
     assert_eq!(
         queued_ticks(&pool).await,
         [tick_key(ts("2026-10-27T12:00:00Z"))]
+    );
+    let ran_on: Option<String> =
+        sqlx::query_scalar("SELECT lock_by FROM apalis.jobs WHERE idempotency_key = $1")
+            .bind(tick_key(ts("2026-10-27T12:00:00Z")))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        ran_on.as_deref().is_some_and(|worker| {
+            ["bake-day-ticks-server-a", "bake-day-ticks-server-b"].contains(&worker)
+        }),
+        "the tick ran on {ran_on:?}"
     );
 }

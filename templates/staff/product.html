@@ -23,7 +23,7 @@
 <legend class="field-label">{{ layout.t("product-pwyw-legend")? }}</legend>
 {% call s::live("pwyw", check) %}
 {% call f::checkbox("pwyw", layout.t("product-pwyw")?, checked = form.pwyw) %}{% endcall %}
-{% call f::field("money", "min_price", layout.t("product-min-price")?, value = form.min_price, hint = layout.t("product-pwyw-hint")?, error = errors.get("min_price")) %}{% endcall %}
+{% call f::field("money", "min_price", layout.t("product-min-price")?, value = form.min_price, hint = layout.t("product-min-price-hint")?, error = errors.get("min_price")) %}{% endcall %}
 {% call f::field("money", "max_price", layout.t("product-max-price")?, value = form.max_price, error = errors.get("max_price")) %}{% endcall %}
 {% endcall %}
 </fieldset>
@@ -44,7 +44,7 @@
 {% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
 {%- endfor %}
 </fieldset>
-{% call f::field("textarea", "ingredient_text", layout.t("product-ingredients")?, value = form.ingredient_text, hint = layout.t("product-ingredients-hint")?) %}{% endcall %}
+{% call f::field("textarea", "ingredient_text", layout.t("product-ingredient-text")?, value = form.ingredient_text, hint = layout.t("product-ingredient-text-hint")?) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
 </form>
 {% endblock %}

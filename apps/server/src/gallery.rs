@@ -7,7 +7,10 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use i18n::Translator;
 
-use crate::components::{Cell, PickupWindow, Product, SelectOption, Table};
+use crate::components::{
+    ApprovedAllergens, Cart, CartRemove, Cell, Drop, DropCharity, Message, PickupWindow,
+    PriceChoice, Product, ProductOrder, SelectOption, Table,
+};
 use crate::icons::{ALLERGEN_ICONS, ICONS};
 use crate::pages::{self, Layout};
 use crate::state::AppState;
@@ -22,6 +25,8 @@ pub struct Gallery<'a> {
     prices: Vec<i64>,
     windows: Vec<PickupWindow>,
     table: Table,
+    drops: Vec<Drop>,
+    carts: Vec<Cart>,
     icons: Vec<&'static str>,
 }
 
@@ -49,7 +54,7 @@ impl<'a> Gallery<'a> {
                 day: t(day)?,
                 time: t(time)?,
                 place: place.clone(),
-                places_left,
+                places_left: Some(places_left),
                 selected,
             })
         };
@@ -72,17 +77,64 @@ impl<'a> Gallery<'a> {
                     name: long.clone(),
                     description: t("gallery-product-desc")?,
                     price_cents: 650,
-                    allergens: vec!["cereals_containing_gluten"],
-                    may_contain: vec!["sesame_seeds", "nuts"],
+                    allergens: Some(ApprovedAllergens::example(
+                        vec!["cereals_containing_gluten"],
+                        vec!["sesame_seeds", "nuts"],
+                        t("gallery-product-ingredients")?,
+                    )),
                     sold_out: false,
+                    remaining: Some(3),
+                    order: Some(ProductOrder {
+                        action: "/gallery".to_string(),
+                        product_id: 1,
+                        qty: "1".to_string(),
+                        price: Some(PriceChoice {
+                            value: "6,50".to_string(),
+                            hint: t("gallery-price-hint")?,
+                        }),
+                        error: String::new(),
+                    }),
                 },
                 Product {
                     name: t("gallery-product-short")?,
                     description: t("gallery-product-short-desc")?,
                     price_cents: 450,
-                    allergens: vec!["cereals_containing_gluten", "milk"],
-                    may_contain: Vec::new(),
+                    allergens: Some(ApprovedAllergens::example(
+                        vec!["cereals_containing_gluten", "milk"],
+                        Vec::new(),
+                        String::new(),
+                    )),
                     sold_out: true,
+                    remaining: Some(0),
+                    order: None,
+                },
+                Product {
+                    name: t("gallery-product-short")?,
+                    description: t("gallery-product-short-desc")?,
+                    price_cents: 450,
+                    allergens: Some(ApprovedAllergens::example(
+                        vec!["milk"],
+                        Vec::new(),
+                        String::new(),
+                    )),
+                    sold_out: false,
+                    remaining: None,
+                    order: Some(ProductOrder {
+                        action: "/gallery".to_string(),
+                        product_id: 2,
+                        qty: "0".to_string(),
+                        price: None,
+                        error: t("gallery-amount-error")?,
+                    }),
+                },
+                Product {
+                    name: t("gallery-product-short")?,
+                    description: t("gallery-product-short-desc")?,
+                    price_cents: 450,
+                    allergens: None,
+                    sold_out: false,
+                    remaining: None,
+                    order: None,
                 },
             ],
             allergens: ALLERGEN_ICONS.iter().map(|(code, _)| *code).collect(),
@@ -120,7 +172,7 @@ impl<'a> Gallery<'a> {
                 ],
                 rows: vec![
                     vec![
-                        Cell::link(long, "#bakdag-caption"),
+                        Cell::link(long.clone(), "#bakdag-caption"),
                         Cell::number("12"),
                         Cell::number(i18n::money(7_800)),
                     ],
@@ -131,6 +183,57 @@ impl<'a> Gallery<'a> {
                     ],
                 ],
             },
+            drops: vec![
+                Drop {
+                    date: t("gallery-pickup-sat")?,
+                    status: t("gallery-drop-open")?,
+                    open: true,
+                    pickups: vec![format!("{} {}", t("gallery-pickup-morning")?, place)],
+                    deadline: t("gallery-drop-deadline")?,
+                    charity: Some(DropCharity {
+                        text: t("gallery-drop-charity")?,
+                        url: "https://example.org".to_string(),
+                        link: t("gallery-charity-a")?,
+                    }),
+                    link: "/gallery".to_string(),
+                },
+                Drop {
+                    date: long.clone(),
+                    status: t("gallery-drop-planned")?,
+                    open: false,
+                    pickups: Vec::new(),
+                    deadline: String::new(),
+                    charity: None,
+                    link: String::new(),
+                },
+            ],
+            carts: vec![Cart {
+                action: "/gallery".to_string(),
+                lines: Table {
+                    id: "mandje-voorbeeld".to_string(),
+                    caption: t("gallery-table-caption")?,
+                    head: vec![
+                        Cell::text(t("gallery-table-product")?),
+                        Cell::number(t("gallery-table-count")?),
+                        Cell::number(t("gallery-table-total")?),
+                    ],
+                    rows: vec![vec![
+                        Cell::text(long.clone()),
+                        Cell::number("2"),
+                        Cell::number(i18n::money(1_300)),
+                    ]],
+                },
+                total_cents: 1_300,
+                removes: vec![CartRemove {
+                    product_id: 1,
+                    label: t("gallery-cart-remove")?,
+                }],
+                checkout: "/gallery".to_string(),
+                message: Some(Message {
+                    kind: "success",
+                    text: t("gallery-alert-success")?,
+                }),
+            }],
             icons: ICONS.iter().map(|(name, _)| *name).collect(),
         })
     }

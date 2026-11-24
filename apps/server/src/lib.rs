@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
+pub mod alerts;
 pub mod assets;
+pub mod background;
 pub mod backoffice;
 pub mod clock;
 pub mod components;
@@ -12,9 +14,11 @@ pub mod healthcheck;
 mod icon_set;
 pub mod icons;
 pub mod pages;
+pub mod payment_provider;
 pub mod rate_limit;
 pub mod security;
 pub mod session;
+pub mod shop;
 pub mod site;
 pub mod staff;
 pub mod staff_session;
@@ -43,10 +47,12 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
-    let site = site::routes(&state, std::sync::Arc::new(clock::SystemClock));
+    let site = site::routes(&state, state.clock.clone());
     let mut routes = Router::new()
         .route("/", get(pages::home))
+        .merge(shop::routes())
         .merge(site)
+        .merge(alerts::routes(&state))
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
@@ -57,22 +63,56 @@ pub fn router(state: AppState) -> Router {
     if state.config.gallery {
         routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
     }
-    with_shell(routes, state)
+    let checkout = rate_limit::apply(
+        sessioned(shop::checkout_routes(), &state),
+        &state,
+        shop::CHECKOUT_PERIOD,
+        shop::CHECKOUT_BURST,
+    );
+    shell(
+        routes,
+        Some(checkout),
+        shop::webhook_routes(),
+        state.clone(),
+    )
+    .merge(alerts::one_click_routes(state))
+}
+
+/// CSRF checks inside a session layer.
+fn sessioned(routes: Router<AppState>, state: &AppState) -> Router<AppState> {
+    routes
+        .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
+        .layer(session::layer(state.pool.clone(), &state.config))
 }
 
 /// Wraps `routes` with what every page needs: the Dutch 404 and 405 pages, CSRF checks,
 /// sessions and security headers, and adds `/health` and the static assets. Those two
 /// stay outside the session layer, which saves the session on every request it sees.
 pub fn with_shell(routes: Router<AppState>, state: AppState) -> Router {
-    let sessions = session::layer(state.pool.clone(), &state.config);
-    let sessioned = routes
-        .fallback(pages::not_found)
-        .method_not_allowed_fallback(pages::method_not_allowed)
-        .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
-        .layer(sessions);
+    shell(routes, None, Router::new(), state)
+}
+
+/// `limited` comes with its own session, CSRF and rate-limit layers, the rate limit
+/// outermost (ADR 0007). `open` gets neither session nor CSRF check.
+fn shell(
+    routes: Router<AppState>,
+    limited: Option<Router<AppState>>,
+    open: Router<AppState>,
+    state: AppState,
+) -> Router {
+    let mut sessioned = sessioned(
+        routes
+            .fallback(pages::not_found)
+            .method_not_allowed_fallback(pages::method_not_allowed),
+        &state,
+    );
+    if let Some(limited) = limited {
+        sessioned = sessioned.merge(limited);
+    }
     Router::new()
         .route("/health", get(health))
         .route("/static/{*name}", get(assets::serve))
+        .merge(open)
         .merge(sessioned)
         .layer(middleware::map_response(security::headers))
         .with_state(state)

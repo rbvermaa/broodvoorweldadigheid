@@ -1,6 +1,13 @@
 {
   description = "Brood voor Weldadigheid bakery platform";
 
+  nixConfig = {
+    extra-substituters = [ "https://rbvermaa.cachix.org" ];
+    extra-trusted-public-keys = [
+      "rbvermaa.cachix.org-1:pNfK77adCg94nKplW/niSN7kgLqLmiEopPiarYNGBUw="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
@@ -240,6 +247,8 @@
 
       packages = forAllSystems (
         {
+          pkgs,
+          toolchain,
           craneLib,
           commonArgs,
           cargoArtifacts,
@@ -259,6 +268,10 @@
             }
           );
           inherit cli;
+          ci-deps = pkgs.linkFarmFromDrvs "ci-deps" [
+            cargoArtifacts
+            toolchain
+          ];
           default = server;
         }
       );
@@ -286,6 +299,7 @@
                 postgresql_17
                 sqlx-cli
                 cargo-nextest
+                cargo-insta
                 cargo-llvm-cov
                 cargo-deny
                 cargo-audit
