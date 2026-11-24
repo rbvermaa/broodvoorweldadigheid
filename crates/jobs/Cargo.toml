@@ -14,6 +14,7 @@ bakedays = { path = "../bakedays" }
 db = { path = "../db" }
 domain = { path = "../domain" }
 jiff.workspace = true
+orders = { path = "../orders" }
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true

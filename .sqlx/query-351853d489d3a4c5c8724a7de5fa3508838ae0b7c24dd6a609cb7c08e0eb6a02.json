@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM \"order\"\n        WHERE status = 'pending_payment'\n            AND hold_expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n        ORDER BY id FOR UPDATE SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "351853d489d3a4c5c8724a7de5fa3508838ae0b7c24dd6a609cb7c08e0eb6a02"
+}
