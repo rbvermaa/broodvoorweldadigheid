@@ -266,6 +266,12 @@ pub async fn handle_tick(
     Ok(())
 }
 
+async fn queue_tick(storage: &mut TickStorage, clock: &dyn Clock) {
+    if let Err(err) = schedule_tick(storage, clock).await {
+        tracing::error!(error = %err, "cannot queue the bake day tick");
+    }
+}
+
 /// Queues a tick every minute and works the queue until `shutdown` completes. `worker_id`
 /// must differ per running server: apalis registers each worker under it.
 ///
@@ -282,6 +288,9 @@ where
     F: Future<Output = ()> + Send + 'static,
 {
     let mut storage = TickStorage::new(&pool);
+    // Before the worker starts: an idle worker fetches again only when its task is woken,
+    // at the latest by the 30 s apalis heartbeat, so its first fetch must see this tick.
+    queue_tick(&mut storage, clock.as_ref()).await;
     let worker = WorkerBuilder::new(format!("bake-day-ticks-{worker_id}"))
         .backend(storage.clone())
         .data(pool)
@@ -289,13 +298,12 @@ where
         .data(mail)
         .build(handle_tick);
     let schedule = async move {
-        let mut every_minute = tokio::time::interval(TICK_EVERY);
+        let mut every_minute =
+            tokio::time::interval_at(tokio::time::Instant::now() + TICK_EVERY, TICK_EVERY);
         every_minute.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             every_minute.tick().await;
-            if let Err(err) = schedule_tick(&mut storage, clock.as_ref()).await {
-                tracing::error!(error = %err, "cannot queue the bake day tick");
-            }
+            queue_tick(&mut storage, clock.as_ref()).await;
         }
     };
     tokio::select! {

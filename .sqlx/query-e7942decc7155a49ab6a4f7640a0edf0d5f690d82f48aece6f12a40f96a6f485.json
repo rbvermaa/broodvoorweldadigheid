@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO charity_transfer_allocation (transfer_id, allocation_id, paid_cents,\n            refunded_cents)\n        SELECT $1, * FROM unnest($2::bigint[], $3::bigint[], $4::bigint[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e7942decc7155a49ab6a4f7640a0edf0d5f690d82f48aece6f12a40f96a6f485"
+}

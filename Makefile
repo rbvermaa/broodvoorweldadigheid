@@ -5,6 +5,7 @@
 #   make db-up && make sqlx-prepare   regenerate .sqlx/ after changing a query or migration
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
+#   make logo                   remake design/logo.png, favicon.png and apple-touch-icon.png
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
@@ -66,7 +67,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke
+	sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -136,6 +137,17 @@ down: ## Stop the Compose stack (volumes stay)
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
+
+# The logo and the icons cut from its inner disc (ADR 0023). The outputs are committed.
+LOGO_SRC := docs/media/image1.png
+LOGO_TOOLS := nix shell --inputs-from . nixpkgs\#imagemagick nixpkgs\#oxipng --command
+LOGO_DISC := \( -size 600x600 xc:black -fill white -draw "circle 299.5,299.5 299.5,0" \) \
+	-alpha off -compose CopyOpacity -composite -background white -compose Over -flatten
+logo: ## Remake the logo PNGs in design/ from docs/media/image1.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -filter Lanczos -resize 420x420 -strip design/logo.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 64x64 -strip design/favicon.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 180x180 -strip design/apple-touch-icon.png
+	$(LOGO_TOOLS) oxipng --opt max --strip all design/logo.png design/favicon.png design/apple-touch-icon.png
 
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 

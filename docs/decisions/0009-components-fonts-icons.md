@@ -1,6 +1,6 @@
 # 0009 Components, fonts, icons and the design-system check
 
-Status: accepted, 2026-11-24
+Status: accepted, 2026-11-24. Look and colours: ADR 0023 (style "Stempel").
 
 | Choice | Why |
 |---|---|

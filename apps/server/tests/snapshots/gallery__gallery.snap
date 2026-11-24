@@ -10,6 +10,8 @@ expression: without_asset_hashes(&gallery_html(&state))
 <title>Componenten · Brood voor Weldadigheid</title>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
 <meta name="csrf-token" content="test-token">
+<link rel="icon" type="image/png" sizes="64x64" href="/static/favicon.png?v=HASH">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=HASH">
 <link rel="stylesheet" href="/static/fonts.css?v=HASH">
 <link rel="stylesheet" href="/static/tokens.css?v=HASH">
 <link rel="stylesheet" href="/static/app.css?v=HASH">
@@ -19,13 +21,38 @@ expression: without_asset_hashes(&gallery_html(&state))
 </head>
 <body>
 <a class="skip-link" href="#inhoud">Naar de inhoud</a>
+
 <header class="site-header">
-<a class="site-name" href="/">Brood voor Weldadigheid</a>
+<a class="site-brand" href="/">
+<img class="logo logo-header" src="/static/logo.png?v=HASH" alt="">
+<span class="site-name">Brood voor Weldadigheid</span></a>
 </header>
+
 <main id="inhoud" class="site-main">
 
 <h1>Componenten</h1>
 <p>Elke component in elke toestand: normaal, uitgeschakeld, fout, leeg en met lange woorden.</p>
+
+<section class="gallery-section" aria-labelledby="gallery-brand">
+<h2 id="gallery-brand">Logo en stempel</h2>
+
+<img class="logo logo-hero" src="/static/logo.png?v=HASH" alt="Logo van Brood voor Weldadigheid: een opgeheven vuist met een stokbrood tussen twee korenaren">
+
+<div class="gallery-row">
+
+<img class="logo logo-header" src="/static/logo.png?v=HASH" alt="">
+
+
+<p class="stamp">Opbrengst naar het goede doel</p>
+
+
+<button type="button" class="button button-stamp"><span class="button-label">Mandje (2)</span></button>
+
+</div>
+
+<hr class="rule">
+
+</section>
 
 <section class="gallery-section" aria-labelledby="gallery-buttons">
 <h2 id="gallery-buttons">Knoppen</h2>
@@ -553,7 +580,10 @@ expression: without_asset_hashes(&gallery_html(&state))
 
 </main>
 <footer class="site-footer">
-<p>Brood voor Weldadigheid #payitforward</p>
+
+<hr class="rule">
+
+<p><span class="site-footer-name">Brood voor Weldadigheid</span> #payitforward</p>
 </footer>
 </body>
 </html>

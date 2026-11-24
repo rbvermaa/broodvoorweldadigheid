@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT da.id, da.order_id, o.bake_day_id, (bd.date - date 'epoch') AS \"drop_day!\",\n            bd.charity_id AS drop_charity, da.charity_id, da.status, da.amount_cents,\n            COALESCE(t.paid, 0)::bigint AS \"settled_paid!\",\n            COALESCE(t.refunded, 0)::bigint AS \"settled_refunded!\"\n        FROM donation_allocation da\n        JOIN \"order\" o ON o.id = da.order_id\n        JOIN bake_day bd ON bd.id = o.bake_day_id\n        LEFT JOIN (\n            SELECT allocation_id, SUM(paid_cents) AS paid, SUM(refunded_cents) AS refunded\n            FROM charity_transfer_allocation GROUP BY allocation_id\n        ) t ON t.allocation_id = da.id\n        WHERE ($1::integer IS NULL OR bd.date >= date 'epoch' + $1)\n            AND ($2::integer IS NULL OR bd.date <= date 'epoch' + $2)\n        ORDER BY da.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "drop_day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "drop_charity",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "charity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "charity_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "charity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "amount_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "amount_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "settled_paid!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "settled_refunded!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "6bf3f63c29e3534cf0f4cbcf821f174b4e4d6b94608e47b2209f5e45fff49ff1"
+}
