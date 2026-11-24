@@ -6,7 +6,7 @@
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
-#   make staff-add SUB=<sub> NAME=Bas ROLE=baker   let a person into the back office (stack must be up)
+#   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
@@ -122,10 +122,12 @@ up: ## Start the Compose stack on BVW_HTTP_PORT/BVW_HTTPS_PORT (default 8080/844
 down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
-staff-add: ## Let a person into the back office: SUB (identity provider subject), NAME, ROLE (owner, baker, counter), EMAIL
-	@test -n "$(SUB)" -a -n "$(NAME)" -a -n "$(ROLE)" || { echo "usage: make staff-add SUB=<sub> NAME=Bas ROLE=baker"; exit 2; }
-	$(COMPOSE) run --rm --no-deps migrate staff add --sub '$(SUB)' --name '$(NAME)' --role '$(ROLE)' \
-		$(if $(EMAIL),--email '$(EMAIL)')
+# The values reach the cli as environment variables, never spliced into the command line,
+# so names like "Bas van 't Hof" survive.
+staff-add: ## Let a person into the back office: SUB (their Kanidm UUID), NAME, ROLE (owner, baker, counter), EMAIL
+	@test -n "$$SUB" -a -n "$$NAME" -a -n "$$ROLE" || { echo "usage: make staff-add SUB=<uuid> NAME=\"Bas van 't Hof\" ROLE=baker [EMAIL=...]"; exit 2; }
+	STAFF_SUB="$$SUB" STAFF_NAME="$$NAME" STAFF_ROLE="$$ROLE" STAFF_EMAIL="$$EMAIL" \
+		$(COMPOSE) run --rm --no-deps -e STAFF_SUB -e STAFF_NAME -e STAFF_ROLE -e STAFF_EMAIL migrate staff add
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)

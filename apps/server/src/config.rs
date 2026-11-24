@@ -13,7 +13,8 @@ pub struct Config {
     /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
     pub gallery: bool,
     /// Lets anyone sign in as any staff member at `/staff/dev-login`. Off unless
-    /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR`.
+    /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR` and no
+    /// `TRUSTED_PROXY`.
     pub dev_staff_login: bool,
 }
 
@@ -35,6 +36,8 @@ pub enum ConfigError {
     InvalidDevStaffLogin(String),
     #[error("DEV_STAFF_LOGIN=true needs a loopback BIND_ADDR like 127.0.0.1:8080, not {0}")]
     DevStaffLoginNotLocal(SocketAddr),
+    #[error("DEV_STAFF_LOGIN=true cannot be combined with TRUSTED_PROXY")]
+    DevStaffLoginBehindProxy,
 }
 
 impl std::fmt::Debug for Config {
@@ -90,6 +93,9 @@ impl Config {
         };
         if dev_staff_login && !bind_addr.ip().is_loopback() {
             return Err(ConfigError::DevStaffLoginNotLocal(bind_addr));
+        }
+        if dev_staff_login && trusted_proxy.is_some() {
+            return Err(ConfigError::DevStaffLoginBehindProxy);
         }
         Ok(Self {
             bind_addr,
@@ -267,6 +273,15 @@ mod tests {
                 ("DEV_STAFF_LOGIN", "ja"),
             ])),
             Err(ConfigError::InvalidDevStaffLogin("ja".to_string()))
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BIND_ADDR", "127.0.0.1:8080"),
+                ("TRUSTED_PROXY", "127.0.0.1"),
+                ("DEV_STAFF_LOGIN", "true"),
+            ])),
+            Err(ConfigError::DevStaffLoginBehindProxy)
         );
     }
 }

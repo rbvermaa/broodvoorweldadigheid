@@ -1,9 +1,12 @@
+use std::net::SocketAddr;
+
 use askama::Template;
 use auth::staff as repo;
 use auth::{Permission, Role, StaffUser};
-use axum::extract::{Form, FromRequestParts, State};
-use axum::http::StatusCode;
+use axum::Extension;
+use axum::extract::{ConnectInfo, Form, FromRequestParts, State};
 use axum::http::request::Parts;
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use domain::StaffUserId;
 use serde::Deserialize;
@@ -16,6 +19,10 @@ use crate::state::AppState;
 
 pub const LOGIN_PATH: &str = "/staff/login";
 pub const DEV_LOGIN_PATH: &str = "/staff/dev-login";
+
+/// Headers a reverse proxy adds; a request carrying one did not come straight from the
+/// developer's own machine.
+const PROXY_HEADERS: [&str; 3] = ["forwarded", "x-forwarded-for", "x-real-ip"];
 
 /// A signed-in, active staff member. Without one the request is sent to the login.
 pub struct Staff(pub StaffUser);
@@ -50,6 +57,19 @@ impl IntoResponse for Forbidden {
     }
 }
 
+/// HTMX swaps a redirect's target into the page, so it gets `HX-Redirect` instead.
+fn to_login(headers: &HeaderMap) -> Response {
+    if headers.contains_key("hx-request") {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        response
+            .headers_mut()
+            .insert("hx-redirect", HeaderValue::from_static(LOGIN_PATH));
+        response
+    } else {
+        Redirect::to(LOGIN_PATH).into_response()
+    }
+}
+
 impl FromRequestParts<AppState> for Staff {
     type Rejection = Response;
 
@@ -58,23 +78,11 @@ impl FromRequestParts<AppState> for Staff {
         let session = Session::from_request_parts(parts, state)
             .await
             .map_err(|_| server_error())?;
-        let id = staff_session::staff_id(&session).await.map_err(|error| {
-            tracing::error!(%error, "cannot load the session");
-            server_error()
-        })?;
-        let Some(id) = id else {
-            return Err(Redirect::to(LOGIN_PATH).into_response());
-        };
-        match repo::find(&state.pool, id).await {
-            Ok(Some(user)) if user.active => Ok(Self(user)),
-            Ok(_) => {
-                if let Err(error) = session.flush().await {
-                    tracing::error!(%error, "cannot end the session");
-                }
-                Err(Redirect::to(LOGIN_PATH).into_response())
-            }
+        match staff_session::current(state, &session).await {
+            Ok(Some(staff)) => Ok(Self(staff)),
+            Ok(None) => Err(to_login(&parts.headers)),
             Err(error) => {
-                tracing::error!(%error, "cannot load the staff user");
+                tracing::error!(%error, "cannot load the staff login");
                 Err(server_error())
             }
         }
@@ -95,6 +103,28 @@ fn not_allowed(state: &AppState) -> Response {
     )
 }
 
+/// The dev login only answers a browser on this machine that talks to the server directly.
+fn dev_login_allowed(
+    state: &AppState,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+) -> bool {
+    if !state.config.dev_staff_login {
+        return false;
+    }
+    let local =
+        peer.is_some_and(|Extension(ConnectInfo(peer))| peer.ip().to_canonical().is_loopback());
+    let proxied = PROXY_HEADERS.iter().any(|name| headers.contains_key(*name));
+    if !local || proxied {
+        tracing::warn!(
+            ?peer,
+            proxied,
+            "dev login refused for a request from elsewhere"
+        );
+    }
+    local && !proxied
+}
+
 #[derive(Template)]
 #[template(path = "staff/dev_login.html")]
 struct DevLoginPage<'a> {
@@ -102,9 +132,13 @@ struct DevLoginPage<'a> {
     action: &'static str,
 }
 
-/// Without a sign-in method configured there is no way in yet.
-pub async fn login(State(state): State<AppState>, session: Session) -> Response {
-    if !state.config.dev_staff_login {
+pub async fn login(
+    State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    session: Session,
+) -> Response {
+    if !dev_login_allowed(&state, peer, &headers) {
         return pages::error_with(
             &state,
             StatusCode::SERVICE_UNAVAILABLE,
@@ -132,13 +166,15 @@ pub struct DevLogin {
 }
 
 /// Signs in as any active staff member, no questions asked. Only routed with
-/// `DEV_STAFF_LOGIN=true`, which the config allows on a loopback address only.
+/// `DEV_STAFF_LOGIN=true`, and only answered for a direct request from this machine.
 pub async fn dev_login(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     session: Session,
     Form(form): Form<DevLogin>,
 ) -> Response {
-    if !state.config.dev_staff_login {
+    if !dev_login_allowed(&state, peer, &headers) {
         return pages::error(&state, StatusCode::NOT_FOUND);
     }
     let Ok(id) = form.staff_id.trim().parse::<i64>() else {
@@ -149,7 +185,7 @@ pub async fn dev_login(
         Ok(_) => return not_allowed(&state),
         Err(error) => return server_error(&state, &error),
     };
-    if let Err(error) = staff_session::sign_in(&session, &user).await {
+    if let Err(error) = staff_session::sign_in(&state, &session, &user).await {
         return server_error(&state, &error);
     }
     tracing::warn!(staff = user.id.get(), role = %user.role, "staff signed in through the dev login");
@@ -157,7 +193,7 @@ pub async fn dev_login(
 }
 
 pub async fn logout(State(state): State<AppState>, session: Session) -> Response {
-    if let Err(error) = session.flush().await {
+    if let Err(error) = staff_session::sign_out(&state, &session).await {
         return server_error(&state, &error);
     }
     Redirect::to("/").into_response()

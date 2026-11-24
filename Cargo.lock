@@ -147,6 +147,7 @@ version = "0.1.0"
 dependencies = [
  "db",
  "domain",
+ "jiff",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -1862,6 +1863,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "testkit",
  "thiserror 2.0.21",
  "tokio",
  "toml",

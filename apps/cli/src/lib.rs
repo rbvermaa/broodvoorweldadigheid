@@ -38,19 +38,45 @@ pub enum Command {
 
 #[derive(Debug, Subcommand)]
 pub enum StaffCommand {
-    #[command(about = "Let a Kanidm person log in with a role; --sub is their Kanidm UUID")]
+    #[command(about = "Let a person into the back office with a role; --sub is their Kanidm UUID")]
     Add {
         #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
         database_url: String,
-        #[arg(long)]
+        #[arg(long, env = "STAFF_SUB", value_parser = uuid_sub)]
         sub: String,
-        #[arg(long)]
+        #[arg(long, env = "STAFF_NAME", value_parser = trimmed)]
         name: String,
-        #[arg(long)]
+        #[arg(long, env = "STAFF_EMAIL", value_parser = trimmed)]
         email: Option<String>,
-        #[arg(long, help = "owner, baker or counter")]
+        #[arg(long, env = "STAFF_ROLE", help = "owner, baker or counter")]
         role: auth::Role,
     },
+}
+
+/// Kanidm's `sub` is the person's UUID; anything else is most likely their user name.
+fn uuid_sub(raw: &str) -> Result<String, String> {
+    let sub = raw.trim().to_ascii_lowercase();
+    let groups: Vec<&str> = sub.split('-').collect();
+    let lengths = groups.iter().map(|group| group.len()).collect::<Vec<_>>();
+    let hex = groups
+        .iter()
+        .all(|group| group.bytes().all(|b| b.is_ascii_hexdigit()));
+    if hex && lengths == [8, 4, 4, 4, 12] {
+        Ok(sub)
+    } else {
+        Err(format!(
+            "{raw:?} is not a UUID; use the person's Kanidm UUID"
+        ))
+    }
+}
+
+fn trimmed(raw: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        Err("must not be empty".to_string())
+    } else {
+        Ok(value.to_string())
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -298,7 +324,7 @@ mod tests {
             "--database-url",
             "postgres://db/bakflow",
             "--sub",
-            "0d2f1f9e-uuid",
+            "0D2F1F9E-1C2B-4E3A-9F00-123456789ABC",
             "--name",
             "Bas",
             "--role",
@@ -311,7 +337,7 @@ mod tests {
         else {
             panic!("expected staff add, got {cli:?}");
         };
-        assert_eq!(sub, "0d2f1f9e-uuid");
+        assert_eq!(sub, "0d2f1f9e-1c2b-4e3a-9f00-123456789abc");
         assert_eq!(role, auth::Role::Baker);
         assert_eq!(email, None);
 
@@ -322,7 +348,7 @@ mod tests {
             "--database-url",
             "postgres://db",
             "--sub",
-            "x",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789abc",
             "--name",
             "X",
             "--role",
@@ -333,6 +359,43 @@ mod tests {
             error.to_string().contains("owner, baker or counter"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn staff_add_refuses_a_sub_that_is_no_uuid_and_a_blank_name() {
+        let parse = |sub: &str, name: &str| {
+            Cli::try_parse_from([
+                "cli",
+                "staff",
+                "add",
+                "--database-url",
+                "postgres://db",
+                "--sub",
+                sub,
+                "--name",
+                name,
+                "--role",
+                "baker",
+            ])
+        };
+        for sub in [
+            "bas",
+            "",
+            "0d2f1f9e-1c2b-4e3a-9f00-123456789ab",
+            "0d2f1f9e1c2b4e3a9f00123456789abc",
+        ] {
+            let error = parse(sub, "Bas").expect_err(sub);
+            assert!(error.to_string().contains("not a UUID"), "{error}");
+        }
+        let error = parse("0d2f1f9e-1c2b-4e3a-9f00-123456789abc", "   ").expect_err("blank");
+        assert!(error.to_string().contains("must not be empty"), "{error}");
+        let cli =
+            parse(" 0d2f1f9e-1c2b-4e3a-9f00-123456789abc ", " Bas van 't Hof ").expect("valid");
+        let Command::Staff(StaffCommand::Add { sub, name, .. }) = cli.command else {
+            panic!("expected staff add");
+        };
+        assert_eq!(sub, "0d2f1f9e-1c2b-4e3a-9f00-123456789abc");
+        assert_eq!(name, "Bas van 't Hof");
     }
 
     #[test]

@@ -47,7 +47,20 @@ fn sourdough() -> ProductInput {
     }
 }
 
+/// Approvals name a staff user, so `BAKER` has to exist.
+async fn add_baker(conn: &mut PgConnection) {
+    sqlx::query(
+        "INSERT INTO staff_user (id, oidc_sub, name, role) OVERRIDING SYSTEM VALUE
+         VALUES ($1, 'baker-fixture', 'Bakker', 'baker') ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(BAKER.get())
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
 async fn approved(conn: &mut PgConnection, clock: &FakeClock) -> ProductId {
+    add_baker(conn).await;
     let product = products::create(conn, &sourdough()).await.unwrap();
     products::approve_allergens(conn, product.id, &product.allergen_info, BAKER, clock)
         .await
@@ -547,6 +560,7 @@ async fn every_allergen_code_is_accepted_and_approvable(mut conn: PoolConnection
         };
         let product = products::create(&mut conn, &input).await.unwrap();
         assert_eq!(product.allergen_info, info);
+        add_baker(&mut conn).await;
         products::approve_allergens(&mut conn, product.id, &info, BAKER, &clock)
             .await
             .unwrap();
@@ -570,6 +584,7 @@ async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection
         .execute(&mut *conn)
         .await
         .unwrap();
+    add_baker(&mut conn).await;
     let approved =
         products::approve_allergens(&mut conn, product.id, &allergen_info(), BAKER, &clock)
             .await

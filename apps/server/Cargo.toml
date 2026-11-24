@@ -37,6 +37,7 @@ toml.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+testkit = { path = "../../crates/testkit" }
 tower.workspace = true
 toml.workspace = true
 

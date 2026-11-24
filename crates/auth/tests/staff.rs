@@ -198,3 +198,47 @@ async fn concurrent_bootstrap_logins_make_one_owner(pool: PgPool) {
         .expect("count");
     assert_eq!(owners, 1);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_last_active_owner_cannot_be_demoted_deactivated_or_deleted(pool: PgPool) {
+    let owner = staff::add(&pool, &new_staff("owner-1", Role::Owner))
+        .await
+        .expect("add");
+    let error = staff::set_role(&pool, owner.id, Role::Baker)
+        .await
+        .expect_err("demote");
+    assert!(matches!(error, Error::LastOwner), "{error}");
+    let error = staff::deactivate(&pool, owner.id)
+        .await
+        .expect_err("deactivate");
+    assert!(matches!(error, Error::LastOwner), "{error}");
+    let deleted = sqlx::query("DELETE FROM staff_user WHERE id = $1")
+        .bind(owner.id.get())
+        .execute(&pool)
+        .await;
+    assert!(deleted.is_err(), "delete");
+
+    let second = staff::add(&pool, &new_staff("owner-2", Role::Owner))
+        .await
+        .expect("add");
+    staff::set_role(&pool, owner.id, Role::Baker)
+        .await
+        .expect("another owner is left");
+    let error = staff::deactivate(&pool, second.id)
+        .await
+        .expect_err("now the last one");
+    assert!(matches!(error, Error::LastOwner), "{error}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_product_approval_must_name_a_staff_user(pool: PgPool) {
+    let constraint: Option<String> = sqlx::query_scalar(
+        "SELECT conname::text FROM pg_constraint
+         WHERE conname = 'product_allergens_approved_by_fkey'
+           AND confrelid = 'staff_user'::regclass",
+    )
+    .fetch_optional(&pool)
+    .await
+    .expect("constraint");
+    assert!(constraint.is_some());
+}
