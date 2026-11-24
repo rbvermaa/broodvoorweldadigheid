@@ -1,0 +1,11 @@
+{% extends "staff/layout.html" %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("reports-payouts-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("reports-payouts-title")? }}</h1>
+<p><a href="/staff/reports">{{ layout.t("reports-back")? }}</a></p>
+{% call s::period(period) %}{% endcall %}
+<p>{{ layout.t("reports-payouts-intro")? }}</p>
+{% call tb::table(table) %}{% endcall %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "staff/layout.html" %}
+{% block title %}{{ layout.t("reports-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("reports-title")? }}</h1>
+<ul>
+<li><a href="/staff/reports/sales">{{ layout.t("reports-sales-title")? }}</a></li>
+<li><a href="/staff/reports/donations">{{ layout.t("reports-donations-title")? }}</a></li>
+<li><a href="/staff/reports/contribution">{{ layout.t("reports-contribution-title")? }}</a></li>
+<li><a href="/staff/reports/payouts">{{ layout.t("reports-payouts-title")? }}</a></li>
+</ul>
+{% endblock %}

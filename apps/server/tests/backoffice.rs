@@ -135,6 +135,7 @@ fn decode(html: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
+        .replace("&#38;", "&")
         .replace("&amp;", "&")
 }
 
@@ -295,6 +296,10 @@ async fn product(pool: &PgPool) -> ProductId {
 
 /// A draft drop at De Proef on Saturday 5 December, baking from 04:00.
 async fn saturday(pool: &PgPool) -> BakeDayId {
+    saturday_for(pool, None).await
+}
+
+async fn saturday_for(pool: &PgPool, charity_id: Option<CharityId>) -> BakeDayId {
     let mut conn = pool.acquire().await.expect("conn");
     days::create(
         &mut conn,
@@ -302,7 +307,7 @@ async fn saturday(pool: &PgPool) -> BakeDayId {
             date: date(2026, 12, 5),
             location_id: DE_PROEF,
             online_ordering: true,
-            charity_id: None,
+            charity_id,
         },
     )
     .await
@@ -1737,8 +1742,13 @@ struct PaidOrder {
 }
 
 async fn paid_order(app: &App) -> PaidOrder {
+    paid_order_for(app, None).await
+}
+
+/// [`paid_order`] on a drop for `charity`.
+async fn paid_order_for(app: &App, charity: Option<CharityId>) -> PaidOrder {
     let pool = &app.pool;
-    let day = saturday(pool).await;
+    let day = saturday_for(pool, charity).await;
     let bread = product(pool).await;
     let approver = staff(pool, "Keurder Karin", Role::Owner).await;
     let mut conn = pool.acquire().await.expect("conn");
@@ -2541,4 +2551,245 @@ async fn refused_pickup_ticks_say_why(pool: PgPool) {
         stored_order(&pool, paid.order.id).await.status,
         orders::OrderStatus::PickedUp
     );
+}
+
+/// A paid order of two loaves (€ 13,00) on a drop for the Voedselbank.
+async fn charity_order(app: &App) -> (CharityId, PaidOrder) {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    let charity = charities::create(
+        &mut conn,
+        &CharityInput {
+            name: "Voedselbank".to_owned(),
+            url: "https://example.org".to_owned(),
+            ..CharityInput::default()
+        },
+    )
+    .await
+    .expect("charity")
+    .id;
+    drop(conn);
+    (charity, paid_order_for(app, Some(charity)).await)
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_the_owner_opens_the_reports(pool: PgPool) {
+    let app = app(pool.clone());
+    let (charity, _) = charity_order(&app).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let payout = format!("/staff/reports/payouts/{}", charity.get());
+    let pages = [
+        "/staff/reports",
+        "/staff/reports/sales",
+        "/staff/reports/sales.csv",
+        "/staff/reports/pay-what-you-want.csv",
+        "/staff/reports/donations",
+        "/staff/reports/donations/drops.csv",
+        "/staff/reports/donations/charities.csv",
+        "/staff/reports/contribution",
+        "/staff/reports/payouts",
+        payout.as_str(),
+    ];
+    for url in pages {
+        for who in [&baker, &counter] {
+            assert_eq!(who.get(url).await.status, StatusCode::FORBIDDEN, "{url}");
+        }
+        assert_eq!(owner.get(url).await.status, StatusCode::OK, "{url}");
+    }
+    owner
+        .get("/staff/reports")
+        .await
+        .shows("href=\"/staff/reports/sales\"");
+    for url in [
+        format!("{payout}/transfers"),
+        "/staff/reports/contribution/costs".to_owned(),
+    ] {
+        assert_eq!(
+            baker.post(&url, &[]).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_sales_report_shows_btw_per_month_and_exports_csv(pool: PgPool) {
+    let app = app(pool.clone());
+    paid_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let page = owner.get("/staff/reports/sales").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows("value=\"2026-01-01\"");
+    page.shows("value=\"2026-12-31\"");
+    page.shows(&i18n::money(1300));
+    page.shows(&i18n::money(107));
+    page.shows(&i18n::money(1193));
+    page.shows("href=\"/staff/reports/sales.csv?van=2026-01-01&tot=2026-12-31&per=maand\"");
+
+    let days = owner
+        .get("/staff/reports/sales?van=2026-11-01&tot=2026-11-30&per=dag")
+        .await;
+    days.shows(&i18n::numeric_date(date(2026, 11, 24)));
+
+    let csv = owner
+        .get("/staff/reports/sales.csv?van=2026-11-01&tot=2026-11-30&per=maand")
+        .await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
+    assert_eq!(
+        csv.header("content-disposition"),
+        "attachment; filename=\"omzet-2026-11-01-2026-11-30.csv\""
+    );
+    csv.shows("Van;Tot en met;BTW-tarief");
+    csv.shows("13,00;1,07;11,93");
+
+    let wrong = owner
+        .get("/staff/reports/sales?van=gisteren&tot=2026-01-01")
+        .await;
+    assert_eq!(wrong.status, StatusCode::OK);
+    wrong.shows(&dutch("reports-error-date"));
+    let backwards = owner
+        .get("/staff/reports/sales?van=2026-12-01&tot=2026-01-01")
+        .await;
+    backwards.shows(&dutch("reports-error-order"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn donation_reports_show_drops_charities_and_charts(pool: PgPool) {
+    let app = app(pool.clone());
+    charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let page = owner.get("/staff/reports/donations").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows("Voedselbank");
+    page.shows(&i18n::money(1300));
+    page.shows("<svg class=\"chart-svg\"");
+    page.shows(&dutch("reports-donations-drops-chart"));
+    page.shows("class=\"chart-bar\" x=\"0\" y=\"26\" width=\"480\"");
+
+    let drops = owner.get("/staff/reports/donations/drops.csv").await;
+    assert_eq!(drops.header("content-type"), "text/csv; charset=utf-8");
+    drops.shows("05-12-2026;Voedselbank;1;13,00;0,00;13,00;13,00;0,00;0,00");
+    let charities = owner.get("/staff/reports/donations/charities.csv").await;
+    charities.shows("Voedselbank;13,00;13,00;0,00;13,00");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
+    let app = app(pool.clone());
+    let (charity, _) = charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let list = owner.get("/staff/reports/payouts").await;
+    assert_eq!(list.status, StatusCode::OK, "{}", list.text);
+    list.shows("Voedselbank");
+    list.shows(&i18n::money(1300));
+    let detail_path = format!("/staff/reports/payouts/{}", charity.get());
+    list.shows(&format!(
+        "href=\"{detail_path}?van=2026-01-01&tot=2026-12-31\""
+    ));
+
+    let detail = owner.get(&detail_path).await;
+    assert_eq!(detail.status, StatusCode::OK);
+    detail.shows("value=\"13,00\"");
+    let transfers = format!("{detail_path}/transfers");
+    let fields = |amount: &'static str, reference: &'static str| {
+        vec![
+            ("up_to", "2026-12-31"),
+            ("amount", amount),
+            ("transferred_on", "2026-12-07"),
+            ("bank_reference", reference),
+        ]
+    };
+
+    let no_token = owner
+        .send(
+            Request::post(&transfers)
+                .header(COOKIE, &owner.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("amount=13%2C00"))
+                .expect("request"),
+        )
+        .await;
+    assert_eq!(no_token.status, StatusCode::FORBIDDEN);
+
+    let wrong = owner.post(&transfers, &fields("12,00", "BVW-1")).await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch_with(
+        "reports-error-amount",
+        &[("due", &i18n::money(1300))],
+    ));
+    let no_reference = owner.post(&transfers, &fields("13,00", " ")).await;
+    assert_eq!(no_reference.status, StatusCode::UNPROCESSABLE_ENTITY);
+    no_reference.shows(&dutch("reports-error-reference"));
+
+    owner
+        .post(&transfers, &fields("13,00", "BVW-1"))
+        .await
+        .redirects_to(&format!(
+            "{detail_path}?van=2026-01-01&tot=2026-12-31&opgeslagen=1"
+        ));
+    let after = owner.get(&detail_path).await;
+    after.shows("BVW-1");
+    after.shows(&i18n::numeric_date(date(2026, 12, 7)));
+    after.shows(&dutch("reports-nothing-due"));
+
+    let again = owner.post(&transfers, &fields("13,00", "BVW-2")).await;
+    assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
+    again.shows(&dutch("reports-nothing-due"));
+    assert_eq!(
+        owner.get("/staff/reports/payouts/999999").await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_contribution_shows_what_the_bakery_covers(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let costs = "/staff/reports/contribution/costs";
+    let day = paid.day.get().to_string();
+
+    let page = owner.get("/staff/reports/contribution").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&i18n::money(107));
+    page.shows(&dutch_count("reports-unknown-fees", 1));
+    page.shows("Desembrood wit");
+
+    let wrong = owner
+        .post(
+            costs,
+            &[
+                ("bake_day_id", &day),
+                ("kind", "packaging"),
+                ("amount", "nul"),
+            ],
+        )
+        .await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch("reports-error-cost"));
+
+    owner
+        .post(
+            costs,
+            &[
+                ("bake_day_id", &day),
+                ("kind", "packaging"),
+                ("amount", "2,50"),
+                ("note", "zakken"),
+            ],
+        )
+        .await
+        .redirects_to("/staff/reports/contribution?van=2026-01-01&tot=2026-12-31&opgeslagen=1");
+    let after = owner.get("/staff/reports/contribution").await;
+    after.shows(&i18n::money(250));
+    after.shows(&i18n::money(357));
+    after.shows(&dutch_with(
+        "reports-per-euro",
+        &[("amount", &i18n::money(27))],
+    ));
 }

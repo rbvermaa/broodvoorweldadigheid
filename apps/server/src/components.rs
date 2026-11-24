@@ -193,3 +193,99 @@ pub struct Message {
     pub kind: &'static str,
     pub text: String,
 }
+
+/// A horizontal bar chart drawn as SVG on the server, each label above its bar so long
+/// Dutch names have the full width. Coordinates are in the SVG's own units; the
+/// stylesheet scales it to the page width.
+pub struct BarChart {
+    /// Unique on the page; the title gets the id `{id}-title`.
+    pub id: String,
+    pub caption: String,
+    pub height: u32,
+    pub bars: Vec<Bar>,
+}
+
+pub struct Bar {
+    pub label: String,
+    pub value: String,
+    /// Baseline of the label.
+    pub label_y: u32,
+    /// Top of the bar.
+    pub y: u32,
+    /// Baseline of the value text beside the bar.
+    pub value_y: u32,
+    pub width: u32,
+    pub value_x: u32,
+}
+
+impl BarChart {
+    const MAX_BAR: u32 = 480;
+    const ROW: u32 = 60;
+    const GAP: u32 = 8;
+
+    /// One bar per `(label, amount, value text)`. The longest bar is the largest amount;
+    /// a negative amount draws no bar.
+    pub fn new(
+        id: impl Into<String>,
+        caption: impl Into<String>,
+        items: Vec<(String, i64, String)>,
+    ) -> Self {
+        let max = items.iter().map(|(_, n, _)| *n).max().unwrap_or(0).max(1);
+        let bars = (0_u32..)
+            .zip(items)
+            .map(|(i, (label, amount, value))| {
+                let scaled =
+                    i128::from(amount.max(0)) * i128::from(Self::MAX_BAR) / i128::from(max);
+                let width = u32::try_from(scaled).unwrap_or(Self::MAX_BAR);
+                let top = i * Self::ROW;
+                Bar {
+                    label,
+                    value,
+                    label_y: top + 18,
+                    y: top + 26,
+                    value_y: top + 44,
+                    width,
+                    value_x: width + Self::GAP,
+                }
+            })
+            .collect::<Vec<_>>();
+        let rows = u32::try_from(bars.len()).unwrap_or(u32::MAX).max(1);
+        Self {
+            id: id.into(),
+            caption: caption.into(),
+            height: rows.saturating_mul(Self::ROW),
+            bars,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BarChart;
+
+    #[test]
+    fn bars_scale_to_the_largest_amount() {
+        let chart = BarChart::new(
+            "c",
+            "Giften",
+            vec![
+                ("jan".into(), 400, "€ 4".into()),
+                ("feb".into(), 100, "€ 1".into()),
+                ("mrt".into(), -50, "€ -0,50".into()),
+            ],
+        );
+        let widths: Vec<u32> = chart.bars.iter().map(|b| b.width).collect();
+        assert_eq!(widths, [480, 120, 0]);
+        assert_eq!(chart.height, 180);
+        let second = &chart.bars[1];
+        assert_eq!((second.label_y, second.y, second.value_y), (78, 86, 104));
+        assert_eq!(chart.bars[0].value_x, 488);
+    }
+
+    #[test]
+    fn an_empty_chart_keeps_one_row() {
+        let chart = BarChart::new("c", "Giften", Vec::new());
+        assert!(chart.bars.is_empty());
+        assert_eq!(chart.height, 60);
+    }
+}

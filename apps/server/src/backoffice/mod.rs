@@ -1,7 +1,8 @@
 //! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
-//! extra production, orders, and the production and pickup lists. Every handler takes
-//! [`Staff`] and checks a permission (ADR 0010). Forms post normally and redirect with
-//! `?opgeslagen=1`; htmx only adds inline checks and partial updates on top (ADR 0019).
+//! extra production, orders, the production and pickup lists, and the reports. Every
+//! handler takes [`Staff`] and checks a permission (ADR 0010). Forms post normally and
+//! redirect with `?opgeslagen=1`; htmx only adds inline checks and partial updates on top
+//! (ADR 0019).
 
 pub mod bake_days;
 pub mod charities;
@@ -10,7 +11,9 @@ pub mod form;
 pub mod lists;
 pub mod locations;
 pub mod orders;
+pub mod payouts;
 pub mod products;
+pub mod reports;
 pub mod sick_day;
 
 use std::fmt::Display;
@@ -147,6 +150,33 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/bake-days/{id}/pickup-list/{order}/undo",
             post(lists::undo),
+        )
+        .route("/staff/reports", get(reports::index))
+        .route("/staff/reports/sales", get(reports::sales_page))
+        .route("/staff/reports/sales.csv", get(reports::sales_csv))
+        .route(
+            "/staff/reports/pay-what-you-want.csv",
+            get(reports::pay_what_you_want_csv),
+        )
+        .route("/staff/reports/donations", get(reports::donations_page))
+        .route(
+            "/staff/reports/donations/drops.csv",
+            get(reports::donation_drops_csv),
+        )
+        .route(
+            "/staff/reports/donations/charities.csv",
+            get(reports::donation_charities_csv),
+        )
+        .route(
+            "/staff/reports/contribution",
+            get(reports::contribution_page),
+        )
+        .route("/staff/reports/contribution/costs", post(reports::add_cost))
+        .route("/staff/reports/payouts", get(payouts::list))
+        .route("/staff/reports/payouts/{id}", get(payouts::detail))
+        .route(
+            "/staff/reports/payouts/{id}/transfers",
+            post(payouts::record),
         )
         .route("/staff/orders", get(orders::days_list))
         .route("/staff/bake-days/{id}/orders", get(orders::list))
