@@ -87,7 +87,7 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **On-account orders on charity drops.** Do they create a donation allocation
   (F4b says they pay the suggested price), and when: at confirmation or once invoiced?
 - [ ] **Confirmation email for orders on account.** F9 sends an order confirmation, but order
-  emails go out on payment (ADR 0022) and orders on account have none (ADR 0031). Send one
+  emails go out on payment (ADR 0022) and orders on account have none (ADR 0032). Send one
   when staff place the order, to the contact email or the invoice email?
 - [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
   commercially without Niimbot's consent).
