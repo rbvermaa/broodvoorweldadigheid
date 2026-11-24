@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, coalesce(p.lead_time_hours, c.default_lead_time_hours) AS \"hours!\"\n        FROM product p CROSS JOIN company c WHERE p.id = ANY($1) ORDER BY p.id",
+  "query": "SELECT id, lead_time_hours AS \"hours!\" FROM product\n        WHERE id = ANY($1) AND lead_time_hours IS NOT NULL ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -18,7 +18,12 @@
         "ordinal": 1,
         "name": "hours!",
         "type_info": "Int4",
-        "origin": "Expression"
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "lead_time_hours"
+          }
+        }
       }
     ],
     "parameters": {
@@ -28,8 +33,8 @@
     },
     "nullable": [
       false,
-      null
+      true
     ]
   },
-  "hash": "eb1e21854e16c971705468914992e3cc9459e31b136e9d0590bbde3bd2fccc38"
+  "hash": "23797ea95f6433f020c3a1c803ce7429e40a2738d5a01a9acc77bdfa84a17efe"
 }

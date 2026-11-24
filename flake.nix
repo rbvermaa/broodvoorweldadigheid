@@ -61,6 +61,7 @@
               ./templates
               ./typst
               ./apps/server/tests/snapshots
+              ./crates/notify/tests/snapshots
             ];
           };
           commonArgs = {

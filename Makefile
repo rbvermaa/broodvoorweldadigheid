@@ -11,6 +11,7 @@
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
+#   MOLLIE_TEST_API_KEY_FILE=path make mollie-contract   contract test against Mollie test mode
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
@@ -33,7 +34,7 @@ endif
 NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
-IMAGES := server postgres kanidm caddy backup
+IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
@@ -61,11 +62,11 @@ BVW_IMAGE_TAG ?= dev
 BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
 export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
-COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
+COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke
+	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -119,6 +120,10 @@ sqlx-check: ## Check .sqlx/ matches the queries and migrations
 
 restore-test: ## Back up a seeded database, restore it and verify (Gate 1)
 	$(call CHECK,restore)
+
+mollie-contract: ## Contract test against Mollie test mode (needs MOLLIE_TEST_API_KEY_FILE)
+	@test -n "$$MOLLIE_TEST_API_KEY_FILE" || { echo "Set MOLLIE_TEST_API_KEY_FILE to a file holding a Mollie test_ key" >&2; exit 1; }
+	$(NIX_DEV) cargo nextest run --package payments --test mollie_contract --no-capture
 
 server: ## Build the server binary
 	nix build --print-build-logs .\#server

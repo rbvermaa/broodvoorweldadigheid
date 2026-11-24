@@ -6,3 +6,20 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+askama.workspace = true
+db = { path = "../db" }
+domain = { path = "../domain" }
+i18n = { path = "../i18n" }
+jiff.workspace = true
+lettre.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+testkit = { path = "../testkit", features = ["email"] }
+tokio = { workspace = true, features = ["sync"] }
