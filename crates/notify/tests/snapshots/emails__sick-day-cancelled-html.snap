@@ -1,0 +1,35 @@
+---
+source: crates/notify/tests/emails.rs
+expression: email.html
+---
+
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>De drop van zaterdag 5 december 2026 gaat niet door</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f5f5f5; color: #000000; font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 16px; line-height: 1.5;">
+<table role="presentation" style="background: #f5f5f5;" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding: 24px 12px;" align="center">
+<table role="presentation" style="max-width: 768px; border: 1px solid #e5e5e5; border-collapse: collapse; background: #ffffff;" width="100%" cellpadding="0" cellspacing="0">
+<tr><td style="padding: 24px 24px 16px; border-bottom: 2px solid #000000; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; text-transform: uppercase;">Brood voor Weldadigheid<br><span style="font-family: 'Inter', system-ui, 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif; font-size: 14px; font-weight: 400; text-transform: none;">#payitforward</span></td></tr>
+<tr><td style="padding: 24px;">
+<h1 style="margin: 0 0 16px; color: #000000; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2;">Helaas, deze drop gaat niet door</h1>
+<p style="margin: 0 0 16px;">Hoi Sanne,</p>
+<p style="margin: 0 0 16px;">De drop van zaterdag 5 december 2026 gaat niet door, dus we hebben je bestelling 2026-0042 geannuleerd. Dit is het bericht van de bakker:</p>
+<blockquote style="margin: 0 0 16px; padding: 12px 16px; border-left: 2px solid #000000; background: #f5f5f5;">Ik ben ziek, dus de oven blijft koud.<br>Volgende week ben ik er weer!</blockquote>
+<p style="margin: 0 0 16px;">We storten € 32,75 terug. Het kan een paar werkdagen duren voor het op je rekening staat.</p>
+<p style="margin: 0 0 16px;">Sorry voor het ongemak. Hopelijk tot de volgende drop!</p>
+<p style="margin: 0 0 16px;">Groetjes van de bakker</p>
+</td></tr>
+<tr><td style="padding: 16px 24px; border-top: 1px solid #e5e5e5; color: #525252; font-size: 14px;">
+<p style="margin: 0 0 8px;">Brood voor Weldadigheid · Majoor van Swietenlaan 15, 8382 CE Frederiksoord · KvK 12345678</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

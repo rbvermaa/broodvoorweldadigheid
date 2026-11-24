@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,\n            list_unsubscribe, next_attempt_at, created_at)\n        VALUES ($1, $2, $3, $4, $5, $6, $7,\n            timestamptz 'epoch' + $8::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $8::bigint * interval '1 microsecond')\n        ON CONFLICT (dedupe_key) DO NOTHING\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1bd251398cae4e15c148d127fa7dd72e04c60e678f7401b4d1b232ea019bca25"
+}
