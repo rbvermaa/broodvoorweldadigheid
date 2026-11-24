@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use i18n::{Amsterdam, long_date, money, short_date, time, time_range};
 use jiff::Timestamp;
 use jiff::civil::{date, time as t};
