@@ -290,16 +290,22 @@ fn template_problems(source: &str) -> Vec<String> {
     for (needle, problem) in [
         ("style=", "style attribute"),
         ("<style", "<style> element"),
-        ("|safe", "|safe filter"),
-        ("| safe", "|safe filter"),
-        ("filter safe", "safe filter block"),
-        ("escape(\"none\")", "escaping turned off"),
-        ("|e(\"none\")", "escaping turned off"),
         ("hx-on", "inline htmx handler"),
         ("javascript:", "javascript: URL"),
         (" class='", "class must use double quotes"),
     ] {
         if text.contains(needle) {
+            problems.push(problem.to_owned());
+        }
+    }
+    let dense: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    for (needle, problem) in [
+        ("|safe", "|safe filter"),
+        ("filtersafe", "safe filter block"),
+        ("|escape(\"none\")", "escaping turned off"),
+        ("|e(\"none\")", "escaping turned off"),
+    ] {
+        if dense.contains(needle) {
             problems.push(problem.to_owned());
         }
     }
@@ -714,6 +720,9 @@ fn template_checker_catches_planted_violations() {
         "<button hx-on:click=\"y\">",
         "<a href=\"javascript:x()\">",
         "{{ text|escape(\"none\") }}",
+        "{{ text | e(\"none\") }}",
+        "{{ text | escape ( \"none\" ) }}",
+        "{{ text | safe }}",
         "{% filter safe %}x{% endfilter %}",
         "<p class='a'>",
         "<p class=a>",
