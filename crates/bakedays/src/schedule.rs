@@ -253,6 +253,10 @@ mod tests {
             warning("2026-03-29T18:00:00Z", date(2026, 3, 31), &[]),
             None
         );
+        assert_eq!(
+            warning("2026-03-29T18:01:00Z", date(2026, 3, 31), &[]),
+            sourdough_warning("2026-03-29T18:01:00Z", "2026-03-29T18:00:00Z")
+        );
         let gap = SourdoughDeadline {
             days_before: 0,
             at: time(2, 30, 0, 0),
@@ -264,6 +268,23 @@ mod tests {
                 .unwrap()
                 .map(|w| w.latest_cutoff),
             Some(ts("2026-03-29T01:30:00Z"))
+        );
+        // 02:30 on 25 October happens twice; the earlier (summer-time) instant is the limit.
+        let overlap = SourdoughDeadline {
+            days_before: 0,
+            at: time(2, 30, 0, 0),
+        };
+        assert_eq!(
+            lead_time_warning(
+                Some(ts("2026-10-25T00:31:00Z")),
+                date(2026, 10, 25),
+                ts("2026-10-25T04:00:00Z"),
+                overlap,
+                &[]
+            )
+            .unwrap()
+            .map(|w| w.latest_cutoff),
+            Some(ts("2026-10-25T00:30:00Z"))
         );
     }
 
