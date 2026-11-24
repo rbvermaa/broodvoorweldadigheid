@@ -538,4 +538,13 @@ async fn two_tabs_with_different_messages_both_arrive(pool: PgPool) {
     assert_eq!(submit(&site, &first, &other).await.status, StatusCode::OK);
     assert_eq!(submit(&site, &first, &other).await.status, StatusCode::OK);
     assert_eq!(queued(&site.pool).await.len(), 2);
+
+    get(&site.app, "/contact", Some(&first.cookie)).await;
+    wait(&site);
+    assert_eq!(submit(&site, &first, &GOOD).await.status, StatusCode::OK);
+    assert_eq!(
+        queued(&site.pool).await.len(),
+        2,
+        "a retry after another form view"
+    );
 }

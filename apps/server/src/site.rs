@@ -205,7 +205,7 @@ async fn send(
             errors,
         );
     }
-    let dedupe_key = shown.map(|shown| submission_key(&session, shown, &form));
+    let dedupe_key = submission_key(&session, &form);
     if let Err(error) = queue(&state, clock.as_ref(), &form, dedupe_key.as_deref()).await {
         tracing::error!(%error, "contact form: message not queued");
         return pages::error(&state, StatusCode::INTERNAL_SERVER_ERROR);
@@ -279,15 +279,14 @@ fn validate(state: &AppState, form: &ContactForm) -> Errors {
     errors
 }
 
-/// The same message from the same shown form gets the same key, so a double submit queues
-/// one email. Hashed, because the session id is a credential. Fields are length-prefixed
+/// The same message from the same session gets the same key, so a double submit or a
+/// retry queues one email. Hashed, because the session id is a credential. Fields are length-prefixed
 /// so no two different messages share an input.
-fn submission_key(session: &Session, shown: i64, form: &ContactForm) -> String {
-    let id = session.id().map(|id| id.to_string()).unwrap_or_default();
+fn submission_key(session: &Session, form: &ContactForm) -> Option<String> {
+    let id = session.id()?.to_string();
     let mut hasher = Sha256::new();
     for part in [
         id.as_str(),
-        &shown.to_string(),
         form.name.trim(),
         form.email.trim(),
         form.message.trim(),
@@ -297,7 +296,7 @@ fn submission_key(session: &Session, shown: i64, form: &ContactForm) -> String {
     }
     let digest = hasher.finalize();
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("contact:{hex}")
+    Some(format!("contact:{hex}"))
 }
 
 fn text(state: &AppState, id: &str) -> String {
