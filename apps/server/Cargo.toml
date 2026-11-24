@@ -12,6 +12,8 @@ ai = { path = "../../crates/ai", optional = true }
 axum.workspace = true
 clap.workspace = true
 db = { path = "../../crates/db" }
+domain = { path = "../../crates/domain" }
+jiff.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

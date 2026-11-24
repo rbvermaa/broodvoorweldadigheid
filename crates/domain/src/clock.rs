@@ -1,8 +1,7 @@
 use jiff::tz::TimeZone;
 use jiff::{Timestamp, Zoned};
 
-/// Compiled in from jiff's bundled tz database, so the result does not depend on
-/// the zoneinfo files of the host, the build sandbox or the container image.
+/// Compiled in from jiff-tzdb (ADR 0004).
 static BAKERY_TIME_ZONE: TimeZone = jiff::tz::get!("Europe/Amsterdam");
 
 /// The bakery's time zone, [`crate::TIME_ZONE`].
@@ -16,22 +15,12 @@ pub fn in_bakery_time(timestamp: Timestamp) -> Zoned {
     timestamp.to_zoned(bakery_time_zone())
 }
 
-/// The source of "now". Domain code takes a clock instead of reading the system
-/// time, so tests can control it.
+/// The source of "now". Domain code never reads the system time itself.
 pub trait Clock: Send + Sync {
     fn now(&self) -> Timestamp;
 
     fn now_in_bakery(&self) -> Zoned {
         in_bakery_time(self.now())
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> Timestamp {
-        Timestamp::now()
     }
 }
 
@@ -105,17 +94,5 @@ mod tests {
         assert_eq!(hours("2026-03-29"), 23);
         assert_eq!(hours("2026-10-25"), 25);
         assert_eq!(hours("2026-10-24"), 24);
-    }
-
-    #[test]
-    fn system_clock_reads_the_current_time() {
-        let before = Timestamp::now();
-        let now = SystemClock.now();
-        let after = Timestamp::now();
-        assert!(before <= now && now <= after);
-        assert_eq!(
-            SystemClock.now_in_bakery().time_zone().iana_name(),
-            Some(TIME_ZONE)
-        );
     }
 }

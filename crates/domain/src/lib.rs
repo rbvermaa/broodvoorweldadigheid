@@ -9,7 +9,7 @@ mod totals;
 mod vat;
 
 pub use allergen::{Allergen, UnknownAllergen};
-pub use clock::{Clock, SystemClock, bakery_time_zone, in_bakery_time};
+pub use clock::{Clock, bakery_time_zone, in_bakery_time};
 pub use ids::{
     BakeDayId, BusinessAccountId, CapacityPoolId, CharityId, CustomerId, DonationAllocationId,
     OrderId, OrderLineId, PaymentId, PickupLocationId, PickupSlotId, PickupWindowId, ProductId,
@@ -21,13 +21,3 @@ pub use totals::{Line, RateTotal, VatTotals};
 pub use vat::{UnknownVatRate, VatRate};
 
 pub const TIME_ZONE: &str = "Europe/Amsterdam";
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bakery_time_zone_is_amsterdam() {
-        assert_eq!(TIME_ZONE, "Europe/Amsterdam");
-    }
-}

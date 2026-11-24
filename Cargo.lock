@@ -1349,6 +1349,8 @@ dependencies = [
  "axum",
  "clap",
  "db",
+ "domain",
+ "jiff",
  "serde",
  "serde_json",
  "sqlx",
