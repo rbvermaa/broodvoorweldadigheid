@@ -302,7 +302,8 @@ fn template_problems(source: &str) -> Vec<String> {
     for (needle, problem) in [
         ("|safe", "|safe filter"),
         ("filtersafe", "safe filter block"),
-        ("|escape(\"none\")", "escaping turned off"),
+        ("escape(\"none\")", "escaping turned off"),
+        ("filtere(\"none\")", "escaping turned off"),
         ("|e(\"none\")", "escaping turned off"),
     ] {
         if dense.contains(needle) {
@@ -723,6 +724,8 @@ fn template_checker_catches_planted_violations() {
         "{{ text | e(\"none\") }}",
         "{{ text | escape ( \"none\" ) }}",
         "{{ text | safe }}",
+        "{% filter escape(\"none\") %}x{% endfilter %}",
+        "{% filter e(\"none\") %}x{% endfilter %}",
         "{% filter safe %}x{% endfilter %}",
         "<p class='a'>",
         "<p class=a>",
