@@ -39,6 +39,8 @@ services:
   server:
     image: bvw-server:${BVW_IMAGE_TAG:-dev}
     restart: unless-stopped
+    environment:
+      TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:

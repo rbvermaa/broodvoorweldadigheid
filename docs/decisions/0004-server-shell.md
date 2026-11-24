@@ -1,0 +1,14 @@
+# 0004 Server shell: assets, sessions, CSRF and rate limits
+
+Status: accepted, 2026-11-24
+
+| Choice | Why |
+|---|---|
+| htmx comes from `nix/htmx.nix` (`fetchurl` of the GitHub release, pinned by hash) and is embedded with `include_str!(env!("HTMX_JS"))` | No minified third-party JS in the repository, no CDN at runtime. nixpkgs has no htmx package. Building outside Nix fails with a clear message |
+| htmx runs with `includeIndicatorStyles`, `allowEval` and `allowScriptTags` off; app.css carries the indicator styles | The CSP allows no inline styles or eval |
+| Static files at `/static/NAME?v=HASH` (16 hex digits of SHA-256). A matching `v` gets `immutable` caching for a year; anything else gets `no-cache` with the ETag | A deploy changes the URL, so long caching is safe; old or bare URLs still revalidate |
+| The session table `http_session` is created by a migration in `crates/db/migrations`; `PostgresStore::migrate` is never called | `db::MIGRATOR` stays the only place that changes the schema. Expired rows are deleted hourly by the server |
+| Own CSRF check: a 32-byte random token per session, compared in constant time, sent as `X-CSRF-Token` (HTMX, via app.js) or a urlencoded `_csrf` field | A few dozen lines instead of another dependency. Multipart forms must send the header |
+| The rate limiter keys on the TCP peer address, and on the last `X-Forwarded-For` entry only when the peer is `TRUSTED_PROXY` (Caddy's fixed address in compose) | Caddy appends the address it saw as the last entry; earlier entries come from the client and can be forged |
+| `COOKIE_SECURE=false` turns off the Secure flag | Only for local runs over plain http; it defaults to on |
+| CSP `form-action 'self'` | Mollie's checkout host must be added once checkout redirects there |
