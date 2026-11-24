@@ -130,6 +130,38 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_pickup_slots_is_refused_and_the_rest_still_opens(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let good = day_opening_at(&mut conn, &saturday(), "2026-10-26T08:00:00Z").await;
+    let friday = days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: "2026-10-30".parse().unwrap(),
+            bake_starts_at: ts("2026-10-30T03:00:00Z"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE bake_day SET online_ordering = true, opens_at = '2026-10-26T08:00:00Z',
+            cutoff_at = '2026-10-28T19:00:00Z' WHERE id = $1",
+    )
+    .bind(friday.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let clock = FakeClock::new(ts("2026-10-26T09:00:00Z"));
+    let report = tick(&mut conn, &clock).await.unwrap();
+    assert_eq!(report.opened, [good.id]);
+    assert_eq!(report.refused, [friday.id]);
+    assert_eq!(status(&mut conn, &good).await, BakeDayStatus::Open);
+    assert_eq!(status(&mut conn, &friday).await, BakeDayStatus::Draft);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn cancelled_days_are_left_alone(mut conn: PoolConnection<Postgres>) {
     let day = day_opening_at(&mut conn, &saturday(), "2026-10-26T08:00:00Z").await;
     let clock = FakeClock::new(ts("2026-10-25T12:00:00Z"));

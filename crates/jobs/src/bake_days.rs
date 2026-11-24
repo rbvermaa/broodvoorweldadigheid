@@ -32,7 +32,8 @@ impl Clock for Frozen {
 /// moved no longer matches. A refused transition is reported and does not stop the rest.
 ///
 /// # Errors
-/// [`Error::Db`], or [`Error::BakeDays`] for anything but a refused transition.
+/// [`Error::Db`], or [`Error::BakeDays`] for anything but a refused transition or a day
+/// without pickup slots.
 pub async fn tick(conn: &mut PgConnection, clock: &dyn Clock) -> Result<TickReport, Error> {
     let clock = Frozen(clock.now());
     let now = to_micros(clock.0);
@@ -79,6 +80,13 @@ fn record(
         Ok(_) => done.push(id),
         Err(bakedays::Error::Transition(reason)) => {
             tracing::warn!(bake_day = id.get(), %reason, "bake day transition refused");
+            refused.push(id);
+        }
+        Err(bakedays::Error::NoPickupSlot) => {
+            tracing::warn!(
+                bake_day = id.get(),
+                "bake day has no pickup slot; not opened"
+            );
             refused.push(id);
         }
         Err(err) => return Err(err.into()),
