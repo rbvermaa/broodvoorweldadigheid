@@ -4,6 +4,8 @@ CREATE TABLE refund (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     payment_id bigint NOT NULL REFERENCES payment (id),
     amount_cents bigint NOT NULL CHECK (amount_cents > 0),
+    -- What was refunded or owed back on the payment before this refund.
+    refunded_before_cents bigint NOT NULL DEFAULT 0 CHECK (refunded_before_cents >= 0),
     status text NOT NULL CHECK (status IN ('requested', 'done', 'failed')),
     provider_refund_id text UNIQUE CHECK (provider_refund_id <> ''),
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -47,3 +49,15 @@ CREATE TRIGGER refund_no_delete BEFORE DELETE ON refund
     FOR EACH ROW EXECUTE FUNCTION refuse_row_change();
 CREATE TRIGGER refund_no_truncate BEFORE TRUNCATE ON refund
     FOR EACH STATEMENT EXECUTE FUNCTION refuse_row_change();
+
+-- What is refunded or owed back on a payment: the most any refund row says (what was
+-- refunded before it plus its own amount, whatever its status) or what the provider
+-- reported, never more than was paid.
+CREATE FUNCTION payment_refunded_cents(payment bigint) RETURNS bigint
+LANGUAGE sql STABLE AS $$
+    SELECT LEAST(p.amount_cents, GREATEST(p.refunded_cents,
+        COALESCE(max(r.refunded_before_cents + r.amount_cents), 0)))::bigint
+    FROM payment p LEFT JOIN refund r ON r.payment_id = p.id
+    WHERE p.id = payment
+    GROUP BY p.id
+$$;

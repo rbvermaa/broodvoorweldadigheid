@@ -188,22 +188,19 @@ async fn order_lines(
 }
 
 /// Per order: refunds on accepted payments, known fees, and whether a fee is missing. A
-/// payment's refund is the larger of what the provider reported and its refund rows, in
-/// any status (ADR 0026).
+/// payment's refund is `payment_refunded_cents`: its refund rows in any status plus what
+/// the provider reports beyond them (ADR 0026).
 pub(crate) async fn payments(
     conn: &mut PgConnection,
     ids: &[i64],
 ) -> Result<HashMap<i64, (Money, Money, bool)>, Error> {
     let rows = sqlx::query!(
         r#"SELECT order_id,
-            COALESCE(SUM(GREATEST(refunded_cents, COALESCE(r.requested, 0)))
-                FILTER (WHERE NOT refund_due), 0)::bigint AS "refunded!",
+            COALESCE(SUM(payment_refunded_cents(id)) FILTER (WHERE NOT refund_due), 0)::bigint
+                AS "refunded!",
             COALESCE(SUM(fee_cents), 0)::bigint AS "fees!",
             COUNT(*) FILTER (WHERE fee_cents IS NULL) AS "fees_missing!"
         FROM payment
-        LEFT JOIN (
-            SELECT payment_id, SUM(amount_cents) AS requested FROM refund GROUP BY payment_id
-        ) r ON r.payment_id = payment.id
         WHERE order_id = ANY($1) AND status = 'paid'
         GROUP BY order_id"#,
         ids,

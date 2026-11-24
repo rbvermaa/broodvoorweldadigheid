@@ -1,5 +1,6 @@
 {% extends "staff/layout.html" %}
 {% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
 {% import "components/table.html" as tb %}
@@ -16,16 +17,14 @@
 <dt>{{ term }}</dt><dd>{{ value }}</dd>
 {%- endfor %}
 </dl>
-{% if cancelled %}
 {% if !invoiced.is_empty() %}{% call fb::alert("warning", invoiced) %}{% endcall %}{% endif %}
+{% if cancelled %}
 {% if refunds.rows.is_empty() %}
 <p>{{ layout.t("staff-sick-day-all-done")? }}</p>
 {% else %}
 {% call tb::table(refunds) %}{% endcall %}
-<form method="post" action="{{ action }}">
-{% call s::csrf() %}{% endcall %}
-{% call b::button(layout.t("staff-sick-day-retry")?, kind = "submit") %}{% endcall %}
-</form>
+{% call b::button(layout.t("staff-sick-day-retry")?, opens = "retry") %}{% endcall %}
+{% call d::confirm_dialog("retry", layout.t("staff-sick-day-retry")?, layout.t("staff-sick-day-retry-text")?, layout.t("staff-sick-day-retry")?, action) %}{% endcall %}
 {% endif %}
 {% else %}
 {% call fb::alert("warning", layout.t("staff-sick-day-warning")?) %}{% endcall %}

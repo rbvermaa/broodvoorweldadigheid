@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO refund (payment_id, amount_cents, refunded_before_cents, status,\n            requested_by, requested_at, updated_at)\n        SELECT p.id, p.amount_cents - payment_refunded_cents(p.id), payment_refunded_cents(p.id),\n            'requested', $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        FROM payment p\n        WHERE p.order_id = $1 AND p.status = 'paid' AND NOT p.refund_due\n            AND p.amount_cents > payment_refunded_cents(p.id)\n        ORDER BY p.id\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "refund",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5224861ffaec7a9a650a0bbef2ca132a291f5107674788e60bb131b0f965813d"
+}

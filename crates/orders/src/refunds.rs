@@ -179,16 +179,14 @@ async fn request_refunds(
     now: Timestamp,
 ) -> Result<Vec<RefundId>, Error> {
     let ids = sqlx::query_scalar!(
-        r#"INSERT INTO refund (payment_id, amount_cents, status, requested_by, requested_at,
-            updated_at)
-        SELECT p.id, p.amount_cents - GREATEST(p.refunded_cents, COALESCE(
-                (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0)),
+        r#"INSERT INTO refund (payment_id, amount_cents, refunded_before_cents, status,
+            requested_by, requested_at, updated_at)
+        SELECT p.id, p.amount_cents - payment_refunded_cents(p.id), payment_refunded_cents(p.id),
             'requested', $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond',
             timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
         FROM payment p
         WHERE p.order_id = $1 AND p.status = 'paid' AND NOT p.refund_due
-            AND p.amount_cents > GREATEST(p.refunded_cents, COALESCE(
-                (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0))
+            AND p.amount_cents > payment_refunded_cents(p.id)
         ORDER BY p.id
         RETURNING id"#,
         order.get(),
@@ -329,9 +327,9 @@ async fn invoiced(conn: &mut PgConnection, id: OrderId) -> Result<bool, Error> {
 }
 
 /// Sends one refund to the provider, holding its row `FOR UPDATE`, so two calls never send
-/// it twice. A done refund is returned as it is. Before a retry the payment is read from
-/// the provider: when it already shows the refund, the row is marked done without a new
-/// call. The idempotency key is `refund-<id>-<attempt>`. Each outcome writes an audit entry
+/// it twice. A done refund is returned as it is. Before every call the payment is read
+/// from the provider: when it already shows the refund, the row is marked done without a
+/// new call, and when it cannot be read nothing is sent and the attempt fails. The idempotency key is `refund-<id>-<attempt>`. Each outcome writes an audit entry
 /// on the order. `description` is what the customer sees on the refund.
 ///
 /// # Errors
@@ -345,6 +343,11 @@ pub async fn issue(
     description: &str,
 ) -> Result<Refund, Error> {
     let mut tx = conn.begin().await?;
+    // The row stays locked during the provider call; a server-wide idle timeout must not
+    // end the session after the provider accepted the refund.
+    sqlx::query!("SET LOCAL idle_in_transaction_session_timeout = 0")
+        .execute(&mut *tx)
+        .await?;
     let refund = get(&mut tx, id, true).await?;
     if refund.state == RefundState::Done {
         tx.commit().await?;
@@ -353,28 +356,12 @@ pub async fn issue(
     let attempt = refund.attempts + 1;
     let payment = ProviderPaymentId::new(refund.provider_payment_id.clone())
         .map_err(|e| Error::Corrupt(e.to_string()))?;
-    let outcome = if refund.attempts > 0 {
-        match already_refunded(&mut tx, provider, &refund, &payment).await? {
-            true => Ok(None),
-            false => send(provider, &refund, &payment, attempt, description).await,
-        }
-    } else {
-        send(provider, &refund, &payment, attempt, description).await
+    let outcome = match already_refunded(&mut tx, provider, &refund, &payment).await? {
+        Ok(true) => Ok(None),
+        Ok(false) => send(provider, &refund, &payment, attempt, description).await,
+        Err(error) => Err(error),
     };
-    let (state, provider_id, error) = match outcome {
-        Ok(None) => (RefundState::Done, refund.provider_refund_id.clone(), None),
-        Ok(Some((provider_id, RefundStatus::Failed | RefundStatus::Canceled))) => (
-            RefundState::Failed,
-            Some(provider_id),
-            Some("the provider failed the refund".to_owned()),
-        ),
-        Ok(Some((provider_id, _))) => (RefundState::Done, Some(provider_id), None),
-        Err(error) => (
-            RefundState::Failed,
-            refund.provider_refund_id.clone(),
-            Some(error),
-        ),
-    };
+    let (state, provider_id, error) = settle(&refund, outcome);
     let now = clock.now();
     sqlx::query!(
         "UPDATE refund SET status = $2, provider_refund_id = $3, attempts = $4, last_error = $5,
@@ -416,26 +403,48 @@ pub async fn issue(
     Ok(refund)
 }
 
-/// Whether the provider already refunded this refund: what it reports as refunded covers
-/// the payment's other done refunds plus this one.
+/// Whether the provider already refunded this refund: it reports at least what was
+/// refunded before this refund plus this refund.
 async fn already_refunded(
     conn: &mut PgConnection,
     provider: &dyn PaymentProvider,
     refund: &Refund,
     payment: &ProviderPaymentId,
-) -> Result<bool, Error> {
-    let Ok(snapshot) = provider.get_payment(payment).await else {
-        return Ok(false);
+) -> Result<Result<bool, String>, Error> {
+    let snapshot = match provider.get_payment(payment).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => return Ok(Err(error.to_string())),
     };
-    let others = sqlx::query_scalar!(
-        r#"SELECT COALESCE(sum(amount_cents), 0)::bigint AS "cents!" FROM refund
-        WHERE payment_id = $1 AND id <> $2 AND status = 'done'"#,
-        refund.payment_id.get(),
+    let before = sqlx::query_scalar!(
+        "SELECT refunded_before_cents FROM refund WHERE id = $1",
         refund.id.get(),
     )
     .fetch_one(conn)
     .await?;
-    Ok(snapshot.amount_refunded.cents() >= others + refund.amount.cents())
+    Ok(Ok(
+        snapshot.amount_refunded.cents() >= before + refund.amount.cents()
+    ))
+}
+
+type Settled = (RefundState, Option<String>, Option<String>);
+
+/// The refund's new status, provider id and error after an attempt: `Ok(None)` when the
+/// provider already showed the refund, `Ok(Some(..))` with what the provider answered.
+fn settle(refund: &Refund, outcome: Result<Option<(String, RefundStatus)>, String>) -> Settled {
+    match outcome {
+        Ok(None) => (RefundState::Done, refund.provider_refund_id.clone(), None),
+        Ok(Some((provider_id, RefundStatus::Failed | RefundStatus::Canceled))) => (
+            RefundState::Failed,
+            Some(provider_id),
+            Some("the provider failed the refund".to_owned()),
+        ),
+        Ok(Some((provider_id, _))) => (RefundState::Done, Some(provider_id), None),
+        Err(error) => (
+            RefundState::Failed,
+            refund.provider_refund_id.clone(),
+            Some(error),
+        ),
+    }
 }
 
 async fn send(
@@ -465,8 +474,8 @@ pub struct DayCancelled {
     pub message: String,
     /// Every order cancelled because of the day, with what goes back to its customer.
     pub orders: Vec<(OrderId, Option<Money>)>,
-    /// Invoiced on-account orders, left as they are.
-    pub invoiced: Vec<OrderNumber>,
+    /// Invoiced on-account orders, left as they are; their customers get the email too.
+    pub invoiced: Vec<(OrderId, OrderNumber)>,
     /// Refunds of the day's orders that still have to be sent.
     pub open_refunds: Vec<Refund>,
 }
@@ -508,11 +517,7 @@ pub async fn cancel_day(
                 return Err(Error::Invalid("cancel message"));
             }
             bakedays::days::cancel(&mut tx, clock, day, message)
-                .await
-                .map_err(|e| match e {
-                    bakedays::Error::Transition(_) => Error::DayFinal,
-                    other => other.into(),
-                })?
+                .await?
                 .cancel_message
                 .unwrap_or_default()
         }
@@ -531,7 +536,7 @@ pub async fn cancel_day(
     for id in ids.into_iter().map(OrderId::new) {
         let before = order::get(&mut tx, id).await?;
         if invoiced(&mut tx, id).await? {
-            invoiced_orders.push(before.number);
+            invoiced_orders.push((id, before.number));
             continue;
         }
         cancel_locked_with_refunds(&mut tx, &before, CancelReason::DayCancelled, actor, now)
@@ -585,8 +590,7 @@ pub struct DayPreview {
 pub async fn day_preview(conn: &mut PgConnection, day: BakeDayId) -> Result<DayPreview, Error> {
     let rows = sqlx::query!(
         r#"SELECT o.number_year, o.number_seq, o.manual_invoice_id IS NOT NULL AS "invoiced!",
-            COALESCE((SELECT sum(p.amount_cents - GREATEST(p.refunded_cents, COALESCE(
-                    (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0)))
+            COALESCE((SELECT sum(p.amount_cents - payment_refunded_cents(p.id))
                 FROM payment p
                 WHERE p.order_id = o.id AND p.status = 'paid' AND NOT p.refund_due), 0)::bigint
                 AS "refund!"
@@ -620,4 +624,67 @@ pub async fn day_preview(conn: &mut PgConnection, day: BakeDayId) -> Result<DayP
         }
     }
     Ok(preview)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refund(provider_refund_id: Option<&str>) -> Refund {
+        Refund {
+            id: RefundId::new(1),
+            payment_id: PaymentId::new(1),
+            provider_payment_id: "tr_1".to_owned(),
+            order_id: OrderId::new(1),
+            order_number: OrderNumber { year: 2026, seq: 1 },
+            amount: Money::from_cents(450),
+            state: RefundState::Failed,
+            provider_refund_id: provider_refund_id.map(str::to_owned),
+            attempts: 1,
+            last_error: None,
+            requested_by: "staff:1".to_owned(),
+            requested_at: Timestamp::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn states_round_trip_through_text() {
+        for state in RefundState::ALL {
+            assert_eq!(RefundState::parse(state.as_str()).unwrap(), state);
+        }
+        assert!(matches!(RefundState::parse("gone"), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn what_the_provider_answers_settles_the_refund() {
+        let earlier = refund(Some("re_1"));
+        assert_eq!(
+            settle(&earlier, Ok(None)),
+            (RefundState::Done, Some("re_1".to_owned()), None)
+        );
+        for status in [
+            RefundStatus::Queued,
+            RefundStatus::Pending,
+            RefundStatus::Processing,
+            RefundStatus::Refunded,
+        ] {
+            assert_eq!(
+                settle(&refund(None), Ok(Some(("re_2".to_owned(), status)))),
+                (RefundState::Done, Some("re_2".to_owned()), None)
+            );
+        }
+        for status in [RefundStatus::Failed, RefundStatus::Canceled] {
+            let (state, id, error) = settle(&refund(None), Ok(Some(("re_3".to_owned(), status))));
+            assert_eq!((state, id.as_deref()), (RefundState::Failed, Some("re_3")));
+            assert!(error.is_some());
+        }
+        assert_eq!(
+            settle(&earlier, Err("down".to_owned())),
+            (
+                RefundState::Failed,
+                Some("re_1".to_owned()),
+                Some("down".to_owned())
+            )
+        );
+    }
 }

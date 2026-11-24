@@ -79,8 +79,8 @@ pub fn refund_description(state: &AppState, number: OrderNumber) -> String {
     )
 }
 
-/// Sends `refunds` to the payment provider one by one; a provider error is kept on the
-/// refund for staff to retry.
+/// Sends `refunds` to the payment provider one by one. Runs after the cancel committed, so
+/// a failure is logged and kept on the refund for staff to retry, never shown as an error.
 pub async fn send_refunds(state: &AppState, refunds: &[Refund]) -> Step<()> {
     if refunds.is_empty() {
         return Ok(());
@@ -94,10 +94,15 @@ pub async fn send_refunds(state: &AppState, refunds: &[Refund]) -> Step<()> {
             refund.id,
             &refund_description(state, refund.order_number),
         )
-        .await
-        .map_err(|e| fail(state, &e))?;
-        if sent.state != RefundState::Done {
-            tracing::warn!(refund = refund.id.get(), error = ?sent.last_error, "refund not sent");
+        .await;
+        match sent {
+            Ok(sent) if sent.state == RefundState::Done => {}
+            Ok(sent) => {
+                tracing::warn!(refund = refund.id.get(), error = ?sent.last_error, "refund not sent");
+            }
+            Err(error) => {
+                tracing::error!(refund = refund.id.get(), %error, "refund not sent");
+            }
         }
     }
     Ok(())
@@ -727,11 +732,9 @@ pub async fn move_pickup(
                 .await;
                 match moved {
                     Ok(order) => {
-                        if order.pickup_slot_id != details.order.pickup_slot_id {
-                            order_emails::withdraw_reminder(&mut tx, order.id)
-                                .await
-                                .map_err(|e| fail(&state, &e))?;
-                        }
+                        order_emails::withdraw_reminder(&mut tx, order.id)
+                            .await
+                            .map_err(|e| fail(&state, &e))?;
                         tx.commit().await.map_err(|e| fail(&state, &e))?;
                         Ok(())
                     }

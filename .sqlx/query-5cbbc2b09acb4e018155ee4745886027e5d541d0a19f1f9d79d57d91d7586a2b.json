@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT order_id,\n            COALESCE(SUM(GREATEST(refunded_cents, COALESCE(r.requested, 0)))\n                FILTER (WHERE NOT refund_due), 0)::bigint AS \"refunded!\",\n            COALESCE(SUM(fee_cents), 0)::bigint AS \"fees!\",\n            COUNT(*) FILTER (WHERE fee_cents IS NULL) AS \"fees_missing!\"\n        FROM payment\n        LEFT JOIN (\n            SELECT payment_id, SUM(amount_cents) AS requested FROM refund GROUP BY payment_id\n        ) r ON r.payment_id = payment.id\n        WHERE order_id = ANY($1) AND status = 'paid'\n        GROUP BY order_id",
+  "query": "SELECT order_id,\n            COALESCE(SUM(payment_refunded_cents(id)) FILTER (WHERE NOT refund_due), 0)::bigint\n                AS \"refunded!\",\n            COALESCE(SUM(fee_cents), 0)::bigint AS \"fees!\",\n            COUNT(*) FILTER (WHERE fee_cents IS NULL) AS \"fees_missing!\"\n        FROM payment\n        WHERE order_id = ANY($1) AND status = 'paid'\n        GROUP BY order_id",
   "describe": {
     "columns": [
       {
@@ -45,5 +45,5 @@
       null
     ]
   },
-  "hash": "8773bfc97adde8ff58d149030ab5912f88b7fe87321af0fb74a7d010c491f16c"
+  "hash": "5cbbc2b09acb4e018155ee4745886027e5d541d0a19f1f9d79d57d91d7586a2b"
 }

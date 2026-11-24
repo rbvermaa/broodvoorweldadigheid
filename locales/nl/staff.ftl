@@ -356,5 +356,6 @@ staff-sick-day-error-done = Deze bakdag is al klaar, dus je kunt hem niet meer a
 staff-sick-day-cancelled = Deze bakdag is afgezegd. Alle bestellingen zijn geannuleerd en de klanten krijgen een mail.
 staff-sick-day-open-refunds = Terugbetalingen die nog niet gelukt zijn
 staff-sick-day-retry = Terugbetalingen opnieuw versturen
+staff-sick-day-retry-text = We vragen Mollie opnieuw om de terugbetalingen hierboven te versturen. Wat al verstuurd is, gaat niet nog een keer.
 staff-sick-day-all-done = Alle terugbetalingen zijn verstuurd naar Mollie.
-staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staan: { $numbers }. Pas de factuur zelf aan.
+staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staan: { $numbers }. De klant krijgt wel de mail. Pas de factuur zelf aan.

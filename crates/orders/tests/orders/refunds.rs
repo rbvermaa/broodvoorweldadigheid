@@ -357,7 +357,7 @@ async fn a_sick_day_cancels_every_order_and_is_safe_to_run_again(
     );
     assert_eq!(result.open_refunds.len(), 2);
     let invoiced = orders::order::get(&mut conn, invoiced).await.unwrap();
-    assert_eq!(result.invoiced, [invoiced.number]);
+    assert_eq!(result.invoiced, [(invoiced.id, invoiced.number)]);
     assert_eq!(invoiced.status, OrderStatus::Confirmed);
     for id in [first.id, second.id, pending.id] {
         let order = orders::order::get(&mut conn, id).await.unwrap();
@@ -457,4 +457,56 @@ async fn on_account_order(
         .unwrap();
     }
     order.id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_refund_after_an_earlier_one_takes_the_rest_and_is_not_mistaken_for_sent(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let mollie = FakePaymentProvider::new();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 2).await;
+    // Refunded 300 earlier in Mollie's dashboard, as the provider reported it.
+    mollie
+        .refund(&domain::RefundRequest {
+            payment: payment.clone(),
+            amount: Money::from_cents(300),
+            description: "Dashboard".into(),
+            idempotency_key: domain::IdempotencyKey::new("dashboard-1").unwrap(),
+        })
+        .await
+        .unwrap();
+    sqlx::query("UPDATE payment SET refunded_cents = 300 WHERE order_id = $1")
+        .bind(order.id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    let cancelled = cancel_paid(&mut conn, &clock, order.id, BAS).await.unwrap();
+    assert_eq!(cancelled.refunded(), Some(Money::from_cents(600)));
+    let refund = cancelled.refunds[0].id;
+    mollie.refuse_refunds(true);
+    assert_eq!(
+        send(&mut conn, &mollie, &clock, refund).await.state,
+        RefundState::Failed
+    );
+    mollie.refuse_refunds(false);
+    assert_eq!(
+        send(&mut conn, &mollie, &clock, refund).await.state,
+        RefundState::Done
+    );
+    assert_eq!(
+        mollie.refunds(&payment),
+        [Money::from_cents(300), Money::from_cents(600)]
+    );
+    let total: i64 =
+        sqlx::query_scalar("SELECT payment_refunded_cents(id) FROM payment WHERE order_id = $1")
+            .bind(order.id.get())
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+    assert_eq!(total, 900);
 }

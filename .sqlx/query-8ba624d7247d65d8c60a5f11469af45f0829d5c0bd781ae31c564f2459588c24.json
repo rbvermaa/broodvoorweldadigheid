@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT o.number_year, o.number_seq, o.manual_invoice_id IS NOT NULL AS \"invoiced!\",\n            COALESCE((SELECT sum(p.amount_cents - GREATEST(p.refunded_cents, COALESCE(\n                    (SELECT sum(r.amount_cents) FROM refund r WHERE r.payment_id = p.id), 0)))\n                FROM payment p\n                WHERE p.order_id = o.id AND p.status = 'paid' AND NOT p.refund_due), 0)::bigint\n                AS \"refund!\"\n        FROM \"order\" o\n        WHERE o.bake_day_id = $1 AND o.status IN ('pending_payment', 'paid', 'confirmed')\n        ORDER BY o.id",
+  "query": "SELECT o.number_year, o.number_seq, o.manual_invoice_id IS NOT NULL AS \"invoiced!\",\n            COALESCE((SELECT sum(p.amount_cents - payment_refunded_cents(p.id))\n                FROM payment p\n                WHERE p.order_id = o.id AND p.status = 'paid' AND NOT p.refund_due), 0)::bigint\n                AS \"refund!\"\n        FROM \"order\" o\n        WHERE o.bake_day_id = $1 AND o.status IN ('pending_payment', 'paid', 'confirmed')\n        ORDER BY o.id",
   "describe": {
     "columns": [
       {
@@ -50,5 +50,5 @@
       null
     ]
   },
-  "hash": "9a6ec84ddda9fb2d365ac3cfe5235e77e9c4aa2296f99335865f746b04bb3603"
+  "hash": "8ba624d7247d65d8c60a5f11469af45f0829d5c0bd781ae31c564f2459588c24"
 }
