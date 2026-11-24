@@ -90,6 +90,7 @@ pub fn router(state: AppState) -> Router {
 /// CSRF checks inside a session layer.
 fn sessioned(routes: Router<AppState>, state: &AppState) -> Router<AppState> {
     routes
+        .layer(middleware::from_fn(pages::header_login))
         .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
         .layer(session::layer(state.pool.clone(), &state.config))
 }

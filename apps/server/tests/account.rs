@@ -558,3 +558,20 @@ async fn the_login_mail_expires_with_its_link(pool: PgPool) {
     .unwrap();
     assert!(expires);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_site_header_links_to_login_or_my_orders(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    let app = app(&pool).await;
+    let guest = get(&app, "/faq", None).await;
+    assert!(guest.body.contains("<a href=\"/inloggen\">"), "{}", guest.body);
+    assert!(!guest.body.contains("<a href=\"/mijn-bestellingen\">"));
+
+    let cookie = signed_in(&app, &pool).await;
+    let page = get(&app, "/faq", Some(&cookie)).await;
+    assert!(page.body.contains(&format!(
+        "<a href=\"/mijn-bestellingen\">{}</a>",
+        dutch("site-nav-orders")
+    )));
+    assert!(!page.body.contains("<a href=\"/inloggen\">"));
+}
