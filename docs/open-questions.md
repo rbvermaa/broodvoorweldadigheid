@@ -33,3 +33,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
+  balance transactions, which need an organization access token with `balances.read`,
+  not the website API key (ADR 0013). OK to add that token to the sops secrets?
