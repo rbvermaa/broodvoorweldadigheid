@@ -382,6 +382,24 @@ pub async fn availability(
         .collect())
 }
 
+/// Checks that an order of `request` pieces still fits the day's capacity, counting its
+/// lines together. Call it only after [`lock_capacity`] for the same products, in the
+/// same transaction; `orders` is read here, after the locks (ADR 0008).
+///
+/// # Errors
+/// [`Error::CapacityExceeded`] for the first product that does not fit, or
+/// [`Error::Db`] / [`Error::Corrupt`].
+pub async fn check_order(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+    orders: &impl OrderSource,
+    request: &[(ProductId, u32)],
+) -> Result<(), Error> {
+    let (capacity, _) = load_capacity(conn, day, orders, None).await?;
+    capacity.check_all(request)?;
+    Ok(())
+}
+
 /// Sold out: the range is not empty and nothing is left of any product (F1a).
 #[must_use]
 pub fn sold_out(availability: &[Availability]) -> bool {
