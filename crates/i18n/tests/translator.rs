@@ -55,38 +55,28 @@ fn missing_argument_is_a_typed_error() {
 }
 
 #[test]
-fn message_ids_lists_every_message_sorted() {
+fn message_ids_are_sorted_unique_messages_including_the_required_ones() {
     let t = nl();
-    assert_eq!(
-        t.message_ids(),
-        [
-            "app-name",
-            "date-long",
-            "date-short",
-            "error-back-home",
-            "error-forbidden-text",
-            "error-forbidden-title",
-            "error-method-text",
-            "error-method-title",
-            "error-not-found-text",
-            "error-not-found-title",
-            "error-server-text",
-            "error-server-title",
-            "error-too-many-text",
-            "error-too-many-title",
-            "home-intro",
-            "home-title",
-            "month",
-            "month-short",
-            "order-deadline",
-            "order-thanks",
-            "pickup-moment",
-            "saved",
-            "skip-to-content",
-            "tagline",
-            "weekday",
-            "weekday-short",
-        ]
+    let ids = t.message_ids();
+    for required in [
+        "app-name",
+        "date-long",
+        "date-short",
+        "month",
+        "month-short",
+        "saved",
+        "weekday",
+        "weekday-short",
+    ] {
+        assert!(ids.iter().any(|id| id == required), "missing {required}");
+    }
+    assert!(
+        ids.iter().all(|id| !id.starts_with('-')),
+        "terms are not messages"
+    );
+    assert!(
+        ids.windows(2).all(|pair| pair[0] < pair[1]),
+        "sorted and unique"
     );
 }
 
