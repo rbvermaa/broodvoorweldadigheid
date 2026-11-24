@@ -12,7 +12,7 @@ use crate::audit::{self, Actor, Entry};
 use crate::checkout::{ensure_slot_room, lock_day, lock_slot};
 use crate::holds;
 use crate::order::{self, CancelReason, Order, OrderStatus};
-use crate::payment::{Payment, PaymentRow, RefundReason, payment_from_row};
+use crate::payment::{Payment, PaymentRow, payment_from_row};
 
 /// Which orders of a bake day to list; `None` means any.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -116,6 +116,21 @@ pub async fn payments(conn: &mut PgConnection, id: OrderId) -> Result<Vec<Paymen
     .collect()
 }
 
+/// Whether the order is linked to a manual invoice; then only picking up may change it
+/// (F11a).
+///
+/// # Errors
+/// [`Error::NotFound`] or [`Error::Db`].
+pub async fn invoiced(conn: &mut PgConnection, id: OrderId) -> Result<bool, Error> {
+    sqlx::query_scalar!(
+        r#"SELECT manual_invoice_id IS NOT NULL AS "invoiced!" FROM "order" WHERE id = $1"#,
+        id.get()
+    )
+    .fetch_optional(conn)
+    .await?
+    .ok_or(Error::NotFound)
+}
+
 /// The order's bake day, locked `FOR SHARE` before the order row (ADR 0012).
 async fn day_of(conn: &mut PgConnection, id: OrderId) -> Result<BakeDayId, Error> {
     sqlx::query_scalar!(r#"SELECT bake_day_id FROM "order" WHERE id = $1"#, id.get())
@@ -149,7 +164,7 @@ const fn awaits_pickup(status: OrderStatus) -> bool {
 /// # Errors
 /// [`Error::NotFound`]; [`Error::DayFinal`] when the bake day is done or cancelled;
 /// [`Error::WrongStatus`] when the order is not paid or confirmed;
-/// [`Error::SlotNotOnDay`]; [`Error::SlotFull`].
+/// [`Error::Invoiced`]; [`Error::SlotNotOnDay`]; [`Error::SlotFull`].
 pub async fn move_pickup(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -177,6 +192,9 @@ pub async fn move_pickup(
     }
     if !awaits_pickup(before.status) {
         return Err(Error::WrongStatus(before.status));
+    }
+    if invoiced(&mut tx, id).await? {
+        return Err(Error::Invoiced);
     }
     if before.pickup_slot_id == slot {
         tx.commit().await?;
@@ -254,108 +272,38 @@ pub async fn mark_picked_up(
     Ok(after)
 }
 
-/// What a staff cancel did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StaffCancel {
-    pub order: Order,
-    /// The payment now due for refund; `None` when nothing was paid.
-    pub refund: Option<Payment>,
-}
-
-/// Cancels an order for staff (F6). Its pieces and slot place go back at once.
-///
-/// A pending order is cancelled like [`crate::cancel_pending`]; one whose payment is
-/// already paid or authorized is refused, since that payment decides. A paid or
-/// confirmed order is cancelled and its accepted payment is marked refund due
-/// (`order_cancelled`), so it shows in [`crate::refunds_due`]; the refund itself is not
-/// made here. Runs in a savepoint when `conn` is a transaction, so the caller can queue
-/// the cancellation email in the same one.
+/// Cancels an order that waits for payment, for staff (F6), like
+/// [`crate::cancel_pending`] with the staff member as actor. Its pieces and slot place go
+/// back at once. A paid order is refused: cancelling it needs a refund, and the donation
+/// rules need that refund settled first (ADR 0025). Runs in a savepoint when `conn` is a
+/// transaction, so the caller can queue the cancellation email in the same one.
 ///
 /// # Errors
-/// [`Error::NotFound`]; [`Error::WrongStatus`] for an order that is picked up, cancelled
-/// or refunded, or pending with a payment that is completing.
+/// [`Error::NotFound`]; [`Error::WrongStatus`] for an order that is not pending, or
+/// pending with a payment that is completing.
 pub async fn cancel_by_staff(
     conn: &mut PgConnection,
     clock: &dyn Clock,
     id: OrderId,
     staff: StaffUserId,
-) -> Result<StaffCancel, Error> {
+) -> Result<Order, Error> {
     let mut tx = conn.begin().await?;
     let day = day_of(&mut tx, id).await?;
     lock_day(&mut tx, day).await?;
     let before = lock_order(&mut tx, id).await?;
-    let now = clock.now();
-    let actor = Actor::Staff(staff);
-    if before.status == OrderStatus::PendingPayment {
-        if !holds::cancel_locked(&mut tx, id, CancelReason::Staff, Some(actor), now).await? {
-            return Err(Error::WrongStatus(before.status));
-        }
-        let order = order::get(&mut tx, id).await?;
-        tx.commit().await?;
-        return Ok(StaffCancel {
-            order,
-            refund: None,
-        });
-    }
-    if !awaits_pickup(before.status) {
+    if before.status != OrderStatus::PendingPayment
+        || !holds::cancel_locked(
+            &mut tx,
+            id,
+            CancelReason::Staff,
+            Some(Actor::Staff(staff)),
+            clock.now(),
+        )
+        .await?
+    {
         return Err(Error::WrongStatus(before.status));
     }
-    sqlx::query!(
-        r#"UPDATE "order" SET status = 'cancelled', cancel_reason = $2 WHERE id = $1"#,
-        id.get(),
-        CancelReason::Staff.as_str(),
-    )
-    .execute(&mut *tx)
-    .await?;
-    let refunded = sqlx::query_scalar!(
-        "UPDATE payment SET refund_due = true, refund_reason = $2
-        WHERE order_id = $1 AND status = 'paid' AND NOT refund_due
-        RETURNING id",
-        id.get(),
-        RefundReason::OrderCancelled.as_str(),
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let refund = match refunded.as_slice() {
-        [] => None,
-        [payment] => payments(&mut tx, id)
-            .await?
-            .into_iter()
-            .find(|p| p.id.get() == *payment),
-        more => {
-            return Err(Error::Corrupt(format!(
-                "order {} has {} accepted payments",
-                id.get(),
-                more.len()
-            )));
-        }
-    };
-    let after = order::get(&mut tx, id).await?;
-    let mut snapshot = order::snapshot(&after);
-    if let Some(payment) = &refund {
-        snapshot["payment"] = serde_json::json!({
-            "id": payment.id.get(),
-            "reference": payment.provider_payment_id,
-            "amount_cents": payment.amount.cents(),
-            "refund_reason": payment.refund_reason.map(RefundReason::as_str),
-        });
-    }
-    audit::record(
-        &mut tx,
-        &Entry {
-            entity: "order",
-            entity_id: id.get(),
-            action: "cancelled",
-            before: Some(order::snapshot(&before)),
-            after: Some(snapshot),
-            actor,
-            at: now,
-        },
-    )
-    .await?;
+    let order = order::get(&mut tx, id).await?;
     tx.commit().await?;
-    Ok(StaffCancel {
-        order: after,
-        refund,
-    })
+    Ok(order)
 }

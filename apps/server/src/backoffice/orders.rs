@@ -324,16 +324,6 @@ const fn awaits_pickup(status: OrderStatus) -> bool {
     matches!(status, OrderStatus::Paid | OrderStatus::Confirmed)
 }
 
-/// The permission a staff cancel of an order in `status` needs: one that was paid sends
-/// money back.
-const fn cancel_permission(status: OrderStatus) -> Permission {
-    if awaits_pickup(status) {
-        Permission::Refund
-    } else {
-        Permission::EditOrders
-    }
-}
-
 async fn render(
     state: &AppState,
     session: &Session,
@@ -357,6 +347,9 @@ async fn render(
         .into_iter()
         .map(|l| (l.id, l.name))
         .collect();
+    let invoiced = manage::invoiced(&mut conn, order.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
     let payments = manage::payments(&mut conn, order.id)
         .await
         .map_err(|e| fail(state, &e))?;
@@ -368,7 +361,7 @@ async fn render(
     let amsterdam = i18n::Amsterdam::new();
     let pickup = format!(
         "{} {}, {}",
-        state.i18n.long_date(details.drop_date),
+        state.i18n.long_date(amsterdam.date(details.pickup.starts)),
         amsterdam
             .time_range(details.pickup.starts, details.pickup.ends)
             .unwrap_or_default(),
@@ -458,14 +451,15 @@ async fn render(
     let path = order_path(order.id);
     let role = staff.0.role;
     let open = awaits_pickup(order.status);
-    let movable = open && !day.status.is_final() && role.can(Permission::EditOrders);
+    let movable = open && !invoiced && !day.status.is_final() && role.can(Permission::EditOrders);
     let slot_options = if movable {
         slots
             .iter()
             .map(|s| SelectOption {
                 value: s.id.get().to_string(),
                 label: format!(
-                    "{}, {}",
+                    "{} {}, {}",
+                    state.i18n.long_date(amsterdam.date(s.starts_at)),
                     amsterdam
                         .time_range(s.starts_at, s.ends_at)
                         .unwrap_or_default(),
@@ -494,21 +488,11 @@ async fn render(
             action: format!("{path}/picked-up"),
         });
     }
-    let cancellable = open || order.status == OrderStatus::PendingPayment;
-    if cancellable && role.can(cancel_permission(order.status)) {
-        let refund = payments.iter().find(|p| p.refund_reason.is_none());
-        let text = match refund {
-            Some(payment) if open => {
-                let mut args = who.to_vec();
-                args.push(("amount", i18n::money(payment.amount.cents())));
-                t_with(state, "staff-order-cancel-paid-text", &args)
-            }
-            _ => t_with(state, "staff-order-cancel-text", &who),
-        };
+    if order.status == OrderStatus::PendingPayment && role.can(Permission::EditOrders) {
         actions.push(Confirm {
             dialog: "cancel".to_owned(),
             label: t(state, "staff-order-cancel"),
-            text,
+            text: t_with(state, "staff-order-cancel-text", &who),
             action: format!("{path}/cancel"),
         });
     }
@@ -564,6 +548,7 @@ fn problem(state: &AppState, error: &orders::Error) -> Option<String> {
         orders::Error::DayFinal => "staff-order-error-day",
         orders::Error::SlotNotOnDay => "staff-order-error-slot",
         orders::Error::SlotFull => "staff-order-error-slot-full",
+        orders::Error::Invoiced => "staff-order-error-invoiced",
         _ => return None,
     };
     Some(t(state, id))
@@ -663,7 +648,7 @@ pub async fn picked_up(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-/// Cancels the order and queues the cancellation email in the same transaction. A failed
+/// Cancels an unpaid order and queues the cancellation email in the same transaction. A failed
 /// email is logged and the cancel still counts (ADR 0022).
 pub async fn cancel(
     State(state): State<AppState>,
@@ -673,24 +658,20 @@ pub async fn cancel(
     Path(id): Path<String>,
 ) -> Response {
     let run = async {
+        require(&state, &staff, Permission::EditOrders)?;
         let details = load_details(&state, &id).await?;
-        require(&state, &staff, cancel_permission(details.order.status))?;
         let clock = state.clock.as_ref();
         let mut tx = state.pool.begin().await.map_err(|e| fail(&state, &e))?;
         let result = manage::cancel_by_staff(&mut tx, clock, details.order.id, staff.0.id).await;
         let result = match result {
-            Ok(cancelled) => {
-                if cancelled.refund.is_some() {
-                    require(&state, &staff, Permission::Refund)?;
-                }
+            Ok(_) => {
                 let mut email_tx = tx.begin().await.map_err(|e| fail(&state, &e))?;
-                let refund = cancelled.refund.as_ref().map(|p| p.amount);
                 match order_emails::enqueue_cancellation(
                     &mut email_tx,
                     clock,
                     &state.order_emails,
                     details.order.id,
-                    refund,
+                    None,
                 )
                 .await
                 {

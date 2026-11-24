@@ -31,6 +31,8 @@ pub enum Error {
     NotReplaceable,
     #[error("the order is {0}")]
     WrongStatus(crate::OrderStatus),
+    #[error("the order is invoiced")]
+    Invoiced,
     #[error("the order total is zero")]
     FreeOrder,
     #[error("the payment is recorded for another order")]

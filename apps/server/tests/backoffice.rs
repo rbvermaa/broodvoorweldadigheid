@@ -1725,46 +1725,63 @@ async fn order_changes_need_the_csrf_token(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn only_the_owner_cancels_a_paid_order_and_the_payment_goes_on_the_refund_list(pool: PgPool) {
+async fn a_baker_cancels_an_unpaid_order_but_not_a_paid_one(pool: PgPool) {
     let app = app(pool.clone());
     let paid = paid_order(&app).await;
-    let order_path = format!("/staff/orders/{}", paid.order.id.get());
-    let baker = client(&app, "Bakker Bas", Role::Baker).await;
-    baker
-        .get(&order_path)
+    let paid_path = format!("/staff/orders/{}", paid.order.id.get());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .get(&paid_path)
         .await
         .lacks(&dutch("staff-order-cancel"));
-    let refused = baker.post(&format!("{order_path}/cancel"), &[]).await;
-    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+    let refused = owner.post(&format!("{paid_path}/cancel"), &[]).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("staff-order-error-status"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
 
-    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
-    let page = owner.get(&order_path).await;
-    page.shows(&dutch_with(
-        "staff-order-cancel-paid-text",
+    let mut conn = pool.acquire().await.expect("conn");
+    let mut cart = orders::Cart::new(paid.day);
+    cart.set(paid.order.lines[0].product_id, 1, None)
+        .expect("cart");
+    let pending = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "later@example.org".to_owned(),
+            name: "Late Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        paid.order.pickup_slot_id,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    drop(conn);
+    let pending_path = format!("/staff/orders/{}", pending.id.get());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    baker.get(&pending_path).await.shows(&dutch_with(
+        "staff-order-cancel-text",
         &[
-            ("number", &paid.order.number.to_string()),
-            ("name", "Test Klant"),
-            ("amount", "€\u{a0}13,00"),
+            ("number", &pending.number.to_string()),
+            ("name", "Late Klant"),
         ],
     ));
-    owner
-        .post(&format!("{order_path}/cancel"), &[])
+    baker
+        .post(&format!("{pending_path}/cancel"), &[])
         .await
-        .redirects_to(&format!("{order_path}?opgeslagen=1"));
-    let cancelled = stored_order(&pool, paid.order.id).await;
+        .redirects_to(&format!("{pending_path}?opgeslagen=1"));
+    let cancelled = stored_order(&pool, pending.id).await;
     assert_eq!(cancelled.status, orders::OrderStatus::Cancelled);
     assert_eq!(cancelled.cancel_reason, Some(orders::CancelReason::Staff));
-    let mut conn = pool.acquire().await.expect("conn");
-    let due = orders::refunds_due(&mut conn).await.expect("refunds");
-    assert_eq!(due.len(), 1);
-    assert_eq!(due[0].order_id, paid.order.id);
-    drop(conn);
-
-    let after = owner.get(&order_path).await;
+    let after = baker.get(&pending_path).await;
     after.shows(&dutch("staff-order-status-cancelled"));
     after.shows(&dutch("staff-order-action-cancelled"));
-    after.shows("Eigenaar Eva");
-    after.shows(&dutch("staff-order-payment-refund-due"));
+    after.shows("Bakker Bas");
     after.lacks(&dutch("staff-order-cancel"));
 }
 

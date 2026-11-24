@@ -6,8 +6,8 @@ use orders::manage::{
     OrderFilter, cancel_by_staff, day_orders, mark_picked_up, move_pickup, payments,
 };
 use orders::{
-    CancelReason, Error, Order, OrderStatus, Orders, PaidOutcome, PaymentReceived, RefundReason,
-    mark_paid, refunds_due,
+    CancelReason, Error, Order, OrderStatus, Orders, PaidOutcome, PaymentReceived, mark_paid,
+    refunds_due,
 };
 use sqlx::PgConnection;
 use sqlx::Postgres;
@@ -288,30 +288,24 @@ async fn staff_mark_a_paid_order_picked_up_once(mut conn: PoolConnection<Postgre
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn cancelling_a_paid_order_frees_the_loaf_and_marks_the_payment_for_refund(
-    mut conn: PoolConnection<Postgres>,
-) {
+async fn staff_cancel_a_pending_order_and_free_its_loaf(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     on_range(&mut conn, &shop, bread, Some(1), None).await;
-    let order = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
-    assert!(refunds_due(&mut conn).await.unwrap().is_empty());
-
-    let cancelled = cancel_by_staff(&mut conn, &clock, order.id, BAS)
+    let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
-    assert_eq!(cancelled.order.status, OrderStatus::Cancelled);
-    assert_eq!(cancelled.order.cancel_reason, Some(CancelReason::Staff));
-    let refund = cancelled.refund.unwrap();
-    assert_eq!(refund.amount, order.total);
-    assert_eq!(refund.refund_reason, Some(RefundReason::OrderCancelled));
-    assert_eq!(
-        refunds_due(&mut conn).await.unwrap(),
-        std::slice::from_ref(&refund)
-    );
-    assert_eq!(payments(&mut conn, order.id).await.unwrap(), [refund]);
-
+    let cancelled = cancel_by_staff(&mut conn, &clock, pending.id, BAS)
+        .await
+        .unwrap();
+    assert_eq!(cancelled.status, OrderStatus::Cancelled);
+    assert_eq!(cancelled.cancel_reason, Some(CancelReason::Staff));
+    let log = history(&mut conn, pending.id).await;
+    let last = log.last().unwrap();
+    assert_eq!(last.action, "cancelled");
+    assert_eq!(last.actor, "staff:7");
+    assert_eq!(last.before.as_ref().unwrap()["status"], "pending_payment");
     assert!(
         Orders::new(&clock)
             .ordered(&mut conn, shop.day.id)
@@ -319,50 +313,89 @@ async fn cancelling_a_paid_order_frees_the_loaf_and_marks_the_payment_for_refund
             .unwrap()
             .is_empty()
     );
-    order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-
     assert!(matches!(
-        cancel_by_staff(&mut conn, &clock, order.id, BAS).await,
+        cancel_by_staff(&mut conn, &clock, pending.id, BAS).await,
         Err(Error::WrongStatus(OrderStatus::Cancelled))
     ));
-    let log = history(&mut conn, order.id).await;
-    let last = log.last().unwrap();
-    assert_eq!(last.action, "cancelled");
-    assert_eq!(last.actor, "staff:7");
-    assert_eq!(last.before.as_ref().unwrap()["status"], "paid");
-    assert_eq!(last.after.as_ref().unwrap()["cancel_reason"], "staff");
-    assert_eq!(
-        last.after.as_ref().unwrap()["payment"]["refund_reason"],
-        "order_cancelled"
-    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn cancelling_a_pending_order_needs_no_refund(mut conn: PoolConnection<Postgres>) {
+async fn staff_cannot_cancel_a_paid_order_yet(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     on_range(&mut conn, &shop, bread, None, None).await;
-    let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
-        .await
-        .unwrap();
-    let cancelled = cancel_by_staff(&mut conn, &clock, pending.id, BAS)
-        .await
-        .unwrap();
-    assert_eq!(cancelled.order.status, OrderStatus::Cancelled);
-    assert_eq!(cancelled.order.cancel_reason, Some(CancelReason::Staff));
-    assert_eq!(cancelled.refund, None);
-    let log = history(&mut conn, pending.id).await;
-    assert_eq!(log.last().unwrap().actor, "staff:7");
-
-    let picked = paid_order(&mut conn, &clock, &shop, bread, "tr_9").await;
-    mark_picked_up(&mut conn, &clock, picked.id, BAS)
-        .await
-        .unwrap();
+    let paid = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
     assert!(matches!(
-        cancel_by_staff(&mut conn, &clock, picked.id, BAS).await,
-        Err(Error::WrongStatus(OrderStatus::PickedUp))
+        cancel_by_staff(&mut conn, &clock, paid.id, BAS).await,
+        Err(Error::WrongStatus(OrderStatus::Paid))
     ));
+    let unchanged = orders::order::get(&mut conn, paid.id).await.unwrap();
+    assert_eq!(unchanged, paid);
+    assert!(refunds_due(&mut conn).await.unwrap().is_empty());
+    assert_eq!(
+        payments(&mut conn, paid.id).await.unwrap()[0].refund_reason,
+        None
+    );
+
+    let completing = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, received_at)
+        VALUES ($1, 'tr_2', $2, 'authorized', now())",
+    )
+    .bind(completing.id.get())
+    .bind(completing.total.cents())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    assert!(matches!(
+        cancel_by_staff(&mut conn, &clock, completing.id, BAS).await,
+        Err(Error::WrongStatus(OrderStatus::PendingPayment))
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_invoiced_order_keeps_its_slot_but_can_be_picked_up(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let later = slot(
+        &mut conn,
+        &shop,
+        DE_PROEF,
+        "2026-10-31T12:00:00Z",
+        "2026-10-31T13:00:00Z",
+        None,
+    )
+    .await;
+    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"WITH invoice AS (
+            INSERT INTO manual_invoice (customer_id, invoice_number, invoice_date, period_from,
+                period_to, total_cents, recorded_at, recorded_by)
+            VALUES ($2, 'F-1', '2026-10-28', '2026-10-01', '2026-10-31', 450, now(), 'staff:1')
+            RETURNING id)
+        UPDATE "order" SET status = 'confirmed', payment_mode = 'on_account',
+            manual_invoice_id = (SELECT id FROM invoice)
+        WHERE id = $1"#,
+    )
+    .bind(order.id.get())
+    .bind(order.customer_id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    assert!(orders::manage::invoiced(&mut conn, order.id).await.unwrap());
+    assert!(matches!(
+        move_pickup(&mut conn, &clock, order.id, later, BAS).await,
+        Err(Error::Invoiced)
+    ));
+    let picked = mark_picked_up(&mut conn, &clock, order.id, BAS)
+        .await
+        .unwrap();
+    assert_eq!(picked.status, OrderStatus::PickedUp);
 }
