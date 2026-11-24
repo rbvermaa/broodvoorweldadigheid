@@ -2,6 +2,8 @@
 # Overrides for local runs, with defaults: BVW_IMAGE_TAG (dev), BVW_SECRETS_DIR (./secrets),
 # BVW_BIND_ADDRESS (127.0.0.1), BVW_HTTP_PORT (8080), BVW_HTTPS_PORT (8443),
 # BVW_SUBNET (10.89.0.0/24) and BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET).
+# Staff login: BVW_BOOTSTRAP_OWNER_EMAIL or BVW_BOOTSTRAP_OWNER_SUB names the first owner;
+# `make kanidm-setup` fills secrets/oidc/ (deploy/README.md).
 name: bvw
 
 services:
@@ -29,12 +31,17 @@ services:
     restart: unless-stopped
     environment:
       KANIDM_CONFIG: /etc/kanidm/server.toml
+      KANIDM_BINDADDRESS: 0.0.0.0:${BVW_HTTPS_PORT:-8443}
     configs:
       - source: kanidm_server
         target: /etc/kanidm/server.toml
     volumes:
       - kanidm:/data
-    networks: [internal]
+    # The server reaches the issuer URL directly; Kanidm listens on the published HTTPS port
+    # number so that the URL is the same inside and outside.
+    networks:
+      internal:
+        aliases: [idm.localhost]
 
   # The cli lives in the backup image. Runs once per `up`; the server waits for it.
   migrate:
@@ -53,6 +60,15 @@ services:
     restart: unless-stopped
     environment:
       TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
+      OIDC_ISSUER: https://idm.localhost:${BVW_HTTPS_PORT:-8443}/oauth2/openid/bvw-staff
+      OIDC_CLIENT_ID: bvw-staff
+      OIDC_REDIRECT_URL: https://localhost:${BVW_HTTPS_PORT:-8443}/staff/oidc/callback
+      OIDC_CLIENT_SECRET_FILE: /run/oidc/client-secret
+      OIDC_CA_FILE: /run/oidc/kanidm-ca.pem
+      BVW_BOOTSTRAP_OWNER_SUB: ${BVW_BOOTSTRAP_OWNER_SUB:-}
+      BVW_BOOTSTRAP_OWNER_EMAIL: ${BVW_BOOTSTRAP_OWNER_EMAIL:-}
+    volumes:
+      - ${BVW_SECRETS_DIR:-./secrets}/oidc:/run/oidc:ro
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:
@@ -118,7 +134,7 @@ configs:
   kanidm_server:
     content: |
       version = "2"
-      bindaddress = "0.0.0.0:8443"
+      bindaddress = "0.0.0.0:${BVW_HTTPS_PORT:-8443}"
       domain = "idm.localhost"
       origin = "https://idm.localhost:${BVW_HTTPS_PORT:-8443}"
       db_path = "/data/kanidm.db"
