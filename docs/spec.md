@@ -705,7 +705,7 @@ No, frozen bread is only sold straight from the freezer, so “ontdooid” is no
 
 No SVG needed: the PNG is used everywhere. No accent colour: the owner chose the style “Stempel”, ink on white.
 
-- [ ] Pickup time: the current FAQ says 11:00–13:00, the homepage says 11:00–12:00. Which is right?
+- [x] Pickup time: the current FAQ says 11:00–13:00, the homepage says 11:00–12:00. Which is right? Answer: 11:00–12:00; staff can change the default window per location and the pickup time per bake day.
 
 - [x] Who pays the Mollie fees: does the charity get the full amount, with the bakery covering fees, or the amount after fees?
 

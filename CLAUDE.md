@@ -12,7 +12,8 @@ If this file and the spec disagree, stop and ask.
 - **Rust for all our code.** No Python anywhere: not in code, scripts, CI or tooling.
   The only JavaScript is HTMX and the one small file the spec allows.
 - **Open source only.** Every dependency must pass `cargo deny`. External services are
-  limited to Mollie, the SMTP relay and the off-site backup.
+  limited to Mollie, the SMTP relay, the off-site backup, and GitHub + Cachix (public code
+  and build output only, never customer data or secrets).
 - **Everything builds with Nix.** Use `nix develop` for tools; never install tools globally.
   Images are built by `flake.nix`, never by a Dockerfile.
 - **Makefile is the entry point.** Every top-level build, test, image and compose command
