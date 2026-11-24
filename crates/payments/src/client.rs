@@ -573,11 +573,15 @@ fn optional_money(amount: Option<&WireAmount>) -> Result<Money, PaymentError> {
 
 impl WireTransaction {
     /// Mollie reports deductions as negative amounts; the fee is what Mollie charged
-    /// (fees plus commissions), not reservations or repayments.
+    /// (fees plus commissions), not reservations or repayments. A separate fee
+    /// transaction's own amount is the charge.
     fn into_fee(self) -> Result<Option<PaymentFee>, PaymentError> {
         let kind = match self.kind.as_str() {
             "payment" | "capture" => FeeKind::Payment,
             "refund" => FeeKind::Refund,
+            "chargeback" => FeeKind::Chargeback,
+            "payment-fee" | "failed-payment-fee" | "payment-commission" | "capture-commission"
+            | "reimbursement-fee" => FeeKind::Separate,
             _ => return Ok(None),
         };
         let payment = self
@@ -590,6 +594,14 @@ impl WireTransaction {
                 .map_err(|_| invalid("fee out of range"))?,
             None => optional_money(self.deductions.as_ref())?,
         };
+        let gross = self.initial_amount.money()?;
+        let charged = if kind == FeeKind::Separate {
+            charged
+                .checked_add(gross)
+                .map_err(|_| invalid("fee out of range"))?
+        } else {
+            charged
+        };
         let fee = charged
             .checked_neg()
             .map_err(|_| invalid("fee out of range"))?;
@@ -599,7 +611,7 @@ impl WireTransaction {
         Ok(Some(PaymentFee {
             payment: payment_id(&payment)?,
             kind,
-            gross: self.initial_amount.money()?,
+            gross,
             fee,
             net: self.result_amount.money()?,
         }))

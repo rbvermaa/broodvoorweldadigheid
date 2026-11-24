@@ -654,7 +654,7 @@ async fn last_fee_page_and_bad_transactions() {
         .unwrap();
     assert_eq!(page.next, None);
 
-    let odd = json!({ "count": 5, "_embedded": { "balance_transactions": [
+    let odd = json!({ "count": 8, "_embedded": { "balance_transactions": [
         { "id": "baltr_a", "type": "payment",
           "resultAmount": { "currency": "EUR", "value": "1.00" },
           "initialAmount": { "currency": "EUR", "value": "1.00" },
@@ -679,7 +679,23 @@ async fn last_fee_page_and_bad_transactions() {
           "initialAmount": { "currency": "EUR", "value": "1.00" },
           "deductions": { "currency": "EUR", "value": "-0.25" },
           "deductionDetails": { "reservations": { "currency": "EUR", "value": "-0.25" } },
-          "context": { "paymentId": "tr_ok1" } }
+          "context": { "paymentId": "tr_ok1" } },
+        { "id": "baltr_f", "type": "payment-fee",
+          "resultAmount": { "currency": "EUR", "value": "-0.35" },
+          "initialAmount": { "currency": "EUR", "value": "-0.35" },
+          "deductions": null,
+          "context": { "paymentId": "tr_cap1" } },
+        { "id": "baltr_cb", "type": "chargeback",
+          "resultAmount": { "currency": "EUR", "value": "-2.50" },
+          "initialAmount": { "currency": "EUR", "value": "-2.00" },
+          "deductions": { "currency": "EUR", "value": "-0.50" },
+          "deductionDetails": { "fees": { "currency": "EUR", "value": "-0.50" } },
+          "context": { "paymentId": "tr_ok1" } },
+        { "id": "baltr_t", "type": "outgoing-transfer",
+          "resultAmount": { "currency": "EUR", "value": "-9.00" },
+          "initialAmount": { "currency": "EUR", "value": "-9.00" },
+          "deductions": null,
+          "context": { "settlementId": "stl_1", "transferId": "trf_1" } }
     ]}, "_links": {} });
     let server = MockServer::start(move |_| Reply::json(200, odd.clone())).await;
     let page = client_with_token(&server)
@@ -702,7 +718,21 @@ async fn last_fee_page_and_bad_transactions() {
                 gross: Money::from_cents(100),
                 fee: Money::ZERO,
                 net: Money::from_cents(75),
-            }
+            },
+            PaymentFee {
+                payment: tr("tr_cap1"),
+                kind: FeeKind::Separate,
+                gross: Money::from_cents(-35),
+                fee: Money::from_cents(35),
+                net: Money::from_cents(-35),
+            },
+            PaymentFee {
+                payment: tr("tr_ok1"),
+                kind: FeeKind::Chargeback,
+                gross: Money::from_cents(-200),
+                fee: Money::from_cents(50),
+                net: Money::from_cents(-250),
+            },
         ],
         "odd transactions are skipped; reservations are not fees"
     );

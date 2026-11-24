@@ -230,9 +230,14 @@ pub struct CreatedRefund {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FeeKind {
+    /// Deducted from a payment or capture.
     Payment,
-    /// A charge for refunding the payment; `gross` and `net` are negative.
+    /// Deducted from a refund; `gross` and `net` are negative.
     Refund,
+    /// Deducted from a chargeback; `gross` and `net` are negative.
+    Chargeback,
+    /// Booked on its own, such as a fee for a failed payment; `gross` is the charge.
+    Separate,
 }
 
 /// The total fee for a payment is the sum of `fee` over all its entries.
