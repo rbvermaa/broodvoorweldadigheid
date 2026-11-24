@@ -37,11 +37,13 @@ Questions about the spec. The spec is only changed when the owner asks.
   default is off.
   **Answered 2026-11-24:** the warning now uses the owner's rule above, which matches the
   default Thursday 20:00 deadline, so default drops no longer warn.
-- [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
+- [x] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
   **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
   icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
   wordmark until the server knows its public URL.
+  **Answered 2026-11-24:** the owner keeps the PNG for everything; no SVG is needed (the
+  supplied DXF only wraps the same PNG).
 - [x] **Accent colour.** The spec leaves "one accent colour" to choose.
   **Answered 2026-11-24:** none. The owner chose style "Stempel": ink #111111 on white,
   like the logo (ADR 0023).
@@ -63,3 +65,10 @@ Questions about the spec. The spec is only changed when the owner asks.
   count refunds on that day instead?
 - [ ] **On-account orders on charity drops.** Do they create a donation allocation
   (F4b says they pay the suggested price), and when: at confirmation or once invoiced?
+- [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
+  commercially without Niimbot's consent).
+  **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a
+  300 dpi PNG at its exact size, plus CSV rows for the Niimbot app's import; the owner
+  prints through the official Niimbot app (ADR 0024).
+- [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
+  **Answered 2026-11-24:** not needed; the owner dropped them.

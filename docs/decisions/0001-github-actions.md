@@ -19,3 +19,7 @@ history rewritten to the owner's personal email; the old private repo is kept as
 requires the check and smoke jobs on both architectures, applies to admins, and refuses
 force-pushes and deletion. "No merge without a green pipeline" (spec, "Rules that keep
 it safe") is enforced by GitHub. PRs still also need a Claude and a Codex review.
+
+Update 2026-11-24 (later): `main` uses a merge queue. A PR is queued with auto-merge once its
+reviews are clean; the queue re-runs the checks on the PR merged with the latest `main` and
+merges only if they pass, so PRs no longer need main merged in by hand before merging.
