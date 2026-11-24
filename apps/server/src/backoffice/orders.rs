@@ -799,7 +799,7 @@ where
     match build(&mut email_tx).await {
         Ok(_) => email_tx.commit().await.map_err(|e| fail(state, &e))?,
         Err(error) => {
-            tracing::error!(order = order.get(), %error, "order cancelled without its email");
+            tracing::error!(order = order.get(), %error, "order changed without its email");
             email_tx.rollback().await.map_err(|e| fail(state, &e))?;
         }
     }

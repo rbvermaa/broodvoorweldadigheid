@@ -459,6 +459,25 @@ async fn an_expired_email_is_never_sent_and_is_blanked(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn every_kind_can_be_queued(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    for kind in EmailKind::ALL {
+        let email = Email {
+            kind,
+            ..email("a@example.org")
+        };
+        assert!(
+            enqueue(&mut conn, &clock, &email, None)
+                .await
+                .unwrap()
+                .is_some(),
+            "{kind:?}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn an_expiring_email_with_a_key_is_queued_once(pool: PgPool) {
     let clock = clock();
     let mut conn = pool.acquire().await.unwrap();

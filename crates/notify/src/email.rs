@@ -14,11 +14,12 @@ pub enum EmailKind {
     ContactMessage,
     LoginLink,
     DonationMoved,
+    PickupMoved,
     AccountDeleted,
 }
 
 impl EmailKind {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::OrderConfirmation,
         Self::PickupReminder,
         Self::OrderCancelled,
@@ -28,6 +29,7 @@ impl EmailKind {
         Self::ContactMessage,
         Self::LoginLink,
         Self::DonationMoved,
+        Self::PickupMoved,
         Self::AccountDeleted,
     ];
 
@@ -44,6 +46,7 @@ impl EmailKind {
             Self::ContactMessage => "contact_message",
             Self::LoginLink => "login_link",
             Self::DonationMoved => "donation_moved",
+            Self::PickupMoved => "pickup_moved",
             Self::AccountDeleted => "account_deleted",
         }
     }

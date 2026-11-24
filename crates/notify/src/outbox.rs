@@ -147,6 +147,24 @@ pub async fn withdraw_unsent(
     Ok(deleted > 0)
 }
 
+/// [`withdraw_unsent`] for every email whose dedupe key starts with `prefix`. Returns how
+/// many were deleted.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn withdraw_unsent_prefixed(
+    conn: &mut PgConnection,
+    prefix: &str,
+) -> Result<u64, OutboxError> {
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE starts_with(dedupe_key, $1) AND status <> 'sent'",
+        prefix,
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
+}
+
 /// Deletes every email to `email`, or with replies going to it, sent or not (F12). An
 /// email being sent right now is waited for and then deleted.
 ///
