@@ -444,124 +444,6 @@ pub async fn allocations(
     .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bakedays::BakeDayStatus;
-    use domain::{CustomerId, PickupSlotId as Slot};
-
-    use crate::order::{Channel, OrderNumber, PaymentMode};
-
-    fn ts(s: &str) -> Timestamp {
-        s.parse().unwrap()
-    }
-
-    fn order(status: OrderStatus, cancel_reason: Option<CancelReason>, paid: bool) -> Order {
-        Order {
-            id: OrderId::new(1),
-            number: OrderNumber { year: 2026, seq: 1 },
-            customer_id: CustomerId::new(1),
-            customer_name: "Klant".to_owned(),
-            customer_phone: None,
-            marketing_opt_in: false,
-            bake_day_id: BakeDayId::new(1),
-            pickup_slot_id: Slot::new(1),
-            channel: Channel::Web,
-            payment_mode: PaymentMode::Online,
-            status,
-            cancel_reason,
-            total: Money::from_cents(450),
-            hold_expires_at: Some(ts("2026-10-28T12:15:00Z")),
-            paid_at: paid.then(|| ts("2026-10-28T12:05:00Z")),
-            created_at: ts("2026-10-28T12:00:00Z"),
-            lines: Vec::new(),
-        }
-    }
-
-    fn day(status: BakeDayStatus) -> DayFacts {
-        DayFacts {
-            status,
-            online_ordering: true,
-            cutoff_at: Some(ts("2026-10-29T19:00:00Z")),
-            charity_id: None,
-        }
-    }
-
-    #[test]
-    fn only_a_pending_order_within_its_hold_takes_the_payment() {
-        let open = day(BakeDayStatus::Open);
-        let pending = order(OrderStatus::PendingPayment, None, false);
-        let ok = Money::from_cents(450);
-        let within = ts("2026-10-28T12:14:59Z");
-        let expiry = ts("2026-10-28T12:15:00Z");
-        assert_eq!(refusal(&pending, &open, ok, within), None);
-        assert_eq!(
-            refusal(&pending, &open, ok, expiry),
-            Some(RefundReason::HoldExpired)
-        );
-        assert_eq!(
-            refusal(&pending, &open, Money::from_cents(449), within),
-            Some(RefundReason::AmountMismatch)
-        );
-        assert_eq!(
-            refusal(&pending, &day(BakeDayStatus::Cancelled), ok, within),
-            Some(RefundReason::DayFinal)
-        );
-        let cases = [
-            (OrderStatus::Paid, None, true, RefundReason::PaidTwice),
-            (OrderStatus::Refunded, None, true, RefundReason::PaidTwice),
-            (
-                OrderStatus::Confirmed,
-                None,
-                false,
-                RefundReason::OrderConfirmed,
-            ),
-            (
-                OrderStatus::PickedUp,
-                None,
-                false,
-                RefundReason::OrderConfirmed,
-            ),
-            (
-                OrderStatus::Cancelled,
-                Some(CancelReason::HoldExpired),
-                false,
-                RefundReason::HoldExpired,
-            ),
-            (
-                OrderStatus::Cancelled,
-                Some(CancelReason::DayCancelled),
-                false,
-                RefundReason::DayFinal,
-            ),
-            (
-                OrderStatus::Cancelled,
-                Some(CancelReason::Staff),
-                false,
-                RefundReason::OrderCancelled,
-            ),
-        ];
-        for (status, cancel, paid, reason) in cases {
-            assert_eq!(
-                refusal(&order(status, cancel, paid), &open, ok, within),
-                Some(reason),
-                "{status:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn refund_reasons_round_trip_through_text() {
-        for reason in RefundReason::ALL {
-            assert_eq!(RefundReason::parse(reason.as_str()).unwrap(), reason);
-        }
-        assert!(matches!(
-            RefundReason::parse("whim"),
-            Err(Error::Corrupt(_))
-        ));
-    }
-}
-
 const fn status_to_db(status: PaymentStatus) -> &'static str {
     match status {
         PaymentStatus::Open => "open",
@@ -750,4 +632,122 @@ pub async fn latest_payment_status(
     .await?
     .map(|row| Ok((row.provider_payment_id, status_from_db(&row.status)?)))
     .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bakedays::BakeDayStatus;
+    use domain::{CustomerId, PickupSlotId as Slot};
+
+    use crate::order::{Channel, OrderNumber, PaymentMode};
+
+    fn ts(s: &str) -> Timestamp {
+        s.parse().unwrap()
+    }
+
+    fn order(status: OrderStatus, cancel_reason: Option<CancelReason>, paid: bool) -> Order {
+        Order {
+            id: OrderId::new(1),
+            number: OrderNumber { year: 2026, seq: 1 },
+            customer_id: CustomerId::new(1),
+            customer_name: "Klant".to_owned(),
+            customer_phone: None,
+            marketing_opt_in: false,
+            bake_day_id: BakeDayId::new(1),
+            pickup_slot_id: Slot::new(1),
+            channel: Channel::Web,
+            payment_mode: PaymentMode::Online,
+            status,
+            cancel_reason,
+            total: Money::from_cents(450),
+            hold_expires_at: Some(ts("2026-10-28T12:15:00Z")),
+            paid_at: paid.then(|| ts("2026-10-28T12:05:00Z")),
+            created_at: ts("2026-10-28T12:00:00Z"),
+            lines: Vec::new(),
+        }
+    }
+
+    fn day(status: BakeDayStatus) -> DayFacts {
+        DayFacts {
+            status,
+            online_ordering: true,
+            cutoff_at: Some(ts("2026-10-29T19:00:00Z")),
+            charity_id: None,
+        }
+    }
+
+    #[test]
+    fn only_a_pending_order_within_its_hold_takes_the_payment() {
+        let open = day(BakeDayStatus::Open);
+        let pending = order(OrderStatus::PendingPayment, None, false);
+        let ok = Money::from_cents(450);
+        let within = ts("2026-10-28T12:14:59Z");
+        let expiry = ts("2026-10-28T12:15:00Z");
+        assert_eq!(refusal(&pending, &open, ok, within), None);
+        assert_eq!(
+            refusal(&pending, &open, ok, expiry),
+            Some(RefundReason::HoldExpired)
+        );
+        assert_eq!(
+            refusal(&pending, &open, Money::from_cents(449), within),
+            Some(RefundReason::AmountMismatch)
+        );
+        assert_eq!(
+            refusal(&pending, &day(BakeDayStatus::Cancelled), ok, within),
+            Some(RefundReason::DayFinal)
+        );
+        let cases = [
+            (OrderStatus::Paid, None, true, RefundReason::PaidTwice),
+            (OrderStatus::Refunded, None, true, RefundReason::PaidTwice),
+            (
+                OrderStatus::Confirmed,
+                None,
+                false,
+                RefundReason::OrderConfirmed,
+            ),
+            (
+                OrderStatus::PickedUp,
+                None,
+                false,
+                RefundReason::OrderConfirmed,
+            ),
+            (
+                OrderStatus::Cancelled,
+                Some(CancelReason::HoldExpired),
+                false,
+                RefundReason::HoldExpired,
+            ),
+            (
+                OrderStatus::Cancelled,
+                Some(CancelReason::DayCancelled),
+                false,
+                RefundReason::DayFinal,
+            ),
+            (
+                OrderStatus::Cancelled,
+                Some(CancelReason::Staff),
+                false,
+                RefundReason::OrderCancelled,
+            ),
+        ];
+        for (status, cancel, paid, reason) in cases {
+            assert_eq!(
+                refusal(&order(status, cancel, paid), &open, ok, within),
+                Some(reason),
+                "{status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn refund_reasons_round_trip_through_text() {
+        for reason in RefundReason::ALL {
+            assert_eq!(RefundReason::parse(reason.as_str()).unwrap(), reason);
+        }
+        assert!(matches!(
+            RefundReason::parse("whim"),
+            Err(Error::Corrupt(_))
+        ));
+    }
 }
