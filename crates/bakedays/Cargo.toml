@@ -11,11 +11,13 @@ workspace = true
 catalog = { path = "../catalog" }
 db = { path = "../db" }
 domain = { path = "../domain" }
+i18n = { path = "../i18n" }
 jiff.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true
