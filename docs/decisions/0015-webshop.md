@@ -17,7 +17,7 @@ Status: proposed, 2026-11-24
 | A cart line whose product left the menu (archived, not sold online, unapproved or off the range) stays in the cart panel as "Niet meer beschikbaar", outside the total and with its remove button. Checkout keeps refusing it | The customer sees why checkout refuses and can remove it |
 | No Mollie `expiresAt`: Mollie's create-payment API has no request field for it (`expiresAt` is read-only; `dueDate` is a date, not a time). A payment that completes after the hold is recorded as refund due by `mark_paid` | ADR 0012 assumed the field exists |
 | The status page uses `order.status_token`, a `uuid` from `gen_random_uuid()` in a new migration, never the order number | Order numbers are sequential |
-| The status page polls itself over htmx every 3 s while waiting and stops once final. Its first full load (not the polls) also asks Mollie through the webhook code, in case the webhook is late or cannot reach a local machine | One extra GET at Mollie per visit, none per poll |
+| The status page polls itself over htmx every 3 s while waiting and stops once final. Every full load (not the polls) asks Mollie through the webhook code while the latest payment is open, pending or authorized, whatever the order shows, in case the webhook is late or cannot reach a local machine. A payment that completed after the hold then goes through `mark_paid` as refund due with its cancellation email, and the page says so ("Je betaling kwam binnen nadat je bestelling was verlopen") | One extra GET at Mollie per visit, none per poll. A late payment must not stay recorded as open |
 | Shown status: paid, confirmed or picked up = paid; pending with the latest payment failed or canceled = failed; expired payment, passed hold or cancelled `hold_expired` = expired; else waiting | |
 | The webhook sits outside the session and CSRF layers (merged next to `/health`), takes the body as bytes, uses `payments::parse_webhook_body`, then `get_payment`. Paid goes to `orders::mark_paid`; other statuses go to `orders::record_payment_status`, which updates the payment row and never the order. 400 for a malformed body; 200 for an unknown payment, a payment without order metadata, one recorded for another order (logged as error) and every recorded outcome; 503 when Mollie or the database fails, so Mollie retries | Mollie retries non-2xx answers; a 4xx for unknown ids would only cause retries. Repeats change nothing (ADR 0012) |
 | A payment row now exists from the moment the payment is created (`open`), and `mark_paid` turns it into `paid` in place. Reports must count `status = 'paid'` rows only | Keeps every Mollie payment visible to staff, also failed ones |
@@ -39,8 +39,10 @@ Known limits, from review:
 - When the payment cannot be started, the session remembers the order (`unpaid_order`) and
   saves itself explicitly, since tower-sessions does not save on a 5xx answer. The next
   checkout of that drop pays that order again with the same idempotency key, so Mollie
-  returns the same payment when the first create did reach it. The second try keeps the
-  first order's details.
+  returns the same payment when the first create did reach it. This works while the hold
+  runs, also after the deadline (spec: an order counts if checkout started before the
+  deadline and payment completes within its hold); only a cancelled or finished bake day
+  or a passed hold ends it. The second try keeps the first order's details.
 - Two checkout posts of one session at the same moment (a double click past the browser)
   both read the cart and make two orders with two holds. A claim per session would need a
   lock or a column; the rate limit and the 303 make it rare. The second order's hold runs

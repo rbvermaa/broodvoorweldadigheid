@@ -19,6 +19,8 @@ enum Shown {
     Failed,
     Expired,
     Cancelled,
+    /// Paid after the hold ran out; the payment is refunded.
+    LatePayment,
 }
 
 impl Shown {
@@ -29,6 +31,7 @@ impl Shown {
             Self::Failed => "order-status-failed",
             Self::Expired => "order-status-expired",
             Self::Cancelled => "order-status-cancelled",
+            Self::LatePayment => "order-status-late-payment",
         }
     }
 
@@ -37,7 +40,7 @@ impl Shown {
             Self::Waiting => "info",
             Self::Paid => "success",
             Self::Failed | Self::Expired => "error",
-            Self::Cancelled => "warning",
+            Self::Cancelled | Self::LatePayment => "warning",
         }
     }
 }
@@ -77,7 +80,11 @@ async fn shown(
         OrderStatus::Paid | OrderStatus::Confirmed | OrderStatus::PickedUp => Shown::Paid,
         OrderStatus::Cancelled | OrderStatus::Refunded => {
             if order.cancel_reason == Some(CancelReason::HoldExpired) {
-                Shown::Expired
+                if matches!(latest, Some((_, PaymentStatus::Paid))) {
+                    Shown::LatePayment
+                } else {
+                    Shown::Expired
+                }
             } else {
                 Shown::Cancelled
             }
@@ -98,8 +105,9 @@ async fn shown(
 }
 
 /// The order's status page after paying, at `/bestelling/<status token>`. htmx polls it
-/// while the payment is open. The first full load also asks Mollie, in case its webhook
-/// has not arrived (yet).
+/// while the payment is open. A full load also asks Mollie while the latest payment is
+/// still outstanding, whatever the order shows, in case its webhook has not arrived (yet):
+/// a payment completed after the hold must still be recorded as refund due.
 pub async fn page(
     State(state): State<AppState>,
     Path(token): Path<String>,
@@ -120,8 +128,11 @@ pub async fn page(
         Err(err) => return server_error(&state, "cannot load the payment", &err),
     };
     if !polled
-        && status == Shown::Waiting
-        && let Some((reference, _)) = latest
+        && let Some((reference, payment)) = latest
+        && matches!(
+            payment,
+            PaymentStatus::Open | PaymentStatus::Pending | PaymentStatus::Authorized
+        )
         && let Ok(id) = ProviderPaymentId::new(reference)
     {
         drop(conn);
@@ -194,7 +205,7 @@ fn status_view(
         text: t.t(shown.text_id(), None)?,
         thanks,
         total_cents: order.total.cents(),
-        again: if matches!(shown, Shown::Failed | Shown::Expired) {
+        again: if matches!(shown, Shown::Failed | Shown::Expired | Shown::LatePayment) {
             drop_path(order.bake_day_id)
         } else {
             String::new()

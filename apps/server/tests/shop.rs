@@ -1269,3 +1269,91 @@ async fn a_slow_mollie_does_not_hold_a_database_connection(pool: PgPool) {
     assert_eq!(checkout.status, StatusCode::SEE_OTHER, "{}", checkout.body);
     assert_eq!(mollie.inner.created().len(), 1);
 }
+
+/// The deadline is Thursday 29 October 20:00 Amsterdam time (19:00 UTC).
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_failed_payment_can_be_retried_past_the_deadline_while_its_hold_runs(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    shop.clock.set(ts("2026-10-29T18:59:30Z"));
+    shop.mollie.set_down(true);
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
+
+    shop.mollie.set_down(false);
+    shop.clock.set(ts("2026-10-29T19:00:30Z"));
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    assert_eq!(
+        shop.mollie.created()[0].order,
+        only_order(&shop.pool).await.id
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_failed_payment_is_not_retried_after_its_hold(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    shop.clock.set(ts("2026-10-29T18:59:30Z"));
+    shop.mollie.set_down(true);
+    browser.checkout(drop.day, &drop.slot).await;
+
+    shop.mollie.set_down(false);
+    shop.clock.set(ts("2026-10-29T19:15:00Z"));
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-deadline")),
+        "{}",
+        reply.body
+    );
+    assert!(shop.mollie.created().is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_status_page_finds_a_late_payment_after_the_hold(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    browser.checkout(drop.day, &drop.slot).await;
+    let order = only_order(&shop.pool).await;
+    let token = token_of(&shop.pool, order.id).await;
+
+    shop.clock.advance(SignedDuration::from_mins(20));
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    let page = browser.get(&format!("/bestelling/{token}")).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(
+        page.body.contains(&dutch("order-status-late-payment")),
+        "{}",
+        page.body
+    );
+    let due = orders::refunds_due(&mut conn).await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].refund_reason, Some(RefundReason::HoldExpired));
+    let queued = outbox(&shop.pool).await;
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    assert_eq!(queued[0].kind, "order_cancelled");
+
+    let again = browser.get(&format!("/bestelling/{token}")).await;
+    assert!(again.body.contains(&dutch("order-status-late-payment")));
+    assert_eq!(outbox(&shop.pool).await.len(), 1);
+}

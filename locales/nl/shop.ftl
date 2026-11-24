@@ -70,4 +70,5 @@ order-status-paid = We hebben je betaling ontvangen. Je krijgt een bevestiging p
 order-status-failed = Je betaling is niet gelukt, dus je bestelling gaat niet door.
 order-status-expired = Je bestelling is verlopen, want de betaling was niet op tijd binnen.
 order-status-cancelled = Deze bestelling is geannuleerd.
+order-status-late-payment = Je betaling kwam binnen nadat je bestelling was verlopen. We betalen het bedrag terug en sturen je daarover een mail.
 order-again = Opnieuw bestellen

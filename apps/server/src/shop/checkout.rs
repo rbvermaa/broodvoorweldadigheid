@@ -5,7 +5,7 @@ use axum::extract::{Form, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use bakedays::calendar::PublicDrop;
-use bakedays::{PublicStatus, days};
+use bakedays::{BakeDayStatus, PublicStatus, days};
 use domain::{BakeDayId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId};
 use i18n::{Amsterdam, FluentArgs};
 use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
@@ -470,9 +470,10 @@ pub async fn submit(
 /// of placing another one and holding the stock twice.
 const UNPAID_KEY: &str = "unpaid_order";
 
-/// The order the session remembers for this drop, when it is still open for orders, its
-/// payment did not start and its hold still runs. A sold-out drop counts as open: the
-/// order's own hold may be what sold it out. Otherwise the session forgets it.
+/// The order the session remembers for this drop, while its payment did not start and its
+/// hold still runs. The deadline and stock play no part: the order was placed in time and
+/// its hold keeps its stock (spec, payment within the hold). Only a cancelled or finished
+/// bake day ends it early. Otherwise the session forgets it.
 async fn unpaid_order(
     state: &AppState,
     conn: &mut PgConnection,
@@ -488,12 +489,17 @@ async fn unpaid_order(
         }
     };
     let now = state.clock.now();
-    let order = orders::order::get(conn, id).await.ok().filter(|order| {
+    let mut order = orders::order::get(conn, id).await.ok().filter(|order| {
         order.bake_day_id == drop.bake_day_id
-            && matches!(drop.status, PublicStatus::Open | PublicStatus::SoldOut)
             && order.status == OrderStatus::PendingPayment
             && order.hold_expires_at.is_some_and(|hold| now < hold)
     });
+    if order.is_some() {
+        let live = days::get(conn, drop.bake_day_id)
+            .await
+            .is_ok_and(|day| !matches!(day.status, BakeDayStatus::Cancelled | BakeDayStatus::Done));
+        order = order.filter(|_| live);
+    }
     if order.is_none()
         && let Err(err) = session.remove::<i64>(UNPAID_KEY).await
     {
