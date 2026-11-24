@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO customer (email, name, phone, marketing_consent, created_at)\n        VALUES ($1, $2, $3, $4, timestamptz 'epoch' + $5::bigint * interval '1 microsecond')\n        ON CONFLICT (email) DO UPDATE\n        SET name = EXCLUDED.name, phone = EXCLUDED.phone,\n            marketing_consent = customer.marketing_consent OR EXCLUDED.marketing_consent\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "062cf5c76b44afc2b5cf2d3a956b46e0aab7a2ccc91d6403780c8e170fec60de"
+}

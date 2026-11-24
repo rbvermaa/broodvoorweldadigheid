@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, online_ordering, charity_id,\n            (extract(epoch FROM cutoff_at) * 1000000)::bigint AS cutoff_at_us\n        FROM bake_day WHERE id = $1 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "online_ordering",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "online_ordering"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "charity_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "charity_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cutoff_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "e1675b49e6cc8b687fe3a9257484d103096894b23eca16fb01a85d16ce6ee693"
+}

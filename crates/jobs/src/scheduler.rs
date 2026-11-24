@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use apalis::prelude::{BoxDynError, Data, TaskBuilder, TaskSink, TaskSinkError, WorkerBuilder};
 use apalis_postgres::PostgresStorage;
-use domain::Clock;
+use domain::{Clock, OrderId};
 use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -16,8 +16,9 @@ use crate::bake_days::{self, TickReport};
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
 
-/// The every-minute job that opens and closes bake days. `minute` is the start of the
-/// minute it was scheduled for and makes the job unique.
+/// The every-minute job that opens and closes bake days and releases expired order
+/// holds. `minute` is the start of the minute it was scheduled for and makes the job
+/// unique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BakeDayTick {
     pub minute: Timestamp,
@@ -84,8 +85,8 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// Runs one queued tick against the current time, not the minute it was queued for, so a
-/// late run still opens and closes what is due.
+/// Runs one queued tick (bake days, then expired holds) against the current time, not
+/// the minute it was queued for, so a late run still does what is due.
 ///
 /// # Errors
 /// Any [`Error`] from [`bake_days::tick`]; apalis retries the job.
@@ -100,11 +101,15 @@ pub async fn handle_tick(
     let due: Pin<Box<dyn Future<Output = Result<TickReport, Error>> + Send + '_>> =
         Box::pin(bake_days::tick(&mut conn, clock.0.0.as_ref()));
     let report = due.await?;
-    if !report.opened.is_empty() || !report.closed.is_empty() {
+    let released: Pin<Box<dyn Future<Output = Result<Vec<OrderId>, orders::Error>> + Send + '_>> =
+        Box::pin(orders::release_expired_holds(&mut conn, clock.0.0.as_ref()));
+    let released = released.await?;
+    if !report.opened.is_empty() || !report.closed.is_empty() || !released.is_empty() {
         tracing::info!(
             minute = %tick.minute,
             opened = ?report.opened,
             closed = ?report.closed,
+            released = ?released,
             "bake day tick"
         );
     }

@@ -1,0 +1,181 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, number_year, number_seq, customer_id, bake_day_id, pickup_slot_id,\n            channel, payment_mode, status, cancel_reason, total_cents,\n            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,\n            payment_ref,\n            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\"\n        FROM \"order\" WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "number_year",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_year"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "number_seq",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "customer_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "customer_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "pickup_slot_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "pickup_slot_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "channel",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "channel"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "payment_mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "payment_mode"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "cancel_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "cancel_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "total_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "total_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "hold_expires_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "payment_ref",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "payment_ref"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "paid_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "c6c45de788c749631ccb03a6a42492e3c87d249606c843a36ba6bf0b3b0b3a5b"
+}
