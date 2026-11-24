@@ -1,10 +1,11 @@
 //! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
-//! extra production, orders, the production and pickup lists, the reports, and customer
-//! data requests (F12). Every handler takes [`Staff`] and checks a permission (ADR 0010).
-//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
-//! partial updates on top (ADR 0019).
+//! extra production, orders, the production and pickup lists, the reports, business
+//! customers and customer data requests (F12). Every handler takes [`Staff`] and checks a
+//! permission (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only
+//! adds inline checks and partial updates on top (ADR 0019).
 
 pub mod bake_days;
+pub mod business;
 pub mod charities;
 pub mod customers;
 pub mod extras;
@@ -193,6 +194,31 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/reports/payouts/{id}/transfers",
             post(payouts::record),
+        )
+        .route("/staff/business-accounts", get(business::list))
+        .route(
+            "/staff/business-accounts/new",
+            get(business::new_form).post(business::create),
+        )
+        .route(
+            "/staff/business-accounts/{id}",
+            get(business::show).post(business::update),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoice",
+            get(business::invoice_page),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoice.csv",
+            get(business::invoice_csv),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoices",
+            post(business::mark_invoiced),
+        )
+        .route(
+            "/staff/business-accounts/{id}/order",
+            get(business::order_form).post(business::place_order),
         )
         .route("/staff/orders", get(orders::days_list))
         .route("/staff/bake-days/{id}/orders", get(orders::list))

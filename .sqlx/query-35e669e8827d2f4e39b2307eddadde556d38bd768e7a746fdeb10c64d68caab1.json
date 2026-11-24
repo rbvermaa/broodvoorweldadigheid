@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE business_account SET company_name = $2, kvk = $3, btw_id = $4,\n            invoice_address = $5, invoice_email = $6, on_account_allowed = $7\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35e669e8827d2f4e39b2307eddadde556d38bd768e7a746fdeb10c64d68caab1"
+}
