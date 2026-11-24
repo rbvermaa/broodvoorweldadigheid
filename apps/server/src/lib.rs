@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod alerts;
 pub mod assets;
 pub mod clock;
 pub mod components;
@@ -39,11 +40,13 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
-    let mut routes = Router::new().route("/", get(pages::home));
+    let mut routes = Router::new()
+        .route("/", get(pages::home))
+        .merge(alerts::routes(&state));
     if state.config.gallery {
         routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
     }
-    with_shell(routes, state)
+    with_shell(routes, state.clone()).merge(alerts::one_click_routes(state))
 }
 
 /// Wraps `routes` with what every page needs: the Dutch 404 and 405 pages, CSRF checks,

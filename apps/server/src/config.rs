@@ -1,6 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
+pub const DEFAULT_PUBLIC_URL: &str = "https://broodvoorweldadigheid.nl";
 
 #[derive(PartialEq, Eq)]
 pub struct Config {
@@ -12,6 +13,8 @@ pub struct Config {
     pub trusted_proxy: Option<IpAddr>,
     /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
     pub gallery: bool,
+    /// Where customers reach the site, without a trailing slash. Links in emails use it.
+    pub public_url: String,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -28,6 +31,10 @@ pub enum ConfigError {
     InvalidTrustedProxy(String),
     #[error("GALLERY {0:?} must be true or false")]
     InvalidGallery(String),
+    #[error(
+        "PUBLIC_URL {0:?} must be an http(s) URL without path, like https://broodvoorweldadigheid.nl"
+    )]
+    InvalidPublicUrl(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -38,6 +45,7 @@ impl std::fmt::Debug for Config {
             .field("cookie_secure", &self.cookie_secure)
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
+            .field("public_url", &self.public_url)
             .finish()
     }
 }
@@ -75,14 +83,37 @@ impl Config {
             Some("true") => true,
             Some(other) => return Err(ConfigError::InvalidGallery(other.to_string())),
         };
+        let public_url = lookup("PUBLIC_URL").unwrap_or_else(|| DEFAULT_PUBLIC_URL.to_string());
+        if !is_origin(&public_url) {
+            return Err(ConfigError::InvalidPublicUrl(public_url));
+        }
         Ok(Self {
             bind_addr,
             database_url,
             cookie_secure,
             trusted_proxy,
             gallery,
+            public_url,
         })
     }
+}
+
+/// `http://` or `https://`, a host of letters, digits, dots and dashes, an optional
+/// port, and nothing after it.
+fn is_origin(url: &str) -> bool {
+    let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let (host, port) = rest.split_once(':').unwrap_or((rest, ""));
+    !host.is_empty()
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        && (port.is_empty() || port.parse::<u16>().is_ok())
+        && !(port.is_empty() && rest.ends_with(':'))
 }
 
 #[cfg(test)]
@@ -137,6 +168,37 @@ mod tests {
             Err(ConfigError::NotPostgres)
         );
         assert!(Config::from_lookup(lookup(&[("DATABASE_URL", "postgresql://db/bakery")])).is_ok());
+    }
+
+    #[test]
+    fn public_url_must_be_an_origin() {
+        let config = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(config.public_url, "https://broodvoorweldadigheid.nl");
+        let local = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("PUBLIC_URL", "https://localhost:8443"),
+        ]))
+        .expect("config");
+        assert_eq!(local.public_url, "https://localhost:8443");
+        for bad in [
+            "broodvoorweldadigheid.nl",
+            "https://broodvoorweldadigheid.nl/",
+            "https://broodvoorweldadigheid.nl/shop",
+            "https://user@host",
+            "https://host:",
+            "https://host:99999",
+            "ftp://host",
+        ] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("PUBLIC_URL", bad),
+                ])),
+                Err(ConfigError::InvalidPublicUrl(bad.to_string())),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

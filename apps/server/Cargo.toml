@@ -17,6 +17,7 @@ db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
 jiff.workspace = true
+notify = { path = "../../crates/notify" }
 rand.workspace = true
 serde.workspace = true
 sha2.workspace = true
@@ -34,7 +35,7 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-notify = { path = "../../crates/notify" }
+testkit = { path = "../../crates/testkit" }
 serde_json.workspace = true
 sqlx.workspace = true
 tower.workspace = true
