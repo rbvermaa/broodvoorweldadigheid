@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\",\n            (extract(epoch FROM last_seen_at) * 1000000)::bigint AS \"seen_us!\"\n        FROM customer_login WHERE customer_id = $1 ORDER BY created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "seen_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "c67fd5700b16d6c631828f539570b9cf1a6aafb456a92f88e543b73da25b7d1b"
+}

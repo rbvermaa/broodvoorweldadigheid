@@ -15,6 +15,7 @@ use tokio::time::MissedTickBehavior;
 
 use crate::Error;
 use crate::bake_days::{self, TickReport};
+use crate::cleanup::{self, CleanupReport};
 use crate::drop_alerts::{self, AlertReport};
 use crate::order_emails::{self, OrderEmails};
 use crate::saved_donations::{self, MoveReport};
@@ -71,6 +72,7 @@ pub struct TickOutcome {
     pub donations: MoveReport,
     pub alerts: AlertReport,
     pub sent: SendReport,
+    pub cleaned: CleanupReport,
 }
 
 /// Creates or upgrades the apalis tables in their own `apalis` schema.
@@ -131,15 +133,15 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
 /// One tick's work, in order: open and close bake days, release expired order holds, queue
 /// due pickup reminders and move saved donations past their date (an error in those two is
 /// logged and tried again next tick), queue
-/// the drop alerts that are now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
+/// the drop alerts that are now due, hand due emails to the relay, then delete expired
+/// customer logins and finished account-deleted emails. Every step is safe to repeat, so a retry
 /// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
 /// step fails, so a day that should open never gets the menu alert instead; emails are
 /// sent either way. The first error is returned.
 ///
 /// # Errors
 /// The first [`Error`] of [`bake_days::tick`], [`orders::release_expired_holds`],
-/// [`drop_alerts::tick`] or
-/// [`notify::send_pending`].
+/// [`drop_alerts::tick`], [`notify::send_pending`] or [`cleanup::tick`].
 pub fn work<'a>(
     pool: &'a PgPool,
     clock: &'a dyn Clock,
@@ -196,6 +198,12 @@ pub fn work<'a>(
                 Err(err) => {
                     first_error.get_or_insert(err.into());
                 }
+            }
+        }
+        match cleanup::tick(&mut conn, &frozen).await {
+            Ok(report) => outcome.cleaned = report,
+            Err(err) => {
+                first_error.get_or_insert(err);
             }
         }
         match first_error {
@@ -291,6 +299,16 @@ pub async fn handle_tick(
             retrying = outcome.sent.retrying,
             failed = outcome.sent.failed,
             "emails"
+        );
+    }
+    let cleaned = outcome.cleaned;
+    if cleaned != CleanupReport::default() {
+        tracing::info!(
+            minute = %tick.minute,
+            login_links = cleaned.login_links,
+            logins = cleaned.logins,
+            emails = cleaned.emails,
+            "cleanup"
         );
     }
     Ok(())

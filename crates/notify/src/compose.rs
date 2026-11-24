@@ -584,6 +584,25 @@ impl<'a> Composer<'a> {
         self.email(EmailKind::DonationMoved, &moved.to.email, parts)
     }
 
+    /// The last email to a customer whose data was erased (F12). No name: it is gone.
+    ///
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn account_deleted(&self, to: &str) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-account-deleted-subject", &[])?,
+            heading: self.t("email-account-deleted-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-account-deleted-intro", &[])?),
+                Block::Paragraph(self.t("email-account-deleted-orders", &[])?),
+                Block::Paragraph(self.t("email-questions", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::AccountDeleted, to, parts)
+    }
+
     /// To the bakery, with only the company name in the footer; the sender gets no copy.
     ///
     /// # Errors

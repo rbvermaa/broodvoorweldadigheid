@@ -437,6 +437,15 @@ fn donation_moved() {
 }
 
 #[test]
+fn account_deleted() {
+    let email = compose(|c| c.account_deleted("klant@example.org"));
+    assert_eq!(email.kind, EmailKind::AccountDeleted);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("7 jaar"), "{}", email.text);
+    snapshot("account-deleted", &email);
+}
+
+#[test]
 fn every_email_carries_the_company_details_and_no_class_attributes() {
     let i18n = i18n();
     let company = company();
@@ -453,6 +462,7 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
             login_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
             valid_minutes: 30,
         }),
+        composer.account_deleted("klant@example.org"),
     ];
     for email in emails {
         let email = email.expect("compose");

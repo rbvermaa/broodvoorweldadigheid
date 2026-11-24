@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM business_account WHERE customer_id = $1) AS \"b!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "b!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e1534a69b58d61d9119aeec777b16b64f67da1d9e12a1031ef8afa1640829a28"
+}

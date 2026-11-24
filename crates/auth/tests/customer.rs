@@ -239,3 +239,79 @@ async fn two_clicks_at_once_sign_in_once(pool: PgPool) {
     }
     assert_eq!(signed_in, 1);
 }
+
+async fn count(pool: &PgPool, sql: &'static str) -> i64 {
+    sqlx::query_scalar(sql)
+        .fetch_one(pool)
+        .await
+        .expect("count")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_cleanup_deletes_expired_links_and_logins_only(pool: PgPool) {
+    let id = customer(&pool, "klant@example.nl").await;
+    let old = issue(&pool, "klant@example.nl", start()).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    customer::redeem_link(&mut conn, old.token.as_str(), start())
+        .await
+        .expect("redeem");
+    customer::start(&pool, id, start()).await.expect("login");
+    let other = customer(&pool, "ander@example.nl").await;
+    let later = start() + SignedDuration::from_hours(24 * 8);
+    let fresh = issue(&pool, "ander@example.nl", later).await;
+    sqlx::query(
+        "INSERT INTO customer_login (customer_id, created_at, last_seen_at) VALUES ($1, $2::timestamptz, $2::timestamptz)",
+    )
+    .bind(other.get())
+    .bind(later.to_string())
+    .execute(&pool)
+    .await
+    .expect("a login that start's own cleanup does not touch");
+
+    let cleaned =
+        customer::delete_expired(&mut conn, later + LINK_VALID - SignedDuration::from_secs(1))
+            .await
+            .expect("cleanup");
+    assert_eq!(
+        (cleaned.links, cleaned.logins),
+        (1, 1),
+        "the first customer's"
+    );
+    assert_eq!(
+        count(&pool, "SELECT count(*) FROM customer_login_link").await,
+        1
+    );
+    assert_eq!(count(&pool, "SELECT count(*) FROM customer_login").await, 1);
+    let valid = customer::link_is_valid(&mut conn, fresh.token.as_str(), later)
+        .await
+        .expect("valid");
+    assert!(valid);
+
+    let cleaned = customer::delete_expired(&mut conn, later + ABSOLUTE_TIMEOUT)
+        .await
+        .expect("cleanup");
+    assert_eq!((cleaned.links, cleaned.logins), (1, 1));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_erased_customer_cannot_use_a_link_or_a_login(pool: PgPool) {
+    let id = customer(&pool, "klant@example.nl").await;
+    let link = issue(&pool, "klant@example.nl", start()).await;
+    let login = customer::start(&pool, id, start()).await.expect("login");
+    sqlx::query("UPDATE customer SET erased_at = now() WHERE id = $1")
+        .bind(id.get())
+        .execute(&pool)
+        .await
+        .expect("erase");
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let redeemed = customer::redeem_link(&mut conn, link.token.as_str(), start())
+        .await
+        .expect("redeem");
+    assert_eq!(redeemed, None);
+    let current = customer::current(&pool, &login, start())
+        .await
+        .expect("current");
+    assert_eq!(current, None);
+    assert_eq!(count(&pool, "SELECT count(*) FROM customer_login").await, 0);
+}
