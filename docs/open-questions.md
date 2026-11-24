@@ -42,3 +42,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
+- [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
+  exported from Payhip.
+  Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
+  only come from sign-ups on the site (ADR 0021).
