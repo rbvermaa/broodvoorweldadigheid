@@ -28,7 +28,6 @@
 {% endcall %}
 </fieldset>
 {% call s::live("unit_weight", check) %}{% call f::field("number", "unit_weight", layout.t("product-unit-weight")?, value = form.unit_weight, error = errors.get("unit_weight"), required = true) %}{% endcall %}{% endcall %}
-{% call s::live("lead_time", check) %}{% call f::field("number", "lead_time", layout.t("product-lead-time")?, value = form.lead_time, hint = layout.t("product-lead-time-hint")?, error = errors.get("lead_time")) %}{% endcall %}{% endcall %}
 {% call f::checkbox("sold_online", layout.t("product-sold-online")?, checked = form.sold_online) %}{% endcall %}
 {% call f::checkbox("active", layout.t("product-active")?, checked = form.active) %}{% endcall %}
 <fieldset class="field-group">

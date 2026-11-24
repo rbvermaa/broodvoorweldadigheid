@@ -222,7 +222,6 @@ async fn moving_needs_an_open_order_and_a_slot_of_the_same_day(mut conn: PoolCon
         &clock,
         &bakedays::NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
     )

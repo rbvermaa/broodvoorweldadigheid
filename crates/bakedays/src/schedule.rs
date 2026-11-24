@@ -1,7 +1,7 @@
 use catalog::SourdoughDeadline;
-use domain::{ProductId, bakery_time_zone, in_bakery_time};
+use domain::{bakery_time_zone, in_bakery_time};
 use jiff::civil::{Date, Time};
-use jiff::{SignedDuration, Span, Timestamp};
+use jiff::{Span, Timestamp};
 
 use crate::Error;
 
@@ -44,57 +44,38 @@ pub fn shift_days(timestamp: Timestamp, days: i32) -> Result<Timestamp, Error> {
         .map_err(|_| Error::Invalid("date"))
 }
 
-/// The rule that sets the latest deadline a drop's sourdough allows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeadTimeRule {
-    /// The bakery's rule: a number of days before the bake date, at a local time.
-    Sourdough(SourdoughDeadline),
-    /// A product's own lead time before baking starts.
-    Product {
-        product_id: ProductId,
-        lead_time_hours: i32,
-    },
+/// When baking starts on a bake date, in local time. Staff do not enter it (ADR 0027).
+pub const BAKE_STARTS: Time = jiff::civil::time(5, 0, 0, 0);
+
+/// The moment baking starts on `bake_date`: [`BAKE_STARTS`] in the bakery's time zone.
+///
+/// # Errors
+/// [`Error::Invalid`] when the result is out of range.
+pub fn bake_starts_at(bake_date: Date) -> Result<Timestamp, Error> {
+    bakery_timestamp(bake_date, BAKE_STARTS)
 }
 
-/// The deadline is later than the sourdough allows (F1).
+/// The deadline is later than the bakery's sourdough rule allows (F1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeadTimeWarning {
-    pub rule: LeadTimeRule,
     pub cutoff_at: Timestamp,
     pub latest_cutoff: Timestamp,
 }
 
-/// Warns when `cutoff_at` is later than the earliest of: the sourdough deadline for
-/// `bake_date`, and `bake_starts_at` minus each product's own lead time.
+/// Warns when `cutoff_at` is later than the sourdough deadline for `bake_date`.
 ///
 /// # Errors
-/// [`Error::Invalid`] when a limit is out of range.
+/// [`Error::Invalid`] when the limit is out of range.
 pub fn lead_time_warning(
     cutoff_at: Option<Timestamp>,
     bake_date: Date,
-    bake_starts_at: Timestamp,
     sourdough: SourdoughDeadline,
-    product_lead_times: &[(ProductId, i32)],
 ) -> Result<Option<LeadTimeWarning>, Error> {
     let Some(cutoff_at) = cutoff_at else {
         return Ok(None);
     };
-    let mut rule = LeadTimeRule::Sourdough(sourdough);
-    let mut latest_cutoff = default_cutoff(bake_date, sourdough.days_before, sourdough.at)?;
-    for &(product_id, lead_time_hours) in product_lead_times {
-        let limit = bake_starts_at
-            .checked_sub(SignedDuration::from_hours(i64::from(lead_time_hours)))
-            .map_err(|_| Error::Invalid("lead time"))?;
-        if limit < latest_cutoff {
-            rule = LeadTimeRule::Product {
-                product_id,
-                lead_time_hours,
-            };
-            latest_cutoff = limit;
-        }
-    }
+    let latest_cutoff = default_cutoff(bake_date, sourdough.days_before, sourdough.at)?;
     Ok((cutoff_at > latest_cutoff).then_some(LeadTimeWarning {
-        rule,
         cutoff_at,
         latest_cutoff,
     }))
@@ -194,25 +175,39 @@ mod tests {
         );
     }
 
-    const BREAD: ProductId = ProductId::new(1);
-    const ROLLS: ProductId = ProductId::new(2);
+    #[test]
+    fn baking_starts_at_five_local_time_across_clock_changes() {
+        assert_eq!(
+            bake_starts_at(date(2026, 3, 28)).unwrap(),
+            ts("2026-03-28T04:00:00Z")
+        );
+        // The clocks jump from 02:00 to 03:00 on 29 March; 05:00 is summer time.
+        assert_eq!(
+            bake_starts_at(date(2026, 3, 29)).unwrap(),
+            ts("2026-03-29T03:00:00Z")
+        );
+        assert_eq!(
+            bake_starts_at(date(2026, 10, 24)).unwrap(),
+            ts("2026-10-24T03:00:00Z")
+        );
+        // The clocks fall back from 03:00 to 02:00 on 25 October; 05:00 is winter time.
+        assert_eq!(
+            bake_starts_at(date(2026, 10, 25)).unwrap(),
+            ts("2026-10-25T04:00:00Z")
+        );
+    }
+
     const TWO_DAYS_AT_8PM: SourdoughDeadline = SourdoughDeadline {
         days_before: 2,
         at: THURSDAY_8PM,
     };
 
-    fn warning(
-        cutoff: &str,
-        bake_date: Date,
-        products: &[(ProductId, i32)],
-    ) -> Option<LeadTimeWarning> {
-        let bake = bakery_timestamp(bake_date, time(4, 0, 0, 0)).unwrap();
-        lead_time_warning(Some(ts(cutoff)), bake_date, bake, TWO_DAYS_AT_8PM, products).unwrap()
+    fn warning(cutoff: &str, bake_date: Date) -> Option<LeadTimeWarning> {
+        lead_time_warning(Some(ts(cutoff)), bake_date, TWO_DAYS_AT_8PM).unwrap()
     }
 
     fn sourdough_warning(cutoff: &str, latest: &str) -> Option<LeadTimeWarning> {
         Some(LeadTimeWarning {
-            rule: LeadTimeRule::Sourdough(TWO_DAYS_AT_8PM),
             cutoff_at: ts(cutoff),
             latest_cutoff: ts(latest),
         })
@@ -222,108 +217,58 @@ mod tests {
     fn deadline_after_thursday_8pm_warns_for_a_saturday_bake() {
         // Saturday 2026-10-31 is in winter time: Thursday 20:00 CET is 19:00 UTC.
         let saturday = date(2026, 10, 31);
-        assert_eq!(warning("2026-10-29T19:00:00Z", saturday, &[]), None);
+        assert_eq!(warning("2026-10-29T19:00:00Z", saturday), None);
         assert_eq!(
-            warning("2026-10-29T19:01:00Z", saturday, &[]),
+            warning("2026-10-29T19:01:00Z", saturday),
             sourdough_warning("2026-10-29T19:01:00Z", "2026-10-29T19:00:00Z")
         );
         assert_eq!(
-            warning("2026-10-30T19:00:00Z", saturday, &[]),
+            warning("2026-10-30T19:00:00Z", saturday),
             sourdough_warning("2026-10-30T19:00:00Z", "2026-10-29T19:00:00Z")
         );
         // A week earlier is summer time: Thursday 20:00 CEST is 18:00 UTC.
         assert_eq!(
-            warning("2026-10-22T18:01:00Z", date(2026, 10, 24), &[]),
+            warning("2026-10-22T18:01:00Z", date(2026, 10, 24)),
             sourdough_warning("2026-10-22T18:01:00Z", "2026-10-22T18:00:00Z")
         );
     }
 
     #[test]
     fn sourdough_deadline_around_the_march_change() {
+        assert_eq!(warning("2026-03-26T19:00:00Z", date(2026, 3, 28)), None);
         assert_eq!(
-            warning("2026-03-26T19:00:00Z", date(2026, 3, 28), &[]),
-            None
-        );
-        assert_eq!(
-            warning("2026-04-02T19:00:00Z", date(2026, 4, 4), &[]),
+            warning("2026-04-02T19:00:00Z", date(2026, 4, 4)),
             sourdough_warning("2026-04-02T19:00:00Z", "2026-04-02T18:00:00Z")
         );
         // Tuesday bake: the deadline falls on Sunday 29 March, the day the clocks change.
+        assert_eq!(warning("2026-03-29T18:00:00Z", date(2026, 3, 31)), None);
         assert_eq!(
-            warning("2026-03-29T18:00:00Z", date(2026, 3, 31), &[]),
-            None
-        );
-        assert_eq!(
-            warning("2026-03-29T18:01:00Z", date(2026, 3, 31), &[]),
+            warning("2026-03-29T18:01:00Z", date(2026, 3, 31)),
             sourdough_warning("2026-03-29T18:01:00Z", "2026-03-29T18:00:00Z")
         );
         let gap = SourdoughDeadline {
             days_before: 0,
             at: time(2, 30, 0, 0),
         };
-        let sunday = date(2026, 3, 29);
-        let bake = ts("2026-03-29T03:00:00Z");
         assert_eq!(
-            lead_time_warning(Some(ts("2026-03-29T01:31:00Z")), sunday, bake, gap, &[])
+            lead_time_warning(Some(ts("2026-03-29T01:31:00Z")), date(2026, 3, 29), gap)
                 .unwrap()
                 .map(|w| w.latest_cutoff),
             Some(ts("2026-03-29T01:30:00Z"))
         );
         // 02:30 on 25 October happens twice; the earlier (summer-time) instant is the limit.
-        let overlap = SourdoughDeadline {
-            days_before: 0,
-            at: time(2, 30, 0, 0),
-        };
         assert_eq!(
-            lead_time_warning(
-                Some(ts("2026-10-25T00:31:00Z")),
-                date(2026, 10, 25),
-                ts("2026-10-25T04:00:00Z"),
-                overlap,
-                &[]
-            )
-            .unwrap()
-            .map(|w| w.latest_cutoff),
+            lead_time_warning(Some(ts("2026-10-25T00:31:00Z")), date(2026, 10, 25), gap)
+                .unwrap()
+                .map(|w| w.latest_cutoff),
             Some(ts("2026-10-25T00:30:00Z"))
         );
     }
 
     #[test]
-    fn a_product_lead_time_can_be_stricter() {
-        let saturday = date(2026, 10, 31);
-        assert_eq!(
-            warning("2026-10-29T19:00:00Z", saturday, &[(ROLLS, 12)]),
-            None
-        );
-        // 60 h before Saturday 04:00 CET is Wednesday 16:00 CET.
-        assert_eq!(
-            warning(
-                "2026-10-29T19:00:00Z",
-                saturday,
-                &[(ROLLS, 12), (BREAD, 60)]
-            ),
-            Some(LeadTimeWarning {
-                rule: LeadTimeRule::Product {
-                    product_id: BREAD,
-                    lead_time_hours: 60,
-                },
-                cutoff_at: ts("2026-10-29T19:00:00Z"),
-                latest_cutoff: ts("2026-10-28T15:00:00Z"),
-            })
-        );
-        // 32 h before Saturday 04:00 CET is exactly Thursday 20:00 CET.
-        assert_eq!(
-            warning("2026-10-29T19:01:00Z", saturday, &[(BREAD, 32)]),
-            sourdough_warning("2026-10-29T19:01:00Z", "2026-10-29T19:00:00Z")
-        );
-    }
-
-    #[test]
     fn no_deadline_no_warning() {
-        let saturday = date(2026, 10, 31);
-        let bake = ts("2026-10-31T03:00:00Z");
         assert_eq!(
-            lead_time_warning(None, saturday, bake, TWO_DAYS_AT_8PM, &[(BREAD, 168)]).unwrap(),
+            lead_time_warning(None, date(2026, 10, 31), TWO_DAYS_AT_8PM).unwrap(),
             None
         );
     }

@@ -30,8 +30,10 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Cancelled drops on the public calendar.** F1a lists planned, menu announced, open,
   sold out and closed. A cancelled (sick-day) drop is shown as "cancelled" for now
   (ADR 0008). OK?
-- [ ] **Bake start time.** No default rule in the spec; staff enter `bake_starts_at` per
+- [x] **Bake start time.** No default rule in the spec; staff enter `bake_starts_at` per
   bake day. Should it default from the pickup window (e.g. 04:00 on the bake date)?
+  **Answered 2026-11-24:** baking always starts at 05:00 on the bake date; the server
+  derives it and staff no longer enter it (ADR 0027).
 - [x] **Default lead time vs. default deadline.** 36 h before a Saturday bake start
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
@@ -89,5 +91,12 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
   **Answered 2026-11-24:** not needed; the owner dropped them.
 - [ ] **Spec F3 wording.** F3 still says "limits per product and per dough or oven-load
-  pool". The owner dropped pools on 2026-11-24 (ADR 0025). Update F3 to "a maximum per
+  pool". The owner dropped pools on 2026-11-24 (ADR 0026). Update F3 to "a maximum per
   product per bake day"?
+- [ ] **Spec wording on bake start and lead time** (ADR 0027). The data model lists
+  `bake_starts_at` as a per-day field, and "Recipe versions and batches" plus the
+  deadline rule speak of a lead time per recipe ("bake_starts_at minus the longest recipe
+  lead time"). The owner decided on 2026-11-24 that baking always starts at 05:00 on the
+  bake date (derived, not entered) and that only the sourdough rule (20:00 two days
+  before) warns. Update the spec to match, and drop `lead_time_hours` from
+  `RecipeVersion`?

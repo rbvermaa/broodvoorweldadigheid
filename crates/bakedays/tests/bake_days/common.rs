@@ -22,7 +22,6 @@ pub fn saturday() -> NewBakeDay {
     NewBakeDay {
         date: date("2026-10-31"),
         location_id: DE_PROEF,
-        bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: true,
         charity_id: None,
     }
@@ -32,7 +31,6 @@ pub fn saturday() -> NewBakeDay {
 pub fn next_saturday() -> NewBakeDay {
     NewBakeDay {
         date: date("2026-11-07"),
-        bake_starts_at: ts("2026-11-07T03:00:00Z"),
         ..saturday()
     }
 }

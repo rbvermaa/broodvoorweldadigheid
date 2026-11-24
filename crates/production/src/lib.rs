@@ -10,9 +10,7 @@ pub mod production;
 
 pub use error::Error;
 pub use pickup::{PickupLine, PickupList, PickupOrder, SlotPickups, pickup_list, pickup_pdf};
-pub use production::{
-    Extras, PoolTotal, ProductTotal, ProductionList, production_list, production_pdf,
-};
+pub use production::{Extras, ProductTotal, ProductionList, production_list, production_pdf};
 
 /// A read-only transaction in which every query sees the same committed data.
 async fn snapshot(

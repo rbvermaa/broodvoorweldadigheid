@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use bakedays::{BakeDay, Purpose, days, extras, range};
-use domain::{BakeDayId, CapacityPoolId, ProductId};
+use bakedays::{BakeDay, Purpose, days, extras};
+use domain::{BakeDayId, ProductId};
 use i18n::Translator;
 use sqlx::PgConnection;
 
@@ -60,23 +60,12 @@ impl ProductTotal {
     }
 }
 
-/// The units a capacity pool's products take on the production list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PoolTotal {
-    pub pool_id: CapacityPoolId,
-    pub name: String,
-    pub max_units: u32,
-    pub units: u64,
-}
-
 /// Totals per product for one bake day: orders plus extra production (F7).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductionList {
     pub day: BakeDay,
     /// Products with something to bake, by name.
     pub products: Vec<ProductTotal>,
-    /// Every pool of the day, by name.
-    pub pools: Vec<PoolTotal>,
 }
 
 /// The production list of a bake day. Orders waiting for payment are left out, also
@@ -121,34 +110,8 @@ pub async fn production_list(
             .then(a.product_id.cmp(&b.product_id))
     });
 
-    let mut units: BTreeMap<CapacityPoolId, u64> = BTreeMap::new();
-    for on_range in range::list_products(&mut tx, day.id).await? {
-        let (Some(pool), Some(product)) = (
-            on_range.capacity_pool_id,
-            products
-                .iter()
-                .find(|p| p.product_id == on_range.product_id),
-        ) else {
-            continue;
-        };
-        *units.entry(pool).or_default() += product.to_bake() * u64::from(on_range.units_per_item);
-    }
-    let pools = range::list_pools(&mut tx, day.id)
-        .await?
-        .into_iter()
-        .map(|pool| PoolTotal {
-            units: units.get(&pool.id).copied().unwrap_or(0),
-            pool_id: pool.id,
-            name: pool.name,
-            max_units: pool.max_units,
-        })
-        .collect();
     tx.commit().await?;
-    Ok(ProductionList {
-        day,
-        products,
-        pools,
-    })
+    Ok(ProductionList { day, products })
 }
 
 /// The production list as an A4 PDF.

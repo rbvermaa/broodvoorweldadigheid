@@ -248,10 +248,6 @@ async fn missing_products_are_not_found(mut conn: PoolConnection<Postgres>) {
         products::approve_allergens(&mut conn, missing, &allergen_info(), BAKER, &clock).await,
         Err(Error::NotFound)
     ));
-    assert!(matches!(
-        products::lead_time_hours(&mut conn, missing).await,
-        Err(Error::NotFound)
-    ));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -407,37 +403,6 @@ async fn products_not_sold_online_never_reach_the_webshop_list(mut conn: PoolCon
     let listed = products::list_sold_online(&mut conn).await.unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, online.id);
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn only_products_with_their_own_lead_time_have_one(mut conn: PoolConnection<Postgres>) {
-    let default = products::create(&mut conn, &sourdough()).await.unwrap();
-    let own = products::create(
-        &mut conn,
-        &ProductInput {
-            lead_time_hours: Some(48),
-            ..sourdough()
-        },
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(
-        products::lead_time_hours(&mut conn, default.id)
-            .await
-            .unwrap(),
-        None
-    );
-    assert_eq!(
-        products::lead_time_hours(&mut conn, own.id).await.unwrap(),
-        Some(48)
-    );
-    assert_eq!(
-        products::lead_times(&mut conn, &[own.id, ProductId::new(999), default.id])
-            .await
-            .unwrap(),
-        [(own.id, 48)]
-    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

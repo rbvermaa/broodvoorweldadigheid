@@ -9,7 +9,6 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::capacity::Remaining;
-use bakedays::schedule::LeadTimeRule;
 use bakedays::status::TransitionRefused;
 use bakedays::{BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, Schedule, days, pickup, range};
 use catalog::{Charity, Product, charities, products};
@@ -56,7 +55,6 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
                     ("production_only", "day-error-production-only-open")
                 }
                 "charity" => ("charity_id", "day-error-charity-unknown"),
-                "units per item" => ("units", "range-error-units"),
                 "product" => ("product_id", "range-error-product"),
                 "maximum" => ("max_qty", "form-error-count"),
                 "number of weeks" => ("weeks", "day-error-weeks"),
@@ -64,7 +62,13 @@ pub fn problem(state: &AppState, error: &bakedays::Error) -> Option<Problem> {
                 "date" => ("date", "form-error-date"),
                 _ => ("", "form-has-errors"),
             };
-            (field, t(state, id))
+            let text = if id == "day-error-deadline-after-bake" {
+                let time = i18n::time(bakedays::schedule::BAKE_STARTS);
+                t_with(state, id, &[("time", time)])
+            } else {
+                t(state, id)
+            };
+            (field, text)
         }
         E::NoPickupWindow(weekday) => (
             "location_id",
@@ -256,7 +260,6 @@ pub async fn list(
 pub struct NewDayForm {
     pub date: String,
     pub location_id: String,
-    pub bake_starts_at: String,
     pub production_only: bool,
     pub charity_id: String,
 }
@@ -321,7 +324,6 @@ pub async fn new_form(State(state): State<AppState>, staff: Staff, session: Sess
         let form = NewDayForm {
             date: String::new(),
             location_id: String::new(),
-            bake_starts_at: String::new(),
             production_only: false,
             charity_id: String::new(),
         };
@@ -342,7 +344,6 @@ pub async fn create(
         let form = NewDayForm {
             date: fields.text("date").to_owned(),
             location_id: fields.text("location_id").to_owned(),
-            bake_starts_at: fields.text("bake_starts_at").to_owned(),
             production_only: fields.checked("production_only"),
             charity_id: fields.text("charity_id").to_owned(),
         };
@@ -355,26 +356,17 @@ pub async fn create(
         if location.is_none() {
             errors.add("location_id", t(&state, "day-error-location"));
         }
-        let bake_starts_at = parse_local(&form.bake_starts_at);
-        if bake_starts_at.is_none() {
-            errors.add("bake_starts_at", t(&state, "form-error-datetime"));
-        }
         let charity = optional_id(&form.charity_id);
         if charity.is_err() {
             errors.add("charity_id", t(&state, "day-error-charity-unknown"));
         }
-        let input = match (date, location, bake_starts_at, charity) {
-            (Some(date), Some(location), Some(bake_starts_at), Ok(charity))
-                if errors.is_empty() =>
-            {
-                NewBakeDay {
-                    date,
-                    location_id: PickupLocationId::new(location),
-                    bake_starts_at,
-                    online_ordering: !form.production_only,
-                    charity_id: charity.map(CharityId::new),
-                }
-            }
+        let input = match (date, location, charity) {
+            (Some(date), Some(location), Ok(charity)) if errors.is_empty() => NewBakeDay {
+                date,
+                location_id: PickupLocationId::new(location),
+                online_ordering: !form.production_only,
+                charity_id: charity.map(CharityId::new),
+            },
             _ => {
                 let status = invalid_status(&headers);
                 return render_new(&state, &session, status, form, errors).await;
@@ -393,7 +385,7 @@ pub async fn create(
             Err(error) => match problem(&state, &error) {
                 Some(problem) => {
                     let field = match problem.field {
-                        "" | "cutoff_at" => "bake_starts_at",
+                        "" | "cutoff_at" => "location_id",
                         other => other,
                     };
                     errors.add(field, problem.text);
@@ -412,15 +404,12 @@ pub struct DayForms {
     pub menu_publish_at: String,
     pub opens_at: String,
     pub cutoff_at: String,
-    pub bake_starts_at: String,
     pub production_only: bool,
     pub charity_id: String,
     pub product_id: String,
     pub max_qty: String,
-    pub units: String,
     pub edit_product: String,
     pub edit_max_qty: String,
-    pub edit_units: String,
     pub copy_date: String,
     pub weeks: String,
 }
@@ -432,7 +421,6 @@ impl DayForms {
             menu_publish_at: value(day.menu_publish_at),
             opens_at: value(day.opens_at),
             cutoff_at: value(day.cutoff_at),
-            bake_starts_at: local_value(day.bake_starts_at),
             production_only: !day.online_ordering,
             charity_id: day
                 .charity_id
@@ -440,10 +428,8 @@ impl DayForms {
                 .unwrap_or_default(),
             product_id: String::new(),
             max_qty: String::new(),
-            units: "1".to_owned(),
             edit_product: String::new(),
             edit_max_qty: String::new(),
-            edit_units: String::new(),
             copy_date: String::new(),
             weeks: String::new(),
         }
@@ -456,8 +442,6 @@ pub struct RangeRow {
     pub edit: String,
     pub max_field: String,
     pub max_qty: String,
-    pub units_field: String,
-    pub units: String,
     pub dialog: String,
     pub action: String,
     pub confirm: String,
@@ -556,11 +540,7 @@ fn range_text(
     [name.to_owned(), max, remaining_text(state, remaining)].join(" · ")
 }
 
-async fn lead_time_alert(
-    state: &AppState,
-    day: &BakeDay,
-    names: &BTreeMap<ProductId, String>,
-) -> Step<Option<String>> {
+async fn lead_time_alert(state: &AppState, day: &BakeDay) -> Step<Option<String>> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let warning = days::lead_time_warning(&mut conn, day.id)
         .await
@@ -577,28 +557,14 @@ async fn lead_time_alert(
                 ],
             )
         };
-        let cutoff = format(w.cutoff_at);
-        let latest = format(w.latest_cutoff);
-        match w.rule {
-            LeadTimeRule::Sourdough(_) => t_with(
-                state,
-                "day-lead-time-warning-sourdough",
-                &[("cutoff", cutoff), ("latest", latest)],
-            ),
-            LeadTimeRule::Product {
-                product_id,
-                lead_time_hours,
-            } => t_with(
-                state,
-                "day-lead-time-warning-product",
-                &[
-                    ("product", product_name(names, product_id)),
-                    ("hours", lead_time_hours.to_string()),
-                    ("cutoff", cutoff),
-                    ("latest", latest),
-                ],
-            ),
-        }
+        t_with(
+            state,
+            "day-lead-time-warning-sourdough",
+            &[
+                ("cutoff", format(w.cutoff_at)),
+                ("latest", format(w.latest_cutoff)),
+            ],
+        )
     }))
 }
 
@@ -690,21 +656,16 @@ async fn render_day(
         .map(|item| {
             let name = product_name(&names, item.product_id);
             let id = item.product_id.get();
-            let (max_qty, units) = if forms.edit_product == id.to_string() {
-                (forms.edit_max_qty.clone(), forms.edit_units.clone())
+            let max_qty = if forms.edit_product == id.to_string() {
+                forms.edit_max_qty.clone()
             } else {
-                (
-                    item.max_qty.map(|n| n.to_string()).unwrap_or_default(),
-                    item.units_per_item.to_string(),
-                )
+                item.max_qty.map(|n| n.to_string()).unwrap_or_default()
             };
             RangeRow {
                 text: range_text(state, &name, item, remaining.get(&item.product_id).copied()),
                 edit: format!("{path}/range/{id}"),
                 max_field: format!("max_qty_{id}"),
                 max_qty,
-                units_field: format!("units_{id}"),
-                units,
                 dialog: format!("remove-{id}"),
                 action: format!("{path}/range/{id}/remove"),
                 confirm: t_with(
@@ -726,7 +687,7 @@ async fn render_day(
         })
         .collect();
     let mut alerts = answer.alerts;
-    if let Some(warning) = lead_time_alert(state, day, &names).await? {
+    if let Some(warning) = lead_time_alert(state, day).await? {
         alerts.push(warning);
     }
     Ok(pages::render(
@@ -815,7 +776,6 @@ pub async fn schedule(
         forms.menu_publish_at = fields.text("menu_publish_at").to_owned();
         forms.opens_at = fields.text("opens_at").to_owned();
         forms.cutoff_at = fields.text("cutoff_at").to_owned();
-        forms.bake_starts_at = fields.text("bake_starts_at").to_owned();
         forms.production_only = fields.checked("production_only");
         let mut errors = Errors::default();
         let mut optional = |field: &str, value: &str| -> Option<Timestamp> {
@@ -831,11 +791,7 @@ pub async fn schedule(
         let menu_publish_at = optional("menu_publish_at", &forms.menu_publish_at);
         let opens_at = optional("opens_at", &forms.opens_at);
         let cutoff_at = optional("cutoff_at", &forms.cutoff_at);
-        let bake_starts_at = parse_local(&forms.bake_starts_at);
-        if bake_starts_at.is_none() {
-            errors.add("bake_starts_at", t(&state, "form-error-datetime"));
-        }
-        let Some(bake_starts_at) = bake_starts_at.filter(|_| errors.is_empty()) else {
+        if !errors.is_empty() {
             let answer = Answer {
                 forms: Some(forms),
                 errors,
@@ -844,13 +800,12 @@ pub async fn schedule(
                 alerts: Vec::new(),
             };
             return render_day(&state, &session, invalid_status(&headers), &day, answer).await;
-        };
+        }
         let schedule = Schedule {
             online_ordering: !forms.production_only,
             menu_publish_at,
             opens_at,
             cutoff_at,
-            bake_starts_at,
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         let result = days::update_schedule(&mut conn, day.id, &schedule).await;
@@ -897,47 +852,31 @@ pub async fn charity(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-#[derive(Clone, Copy)]
-enum Limit {
-    Max,
-    Units,
+/// A product's maximum as posted; empty means none.
+fn parse_max(state: &AppState, max_qty: &str) -> Result<Option<u32>, String> {
+    if max_qty.is_empty() {
+        return Ok(None);
+    }
+    parse_count(max_qty)
+        .map(Some)
+        .ok_or_else(|| t(state, "form-error-count"))
 }
 
-/// A product's limits as posted; an empty maximum means none.
-fn parse_limits(
-    state: &AppState,
-    max_qty: &str,
-    units: &str,
-) -> Result<(Option<u32>, u32), (Limit, String)> {
-    let max_qty = if max_qty.is_empty() {
-        None
-    } else if let Some(n) = parse_count(max_qty) {
-        Some(n)
-    } else {
-        return Err((Limit::Max, t(state, "form-error-count")));
-    };
-    let Some(units) = parse_count(units).filter(|n| *n > 0) else {
-        return Err((Limit::Units, t(state, "range-error-units")));
-    };
-    Ok((max_qty, units))
-}
-
-/// Puts a product on the day. A product already on it keeps its capacity pool.
+/// Puts a product on the day. A product already on it keeps its capacity pool and units.
 async fn put_product(
     state: &AppState,
     day: BakeDayId,
     product: ProductId,
     max_qty: Option<u32>,
-    units: u32,
 ) -> Step<Result<(), bakedays::Error>> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    let result = match range::update_product(&mut conn, day, product, max_qty, units).await {
+    let result = match range::update_product(&mut conn, day, product, max_qty).await {
         Err(bakedays::Error::NotFound) => {
             let item = BakeDayProduct {
                 product_id: product,
                 max_qty,
                 capacity_pool_id: None,
-                units_per_item: units,
+                units_per_item: 1,
             };
             range::set_product(&mut conn, day, &item).await
         }
@@ -960,22 +899,17 @@ pub async fn set_product(
         let mut forms = DayForms::of(&day);
         forms.product_id = fields.text("product_id").to_owned();
         forms.max_qty = fields.text("max_qty").to_owned();
-        forms.units = fields.text("units").to_owned();
         let Ok(Some(product)) = optional_id(&forms.product_id) else {
             let text = t(&state, "range-error-product");
             return field_error(&state, &session, &headers, &day, forms, "product_id", text).await;
         };
-        let (max_qty, units) = match parse_limits(&state, &forms.max_qty, &forms.units) {
-            Ok(limits) => limits,
-            Err((limit, text)) => {
-                let field = match limit {
-                    Limit::Max => "max_qty",
-                    Limit::Units => "units",
-                };
-                return field_error(&state, &session, &headers, &day, forms, field, text).await;
+        let max_qty = match parse_max(&state, &forms.max_qty) {
+            Ok(max_qty) => max_qty,
+            Err(text) => {
+                return field_error(&state, &session, &headers, &day, forms, "max_qty", text).await;
             }
         };
-        match put_product(&state, day.id, ProductId::new(product), max_qty, units).await? {
+        match put_product(&state, day.id, ProductId::new(product), max_qty).await? {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }
@@ -998,24 +932,18 @@ pub async fn update_product(
         let product = ProductId::new(path_id(&state, &product)?);
         let key = product.get();
         let max_field = format!("max_qty_{key}");
-        let units_field = format!("units_{key}");
         let mut forms = DayForms::of(&day);
         forms.edit_product = key.to_string();
         forms.edit_max_qty = fields.text(&max_field).to_owned();
-        forms.edit_units = fields.text(&units_field).to_owned();
-        let field_of = |limit: Limit| match limit {
-            Limit::Max => max_field.clone(),
-            Limit::Units => units_field.clone(),
-        };
-        let (max_qty, units) = match parse_limits(&state, &forms.edit_max_qty, &forms.edit_units) {
-            Ok(limits) => limits,
-            Err((limit, text)) => {
-                let field = field_of(limit);
-                return row_refused(&state, &session, &headers, &day, forms, &field, text).await;
+        let max_qty = match parse_max(&state, &forms.edit_max_qty) {
+            Ok(max_qty) => max_qty,
+            Err(text) => {
+                return row_refused(&state, &session, &headers, &day, forms, &max_field, text)
+                    .await;
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let result = range::update_product(&mut conn, day.id, product, max_qty, units).await;
+        let result = range::update_product(&mut conn, day.id, product, max_qty).await;
         drop(conn);
         let error = match result {
             Ok(()) => return Ok(saved(&headers, &day_path(day.id))),
@@ -1025,8 +953,7 @@ pub async fn update_product(
             return Err(bakedays_error(&state, &error).into());
         };
         let field = match problem.field {
-            "max_qty" => field_of(Limit::Max),
-            "units" => field_of(Limit::Units),
+            "max_qty" => max_field,
             _ => String::new(),
         };
         row_refused(

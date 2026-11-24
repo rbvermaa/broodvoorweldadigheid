@@ -130,27 +130,23 @@ async fn range_products_are_set_replaced_and_removed(mut conn: PoolConnection<Po
     let pool = range::create_pool(&mut conn, day.id, "Oven", 10)
         .await
         .unwrap();
-    range::set_product(&mut conn, day.id, &on_day(bread, None, Some(pool.id), 1))
+    range::set_product(&mut conn, day.id, &on_day(bread, None, Some(pool.id), 2))
         .await
         .unwrap();
-    range::update_product(&mut conn, day.id, bread, Some(4), 2)
+    range::update_product(&mut conn, day.id, bread, Some(4))
         .await
         .unwrap();
     assert_eq!(
         range::list_products(&mut conn, day.id).await.unwrap(),
         [on_day(bread, Some(4), Some(pool.id), 2)]
     );
-    for (product, max_qty, units) in [
-        (ProductId::new(999), None, 1),
-        (bread, None, 0),
-        (bread, Some(u32::MAX), 1),
-    ] {
+    for (product, max_qty) in [(ProductId::new(999), None), (bread, Some(u32::MAX))] {
         assert!(
             matches!(
-                range::update_product(&mut conn, day.id, product, max_qty, units).await,
+                range::update_product(&mut conn, day.id, product, max_qty).await,
                 Err(Error::Invalid(_))
             ),
-            "{product:?} {max_qty:?} {units}"
+            "{product:?} {max_qty:?}"
         );
     }
     range::remove_product(&mut conn, day.id, bread)
@@ -161,7 +157,7 @@ async fn range_products_are_set_replaced_and_removed(mut conn: PoolConnection<Po
         Err(Error::NotFound)
     ));
     assert!(matches!(
-        range::update_product(&mut conn, day.id, bread, None, 1).await,
+        range::update_product(&mut conn, day.id, bread, None).await,
         Err(Error::NotFound)
     ));
     assert!(

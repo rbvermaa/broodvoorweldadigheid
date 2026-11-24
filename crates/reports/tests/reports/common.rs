@@ -37,7 +37,6 @@ pub async fn drop_on(
         &NewBakeDay {
             date: date(saturday),
             location_id: DE_PROEF,
-            bake_starts_at: ts(&format!("{saturday}T03:00:00Z")),
             online_ordering: true,
             charity_id: charity,
         },
@@ -52,7 +51,6 @@ pub async fn drop_on(
             menu_publish_at: None,
             opens_at: Some(ts("2026-09-01T00:00:00Z")),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await

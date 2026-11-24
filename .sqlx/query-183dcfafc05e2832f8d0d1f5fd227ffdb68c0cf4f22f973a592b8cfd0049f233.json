@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bake_day_product SET max_qty = $3 WHERE bake_day_id = $1 AND product_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "183dcfafc05e2832f8d0d1f5fd227ffdb68c0cf4f22f973a592b8cfd0049f233"
+}

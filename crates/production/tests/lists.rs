@@ -35,11 +35,6 @@ async fn shop(conn: &mut PgConnection, clock: &FakeClock, date: &str) -> Shop {
         &NewBakeDay {
             date,
             location_id: DE_PROEF,
-            bake_starts_at: date
-                .at(4, 0, 0, 0)
-                .in_tz("Europe/Amsterdam")
-                .unwrap()
-                .timestamp(),
             online_ordering: true,
             charity_id: None,
         },
@@ -54,7 +49,6 @@ async fn shop(conn: &mut PgConnection, clock: &FakeClock, date: &str) -> Shop {
             menu_publish_at: None,
             opens_at: Some(ts("2026-10-01T00:00:00Z")),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -201,14 +195,6 @@ fn production_table(list: &ProductionList) -> String {
         )
         .unwrap();
     }
-    for pool in &list.pools {
-        writeln!(
-            out,
-            "pool {}: {} of {}",
-            pool.name, pool.units, pool.max_units
-        )
-        .unwrap();
-    }
     out
 }
 
@@ -318,8 +304,6 @@ async fn the_production_list_counts_firm_orders_and_extras(mut conn: PoolConnect
     Desem: ordered 3 freezer 4 sumup 0 samples 3 other 0 -> bake 10
     Granola: ordered 0 freezer 0 sumup 12 samples 0 other 0 -> bake 12
     koekjes: ordered 3 freezer 0 sumup 0 samples 0 other 0 -> bake 3
-    pool Koelkast: 0 of 20
-    pool Oven: 23 of 100
     ");
 
     clock.advance(orders::HOLD);
@@ -335,7 +319,6 @@ async fn an_empty_day_has_an_empty_production_list(mut conn: PoolConnection<Post
     let shop = shop(&mut conn, &clock, "2026-10-31").await;
     let list = production_list(&mut conn, shop.day).await.unwrap();
     assert!(list.products.is_empty());
-    assert!(list.pools.is_empty());
     assert!(matches!(
         production_list(&mut conn, BakeDayId::new(999_999)).await,
         Err(production::Error::BakeDays(bakedays::Error::NotFound))

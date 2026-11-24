@@ -1,11 +1,11 @@
 use bakedays::{BakeDay, BakeDayStatus, PickupSlot};
-use domain::{BakeDayId, CapacityPoolId, OrderId, PickupLocationId, PickupSlotId, ProductId};
+use domain::{BakeDayId, OrderId, PickupLocationId, PickupSlotId, ProductId};
 use i18n::Translator;
 use orders::{OrderNumber, OrderStatus, PaymentMode};
 
 use crate::{
-    Extras, PickupLine, PickupList, PickupOrder, PoolTotal, ProductTotal, ProductionList,
-    SlotPickups, paper, pdf,
+    Extras, PickupLine, PickupList, PickupOrder, ProductTotal, ProductionList, SlotPickups, paper,
+    pdf,
 };
 
 fn day() -> BakeDay {
@@ -49,12 +49,6 @@ fn production_list() -> ProductionList {
                 },
             },
         ],
-        pools: vec![PoolTotal {
-            pool_id: CapacityPoolId::new(1),
-            name: "Oven".to_owned(),
-            max_units: 1_500,
-            units: 1_212,
-        }],
     }
 }
 
@@ -161,7 +155,6 @@ fn production_list_on_paper() {
 fn an_empty_production_list_says_so() {
     let mut list = production_list();
     list.products.clear();
-    list.pools.clear();
     let data = paper::production(&list, &dutch()).unwrap();
     let (document, _) = pdf::layout(&pdf::PRODUCTION, &data).unwrap();
     let text = pdf::text(&document);
