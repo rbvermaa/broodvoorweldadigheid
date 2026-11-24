@@ -18,15 +18,8 @@ defaults:
     shell: bash
 
 jobs:
-  check:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      actions: write # cache-nix-action purges old caches
+  deps:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v32
@@ -38,25 +31,46 @@ jobs:
         with:
           name: rbvermaa
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: nix-community/cache-nix-action@v7
+      - run: make ci-deps
+
+  check:
+    name: check (${{ matrix.name }})
+    needs: deps
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cheap
+            targets: fmt-check deny audit layers unsafe-forbid
+          - name: clippy
+            targets: lint
+          - name: nextest
+            targets: nextest
+          - name: coverage
+            targets: coverage-report coverage
+          - name: sqlx-prepare
+            targets: sqlx-check
+          - name: restore
+            targets: restore-test
+          - name: image-contents
+            targets: image-contents
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v32
         with:
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'Cargo.lock', '**/*.nix') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
-          gc-max-store-size-linux: 4G
-          purge: true
-          purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-
-          purge-created: 0
-          purge-last-accessed: P7D
-          purge-primary-key: never
-      - run: make check
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v16
+        with:
+          name: rbvermaa
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: make --keep-going ${{ matrix.targets }}
 
   smoke:
-    needs: check
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    runs-on: ${{ matrix.runner }}
+    needs: deps
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v32
@@ -68,11 +82,6 @@ jobs:
         with:
           name: rbvermaa
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: nix-community/cache-nix-action@v7
-        with:
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', 'Cargo.lock', '**/*.nix') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
-          save: false
       - run: make images
       - run: make smoke SMOKE_ARGS=--keep-on-failure
       - if: failure()
@@ -84,6 +93,19 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: compose-logs-${{ runner.arch }}
+          name: compose-logs
           path: compose.log
           if-no-files-found: ignore
+
+  ci-ok:
+    if: always()
+    needs: [deps, check, smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            [ "$r" = success ] || exit 1
+          done

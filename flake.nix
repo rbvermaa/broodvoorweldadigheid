@@ -247,6 +247,8 @@
 
       packages = forAllSystems (
         {
+          pkgs,
+          toolchain,
           craneLib,
           commonArgs,
           cargoArtifacts,
@@ -266,6 +268,10 @@
             }
           );
           inherit cli;
+          ci-deps = pkgs.linkFarmFromDrvs "ci-deps" [
+            cargoArtifacts
+            toolchain
+          ];
           default = server;
         }
       );
