@@ -6,9 +6,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use bakedays::calendar::PublicDrop;
 use bakedays::{PublicStatus, days};
-use domain::{BakeDayId, IdempotencyKey, NewPayment, PaymentMethod, PickupSlotId};
+use domain::{BakeDayId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId};
 use i18n::{Amsterdam, FluentArgs};
-use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderedBy};
+use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
 use sqlx::PgConnection;
 use tower_sessions::Session;
 
@@ -335,6 +335,9 @@ pub async fn submit(
         Ok(found) => found,
         Err(response) => return *response,
     };
+    if let Some(response) = retry_unpaid(&state, &mut conn, &session, (&drop, &cart)).await {
+        return response;
+    }
     let mut form = Fields::from_form(&raw);
     let slot = check_fields(&state, &mut form);
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
@@ -373,6 +376,13 @@ pub async fn submit(
         Ok(order) => order,
         Err(OrderError::Db(err)) => return server_error(&state, "checkout failed", &err),
         Err(OrderError::NotFound) => return pages::error(&state, StatusCode::NOT_FOUND),
+        Err(
+            err @ (OrderError::Corrupt(_)
+            | OrderError::Catalog(_)
+            | OrderError::BakeDays(_)
+            | OrderError::Money(_)
+            | OrderError::PaymentOfOtherOrder),
+        ) => return server_error(&state, "checkout failed", &err),
         Err(err) => {
             tracing::info!(error = %err, "checkout refused");
             let message = refusal(&state, &mut conn, &err, &mut form).await;
@@ -398,6 +408,9 @@ pub async fn submit(
             if let Err(err) = save_cart(&session, &cart).await {
                 tracing::warn!(error = %err, "cannot restore the cart");
             }
+            if let Err(err) = session.insert(UNPAID_KEY, order.id.get()).await {
+                tracing::warn!(error = %err, "cannot remember the unpaid order");
+            }
             let message = Some(Message {
                 kind: "error",
                 text: text(&state, "checkout-error-payment", None),
@@ -412,6 +425,71 @@ pub async fn submit(
                 StatusCode::SERVICE_UNAVAILABLE,
             )
             .await
+        }
+    }
+}
+
+/// The order whose payment could not be started, so a second try pays that order instead
+/// of placing another one and holding the stock twice.
+const UNPAID_KEY: &str = "unpaid_order";
+
+/// When the session remembers an order of this drop whose payment did not start and
+/// whose hold still runs, tries the payment again. The idempotency key makes Mollie return
+/// the same payment if the first try did reach it. `None` lets checkout go on as normal.
+async fn retry_unpaid(
+    state: &AppState,
+    conn: &mut PgConnection,
+    session: &Session,
+    (drop, cart): (&PublicDrop, &Cart),
+) -> Option<Response> {
+    let id = match session.get::<i64>(UNPAID_KEY).await {
+        Ok(Some(id)) => OrderId::new(id),
+        Ok(None) => return None,
+        Err(err) => {
+            tracing::warn!(error = %err, "cannot read the unpaid order");
+            return None;
+        }
+    };
+    let now = state.clock.now();
+    let order = orders::order::get(conn, id).await.ok().filter(|order| {
+        order.bake_day_id == drop.bake_day_id
+            && order.status == OrderStatus::PendingPayment
+            && order.hold_expires_at.is_some_and(|hold| now < hold)
+    });
+    let Some(order) = order else {
+        if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
+            tracing::warn!(error = %err, "cannot forget the unpaid order");
+        }
+        return None;
+    };
+    match start_payment(state, conn, &order).await {
+        Ok(checkout_url) => {
+            if let Err(err) = session.remove::<i64>(UNPAID_KEY).await {
+                tracing::warn!(error = %err, "cannot forget the unpaid order");
+            }
+            if let Err(err) = save_cart(session, &Cart::new(drop.bake_day_id)).await {
+                tracing::warn!(error = %err, "cannot empty the cart");
+            }
+            Some(Redirect::to(&checkout_url).into_response())
+        }
+        Err(err) => {
+            tracing::error!(error = %err, order = order.id.get(), "cannot start the payment");
+            let message = Some(Message {
+                kind: "error",
+                text: text(state, "checkout-error-payment", None),
+            });
+            Some(
+                render_page(
+                    state,
+                    conn,
+                    session,
+                    (drop, cart),
+                    Fields::default(),
+                    message,
+                    StatusCode::SERVICE_UNAVAILABLE,
+                )
+                .await,
+            )
         }
     }
 }

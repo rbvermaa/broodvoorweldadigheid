@@ -155,6 +155,7 @@ pub struct Drop {
 pub struct DropCharity {
     /// Says who the drop is for.
     pub text: String,
+    /// An http(s) link to the charity; empty for none.
     pub url: String,
     pub link: String,
 }

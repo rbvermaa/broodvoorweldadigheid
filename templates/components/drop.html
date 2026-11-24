@@ -10,7 +10,7 @@
 {%- endif %}
 </ul>
 {%- if let Some(charity) = drop.charity %}
-<p class="drop-charity">{{ layout.icon("heart")? }}<span>{{ charity.text }} <a href="{{ charity.url }}" rel="noopener">{{ charity.link }}</a></span></p>
+<p class="drop-charity">{{ layout.icon("heart")? }}<span>{{ charity.text }}{% if !charity.url.is_empty() %} <a href="{{ charity.url }}" rel="noopener">{{ charity.link }}</a>{% endif %}</span></p>
 {%- else %}
 <p class="drop-charity">{{ layout.icon("info")? }}<span>{{ layout.t("drop-normal-sale")? }}</span></p>
 {%- endif %}

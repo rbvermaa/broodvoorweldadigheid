@@ -405,7 +405,9 @@ fn smoke(stack: &Stack) -> Result<(), String> {
     execute(stack, &stack.seed())?;
     execute(stack, &stack.backup_run())?;
     execute(stack, &stack.restore_test())?;
-    println!("compose-smoke: health, Kanidm, redirects, session, drops, backup and restore test passed");
+    println!(
+        "compose-smoke: health, Kanidm, redirects, session, drops, backup and restore test passed"
+    );
     Ok(())
 }
 

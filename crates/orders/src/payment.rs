@@ -499,6 +499,13 @@ pub async fn payment_started(
     amount: Money,
 ) -> Result<(), Error> {
     let mut tx = conn.begin().await?;
+    sqlx::query_scalar!(
+        r#"SELECT id FROM "order" WHERE id = $1 FOR UPDATE"#,
+        order.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
     let now = clock.now();
     let inserted = sqlx::query!(
         "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, received_at)

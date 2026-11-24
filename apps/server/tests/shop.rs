@@ -891,3 +891,28 @@ async fn checkout_is_rate_limited_per_client(pool: PgPool) {
     let page = browser.get(&format!("/drops/{}", drop.day.get())).await;
     assert_eq!(page.status, StatusCode::OK, "only checkout is limited");
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn removing_from_another_drop_keeps_the_cart(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let first = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let second = open_drop(
+        &mut conn,
+        &shop.clock,
+        &NewBakeDay {
+            date: "2026-11-07".parse().unwrap(),
+            bake_starts_at: ts("2026-11-07T04:00:00Z"),
+            ..saturday(None, true)
+        },
+    )
+    .await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, first.day, bread, None).await;
+    on_range(&mut conn, second.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", first.day.get())).await;
+    browser.add(first.day, bread, "2", None).await;
+    browser.add(second.day, bread, "0", None).await;
+    let page = browser.get(&format!("/drops/{}", first.day.get())).await;
+    assert!(!page.body.contains(&dutch("cart-empty")), "{}", page.body);
+}

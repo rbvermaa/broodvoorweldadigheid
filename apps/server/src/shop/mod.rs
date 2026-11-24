@@ -126,9 +126,14 @@ pub(crate) fn drop_view(
         Some(charity) => {
             let mut args = FluentArgs::new();
             args.set("charity", charity.name.clone());
+            let web = charity.url.starts_with("https://") || charity.url.starts_with("http://");
             Some(DropCharity {
                 text: t.t("drop-charity", Some(&args))?,
-                url: charity.url.clone(),
+                url: if web {
+                    charity.url.clone()
+                } else {
+                    String::new()
+                },
                 link: t.t("drop-charity-link", Some(&args))?,
             })
         }

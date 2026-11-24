@@ -286,13 +286,16 @@ pub async fn update(
             };
             let mut next = match cart.take() {
                 Some(existing) if existing.bake_day() == day => existing,
-                Some(_) if change.qty > 0 => {
+                Some(other_drop) if change.qty == 0 => other_drop,
+                Some(_) => {
                     text_id = "cart-replaced";
                     Cart::new(day)
                 }
-                _ => Cart::new(day),
+                None => Cart::new(day),
             };
-            if let Err(err) = next.set(change.product, change.qty, change.price) {
+            if next.bake_day() == day
+                && let Err(err) = next.set(change.product, change.qty, change.price)
+            {
                 return server_error(&state, "cart refused a checked quantity", &err);
             }
             if let Err(err) = save_cart(&session, &next).await {
