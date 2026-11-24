@@ -59,6 +59,7 @@
               ./design
               ./templates
               ./apps/server/tests/snapshots
+              ./crates/notify/tests/snapshots
             ];
           };
           commonArgs = {

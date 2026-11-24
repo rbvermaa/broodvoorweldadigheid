@@ -1,13 +1,14 @@
-use bakedays::schedule::LeadTimeWarning;
+use bakedays::schedule::{LeadTimeRule, LeadTimeWarning};
 use bakedays::status::TransitionRefused;
 use bakedays::{
     BakeDayProduct, BakeDayStatus, Error, ExtraInput, NewBakeDay, NoOrders, PickupSlotInput,
     PickupWindowInput, PublicStatus, Purpose, Schedule, Transition, days, extras, pickup, range,
 };
+use catalog::SourdoughDeadline;
 use domain::{BakeDayId, Clock, PickupLocationId};
 use jiff::civil::{Weekday, time};
-use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
+use sqlx::{PgConnection, Postgres};
 use testkit::FakeClock;
 
 use crate::common::{
@@ -561,49 +562,123 @@ async fn repeat_weekly_copies_to_the_next_weeks(mut conn: PoolConnection<Postgre
     }
 }
 
+async fn set_cutoff(conn: &mut PgConnection, day: &bakedays::BakeDay, cutoff: &str) {
+    let schedule = Schedule {
+        cutoff_at: Some(ts(cutoff)),
+        ..schedule_of(day)
+    };
+    days::update_schedule(conn, day.id, &schedule)
+        .await
+        .unwrap();
+}
+
+fn sourdough_warning(cutoff: &str, latest: &str) -> Option<LeadTimeWarning> {
+    Some(LeadTimeWarning {
+        rule: LeadTimeRule::Sourdough(SourdoughDeadline {
+            days_before: 2,
+            at: time(20, 0, 0, 0),
+        }),
+        cutoff_at: ts(cutoff),
+        latest_cutoff: ts(latest),
+    })
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn lead_time_warning_uses_the_longest_lead_time_on_the_drop(
-    mut conn: PoolConnection<Postgres>,
-) {
+async fn deadline_after_thursday_8pm_warns_for_a_saturday_drop(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
+    assert_eq!(day.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
     assert_eq!(
         days::lead_time_warning(&mut conn, day.id).await.unwrap(),
         None
     );
 
-    let rolls = product(&mut conn, "Bolletjes", Some(12)).await;
-    let bread = product(&mut conn, "Desem", None).await;
+    for cutoff in ["2026-10-29T19:01:00Z", "2026-10-30T19:00:00Z"] {
+        set_cutoff(&mut conn, &day, cutoff).await;
+        assert_eq!(
+            days::lead_time_warning(&mut conn, day.id).await.unwrap(),
+            sourdough_warning(cutoff, "2026-10-29T19:00:00Z")
+        );
+    }
+    assert!(matches!(
+        days::lead_time_warning(&mut conn, BakeDayId::new(999)).await,
+        Err(Error::NotFound)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn summer_time_saturday_after_the_march_change(mut conn: PoolConnection<Postgres>) {
+    let day = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-04-04"),
+            bake_starts_at: ts("2026-04-04T02:00:00Z"),
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(day.cutoff_at, Some(ts("2026-04-02T18:00:00Z")));
+    assert_eq!(
+        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
+        None
+    );
+    set_cutoff(&mut conn, &day, "2026-04-02T19:00:00Z").await;
+    assert_eq!(
+        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
+        sourdough_warning("2026-04-02T19:00:00Z", "2026-04-02T18:00:00Z")
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_rule_comes_from_the_company_settings(mut conn: PoolConnection<Postgres>) {
+    let day = create_day(&mut conn, &saturday()).await;
+    sqlx::query("UPDATE company SET sourdough_deadline_days_before = 3")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let warning = days::lead_time_warning(&mut conn, day.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(warning.latest_cutoff, ts("2026-10-28T19:00:00Z"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_product_with_a_longer_lead_time_is_stricter(mut conn: PoolConnection<Postgres>) {
+    let day = create_day(&mut conn, &saturday()).await;
     let add = |product_id| BakeDayProduct {
         product_id,
         max_qty: None,
         capacity_pool_id: None,
         units_per_item: 1,
     };
-    range::set_product(&mut conn, day.id, &add(rolls))
-        .await
-        .unwrap();
+    let rolls = product(&mut conn, "Bolletjes", Some(12)).await;
+    let bread = product(&mut conn, "Desem", None).await;
+    for product_id in [rolls, bread] {
+        range::set_product(&mut conn, day.id, &add(product_id))
+            .await
+            .unwrap();
+    }
     assert_eq!(
         days::lead_time_warning(&mut conn, day.id).await.unwrap(),
         None
     );
 
-    // Default 36 h before Saturday 04:00 local is Thursday 16:00, before the 20:00 deadline.
-    range::set_product(&mut conn, day.id, &add(bread))
+    // 60 h before Saturday 04:00 CET is Wednesday 16:00 CET.
+    let rye = product(&mut conn, "Rogge", Some(60)).await;
+    range::set_product(&mut conn, day.id, &add(rye))
         .await
         .unwrap();
     assert_eq!(
         days::lead_time_warning(&mut conn, day.id).await.unwrap(),
         Some(LeadTimeWarning {
-            product_id: bread,
-            lead_time_hours: 36,
+            rule: LeadTimeRule::Product {
+                product_id: rye,
+                lead_time_hours: 60,
+            },
             cutoff_at: ts("2026-10-29T19:00:00Z"),
-            latest_cutoff: ts("2026-10-29T15:00:00Z"),
+            latest_cutoff: ts("2026-10-28T15:00:00Z"),
         })
     );
-    assert!(matches!(
-        days::lead_time_warning(&mut conn, BakeDayId::new(999)).await,
-        Err(Error::NotFound)
-    ));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

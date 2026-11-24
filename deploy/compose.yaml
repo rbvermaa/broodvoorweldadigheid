@@ -90,6 +90,19 @@ services:
       internal:
         ipv4_address: ${BVW_CADDY_IP:-10.89.0.10}
 
+  # Local only: catches every email sent to SMTP mailpit:1025 on the internal network.
+  # Read them at https://mail.localhost:8443/. `make up` starts it; the smoke test does not.
+  mailpit:
+    image: bvw-mailpit:${BVW_IMAGE_TAG:-dev}
+    profiles: [mail]
+    restart: unless-stopped
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   backup:
     image: bvw-backup:${BVW_IMAGE_TAG:-dev}
     profiles: [backup]

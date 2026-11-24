@@ -1,0 +1,68 @@
+{# The HTML part of every email. notify::style turns each class from design/email.css
+   into a style attribute after rendering. -#}
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{ content.subject }}</title>
+</head>
+<body class="email-body">
+<table role="presentation" class="email-page" width="100%" cellpadding="0" cellspacing="0">
+<tr><td class="email-page-cell" align="center">
+<table role="presentation" class="email-card" width="100%" cellpadding="0" cellspacing="0">
+<tr><td class="email-brand">{{ content.brand }}<br><span class="email-tagline">{{ content.tagline }}</span></td></tr>
+<tr><td class="email-main">
+<h1 class="email-heading">{{ content.heading }}</h1>
+<p class="email-text">{{ content.greeting }}</p>
+{%- for block in content.blocks %}
+{%- match block %}
+{%- when Block::Paragraph(text) %}
+<p class="email-text">{{ text }}</p>
+{%- when Block::Quote(lines) %}
+<blockquote class="email-quote">{% for line in lines %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</blockquote>
+{%- when Block::Facts(facts) %}
+<table role="presentation" class="email-table" cellpadding="0" cellspacing="0">
+{%- for fact in facts %}
+<tr><th class="email-fact-label" scope="row">{{ fact.label }}</th><td class="email-fact-value">{{ fact.value }}</td></tr>
+{%- endfor %}
+</table>
+{%- when Block::Lines(lines) %}
+<table class="email-table" cellpadding="0" cellspacing="0">
+<thead><tr><th class="email-head" scope="col">{{ lines.product }}</th><th class="email-head-number" scope="col">{{ lines.qty }}</th><th class="email-head-number" scope="col">{{ lines.price }}</th><th class="email-head-number" scope="col">{{ lines.amount }}</th></tr></thead>
+<tbody>
+{%- for row in lines.rows %}
+<tr><td class="email-cell">{{ row.product }}{% if let Some(note) = row.note %}<span class="email-note">{{ note }}</span>{% endif %}</td><td class="email-cell-number">{{ row.qty }}</td><td class="email-cell-number">{{ row.price }}</td><td class="email-cell-number">{{ row.amount }}</td></tr>
+{%- endfor %}
+</tbody>
+<tfoot>
+<tr><td class="email-total" colspan="4">{{ lines.total.label }}: {{ lines.total.value }}</td></tr>
+{%- for vat in lines.vat %}
+<tr><td class="email-vat" colspan="4">{{ vat.label }}: {{ vat.value }}</td></tr>
+{%- endfor %}
+</tfoot>
+</table>
+{%- when Block::Items(items) %}
+<ul class="email-items">
+{%- for item in items %}
+<li class="email-item">{{ item }}</li>
+{%- endfor %}
+</ul>
+{%- when Block::Button(link) %}
+<p class="email-action"><a class="email-button" href="{{ link.url }}">{{ link.label }}</a></p>
+{%- endmatch %}
+{%- endfor %}
+<p class="email-text">{{ content.signoff }}</p>
+</td></tr>
+<tr><td class="email-footer">
+{%- if let Some(reason) = content.reason %}
+<p class="email-footer-text">{{ reason }}{% if let Some(link) = content.unsubscribe %} <a class="email-link" href="{{ link.url }}">{{ link.label }}</a>{% endif %}</p>
+{%- endif %}
+<p class="email-footer-text">{{ content.company }}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>
