@@ -20,6 +20,8 @@
 {% call d::confirm_dialog(action.dialog, action.label, action.text, action.label, action.action) %}{% endcall %}
 {%- endfor %}
 <p><a href="{{ path }}/extras">{{ layout.t("extras-title")? }}</a></p>
+<p><a href="{{ path }}/production">{{ layout.t("production-title")? }}</a></p>
+<p><a href="{{ path }}/pickup-list">{{ layout.t("pickup-list-title")? }}</a></p>
 
 <h2>{{ layout.t("day-slots")? }}</h2>
 {% if slots.is_empty() %}<p>{{ layout.t("day-no-slots")? }}</p>{% else %}

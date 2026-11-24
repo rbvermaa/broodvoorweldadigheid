@@ -1,12 +1,13 @@
 //! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
-//! extra production and orders. Every handler takes [`Staff`] and checks a permission
-//! (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks
-//! and partial updates on top (ADR 0019).
+//! extra production, orders, and the production and pickup lists. Every handler takes
+//! [`Staff`] and checks a permission (ADR 0010). Forms post normally and redirect with
+//! `?opgeslagen=1`; htmx only adds inline checks and partial updates on top (ADR 0019).
 
 pub mod bake_days;
 pub mod charities;
 pub mod extras;
 pub mod form;
+pub mod lists;
 pub mod locations;
 pub mod orders;
 pub mod products;
@@ -125,6 +126,27 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/bake-days/{id}/extras/{extra}/remove",
             post(extras::remove),
+        )
+        .route(
+            "/staff/bake-days/{id}/production",
+            get(lists::production_page),
+        )
+        .route(
+            "/staff/bake-days/{id}/production/pdf",
+            get(lists::production_pdf),
+        )
+        .route("/staff/bake-days/{id}/pickup-list", get(lists::pickup_page))
+        .route(
+            "/staff/bake-days/{id}/pickup-list/pdf",
+            get(lists::pickup_pdf),
+        )
+        .route(
+            "/staff/bake-days/{id}/pickup-list/{order}/picked-up",
+            post(lists::picked_up),
+        )
+        .route(
+            "/staff/bake-days/{id}/pickup-list/{order}/undo",
+            post(lists::undo),
         )
         .route("/staff/orders", get(orders::days_list))
         .route("/staff/bake-days/{id}/orders", get(orders::list))

@@ -317,6 +317,7 @@ staff-order-action-payment_status = Betaalstatus bijgewerkt
 staff-order-action-hold_expired = Verlopen zonder betaling
 staff-order-action-cancelled = Geannuleerd
 staff-order-action-picked_up = Opgehaald
+staff-order-action-picked_up_undone = Ophalen teruggedraaid
 staff-order-action-pickup_moved = Ophaalmoment veranderd
 staff-order-action-invoiced = Gefactureerd
 staff-order-action-refund_done = Terugbetaling verstuurd
@@ -338,3 +339,12 @@ staff-sick-day-retry = Terugbetalingen opnieuw versturen
 staff-sick-day-retry-text = We vragen Mollie opnieuw om de terugbetalingen hierboven te versturen. Wat al verstuurd is, gaat niet nog een keer.
 staff-sick-day-all-done = Alle terugbetalingen zijn verstuurd naar Mollie.
 staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staan: { $numbers }. De klant krijgt wel de mail. Pas de factuur zelf aan.
+
+# Production list (F7) and pickup list (F8) screens
+# $date: zaterdag 5 december 2026
+lists-production-heading = Productielijst voor { $date }
+lists-pickup-heading = Ophaallijst voor { $date }
+lists-pdf = Pdf openen
+lists-back-day = Terug naar de bakdag
+lists-back-orders = Terug naar de bestellingen
+lists-undo = Toch niet opgehaald

@@ -53,6 +53,7 @@ fn action_text(state: &AppState, action: &str) -> String {
         "hold_expired" => "staff-order-action-hold_expired",
         "cancelled" => "staff-order-action-cancelled",
         "picked_up" => "staff-order-action-picked_up",
+        "picked_up_undone" => "staff-order-action-picked_up_undone",
         "pickup_moved" => "staff-order-action-pickup_moved",
         "invoiced" => "staff-order-action-invoiced",
         "refund_done" => "staff-order-action-refund_done",
@@ -185,6 +186,8 @@ struct ListPage<'a> {
     heading: String,
     action: String,
     cancel_day: Option<String>,
+    pickup_list: String,
+    production: Option<String>,
     statuses: Vec<SelectOption>,
     locations: Vec<SelectOption>,
     table: Table,
@@ -285,6 +288,12 @@ pub async fn list(
             &ListPage {
                 layout: Layout::new(&state),
                 cancel_day,
+                pickup_list: format!("{}/pickup-list", day_path(day.id)),
+                production: staff
+                    .0
+                    .role
+                    .can(Permission::Production)
+                    .then(|| format!("{}/production", day_path(day.id))),
                 heading: t_with(
                     &state,
                     "staff-orders-day-heading",
