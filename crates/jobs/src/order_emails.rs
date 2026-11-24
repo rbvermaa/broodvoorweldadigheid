@@ -12,7 +12,7 @@ use notify::{
     OutboxError, OutboxId, Pickup, PickupReminder, Recipient,
 };
 use orders::{OrderDetails, Payment};
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 
 /// The local time on the day before pickup when the reminder goes out, unless configured.
 pub const DEFAULT_REMINDER_AT: Time = time(18, 0, 0, 0);
@@ -246,8 +246,10 @@ pub async fn enqueue_refund_notice(
 }
 
 /// Queues the pickup reminder of every paid or confirmed order whose reminder is due
-/// ([`reminder_due`]) and whose pickup has not started, once per order. Returns the
-/// orders queued now. An order whose email cannot be composed is logged and skipped.
+/// ([`reminder_due`]) and whose pickup has not started, once per order. Each order is
+/// checked again under its bake day lock in the transaction that queues its reminder.
+/// Returns the orders queued now. An order whose email cannot be composed is logged and
+/// skipped.
 ///
 /// # Errors
 /// [`EmailError`] when the database fails, or [`EmailError::CompanyIncomplete`].
@@ -276,7 +278,14 @@ pub async fn enqueue_due_reminders(
         if queued.contains(&key) {
             continue;
         }
-        let details = match orders::details(conn, order).await {
+        let mut tx = conn.begin().await.map_err(orders::Error::from)?;
+        let still_due = orders::lock_awaiting_pickup(&mut tx, order)
+            .await?
+            .is_some_and(|starts| now < starts && now >= reminder_due(starts, emails.reminder_at));
+        if !still_due {
+            continue;
+        }
+        let details = match orders::details(&mut tx, order).await {
             Ok(details) => details,
             Err(orders::Error::Db(error)) => return Err(orders::Error::Db(error).into()),
             Err(error) => {
@@ -301,10 +310,9 @@ pub async fn enqueue_due_reminders(
         });
         match email {
             Ok(email) => {
-                if notify::enqueue(conn, clock, &email, Some(&key))
-                    .await?
-                    .is_some()
-                {
+                let queued = notify::enqueue(&mut tx, clock, &email, Some(&key)).await?;
+                tx.commit().await.map_err(orders::Error::from)?;
+                if queued.is_some() {
                     done.push(order);
                 }
             }

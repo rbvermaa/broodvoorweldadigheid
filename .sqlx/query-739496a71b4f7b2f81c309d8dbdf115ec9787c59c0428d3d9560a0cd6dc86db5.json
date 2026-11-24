@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.status FROM bake_day d JOIN \"order\" o ON o.bake_day_id = d.id\n        WHERE o.id = $1 FOR SHARE OF d",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "739496a71b4f7b2f81c309d8dbdf115ec9787c59c0428d3d9560a0cd6dc86db5"
+}

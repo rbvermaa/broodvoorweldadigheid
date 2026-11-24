@@ -121,3 +121,40 @@ pub async fn awaiting_pickup(
         .map(|row| Ok((OrderId::new(row.id), from_micros(row.starts_us)?)))
         .collect()
 }
+
+/// Locks the order's bake day `FOR SHARE`, then the order row, as ADR 0012 orders them,
+/// and returns its pickup start if the order still awaits pickup: paid or confirmed, on a
+/// bake day that is not cancelled. Call it in the transaction that acts on the answer, so
+/// a cancel or a slot change cannot slip in between.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn lock_awaiting_pickup(
+    conn: &mut PgConnection,
+    id: OrderId,
+) -> Result<Option<Timestamp>, Error> {
+    let day = sqlx::query_scalar!(
+        r#"SELECT d.status FROM bake_day d JOIN "order" o ON o.bake_day_id = d.id
+        WHERE o.id = $1 FOR SHARE OF d"#,
+        id.get(),
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    if day.is_none_or(|status| status == "cancelled") {
+        return Ok(None);
+    }
+    let row = sqlx::query!(
+        r#"SELECT o.status, (extract(epoch FROM s.starts_at) * 1000000)::bigint AS "starts_us!"
+        FROM "order" o JOIN pickup_slot s ON s.id = o.pickup_slot_id
+        WHERE o.id = $1 FOR SHARE OF o"#,
+        id.get(),
+    )
+    .fetch_optional(conn)
+    .await?;
+    match row {
+        Some(row) if row.status == "paid" || row.status == "confirmed" => {
+            Ok(Some(from_micros(row.starts_us)?))
+        }
+        _ => Ok(None),
+    }
+}

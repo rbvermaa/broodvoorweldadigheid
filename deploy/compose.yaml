@@ -51,6 +51,8 @@ services:
   server:
     image: bvw-server:${BVW_IMAGE_TAG:-dev}
     restart: unless-stopped
+    # Covers one SMTP send (30 s timeout) and its commit at shutdown (ADR 0022).
+    stop_grace_period: 45s
     environment:
       TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
       GALLERY: "false"
