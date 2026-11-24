@@ -22,6 +22,15 @@
 {% block header %}
 <header class="site-header">
 <a class="site-brand" href="/">{% call brand::logo() %}{% endcall %}<span class="site-name">{{ layout.t("app-name")? }}</span></a>
+{%- block site_nav %}
+<nav>
+{%- if layout.signed_in() %}
+<a href="/mijn-bestellingen">{{ layout.t("site-nav-orders")? }}</a>
+{%- else %}
+<a href="/inloggen">{{ layout.t("site-nav-login")? }}</a>
+{%- endif %}
+</nav>
+{%- endblock %}
 </header>
 {% endblock %}
 <main id="inhoud" class="site-main">

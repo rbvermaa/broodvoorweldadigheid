@@ -1,5 +1,6 @@
 //! Cart, checkout with capacity holds, payment status and the audit log (F3, F4, F4b,
-//! F4c), and ticking orders off at pickup (F8). See ADR 0012.
+//! F4c), the donation choice and saved donations (F4d), and ticking orders off at pickup
+//! (F8). See ADRs 0012 and 0030.
 #![forbid(unsafe_code)]
 
 pub mod audit;
@@ -7,6 +8,7 @@ pub mod cart;
 mod checkout;
 mod customer;
 mod details;
+pub mod donations;
 mod error;
 mod holds;
 pub mod manage;

@@ -2654,13 +2654,16 @@ name = "orders"
 version = "0.1.0"
 dependencies = [
  "bakedays",
+ "base64 0.22.1",
  "catalog",
  "db",
  "domain",
  "jiff",
  "proptest",
+ "rand 0.9.5",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "testkit",
  "thiserror 2.0.21",

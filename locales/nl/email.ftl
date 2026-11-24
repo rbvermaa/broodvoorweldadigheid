@@ -37,6 +37,10 @@ email-order-confirmation-saved = Je bewaart je donatie voor later. Kies vóór {
 email-order-confirmation-choose = Kies een goed doel
 email-order-confirmation-status = Bekijk je bestelling
 
+email-donation-moved-subject = Je bewaarde donatie gaat naar { $charity }
+email-donation-moved-heading = Je donatie heeft een bestemming
+email-donation-moved-intro = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor later. Je hebt geen goed doel gekozen, dus gaat je donatie nu naar { $charity }, het goede doel van de drop van { $date }.
+
 email-pickup-reminder-subject = Ophalen: je bestelling { $number }
 email-pickup-reminder-heading = Je brood ligt bijna klaar
 email-pickup-reminder-intro = Je kunt je bestelling ophalen op { $day } tussen { $start } en { $end }.

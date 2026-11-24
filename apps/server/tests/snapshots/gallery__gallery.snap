@@ -26,6 +26,9 @@ expression: without_asset_hashes(&gallery_html(&state))
 <a class="site-brand" href="/">
 <img class="logo logo-header" src="/static/logo.png?v=HASH" alt="">
 <span class="site-name">Brood voor Weldadigheid</span></a>
+<nav>
+<a href="/inloggen">Inloggen</a>
+</nav>
 </header>
 
 <main id="inhoud" class="site-main">

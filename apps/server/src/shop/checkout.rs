@@ -6,16 +6,19 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use bakedays::calendar::PublicDrop;
 use bakedays::{BakeDayStatus, PublicStatus, days};
-use domain::{BakeDayId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId};
+use domain::{
+    BakeDayId, CharityId, IdempotencyKey, NewPayment, OrderId, PaymentMethod, PickupSlotId,
+};
 use i18n::{Amsterdam, FluentArgs};
+use orders::donations::{self, DonationChoice};
 use orders::{Cart, CustomerInput, Error as OrderError, Order, OrderStatus, OrderedBy};
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 use tower_sessions::Session;
 
 use super::{
     cart, drop_path, drop_view, find_drop, load_session, save_cart, server_error, session_cart,
 };
-use crate::components::{self, Message, PickupWindow};
+use crate::components::{self, Message, PickupWindow, SelectOption};
 use crate::pages::{self, Layout};
 use crate::state::AppState;
 
@@ -28,8 +31,18 @@ struct CheckoutPage<'a> {
     cart: components::Cart,
     form: Fields,
     windows: Vec<PickupWindow>,
+    /// Where the donation goes, on a charity drop (F4d).
+    donation: Option<DonationField>,
     message: Option<Message>,
 }
+
+struct DonationField {
+    options: Vec<SelectOption>,
+    hint: String,
+}
+
+const DROP_CHARITY: &str = "drop";
+const SAVE: &str = "bewaren";
 
 /// What the customer typed, and a Dutch message per field that is wrong.
 #[derive(Default)]
@@ -39,10 +52,12 @@ struct Fields {
     phone: String,
     slot: String,
     marketing: bool,
+    donation: String,
     name_error: String,
     email_error: String,
     phone_error: String,
     slot_error: String,
+    donation_error: String,
 }
 
 impl Fields {
@@ -54,6 +69,7 @@ impl Fields {
             phone: get("telefoon"),
             slot: get("ophaalmoment"),
             marketing: form.get("nieuwsbrief").is_some_and(|v| v == "ja"),
+            donation: get("donatie"),
             ..Self::default()
         }
     }
@@ -62,7 +78,8 @@ impl Fields {
         !(self.name_error.is_empty()
             && self.email_error.is_empty()
             && self.phone_error.is_empty()
-            && self.slot_error.is_empty())
+            && self.slot_error.is_empty()
+            && self.donation_error.is_empty())
     }
 }
 
@@ -110,6 +127,82 @@ async fn windows(
     Ok(windows)
 }
 
+/// The donation select of a charity drop: its own charity first, then the other active
+/// charities, then saving it for later. `None` on a normal sale.
+async fn donation_field(
+    conn: &mut PgConnection,
+    state: &AppState,
+    drop: &PublicDrop,
+    chosen: &str,
+) -> Result<Option<DonationField>, String> {
+    let (Some(charity), Some(drop_charity)) = (
+        drop.charity.as_ref(),
+        days::get(conn, drop.bake_day_id)
+            .await
+            .map_err(|err| err.to_string())?
+            .charity_id,
+    ) else {
+        return Ok(None);
+    };
+    let chosen = if chosen.is_empty() {
+        DROP_CHARITY
+    } else {
+        chosen
+    };
+    let option = |value: String, label: String| SelectOption {
+        selected: value == chosen,
+        value,
+        label,
+    };
+    let mut args = FluentArgs::new();
+    args.set("charity", charity.name.clone());
+    let mut options = vec![option(
+        DROP_CHARITY.to_owned(),
+        text(state, "checkout-donation-drop", Some(&args)),
+    )];
+    for other in catalog::charities::list_active(conn)
+        .await
+        .map_err(|err| err.to_string())?
+    {
+        if other.id != drop_charity {
+            options.push(option(other.id.get().to_string(), other.name));
+        }
+    }
+    options.push(option(
+        SAVE.to_owned(),
+        text(state, "checkout-donation-save", None),
+    ));
+    let mut args = FluentArgs::new();
+    args.set("months", donations::SAVE_MONTHS);
+    Ok(Some(DonationField {
+        options,
+        hint: text(state, "checkout-donation-hint", Some(&args)),
+    }))
+}
+
+/// The customer's donation choice, if the form holds one this drop offers.
+async fn donation_choice(
+    conn: &mut PgConnection,
+    drop: &PublicDrop,
+    value: &str,
+) -> Result<Option<DonationChoice>, OrderError> {
+    if drop.charity.is_none() {
+        return Ok(Some(DonationChoice::DropCharity));
+    }
+    Ok(match value.trim() {
+        "" | DROP_CHARITY => Some(DonationChoice::DropCharity),
+        SAVE => Some(DonationChoice::Save),
+        id => match id.parse::<i64>() {
+            Ok(id) => catalog::charities::list_active(conn)
+                .await?
+                .iter()
+                .any(|charity| charity.id.get() == id)
+                .then_some(DonationChoice::Charity(CharityId::new(id))),
+            Err(_) => None,
+        },
+    })
+}
+
 async fn render_page(
     state: &AppState,
     conn: &mut PgConnection,
@@ -131,6 +224,10 @@ async fn render_page(
         Ok(windows) => windows,
         Err(err) => return server_error(state, "cannot list pickup slots", &err),
     };
+    let donation = match donation_field(conn, state, drop, &form.donation).await {
+        Ok(donation) => donation,
+        Err(err) => return server_error(state, "cannot list charities", &err),
+    };
     let page = drop_view(state, drop, false).and_then(|view| {
         Ok(CheckoutPage {
             layout: Layout::new(state).with_csrf_token(token),
@@ -147,6 +244,7 @@ async fn render_page(
             )?,
             form,
             windows,
+            donation,
             message,
         })
     });
@@ -263,6 +361,9 @@ async fn refusal(
         }
         OrderError::SlotNotOnDay => form.slot_error = text(state, "checkout-error-pickup", None),
         OrderError::SlotFull => form.slot_error = text(state, "checkout-error-slot-full", None),
+        OrderError::Invalid("charity" | "donation") => {
+            form.donation_error = text(state, "checkout-error-donation", None);
+        }
         OrderError::PastDeadline => return Some(error_text("checkout-error-deadline")),
         OrderError::CapacityExceeded {
             product_id,
@@ -361,6 +462,28 @@ async fn payment_unavailable(
     .await
 }
 
+/// Places the order, replacing `old` if given, and stores the donation choice in the same
+/// transaction, so a refused choice leaves no order, hold or cancelled order behind.
+async fn place(
+    conn: &mut PgConnection,
+    clock: &dyn domain::Clock,
+    (cart, customer, slot): (&Cart, &CustomerInput, PickupSlotId),
+    old: Option<OrderId>,
+    choice: DonationChoice,
+) -> Result<Order, OrderError> {
+    let mut tx = conn.begin().await?;
+    let order = match old {
+        Some(old) => {
+            orders::checkout_replacing(&mut tx, clock, cart, customer, slot, OrderedBy::Guest, old)
+                .await?
+        }
+        None => orders::checkout(&mut tx, clock, cart, customer, slot, OrderedBy::Guest).await?,
+    };
+    donations::choose_at_checkout(&mut tx, order.id, choice).await?;
+    tx.commit().await?;
+    Ok(order)
+}
+
 /// Places the order (F4, F4b, F4c) and sends the customer to Mollie (F5). The deadline,
 /// stock and prices are checked again here, never trusted from the page (ADR 0011).
 pub async fn submit(
@@ -388,6 +511,14 @@ pub async fn submit(
     };
     let mut form = Fields::from_form(&raw);
     let slot = check_fields(&state, &mut form);
+    let choice = match donation_choice(&mut conn, &drop, &form.donation).await {
+        Ok(Some(choice)) => choice,
+        Ok(None) => {
+            form.donation_error = text(&state, "checkout-error-donation", None);
+            DonationChoice::DropCharity
+        }
+        Err(err) => return server_error(&state, "cannot check the donation choice", &err),
+    };
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     let Some(slot) = slot.filter(|_| !form.has_errors()) else {
         let message = Some(Message {
@@ -414,6 +545,32 @@ pub async fn submit(
     if let Some(unpaid) = &unpaid {
         match orders::same_as_order(&mut conn, unpaid, &cart, &customer, slot).await {
             Ok(true) => {
+                match donations::choose_at_checkout(&mut conn, unpaid.id, choice).await {
+                    Ok(()) => {}
+                    Err(OrderError::WrongStatus(_)) => {
+                        return to_status_page(&state, &mut conn, &session, unpaid).await;
+                    }
+                    Err(OrderError::Invalid(_)) => {
+                        form.donation_error = text(&state, "checkout-error-donation", None);
+                        let message = Some(Message {
+                            kind: "error",
+                            text: text(&state, "checkout-error-form", None),
+                        });
+                        return render_page(
+                            &state,
+                            &mut conn,
+                            &session,
+                            (&drop, &cart),
+                            form,
+                            message,
+                            unprocessable,
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        return server_error(&state, "cannot store the donation choice", &err);
+                    }
+                }
                 std::mem::drop(conn);
                 return retry_payment(&state, &session, (&drop, &cart), unpaid, form).await;
             }
@@ -422,21 +579,14 @@ pub async fn submit(
         }
     }
     let clock = state.clock.as_ref();
-    let placed = match &unpaid {
-        Some(old) => {
-            orders::checkout_replacing(
-                &mut conn,
-                clock,
-                &cart,
-                &customer,
-                slot,
-                OrderedBy::Guest,
-                old.id,
-            )
-            .await
-        }
-        None => orders::checkout(&mut conn, clock, &cart, &customer, slot, OrderedBy::Guest).await,
-    };
+    let placed = place(
+        &mut conn,
+        clock,
+        (&cart, &customer, slot),
+        unpaid.as_ref().map(|old| old.id),
+        choice,
+    )
+    .await;
     let order = match placed {
         Ok(order) => order,
         Err(OrderError::NotReplaceable) => {
