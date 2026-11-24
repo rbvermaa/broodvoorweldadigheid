@@ -60,6 +60,14 @@ fn message_ids_are_sorted_unique_messages_including_the_required_ones() {
     let ids = t.message_ids();
     for required in [
         "app-name",
+        "calendar-cancelled",
+        "calendar-charity",
+        "calendar-deadline-at",
+        "calendar-menu",
+        "calendar-name",
+        "calendar-normal-sale",
+        "calendar-pickup",
+        "calendar-pickup-cancelled",
         "date-long",
         "date-short",
         "month",

@@ -46,6 +46,11 @@ PG_PORT ?= 54331
 DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
 export DATABASE_URL
 SQLX_DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/bvw_sqlx_prepare
+# apalis-postgres checks its queries against DATABASE_URL whenever SQLX_OFFLINE is false, so
+# sqlx prepare needs its tables too, and a fresh build of it so its query data is written
+# (ADR 0011).
+APALIS_MIGRATIONS := cargo metadata --format-version 1 --locked | grep -o "\"manifest_path\":\"[^\"]*apalis-postgres-[^/\"]*/Cargo.toml\"" \
+	| sed -e "s/\"manifest_path\":\"//" -e "s|/Cargo.toml\"$$|/migrations|"
 
 COMPOSE_PROJECT ?= bvw
 SMOKE_PROJECT ?= bvw-smoke
@@ -104,7 +109,10 @@ coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 
 sqlx-prepare: ## Regenerate .sqlx/ (offline query data) against a scratch database (needs make db-up)
 	$(NIX_DEV) bash -c 'set -e; export DATABASE_URL=$(SQLX_DATABASE_URL) SQLX_OFFLINE=false; \
-		sqlx database drop -y; sqlx database create; sqlx migrate run --source crates/db/migrations; \
+		sqlx database drop -y; sqlx database create; \
+		sqlx migrate run --source "$$($(APALIS_MIGRATIONS))"; \
+		sqlx migrate run --ignore-missing --source crates/db/migrations; \
+		cargo clean --package apalis-postgres; \
 		cargo sqlx prepare --workspace -- --all-targets --all-features'
 
 sqlx-check: ## Check .sqlx/ matches the queries and migrations
