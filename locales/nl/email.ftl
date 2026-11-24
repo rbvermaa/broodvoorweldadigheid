@@ -67,3 +67,12 @@ email-subscription-heading = Bevestig je aanmelding
 email-subscription-intro = Fijn dat je wilt horen wanneer er een nieuwe drop is! Bevestig je aanmelding via de link hieronder.
 email-subscription-confirm = Aanmelding bevestigen
 email-subscription-ignore = Heb je je niet aangemeld? Dan kun je deze mail negeren. Je krijgt dan geen mails van ons.
+
+email-contact-subject = Contactformulier: bericht van { $name }
+email-contact-heading = Nieuw bericht via de site
+email-contact-greeting = Hoi bakker,
+email-contact-intro = Er is een bericht binnengekomen via het contactformulier.
+email-label-name = Naam
+email-label-email = E-mail
+email-contact-reply = Beantwoord deze mail om { $name } antwoord te geven.
+email-contact-signoff = Verstuurd via het contactformulier op de site

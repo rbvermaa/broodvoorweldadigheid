@@ -54,3 +54,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
   server refuse to start without them?
+- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
+  allergen data cannot be ordered, also not by staff. OK?
+- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
+  like web orders. How do phone orders get paid: payment link, at pickup, on account?

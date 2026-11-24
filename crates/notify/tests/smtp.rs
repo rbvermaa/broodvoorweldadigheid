@@ -89,6 +89,7 @@ fn outgoing() -> OutgoingEmail {
             text: "Hoi Sanne,\n".to_owned(),
             html: "<p>Hoi Sanne,</p>".to_owned(),
             list_unsubscribe: None,
+            reply_to: None,
         },
     }
 }

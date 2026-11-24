@@ -125,6 +125,7 @@ async fn the_mail_loop_sends_the_outbox_and_stops_at_shutdown(pool: PgPool) {
         text: "Hoi,\n".to_owned(),
         html: "<p>Hoi,</p>".to_owned(),
         list_unsubscribe: None,
+        reply_to: None,
     };
     let mut conn = pool.acquire().await.unwrap();
     notify::enqueue(&mut conn, clock.as_ref(), &email, Some("test"))

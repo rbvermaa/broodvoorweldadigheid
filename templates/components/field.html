@@ -53,3 +53,12 @@
 {% call label(name, label, required) %}{% endcall %}
 </div>
 {% endmacro %}
+
+{# A spam trap (F4f): hidden from sight, screen readers and the tab order, so only bots
+   fill it in. #}
+{% macro trap(name, label) %}
+<div class="field-trap" aria-hidden="true">
+<label for="{{ name }}">{{ label }}</label>
+<input type="text" id="{{ name }}" name="{{ name }}" value="" tabindex="-1" autocomplete="off">
+</div>
+{% endmacro %}

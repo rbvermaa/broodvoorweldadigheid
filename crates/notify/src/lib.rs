@@ -9,9 +9,9 @@ mod smtp;
 pub mod style;
 
 pub use compose::{
-    Company, ComposeError, Composer, Donation, DropAlert, DropAlertKind, Item, OrderCancelled,
-    OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient, SickDayCancelled,
-    SubscriptionConfirmation,
+    Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Item,
+    OrderCancelled, OrderConfirmation, OrderLine, Pickup, PickupReminder, Recipient,
+    SickDayCancelled, SubscriptionConfirmation, is_address,
 };
 pub use content::RenderError;
 pub use email::{Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture};

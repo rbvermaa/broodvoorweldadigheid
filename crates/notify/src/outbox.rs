@@ -61,10 +61,10 @@ pub async fn enqueue(
     let now = db::time::to_micros(clock.now());
     let id = sqlx::query_scalar!(
         r#"INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
-            list_unsubscribe, next_attempt_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7,
-            timestamptz 'epoch' + $8::bigint * interval '1 microsecond',
-            timestamptz 'epoch' + $8::bigint * interval '1 microsecond')
+            list_unsubscribe, reply_to, next_attempt_at, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+            timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $9::bigint * interval '1 microsecond')
         ON CONFLICT (dedupe_key) DO NOTHING
         RETURNING id"#,
         dedupe_key,
@@ -74,6 +74,7 @@ pub async fn enqueue(
         email.text,
         email.html,
         email.list_unsubscribe,
+        email.reply_to,
         now,
     )
     .fetch_optional(conn)
@@ -107,6 +108,7 @@ struct Due {
     text_body: String,
     html_body: String,
     list_unsubscribe: Option<String>,
+    reply_to: Option<String>,
     attempts: i32,
 }
 
@@ -140,7 +142,7 @@ pub async fn send_pending(
         let Some(due) = sqlx::query_as!(
             Due,
             r#"SELECT id, message_id::text AS "message_id!", kind, to_address, subject,
-                text_body, html_body, list_unsubscribe, attempts
+                text_body, html_body, list_unsubscribe, reply_to, attempts
             FROM email_outbox
             WHERE status = 'pending'
                 AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
@@ -241,6 +243,7 @@ fn outgoing(due: Due, now: Timestamp) -> Result<OutgoingEmail, OutboxError> {
             text: due.text_body,
             html: due.html_body,
             list_unsubscribe: due.list_unsubscribe,
+            reply_to: due.reply_to,
         },
     })
 }

@@ -25,6 +25,8 @@ pub struct Config {
     pub mollie_api_url: Option<String>,
     /// Local time on the day before pickup when pickup reminders go out (F9).
     pub pickup_reminder_at: Time,
+    /// Where the contact form (F4f) sends messages. Without it the form shows the 500 page.
+    pub contact_email: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -47,6 +49,8 @@ pub enum ConfigError {
     InvalidPublicUrl(String),
     #[error("PICKUP_REMINDER_AT {0:?} must be a time like 18:00")]
     InvalidPickupReminderAt(String),
+    #[error("BAKERY_CONTACT_EMAIL {0:?} is not an email address")]
+    InvalidContactEmail(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -61,6 +65,7 @@ impl std::fmt::Debug for Config {
             .field("mollie_api_key_file", &self.mollie_api_key_file)
             .field("mollie_api_url", &self.mollie_api_url)
             .field("pickup_reminder_at", &self.pickup_reminder_at)
+            .field("contact_email", &self.contact_email)
             .finish()
     }
 }
@@ -110,6 +115,16 @@ impl Config {
             None => jobs::order_emails::DEFAULT_REMINDER_AT,
             Some(raw) => parse_hh_mm(&raw).ok_or(ConfigError::InvalidPickupReminderAt(raw))?,
         };
+        let contact_email = lookup("BAKERY_CONTACT_EMAIL")
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| {
+                if notify::is_address(&raw) {
+                    Ok(raw)
+                } else {
+                    Err(ConfigError::InvalidContactEmail(raw))
+                }
+            })
+            .transpose()?;
         Ok(Self {
             bind_addr,
             database_url,
@@ -120,6 +135,7 @@ impl Config {
             mollie_api_key_file,
             mollie_api_url,
             pickup_reminder_at,
+            contact_email,
         })
     }
 
@@ -290,6 +306,28 @@ mod tests {
             ])),
             Err(ConfigError::InvalidTrustedProxy("caddy".to_string()))
         );
+    }
+
+    #[test]
+    fn contact_email_is_optional_and_must_be_an_address() {
+        let none = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(none.contact_email, None);
+        let set = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("BAKERY_CONTACT_EMAIL", "bakker@example.org"),
+        ]))
+        .expect("config");
+        assert_eq!(set.contact_email.as_deref(), Some("bakker@example.org"));
+        for bad in ["bakker", "bakker@example.org\r\nBcc: x@example.org"] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("BAKERY_CONTACT_EMAIL", bad),
+                ])),
+                Err(ConfigError::InvalidContactEmail(bad.to_string()))
+            );
+        }
     }
 
     #[test]

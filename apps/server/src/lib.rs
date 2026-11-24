@@ -17,6 +17,7 @@ pub mod rate_limit;
 pub mod security;
 pub mod session;
 pub mod shop;
+pub mod site;
 pub mod state;
 #[cfg(test)]
 mod tokens;
@@ -42,9 +43,11 @@ struct Health {
 }
 
 pub fn router(state: AppState) -> Router {
+    let site = site::routes(&state, state.clock.clone());
     let mut routes = Router::new()
         .route("/", get(pages::home))
-        .merge(shop::routes());
+        .merge(shop::routes())
+        .merge(site);
     if state.config.gallery {
         routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
     }
