@@ -63,6 +63,11 @@ async fn serve() -> ExitCode {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
+    if !config.public_url.starts_with("https://") {
+        tracing::warn!(
+            "PUBLIC_URL is not https: order confirmations cannot link to the status page and are not sent"
+        );
+    }
     let pool = db::connect_lazy(&config.database_url, DB_ACQUIRE_TIMEOUT)?;
     let listener = TcpListener::bind(config.bind_addr).await?;
     let payments = server::payment_provider::from_config(&config)?;

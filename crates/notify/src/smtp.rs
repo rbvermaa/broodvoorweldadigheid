@@ -11,6 +11,8 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use crate::email::{EmailSender, OutgoingEmail, SendError, SendFuture};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// The whole send, all SMTP replies included; `TIMEOUT` only bounds connecting.
+const SEND_DEADLINE: Duration = Duration::from_secs(40);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TlsMode {
@@ -195,9 +197,11 @@ impl EmailSender for SmtpSender {
     fn send<'a>(&'a self, email: &'a OutgoingEmail) -> SendFuture<'a> {
         Box::pin(async move {
             let message = message(&self.from, email)?;
-            self.transport
-                .send(message)
+            tokio::time::timeout(SEND_DEADLINE, self.transport.send(message))
                 .await
+                .map_err(|_| {
+                    SendError::Transient("the SMTP relay did not answer in time".to_owned())
+                })?
                 .map(|_| ())
                 .map_err(|error| {
                     let code = error.status().map(|code| code.to_string());
