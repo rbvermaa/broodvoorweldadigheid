@@ -33,14 +33,20 @@
 </div>
 {% endmacro %}
 
-{% macro select(name, label, options, hint = "", error = "", required = false, disabled = false) %}
+{# A required select with a single option chooses it. An optional select cannot tell a stored
+   empty choice from a fresh form, so it does so only when the caller sets choose_only; it
+   keeps the empty option either way. The flags arrive as bool or &bool; clone() reads both. #}
+{% macro select(name, label, options, hint = "", error = "", required = false, disabled = false, choose_only = false) %}
+{%- let only = options.len() == 1 && (required.clone() || choose_only.clone()) %}
 <div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
 {% call label(name, label, required) %}{% endcall %}
 {% call help(name, hint, error) %}{% endcall %}
 <select class="field-input" id="{{ name }}" name="{{ name }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
+{%- if !only || !required %}
 <option value="">{{ layout.t("select-placeholder")? }}</option>
+{%- endif %}
 {%- for option in options %}
-<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+<option value="{{ option.value }}"{% if option.selected || only %} selected{% endif %}>{{ option.label }}</option>
 {%- endfor %}
 </select>
 </div>

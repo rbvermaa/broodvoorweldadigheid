@@ -839,6 +839,106 @@ async fn a_new_bake_day_gets_its_slots_and_deadline_from_the_location(pool: PgPo
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_only_pickup_location_is_chosen_for_a_new_bake_day(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let placeholder = format!(
+        "<option value=\"\">{}</option>",
+        dutch("select-placeholder")
+    );
+    let location_select = |page: &Reply| {
+        let from = page
+            .text
+            .find("id=\"location_id\"")
+            .expect("location select");
+        let to = from + page.text[from..].find("</select>").expect("end of select");
+        page.text[from..to].to_owned()
+    };
+
+    let page = baker.get("/staff/bake-days/new").await;
+    let select = location_select(&page);
+    assert!(
+        select.contains("<option value=\"1\" selected>De Proef</option>"),
+        "{select}"
+    );
+    assert!(!select.contains(&placeholder), "{select}");
+
+    let created = baker
+        .post(
+            "/staff/bake-days/new",
+            &[
+                ("date", "2026-12-05"),
+                ("location_id", "1"),
+                ("bake_starts_at", "2026-12-05T04:00"),
+            ],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+
+    baker
+        .post(
+            "/staff/locations/new",
+            &[("name", "Markt"), ("address", "Plein 1, Frederiksoord")],
+        )
+        .await;
+    let page = baker.get("/staff/bake-days/new").await;
+    let select = location_select(&page);
+    assert!(select.contains(&placeholder), "{select}");
+    assert!(!select.contains(" selected"), "{select}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_only_charity_is_suggested_for_a_new_bake_day_but_can_be_left_out(pool: PgPool) {
+    let app = app(pool.clone());
+    let mut conn = pool.acquire().await.expect("conn");
+    let charity = charities::create(
+        &mut conn,
+        &CharityInput {
+            name: "Voedselbank".to_owned(),
+            url: "https://example.org".to_owned(),
+            ..CharityInput::default()
+        },
+    )
+    .await
+    .expect("charity");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let placeholder = format!(
+        "<option value=\"\">{}</option>",
+        dutch("select-placeholder")
+    );
+    let chosen = format!(
+        "<option value=\"{}\" selected>Voedselbank</option>",
+        charity.id.get()
+    );
+    let charity_select = |page: &Reply| {
+        let from = page.text.find("id=\"charity_id\"").expect("charity select");
+        let to = from + page.text[from..].find("</select>").expect("end of select");
+        page.text[from..to].to_owned()
+    };
+
+    let page = baker.get("/staff/bake-days/new").await;
+    let select = charity_select(&page);
+    assert!(select.contains(&chosen), "{select}");
+    assert!(select.contains(&placeholder), "{select}");
+
+    let refused = baker
+        .post(
+            "/staff/bake-days/new",
+            &[
+                ("date", "2026-12-05"),
+                ("location_id", "1"),
+                ("bake_starts_at", ""),
+                ("charity_id", ""),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let select = charity_select(&refused);
+    assert!(!select.contains(" selected"), "{select}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn the_schedule_shows_the_lead_time_warning_and_refuses_bad_times(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;

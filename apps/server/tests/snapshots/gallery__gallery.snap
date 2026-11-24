@@ -183,6 +183,18 @@ expression: without_asset_hashes(&gallery_html(&state))
 </div>
 
 
+<div class="field">
+
+<label class="field-label" for="locatie">Afhaallocatie <span class="field-required" aria-hidden="true">(verplicht)</span></label>
+
+
+
+<select class="field-input" id="locatie" name="locatie" required>
+<option value="kerkweg" selected>Kerkweg, Frederiksoord</option>
+</select>
+</div>
+
+
 <div class="field field-check">
 
 
