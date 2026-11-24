@@ -7,6 +7,8 @@
 {% block page %}
 <h1>{{ heading }}</h1>
 <p><a href="/staff/orders">{{ layout.t("staff-orders-back")? }}</a></p>
+<p><a href="{{ pickup_list }}">{{ layout.t("pickup-list-title")? }}</a></p>
+{% if let Some(path) = production %}<p><a href="{{ path }}">{{ layout.t("production-title")? }}</a></p>{% endif %}
 {% if let Some(path) = cancel_day %}<p><a href="{{ path }}">{{ layout.t("staff-orders-cancel-day")? }}</a></p>{% endif %}
 <form method="get" action="{{ action }}">
 {% call f::select("status", layout.t("staff-order-status")?, statuses) %}{% endcall %}

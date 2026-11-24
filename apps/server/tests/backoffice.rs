@@ -1,5 +1,6 @@
 //! The back office screens: products and allergen approval (F10), pickup locations
-//! (F4a), charities (F4g), bake days (F1, F3, F4c) and extra production (F7a).
+//! (F4a), charities (F4g), bake days (F1, F3, F4c), extra production (F7a), and the
+//! production (F7) and pickup (F8) lists.
 #![forbid(unsafe_code)]
 
 mod support;
@@ -160,10 +161,18 @@ impl Client<'_> {
         let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
             .await
             .expect("body");
+        let pdf = headers
+            .get(CONTENT_TYPE)
+            .is_some_and(|v| v == "application/pdf");
+        let text = if pdf {
+            String::from_utf8_lossy(&bytes).into_owned()
+        } else {
+            decode(std::str::from_utf8(&bytes).expect("utf-8"))
+        };
         Reply {
             status,
             headers,
-            text: decode(std::str::from_utf8(&bytes).expect("utf-8")),
+            text,
         }
     }
 
@@ -2311,4 +2320,257 @@ async fn only_the_owner_cancels_a_bake_day_and_can_run_it_again(pool: PgPool) {
         .collect();
     assert_eq!(sick.len(), 1);
     assert!(sick[0].1.contains("Ik ben ziek, sorry!"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_production_list_adds_extras_to_orders_on_screen_and_as_pdf(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let bread = paid.order.lines[0].product_id;
+    let mut conn = pool.acquire().await.expect("conn");
+    extras::add(
+        &mut conn,
+        paid.day,
+        bread,
+        &ExtraInput {
+            qty: 3,
+            purpose: Purpose::Freezer,
+            note: None,
+        },
+        &bakedays::NoOrders,
+    )
+    .await
+    .expect("extra");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}/production", paid.day.get());
+
+    let page = baker.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("production-title"));
+    page.shows("Desembrood wit");
+    page.shows(&dutch("production-extra-freezer"));
+    page.shows("<td class=\"table-number\">2</td><td class=\"table-number\">3</td>");
+    page.shows("<td class=\"table-number\">5</td></tr>");
+    page.shows(&format!("href=\"{path}/pdf\""));
+
+    let pdf = baker.get(&format!("{path}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"productielijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+
+    let day_page = baker
+        .get(&format!("/staff/bake-days/{}", paid.day.get()))
+        .await;
+    day_page.shows(&format!("href=\"{path}\""));
+    day_page.shows(&format!(
+        "href=\"/staff/bake-days/{}/pickup-list\"",
+        paid.day.get()
+    ));
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for url in [path.clone(), format!("{path}/pdf")] {
+        assert_eq!(
+            counter.get(&url).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+    let orders = counter
+        .get(&format!("/staff/bake-days/{}/orders", paid.day.get()))
+        .await;
+    orders.lacks(&format!("href=\"{path}\""));
+    orders.shows(&format!(
+        "href=\"/staff/bake-days/{}/pickup-list\"",
+        paid.day.get()
+    ));
+    assert_eq!(
+        baker.get("/staff/bake-days/999999/production").await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_counter_ticks_off_pickups_on_the_pickup_list_and_can_undo(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let n = paid.order.id.get();
+    let card = format!("bestelling-{n}");
+    let tick = format!("{list}/{n}/picked-up");
+    let undo = format!("{list}/{n}/undo");
+
+    let page = counter.get(&list).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("pickup-list-title"));
+    page.shows("Test Klant");
+    page.shows(&paid.order.number.to_string());
+    page.shows("2× Desembrood wit");
+    page.shows(&dutch("pickup-list-status-paid"));
+    page.shows("Markt Vledder");
+    page.shows(&dutch("pickup-list-empty"));
+    page.shows(&format!("id=\"{card}\""));
+    page.shows(&format!("action=\"{tick}\""));
+    page.shows(&format!("href=\"{list}/pdf\""));
+
+    counter
+        .post(&tick, &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#{card}"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
+    counter
+        .post(&tick, &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#{card}"));
+
+    let undone = counter.htmx(&undo, &[]).await;
+    assert_eq!(undone.status, StatusCode::OK);
+    undone.shows(&format!("id=\"{card}\""));
+    undone.shows(&format!("action=\"{tick}\""));
+    undone.shows(&dutch("saved"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    let ticked = counter.htmx(&tick, &[]).await;
+    assert_eq!(ticked.status, StatusCode::OK);
+    ticked.shows(&format!("action=\"{undo}\""));
+    ticked.shows(&dutch("pickup-list-status-picked-up"));
+
+    let history = counter.get(&format!("/staff/orders/{n}")).await;
+    history.shows(&dutch("staff-order-action-picked_up_undone"));
+
+    let pdf = counter.get(&format!("{list}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"ophaallijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn pickup_ticks_need_the_token_and_an_order_of_that_day(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let n = paid.order.id.get();
+    for action in ["picked-up", "undo"] {
+        let reply = baker
+            .send(
+                Request::post(format!("{list}/{n}/{action}"))
+                    .header(COOKIE, &baker.cookie)
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{action}");
+    }
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    let other = saturday_after(&pool).await;
+    let elsewhere = format!("/staff/bake-days/{}/pickup-list/{n}/picked-up", other.get());
+    assert_eq!(
+        baker.post(&elsewhere, &[]).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        baker
+            .post(&format!("{list}/999999/picked-up"), &[])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+}
+
+/// A draft drop on Saturday 12 December.
+async fn saturday_after(pool: &PgPool) -> BakeDayId {
+    let mut conn = pool.acquire().await.expect("conn");
+    days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: date(2026, 12, 12),
+            location_id: DE_PROEF,
+            online_ordering: true,
+            charity_id: None,
+        },
+    )
+    .await
+    .expect("bake day")
+    .id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn refused_pickup_ticks_say_why(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let mut cart = orders::Cart::new(paid.day);
+    cart.set(paid.order.lines[0].product_id, 1, None)
+        .expect("cart");
+    let pending = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "later@example.org".to_owned(),
+            name: "Late Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        paid.order.pickup_slot_id,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    drop(conn);
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let off_list = counter
+        .htmx(&format!("{list}/{}/picked-up", pending.id.get()), &[])
+        .await;
+    assert_eq!(off_list.status, StatusCode::OK);
+    assert_eq!(off_list.header("hx-retarget"), "#status");
+    assert_eq!(off_list.header("hx-reselect"), "#status");
+    off_list.shows(&dutch("staff-order-error-status"));
+
+    let n = paid.order.id.get();
+    counter
+        .post(&format!("{list}/{n}/picked-up"), &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#bestelling-{n}"));
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .post(
+            &format!("/staff/bake-days/{}/cancel", paid.day.get()),
+            &[("bericht", "Ik ben ziek, sorry!")],
+        )
+        .await;
+    let undo = counter.post(&format!("{list}/{n}/undo"), &[]).await;
+    assert_eq!(undo.status, StatusCode::UNPROCESSABLE_ENTITY);
+    undo.shows(&dutch("staff-order-error-day"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
 }

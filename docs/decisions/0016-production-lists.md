@@ -22,7 +22,10 @@ status change; production only reads. Both lock the order row, take only paid or
 orders (`NotPickable` otherwise), write an audit entry with the staff actor, and do nothing
 on a repeat, so a double tap on a phone is harmless. Undo restores the status recorded as
 `before` in the latest `picked_up` audit entry, so a confirmed order goes back to
-confirmed and a paid one to paid.
+confirmed and a paid one to paid. Undo refuses an order on a cancelled bake day
+(`DayFinal`): a sick-day cancel keeps picked-up orders and refunds the rest, so undoing
+there would leave a refundable order nobody refunds. The pickup screen ticks with
+`manage::mark_picked_up`, the same action as the order page.
 
 **One snapshot per list.** Each list reads inside one `REPEATABLE READ, READ ONLY`
 transaction, so an order paid halfway does not show in one table and not in another.

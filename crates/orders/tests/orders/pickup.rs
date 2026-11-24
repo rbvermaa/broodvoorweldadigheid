@@ -226,3 +226,25 @@ async fn undo_needs_the_pickup_in_the_audit_log(mut conn: PoolConnection<Postgre
         OrderStatus::PickedUp
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_pickup_on_a_cancelled_day_cannot_be_undone(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let order = paid_order(&mut conn, &clock, &shop).await;
+    mark_picked_up(&mut conn, &clock, order.id, BAKER)
+        .await
+        .unwrap();
+    bakedays::days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        undo_picked_up(&mut conn, &clock, order.id, BAKER).await,
+        Err(Error::DayFinal)
+    ));
+    assert_eq!(
+        get(&mut conn, order.id).await.unwrap().status,
+        OrderStatus::PickedUp
+    );
+}

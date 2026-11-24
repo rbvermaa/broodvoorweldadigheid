@@ -41,11 +41,13 @@ pub async fn mark_picked_up(
 }
 
 /// Takes back a pickup tick: the order returns to the status it had before. An order
-/// that is paid or confirmed is returned as it is, without an audit entry.
+/// that is paid or confirmed is returned as it is, without an audit entry. Not on a
+/// cancelled bake day: a sick-day cancel keeps picked-up orders and refunds the rest.
 ///
 /// # Errors
-/// [`Error::NotFound`], [`Error::NotPickable`] for any other status, [`Error::Db`] or
-/// [`Error::Corrupt`] when the audit log has no pickup of the order.
+/// [`Error::NotFound`], [`Error::DayFinal`] on a cancelled bake day,
+/// [`Error::NotPickable`] for any other status, [`Error::Db`] or [`Error::Corrupt`] when
+/// the audit log has no pickup of the order.
 pub async fn undo_picked_up(
     conn: &mut PgConnection,
     clock: &dyn Clock,
@@ -53,11 +55,16 @@ pub async fn undo_picked_up(
     staff: StaffUserId,
 ) -> Result<Order, Error> {
     let mut tx = conn.begin().await?;
+    let day = order::get(&mut tx, id).await?.bake_day_id;
+    let facts = crate::checkout::lock_day(&mut tx, day).await?;
     let before = lock(&mut tx, id).await?;
     match before.status {
         OrderStatus::PickedUp => {}
         OrderStatus::Paid | OrderStatus::Confirmed => return Ok(before),
         other => return Err(Error::NotPickable(other)),
+    }
+    if facts.status == bakedays::BakeDayStatus::Cancelled {
+        return Err(Error::DayFinal);
     }
     let previous = status_before_pickup(&mut tx, id).await?;
     let after = set_status(&mut tx, clock, &before, previous, UNDONE, staff).await?;

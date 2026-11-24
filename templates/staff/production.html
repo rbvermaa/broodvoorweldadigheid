@@ -1,0 +1,14 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("lists-back-day")? }}</a></p>
+<p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("production-title")?, layout.t("production-empty")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+{% endblock %}
