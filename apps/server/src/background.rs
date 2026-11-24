@@ -8,7 +8,7 @@ use db::PgPool;
 use domain::Clock;
 use tokio::sync::watch;
 
-const SETUP_RETRY: Duration = Duration::from_secs(5);
+const RETRY: Duration = Duration::from_secs(5);
 
 /// One shutdown signal for the web server and the jobs runner.
 #[derive(Clone)]
@@ -49,29 +49,35 @@ pub fn worker_id() -> String {
     format!("{host}-{}", std::process::id())
 }
 
-/// Creates the apalis tables, retrying while the database is down, then runs the
-/// bake day tick until `shutdown`. Returns at shutdown, or when the worker fails.
-///
-/// # Errors
-/// [`jobs::Error`] when the worker stops with an error.
-pub async fn run_jobs(
-    pool: PgPool,
-    clock: Arc<dyn Clock>,
-    worker_id: String,
-    shutdown: Shutdown,
-) -> Result<(), jobs::Error> {
-    loop {
-        match jobs::setup(&pool).await {
-            Ok(()) => break,
-            Err(error) => {
-                tracing::warn!(%error, "cannot set up the job queue; trying again");
-                tokio::select! {
-                    () = shutdown.wait() => return Ok(()),
-                    () = tokio::time::sleep(SETUP_RETRY) => {}
-                }
+/// Creates the apalis tables and runs the bake day tick until `shutdown`. Setup is raced
+/// against `shutdown`; the worker stops by itself when it fires. After a failure, such as
+/// a database restart, both start again, so scheduled work never stops while the server
+/// runs. Each restart gets a fresh worker id: apalis refuses an id it still counts as live.
+pub async fn run_jobs(pool: PgPool, clock: Arc<dyn Clock>, worker_id: String, shutdown: Shutdown) {
+    for attempt in 1_u64.. {
+        let id = if attempt == 1 {
+            worker_id.clone()
+        } else {
+            format!("{worker_id}-{attempt}")
+        };
+        let setup = tokio::select! {
+            () = shutdown.wait() => return,
+            setup = jobs::setup(&pool) => setup,
+        };
+        let result = match setup {
+            Ok(()) => {
+                tracing::info!(worker = %id, "jobs runner started");
+                jobs::run(pool.clone(), Arc::clone(&clock), id, shutdown.wait()).await
             }
+            Err(error) => Err(error),
+        };
+        match result {
+            Ok(()) => return,
+            Err(error) => tracing::warn!(%error, attempt, "jobs runner failed; starting again"),
+        }
+        tokio::select! {
+            () = shutdown.wait() => return,
+            () = tokio::time::sleep(RETRY) => {}
         }
     }
-    tracing::info!(worker = %worker_id, "jobs runner started");
-    jobs::run(pool, clock, worker_id, shutdown.wait()).await
 }

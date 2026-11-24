@@ -67,17 +67,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(pool, Translator::dutch()?, config).with_payments(payments);
     let (shutdown, trigger) = Shutdown::on(server::shutdown_signal());
     tokio::spawn(trigger);
-    let runner = background::run_jobs(
+    let jobs = tokio::spawn(background::run_jobs(
         state.pool.clone(),
         Arc::clone(&state.clock),
         background::worker_id(),
         shutdown.clone(),
-    );
-    let jobs = tokio::spawn(async move {
-        if let Err(error) = runner.await {
-            tracing::error!(%error, "jobs runner stopped");
-        }
-    });
+    ));
     tracing::info!(addr = %listener.local_addr()?, "listening");
     let served = server::serve(listener, state, shutdown.wait()).await;
     if let Err(error) = jobs.await {

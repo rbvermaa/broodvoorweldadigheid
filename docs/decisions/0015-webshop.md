@@ -25,9 +25,10 @@ Status: proposed, 2026-11-24
 Not in this slice: choosing another charity or saving the donation (F4d), confirmation emails (F9).
 
 The jobs runner: with apps in layer 7 (ADR 0020) the server starts it next to the web
-server. `jobs::setup` runs at start, retrying every 5 s while the database is down;
-`jobs::run` then gets the worker id `hostname-pid` and the same shutdown signal as axum
-(`server::background`). The server waits for the runner before it exits.
+server (`server::background`). It runs `jobs::setup`, then `jobs::run` with the worker id
+`hostname-pid` and the same shutdown signal as axum. After any failure, such as a database
+restart, both start again 5 s later with a new worker id. Setup gives way to shutdown, and
+the server waits for the runner before it exits.
 
 Known limits, from review:
 
