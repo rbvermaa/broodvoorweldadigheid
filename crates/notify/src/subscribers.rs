@@ -236,8 +236,9 @@ pub async fn unsubscribe_link_known(
     .await?)
 }
 
-/// Takes the subscriber behind an unsubscribe link off the list and voids an open
-/// confirmation link; `false` for an unknown link. Safe to repeat.
+/// Takes the subscriber behind an unsubscribe link off the list, voids an open
+/// confirmation link and withdraws drop alerts to them still waiting in the outbox;
+/// `false` for an unknown link. Safe to repeat.
 ///
 /// # Errors
 /// [`SubscriberError::Db`].
@@ -249,6 +250,7 @@ pub async fn unsubscribe(
     let Some(hash) = token_hash(token) else {
         return Ok(false);
     };
+    let mut tx = conn.begin().await?;
     let done = sqlx::query_scalar!(
         "UPDATE subscriber s SET
             unsubscribed_at = coalesce(s.unsubscribed_at,
@@ -261,12 +263,28 @@ pub async fn unsubscribe(
         hash,
         micros(clock.now()),
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *tx)
     .await?;
-    Ok(done.is_some())
+    let Some(id) = done else {
+        return Ok(false);
+    };
+    // A separate statement, so it sees alerts that a tick holding this row through
+    // [`active`] committed while the UPDATE waited.
+    sqlx::query!(
+        "DELETE FROM email_outbox o USING subscriber s
+        WHERE s.id = $1 AND o.kind = 'drop_alert' AND o.status = 'pending'
+            AND lower(o.to_address) = lower(s.email)",
+        id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// Confirmed subscribers who have not unsubscribed: the only ones drop alerts go to.
+/// The rows stay locked `FOR SHARE` until the caller's transaction ends, so an
+/// unsubscribe waits for alerts being queued and can then withdraw them.
 ///
 /// # Errors
 /// [`SubscriberError::Db`].
@@ -275,7 +293,7 @@ pub async fn active(conn: &mut PgConnection) -> Result<Vec<Subscriber>, Subscrib
         Subscriber,
         "SELECT id, email FROM subscriber
         WHERE confirmed_at IS NOT NULL AND unsubscribed_at IS NULL
-        ORDER BY id",
+        ORDER BY id FOR SHARE",
     )
     .fetch_all(conn)
     .await?)

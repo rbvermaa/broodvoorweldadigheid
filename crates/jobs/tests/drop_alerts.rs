@@ -262,9 +262,13 @@ async fn opening_sends_the_ordering_alert_and_unsubscribed_people_hear_nothing(p
         }]
     );
     let all = alerts(&mut conn).await;
-    assert_eq!(all.len(), 3);
-    assert_eq!(all[2].0, "ja@example.nl");
-    assert_ne!(all[2].1, all[0].1, "the ordering alert has its own subject");
+    let to: Vec<&str> = all.iter().map(|a| a.0.as_str()).collect();
+    assert_eq!(
+        to,
+        ["ja@example.nl", "ja@example.nl"],
+        "the unsent menu alert was withdrawn"
+    );
+    assert_ne!(all[1].1, all[0].1, "the ordering alert has its own subject");
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -473,4 +477,30 @@ async fn the_company_row_is_read_for_emails(pool: PgPool) {
             kvk: "12345678".to_owned(),
         }
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn unsubscribing_withdraws_alerts_still_waiting_to_be_sent(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = FakeClock::new(ts("2026-10-20T08:00:00Z"));
+    setup(&mut conn, &clock).await;
+    subscriber(&mut conn, &clock, "blijft@example.nl", State::Confirmed).await;
+    saturday(&mut conn, Some("2026-10-24T08:00:00Z"), None).await;
+    alert_tick(&mut conn, &clock, "2026-10-24T08:00:00Z").await;
+    let queued = alerts(&mut conn).await;
+    assert_eq!(queued.len(), 2);
+    let url = queued
+        .iter()
+        .find(|(to, _, _)| to == "ja@example.nl")
+        .and_then(|(_, _, url)| url.clone())
+        .unwrap();
+
+    let token = token_after(&url, "/meldingen/afmelden/");
+    assert!(
+        subscribers::unsubscribe(&mut conn, &clock, &token)
+            .await
+            .unwrap()
+    );
+    let left: Vec<String> = alerts(&mut conn).await.into_iter().map(|a| a.0).collect();
+    assert_eq!(left, ["blijft@example.nl"]);
 }

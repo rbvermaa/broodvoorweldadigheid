@@ -21,6 +21,9 @@ const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
 /// Emails handed to the relay per tick at most; the rest wait for the next minute.
 pub const SEND_BATCH: u32 = 500;
+/// No new email is started after this much time in one tick, so a slow relay cannot keep
+/// a tick, and its connection, busy past the next one.
+pub const SEND_BUDGET: Duration = Duration::from_secs(40);
 
 /// The every-minute job that opens and closes bake days. `minute` is the start of the
 /// minute it was scheduled for and makes the job unique.
@@ -34,6 +37,16 @@ pub type TickStorage = PostgresStorage<BakeDayTick>;
 /// The clock the worker hands to each tick.
 #[derive(Clone)]
 pub struct TickClock(pub Arc<dyn Clock>);
+
+/// One instant for the bake-day and alert steps, so a day whose menu and opening time
+/// fall in the same minute is opened before the alerts look at it.
+struct Frozen(Timestamp);
+
+impl Clock for Frozen {
+    fn now(&self) -> Timestamp {
+        self.0
+    }
+}
 
 /// What the tick needs to write and send email: drop alerts (F9a) and the outbox
 /// (ADR 0014).
@@ -127,17 +140,18 @@ pub fn work<'a>(
         let mut conn = pool.acquire().await?;
         let mut outcome = TickOutcome::default();
         let mut first_error = None;
-        match bake_days::tick(&mut conn, clock).await {
+        let frozen = Frozen(clock.now());
+        match bake_days::tick(&mut conn, &frozen).await {
             Ok(report) => outcome.days = report,
             Err(err) => first_error = Some(err),
         }
         if first_error.is_none() {
-            match drop_alerts::tick(&mut conn, clock, &mail.i18n, &mail.links).await {
+            match drop_alerts::tick(&mut conn, &frozen, &mail.i18n, &mail.links).await {
                 Ok(report) => outcome.alerts = report,
                 Err(err) => first_error = Some(err),
             }
         }
-        match notify::send_pending(&mut conn, mail.sender.as_ref(), clock, SEND_BATCH).await {
+        match drain(&mut conn, mail.sender.as_ref(), clock).await {
             Ok(report) => outcome.sent = report,
             Err(err) => {
                 first_error.get_or_insert(err.into());
@@ -148,6 +162,30 @@ pub fn work<'a>(
             None => Ok(outcome),
         }
     })
+}
+
+/// Sends one email at a time until none is due, [`SEND_BATCH`] went out or
+/// [`SEND_BUDGET`] is used up.
+async fn drain(
+    conn: &mut sqlx::PgConnection,
+    sender: &dyn EmailSender,
+    clock: &dyn Clock,
+) -> Result<SendReport, notify::OutboxError> {
+    let started = tokio::time::Instant::now();
+    let mut total = SendReport::default();
+    for _ in 0..SEND_BATCH {
+        if started.elapsed() >= SEND_BUDGET {
+            break;
+        }
+        let report = notify::send_pending(conn, sender, clock, 1).await?;
+        if report == SendReport::default() {
+            break;
+        }
+        total.sent += report.sent;
+        total.retrying += report.retrying;
+        total.failed += report.failed;
+    }
+    Ok(total)
 }
 
 /// Runs one queued tick against the current time, not the minute it was queued for, so a
