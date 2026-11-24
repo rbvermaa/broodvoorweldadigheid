@@ -134,17 +134,17 @@ fn refusal(order: &Order, day: &DayFacts, amount: Money, now: Timestamp) -> Opti
     }
 }
 
-struct PaymentRow {
-    id: i64,
-    order_id: i64,
-    provider_payment_id: String,
-    amount_cents: i64,
-    refunded_cents: i64,
-    refund_reason: Option<String>,
-    received_at_us: i64,
+pub(crate) struct PaymentRow {
+    pub(crate) id: i64,
+    pub(crate) order_id: i64,
+    pub(crate) provider_payment_id: String,
+    pub(crate) amount_cents: i64,
+    pub(crate) refunded_cents: i64,
+    pub(crate) refund_reason: Option<String>,
+    pub(crate) received_at_us: i64,
 }
 
-fn payment_from_row(row: PaymentRow) -> Result<Payment, Error> {
+pub(crate) fn payment_from_row(row: PaymentRow) -> Result<Payment, Error> {
     Ok(Payment {
         id: PaymentId::new(row.id),
         order_id: OrderId::new(row.order_id),

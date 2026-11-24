@@ -31,6 +31,10 @@ pub enum Error {
     NotPickable(crate::OrderStatus),
     #[error("the order to replace is no longer pending")]
     NotReplaceable,
+    #[error("the order is {0}")]
+    WrongStatus(crate::OrderStatus),
+    #[error("the order is invoiced")]
+    Invoiced,
     #[error("the order total is zero")]
     FreeOrder,
     #[error("the payment is recorded for another order")]

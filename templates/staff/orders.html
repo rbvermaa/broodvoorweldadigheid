@@ -1,0 +1,20 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="/staff/orders">{{ layout.t("staff-orders-back")? }}</a></p>
+<form method="get" action="{{ action }}">
+{% call f::select("status", layout.t("staff-order-status")?, statuses) %}{% endcall %}
+{% call f::select("locatie", layout.t("staff-orders-filter-location")?, locations) %}{% endcall %}
+{% call b::button(layout.t("staff-orders-filter")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("staff-orders-empty-title")?, layout.t("staff-orders-empty-text")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+{% endblock %}

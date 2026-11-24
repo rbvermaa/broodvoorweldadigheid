@@ -9,6 +9,7 @@ mod customer;
 mod details;
 mod error;
 mod holds;
+pub mod manage;
 pub mod order;
 mod payment;
 mod pickup;

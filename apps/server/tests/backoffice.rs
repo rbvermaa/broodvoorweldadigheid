@@ -1536,3 +1536,307 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     refused.shows(&dutch("day-error-orders-exist"));
 }
+
+/// An open drop on Saturday 5 December with bread on the range, a second slot at another
+/// location, and a paid order of two loaves.
+struct PaidOrder {
+    day: BakeDayId,
+    order: orders::Order,
+    markt_slot: domain::PickupSlotId,
+}
+
+async fn paid_order(app: &App) -> PaidOrder {
+    let pool = &app.pool;
+    let day = saturday(pool).await;
+    let bread = product(pool).await;
+    let approver = staff(pool, "Keurder Karin", Role::Owner).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    products::approve_allergens(
+        &mut conn,
+        bread,
+        &sourdough().allergen_info,
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: None,
+            capacity_pool_id: None,
+            units_per_item: 1,
+        },
+    )
+    .await
+    .expect("range");
+    let stored = days::get(&mut conn, day).await.expect("day");
+    days::update_schedule(
+        &mut conn,
+        day,
+        &Schedule {
+            online_ordering: true,
+            menu_publish_at: None,
+            opens_at: Some(ts("2026-11-20T08:00:00Z")),
+            cutoff_at: stored.cutoff_at,
+            bake_starts_at: stored.bake_starts_at,
+        },
+    )
+    .await
+    .expect("schedule");
+    days::open(&mut conn, app.clock.as_ref(), day)
+        .await
+        .expect("open");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    let markt: i64 = sqlx::query_scalar(
+        "INSERT INTO pickup_location (name, address) VALUES ('Markt Vledder', 'Brink 1, 8381 AA Vledder')
+        RETURNING id",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .expect("location");
+    let markt_slot = days::add_slot(
+        &mut conn,
+        day,
+        PickupLocationId::new(markt),
+        &bakedays::PickupSlotInput {
+            starts_at: ts("2026-12-05T12:00:00Z"),
+            ends_at: ts("2026-12-05T13:00:00Z"),
+            max_orders: Some(1),
+        },
+    )
+    .await
+    .expect("slot");
+    let mut cart = orders::Cart::new(day);
+    cart.set(bread, 2, None).expect("cart");
+    let order = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "klant@example.org".to_owned(),
+            name: "Test Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        slot,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    let outcome = orders::mark_paid(
+        &mut conn,
+        app.clock.as_ref(),
+        order.id,
+        &orders::PaymentReceived {
+            reference: "tr_test1".to_owned(),
+            amount: order.total,
+        },
+    )
+    .await
+    .expect("paid");
+    assert!(matches!(outcome, orders::PaidOutcome::Paid { .. }));
+    let order = orders::order::get(&mut conn, order.id)
+        .await
+        .expect("order");
+    PaidOrder {
+        day,
+        order,
+        markt_slot,
+    }
+}
+
+async fn stored_order(pool: &PgPool, id: domain::OrderId) -> orders::Order {
+    let mut conn = pool.acquire().await.expect("conn");
+    orders::order::get(&mut conn, id).await.expect("order")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn counter_sees_orders_and_ticks_off_pickups_but_cannot_change_them(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let order_path = format!("/staff/orders/{}", paid.order.id.get());
+
+    let list = counter
+        .get(&format!("/staff/bake-days/{}/orders", paid.day.get()))
+        .await;
+    assert_eq!(list.status, StatusCode::OK, "{}", list.text);
+    list.shows("Test Klant");
+    list.shows(&paid.order.number.to_string());
+    list.shows(&dutch("staff-order-status-paid"));
+    let detail = counter.get(&order_path).await;
+    assert_eq!(detail.status, StatusCode::OK);
+    detail.shows("klant@example.org");
+    detail.lacks(&dutch("staff-order-cancel"));
+    detail.lacks(&dutch("staff-order-move-save"));
+
+    let markt = paid.markt_slot.get().to_string();
+    for (url, fields) in [
+        (format!("{order_path}/cancel"), vec![]),
+        (
+            format!("{order_path}/pickup"),
+            vec![("slot", markt.as_str())],
+        ),
+    ] {
+        let reply = counter.post(&url, &fields).await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{url}");
+    }
+    let unchanged = stored_order(&pool, paid.order.id).await;
+    assert_eq!(unchanged.status, orders::OrderStatus::Paid);
+    assert_eq!(unchanged.pickup_slot_id, paid.order.pickup_slot_id);
+
+    counter
+        .post(&format!("{order_path}/picked-up"), &[])
+        .await
+        .redirects_to(&format!("{order_path}?opgeslagen=1"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
+    let history = counter.get(&order_path).await;
+    history.shows(&dutch("staff-order-action-picked_up"));
+    history.shows("Toonbank Tineke");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn order_changes_need_the_csrf_token(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let order_path = format!("/staff/orders/{}", paid.order.id.get());
+    for action in ["cancel", "picked-up", "pickup"] {
+        let reply = owner
+            .send(
+                Request::post(format!("{order_path}/{action}"))
+                    .header(COOKIE, &owner.cookie)
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("slot={}", paid.markt_slot.get())))
+                    .expect("request"),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{action}");
+    }
+    let unchanged = stored_order(&pool, paid.order.id).await;
+    assert_eq!(unchanged.status, orders::OrderStatus::Paid);
+    assert_eq!(unchanged.pickup_slot_id, paid.order.pickup_slot_id);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_baker_cancels_an_unpaid_order_but_not_a_paid_one(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let paid_path = format!("/staff/orders/{}", paid.order.id.get());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .get(&paid_path)
+        .await
+        .lacks(&dutch("staff-order-cancel"));
+    let refused = owner.post(&format!("{paid_path}/cancel"), &[]).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("staff-order-error-status"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let mut cart = orders::Cart::new(paid.day);
+    cart.set(paid.order.lines[0].product_id, 1, None)
+        .expect("cart");
+    let pending = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "later@example.org".to_owned(),
+            name: "Late Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        paid.order.pickup_slot_id,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    drop(conn);
+    let pending_path = format!("/staff/orders/{}", pending.id.get());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    baker.get(&pending_path).await.shows(&dutch_with(
+        "staff-order-cancel-text",
+        &[
+            ("number", &pending.number.to_string()),
+            ("name", "Late Klant"),
+        ],
+    ));
+    baker
+        .post(&format!("{pending_path}/cancel"), &[])
+        .await
+        .redirects_to(&format!("{pending_path}?opgeslagen=1"));
+    let cancelled = stored_order(&pool, pending.id).await;
+    assert_eq!(cancelled.status, orders::OrderStatus::Cancelled);
+    assert_eq!(cancelled.cancel_reason, Some(orders::CancelReason::Staff));
+    let after = baker.get(&pending_path).await;
+    after.shows(&dutch("staff-order-status-cancelled"));
+    after.shows(&dutch("staff-order-action-cancelled"));
+    after.shows("Bakker Bas");
+    after.lacks(&dutch("staff-order-cancel"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_baker_moves_an_order_and_the_list_filters_by_location_and_status(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let order_path = format!("/staff/orders/{}", paid.order.id.get());
+    let list_path = format!("/staff/bake-days/{}/orders", paid.day.get());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let markt = paid.markt_slot.get().to_string();
+
+    baker
+        .post(&format!("{order_path}/pickup"), &[("slot", &markt)])
+        .await
+        .redirects_to(&format!("{order_path}?opgeslagen=1"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.pickup_slot_id,
+        paid.markt_slot
+    );
+    baker
+        .get(&order_path)
+        .await
+        .shows(&dutch("staff-order-action-pickup_moved"));
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let markt_id: i64 =
+        sqlx::query_scalar("SELECT id FROM pickup_location WHERE name = 'Markt Vledder'")
+            .fetch_one(&mut *conn)
+            .await
+            .expect("markt");
+    drop(conn);
+    baker
+        .get(&format!("{list_path}?locatie={markt_id}"))
+        .await
+        .shows("Test Klant");
+    baker
+        .get(&format!("{list_path}?locatie={}", DE_PROEF.get()))
+        .await
+        .lacks("Test Klant");
+    baker
+        .get(&format!("{list_path}?status=cancelled"))
+        .await
+        .lacks("Test Klant");
+    baker
+        .get(&format!("{list_path}?status=paid&locatie="))
+        .await
+        .shows("Test Klant");
+    let bad = baker.get(&format!("{list_path}?status=kwijt")).await;
+    assert_eq!(bad.status, StatusCode::OK);
+    bad.shows("Test Klant");
+
+    let other = baker
+        .post(&format!("{order_path}/pickup"), &[("slot", "999999")])
+        .await;
+    assert_eq!(other.status, StatusCode::UNPROCESSABLE_ENTITY);
+    other.shows(&dutch("staff-order-error-slot"));
+}

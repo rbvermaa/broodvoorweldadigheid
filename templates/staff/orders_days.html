@@ -1,0 +1,12 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ layout.t("staff-nav-orders")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("staff-nav-orders")? }}</h1>
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("days-empty-title")?, layout.t("staff-orders-days-empty")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+{% endblock %}
