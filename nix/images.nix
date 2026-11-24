@@ -164,6 +164,23 @@ let
       volumes = [ "/data" ];
     };
 
+    # Local stack only (compose profile "mail"): catches every email the server sends.
+    mailpit-image = mkImage {
+      name = "mailpit";
+      entrypoint = [ (lib.getExe pkgs.mailpit) ];
+      # Settings as variables, so `mailpit readyz` (the healthcheck) finds the UI port too.
+      env = [
+        "PATH=${pkgs.mailpit}/bin"
+        "MP_SMTP_BIND_ADDR=0.0.0.0:1025"
+        "MP_UI_BIND_ADDR=0.0.0.0:8025"
+        "MP_DISABLE_VERSION_CHECK=true"
+      ];
+      ports = [
+        1025
+        8025
+      ];
+    };
+
     backup-image = mkImage {
       name = "backup";
       entrypoint = [ (lib.getExe cli) ];
@@ -204,6 +221,7 @@ in
           "kanidm"
           "caddy"
           "backup"
+          "mailpit"
         ];
       }
       ''

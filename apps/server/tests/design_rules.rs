@@ -627,6 +627,23 @@ fn stylesheets_use_only_tokens() {
     assert!(declarations > 100, "found only {declarations} declarations");
 }
 
+/// Emails take their inline styles from notify's own reading of tokens.toml.
+#[test]
+fn email_styles_read_the_same_tokens_as_the_stylesheets() {
+    let generated: std::collections::BTreeMap<String, String> = server::assets::TOKENS_CSS
+        .lines()
+        .filter_map(|line| line.trim().strip_suffix(';')?.split_once(": "))
+        .filter(|(name, _)| name.starts_with("--"))
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .collect();
+    assert!(
+        generated.len() > 50,
+        "found only {} tokens",
+        generated.len()
+    );
+    assert_eq!(notify::style::token_values().expect("tokens"), generated);
+}
+
 #[test]
 fn every_class_in_templates_is_defined_in_our_css() {
     let defined: BTreeSet<String> = stylesheets()

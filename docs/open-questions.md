@@ -13,6 +13,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   Left unenforced for now; revisit with GitHub Pro or a move to Forgejo.
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
   It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
+  SMTP avoids it: lettre verifies with `rustls-native-certs` (ADR 0014).
 - [ ] **advisory-db freshness.** cargo-audit is only as fresh as the pinned advisory-db.
   The weekly dependency-update job (spec, "Nightly and weekly") should bump it.
 - [ ] **Partial refund by amount on a mixed-rate order.** How is it split across BTW
@@ -35,6 +36,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
   Resolved by the answer above.
+- [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
+  1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
+- [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
+  bakery reads, or should replies go to another address? (ADR 0014)
+- [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
+  period (for example 30 days) is enough for support questions (ADR 0014).
 - [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
