@@ -1,0 +1,89 @@
+/* Base styles. Values come only from the tokens in tokens.css (design/tokens.toml). */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  margin: 0 0 var(--space-4);
+}
+
+h1 {
+  font-size: var(--font-size-3xl);
+}
+
+p {
+  margin: 0 0 var(--space-4);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+:focus-visible {
+  outline: var(--space-1) solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--space-2);
+  top: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-black);
+  color: var(--color-white);
+  transform: translateY(-100%);
+}
+
+.skip-link:focus {
+  top: var(--space-2);
+  transform: none;
+}
+
+.site-header,
+.site-footer {
+  padding: var(--space-4);
+  background: var(--color-black);
+  color: var(--color-white);
+}
+
+.site-name {
+  color: var(--color-white);
+  font-family: var(--font-heading);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  text-decoration: none;
+}
+
+.site-main {
+  padding: var(--space-5) var(--space-4);
+}
+
+.site-footer p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.htmx-indicator {
+  opacity: 0;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+}

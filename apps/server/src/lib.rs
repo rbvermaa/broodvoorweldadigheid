@@ -2,21 +2,29 @@
 
 pub mod assets;
 pub mod config;
+pub mod csrf;
 pub mod healthcheck;
+pub mod pages;
+pub mod rate_limit;
+pub mod security;
+pub mod session;
+pub mod state;
 #[cfg(test)]
 mod tokens;
 
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
-use axum::{Json, Router};
-use db::PgPool;
+use axum::{Json, Router, middleware};
 use serde::Serialize;
 use tokio::net::TcpListener;
+
+pub use crate::state::AppState;
 
 #[derive(Serialize)]
 struct Health {
@@ -24,14 +32,30 @@ struct Health {
     db: &'static str,
 }
 
-pub fn router(pool: PgPool) -> Router {
-    Router::new().route("/health", get(health)).with_state(pool)
+pub fn router(state: AppState) -> Router {
+    let routes = Router::new()
+        .route("/", get(pages::home))
+        .route("/health", get(health));
+    with_shell(routes, state)
+}
+
+/// Wraps `routes` with what every page needs: static assets, the Dutch 404 page, CSRF
+/// checks, sessions and security headers.
+pub fn with_shell(routes: Router<AppState>, state: AppState) -> Router {
+    let sessions = session::layer(state.pool.clone(), &state.config);
+    routes
+        .route("/static/{name}", get(assets::serve))
+        .fallback(pages::not_found)
+        .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
+        .layer(sessions)
+        .layer(middleware::map_response(security::headers))
+        .with_state(state)
 }
 
 const PING_TIMEOUT: Duration = Duration::from_secs(3);
 
-async fn health(State(pool): State<PgPool>) -> (StatusCode, Json<Health>) {
-    health_within(db::ping(&pool), PING_TIMEOUT).await
+async fn health(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
+    health_within(db::ping(&state.pool), PING_TIMEOUT).await
 }
 
 async fn health_within<E: std::fmt::Display>(
@@ -65,12 +89,18 @@ async fn health_within<E: std::fmt::Display>(
 
 pub async fn serve(
     listener: TcpListener,
-    pool: PgPool,
+    state: AppState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<()> {
-    axum::serve(listener, router(pool))
+    let cleanup = tokio::spawn(session::delete_expired_forever(session::store(
+        state.pool.clone(),
+    )));
+    let app = router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let served = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown)
-        .await
+        .await;
+    cleanup.abort();
+    served
 }
 
 pub async fn shutdown_signal() {

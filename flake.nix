@@ -40,13 +40,15 @@
           toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
+          htmx = pkgs.callPackage ./nix/htmx.nix { };
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
-              ./design/tokens.toml
+              ./design
+              ./templates
             ];
           };
           commonArgs = {
@@ -54,6 +56,7 @@
             pname = "bakflow";
             version = "0.1.0";
             strictDeps = true;
+            HTMX_JS = "${htmx}";
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           postgresql = pkgs.postgresql_17;
@@ -79,6 +82,7 @@
             cargoArtifacts
             postgresql
             postgres
+            htmx
             cli
             ;
         };
@@ -224,9 +228,10 @@
       );
 
       devShells = forAllSystems (
-        { pkgs, craneLib, ... }:
+        { pkgs, craneLib, htmx, ... }:
         {
           default = craneLib.devShell {
+            HTMX_JS = "${htmx}";
             checks = self.checks.${pkgs.stdenv.hostPlatform.system};
             packages = with pkgs; [
               gnumake
