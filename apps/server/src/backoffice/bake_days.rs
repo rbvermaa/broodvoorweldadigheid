@@ -384,7 +384,9 @@ pub async fn create(
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match days::create(&mut conn, &input).await {
+        let result = days::create(&mut conn, &input).await;
+        drop(conn);
+        match result {
             Ok(day) => Ok(saved(&headers, &day_path(day.id))),
             Err(bakedays::Error::NotFound) => {
                 errors.add("location_id", t(&state, "day-error-location"));
@@ -887,7 +889,9 @@ pub async fn schedule(
             bake_starts_at,
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match days::update_schedule(&mut conn, day.id, &schedule).await {
+        let result = days::update_schedule(&mut conn, day.id, &schedule).await;
+        drop(conn);
+        match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }
@@ -913,14 +917,15 @@ pub async fn charity(
             return field_error(&state, &session, &headers, &day, forms, "charity_id", text).await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match days::set_charity(
+        let result = days::set_charity(
             &mut conn,
             day.id,
             charity.map(CharityId::new),
             &Orders::new(state.clock.as_ref()),
         )
-        .await
-        {
+        .await;
+        drop(conn);
+        match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }
@@ -971,7 +976,9 @@ pub async fn set_product(
             units_per_item: units,
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match range::set_product(&mut conn, day.id, &item).await {
+        let result = range::set_product(&mut conn, day.id, &item).await;
+        drop(conn);
+        match result {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }
@@ -991,7 +998,9 @@ pub async fn remove_product(
         let day = load(&state, &id).await?;
         let product = ProductId::new(path_id(&state, &product)?);
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match range::remove_product(&mut conn, day.id, product).await {
+        let result = range::remove_product(&mut conn, day.id, product).await;
+        drop(conn);
+        match result {
             Ok(()) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => transition_refused(&state, &session, &headers, &day, &error).await,
         }
@@ -1018,7 +1027,9 @@ pub async fn create_pool(
             return field_error(&state, &session, &headers, &day, forms, "pool_max", text).await;
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match range::create_pool(&mut conn, day.id, &forms.pool_name, max).await {
+        let result = range::create_pool(&mut conn, day.id, &forms.pool_name, max).await;
+        drop(conn);
+        match result {
             Ok(_) => Ok(saved(&headers, &day_path(day.id))),
             Err(error) => refused(&state, &session, &headers, &day, Some(forms), &error).await,
         }

@@ -637,15 +637,16 @@ pub async fn approve(
         let product = load(&state, &id).await?;
         let reviewed = reviewed(&fields);
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        match products::approve_allergens(
+        let result = products::approve_allergens(
             &mut conn,
             product.id,
             &reviewed,
             staff.0.id,
             state.clock.as_ref(),
         )
-        .await
-        {
+        .await;
+        drop(conn);
+        match result {
             Ok(_) => Ok(saved(&headers, &product_path(product.id))),
             Err(catalog::Error::AllergensChanged) => {
                 render_approve(&state, &session, StatusCode::CONFLICT, &product, true).await
