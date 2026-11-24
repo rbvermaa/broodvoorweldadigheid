@@ -19,13 +19,17 @@ Questions about the spec. The spec is only changed when the owner asks.
   rates? (System refunds per line for now; ADR 0005.)
 - [ ] **Gate 3 names the till.** The roadmap picture says "Gate 3: till in daily use,
   two weeks at the counter", but the till is out of scope (SumUp). What is Gate 3?
-- [ ] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
+- [x] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
+  **Answered 2026-11-24:** "2 days before in the evening": the deadline is at the latest
+  20:00 local two days before the bake date (company.sourdough_deadline_*, ADR 0006).
 - [ ] **Cancelled drops on the public calendar.** F1a lists planned, menu announced, open,
   sold out and closed. A cancelled (sick-day) drop is shown as "cancelled" for now
   (ADR 0008). OK?
 - [ ] **Bake start time.** No default rule in the spec; staff enter `bake_starts_at` per
   bake day. Should it default from the pickup window (e.g. 04:00 on the bake date)?
-- [ ] **Default lead time vs. default deadline.** 36 h before a Saturday bake start
+- [x] **Default lead time vs. default deadline.** 36 h before a Saturday bake start
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
+  **Answered 2026-11-24:** the warning now uses the owner's rule above, which matches the
+  default Thursday 20:00 deadline, so default drops no longer warn.
