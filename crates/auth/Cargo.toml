@@ -6,3 +6,17 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+db = { path = "../db" }
+domain = { path = "../domain" }
+jiff.workspace = true
+openidconnect.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+testkit = { path = "../testkit" }
+tokio.workspace = true
