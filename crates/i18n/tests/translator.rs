@@ -57,20 +57,22 @@ fn missing_argument_is_a_typed_error() {
 #[test]
 fn message_ids_lists_every_message_sorted() {
     let t = nl();
-    let ids = t.message_ids();
-    for id in [
-        "app-name",
-        "saved",
-        "order-thanks",
-        "order-deadline",
-        "pickup-moment",
-    ] {
-        assert!(ids.iter().any(|i| i == id), "{id} missing from {ids:?}");
-    }
-    let mut sorted = ids.to_vec();
-    sorted.sort();
-    sorted.dedup();
-    assert_eq!(ids, sorted.as_slice());
+    assert_eq!(
+        t.message_ids(),
+        [
+            "app-name",
+            "date-long",
+            "date-short",
+            "month",
+            "month-short",
+            "order-deadline",
+            "order-thanks",
+            "pickup-moment",
+            "saved",
+            "weekday",
+            "weekday-short",
+        ]
+    );
 }
 
 #[test]

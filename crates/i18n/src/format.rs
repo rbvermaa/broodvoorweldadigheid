@@ -1,4 +1,4 @@
-use jiff::civil::{Date, Time, Weekday};
+use jiff::civil::{Date, Time};
 use jiff::tz::TimeZone;
 use jiff::{Timestamp, Zoned};
 
@@ -8,81 +8,43 @@ pub const TIME_ZONE: &str = "Europe/Amsterdam";
 
 const NBSP: char = '\u{a0}';
 
-const WEEKDAYS: [(&str, &str); 7] = [
-    ("maandag", "ma"),
-    ("dinsdag", "di"),
-    ("woensdag", "wo"),
-    ("donderdag", "do"),
-    ("vrijdag", "vr"),
-    ("zaterdag", "za"),
-    ("zondag", "zo"),
-];
+/// Formats `scaled / 10^fraction_digits` with `.` for thousands and `,` for decimals:
+/// `decimal(123_456, 2)` is `1.234,56`.
+#[must_use]
+pub fn decimal(scaled: i64, fraction_digits: usize) -> String {
+    let digits = format!(
+        "{:0>width$}",
+        scaled.unsigned_abs(),
+        width = fraction_digits + 1
+    );
+    let (whole, fraction) = digits.split_at(digits.len() - fraction_digits);
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 2);
+    if scaled < 0 {
+        out.push('-');
+    }
+    for (i, digit) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i).is_multiple_of(3) {
+            out.push('.');
+        }
+        out.push(digit);
+    }
+    if !fraction.is_empty() {
+        out.push(',');
+        out.push_str(fraction);
+    }
+    out
+}
 
-const MONTHS: [(&str, &str); 12] = [
-    ("januari", "jan"),
-    ("februari", "feb"),
-    ("maart", "mrt"),
-    ("april", "apr"),
-    ("mei", "mei"),
-    ("juni", "jun"),
-    ("juli", "jul"),
-    ("augustus", "aug"),
-    ("september", "sep"),
-    ("oktober", "okt"),
-    ("november", "nov"),
-    ("december", "dec"),
-];
-
-/// Formats cents as Dutch euros: `€ 1.234,50`, `€ -4,50`. The space is U+00A0 so the
-/// euro sign never wraps onto its own line.
+/// `€ 1.234,50` and `€ -4,50`; the space is U+00A0.
 #[must_use]
 pub fn money(cents: i64) -> String {
-    let abs = cents.unsigned_abs();
-    let euros = (abs / 100).to_string();
-    let mut grouped = String::with_capacity(euros.len() + euros.len() / 3);
-    for (i, digit) in euros.chars().enumerate() {
-        if i > 0 && (euros.len() - i).is_multiple_of(3) {
-            grouped.push('.');
-        }
-        grouped.push(digit);
-    }
-    let sign = if cents < 0 { "-" } else { "" };
-    format!("€{NBSP}{sign}{grouped},{:02}", abs % 100)
+    format!("€{NBSP}{}", decimal(cents, 2))
 }
 
-fn weekday(date: Date) -> (&'static str, &'static str) {
-    let index = match date.weekday() {
-        Weekday::Monday => 0,
-        Weekday::Tuesday => 1,
-        Weekday::Wednesday => 2,
-        Weekday::Thursday => 3,
-        Weekday::Friday => 4,
-        Weekday::Saturday => 5,
-        Weekday::Sunday => 6,
-    };
-    WEEKDAYS[index]
-}
-
-fn month(date: Date) -> (&'static str, &'static str) {
-    MONTHS[usize::from(date.month().unsigned_abs()) - 1]
-}
-
-/// `zaterdag 5 december 2026`
+/// `05-12-2026`
 #[must_use]
-pub fn long_date(date: Date) -> String {
-    format!(
-        "{} {} {} {}",
-        weekday(date).0,
-        date.day(),
-        month(date).0,
-        date.year()
-    )
-}
-
-/// `za 5 dec`
-#[must_use]
-pub fn short_date(date: Date) -> String {
-    format!("{} {} {}", weekday(date).1, date.day(), month(date).1)
+pub fn numeric_date(date: Date) -> String {
+    format!("{:02}-{:02}-{:04}", date.day(), date.month(), date.year())
 }
 
 /// `11:00`
@@ -92,12 +54,20 @@ pub fn time(time: Time) -> String {
 }
 
 /// `11:00–12:00`, with an en dash.
-#[must_use]
-pub fn time_range(start: Time, end: Time) -> String {
-    format!("{}–{}", self::time(start), self::time(end))
+///
+/// # Errors
+/// Fails when `end` is before `start`.
+pub fn time_range(start: Time, end: Time) -> Result<String, I18nError> {
+    if end < start {
+        return Err(I18nError::TimeRange {
+            start: start.to_string(),
+            end: end.to_string(),
+        });
+    }
+    Ok(format!("{}–{}", self::time(start), self::time(end)))
 }
 
-/// Formats instants in Europe/Amsterdam local time, so summer and winter time are handled.
+/// Converts instants to Europe/Amsterdam local time.
 #[derive(Clone, Debug)]
 pub struct Amsterdam(TimeZone);
 
@@ -121,13 +91,8 @@ impl Amsterdam {
     }
 
     #[must_use]
-    pub fn long_date(&self, at: Timestamp) -> String {
-        long_date(self.local(at).date())
-    }
-
-    #[must_use]
-    pub fn short_date(&self, at: Timestamp) -> String {
-        short_date(self.local(at).date())
+    pub fn date(&self, at: Timestamp) -> Date {
+        self.local(at).date()
     }
 
     #[must_use]
@@ -135,8 +100,19 @@ impl Amsterdam {
         time(self.local(at).time())
     }
 
-    #[must_use]
-    pub fn time_range(&self, start: Timestamp, end: Timestamp) -> String {
-        time_range(self.local(start).time(), self.local(end).time())
+    /// A window on one local day, such as an ophaalmoment.
+    ///
+    /// # Errors
+    /// Fails when `end` is before `start`, in UTC or on the local clock, or when the
+    /// two fall on different local days.
+    pub fn time_range(&self, start: Timestamp, end: Timestamp) -> Result<String, I18nError> {
+        let (local_start, local_end) = (self.local(start), self.local(end));
+        if end < start || local_start.date() != local_end.date() {
+            return Err(I18nError::TimeRange {
+                start: local_start.to_string(),
+                end: local_end.to_string(),
+            });
+        }
+        time_range(local_start.time(), local_end.time())
     }
 }
