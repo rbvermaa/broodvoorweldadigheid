@@ -24,6 +24,9 @@
 {% call f::field("email", "email", layout.t("checkout-email")?, value = form.email, hint = layout.t("checkout-email-hint")?, error = form.email_error, required = true) %}{% endcall %}
 {% call f::field("tel", "telefoon", layout.t("checkout-phone")?, value = form.phone, hint = layout.t("checkout-phone-hint")?, error = form.phone_error) %}{% endcall %}
 {% call pick::pickup_picker("ophaalmoment", layout.t("checkout-pickup")?, windows, error = form.slot_error) %}{% endcall %}
+{%- if let Some(donation) = donation %}
+{% call f::select("donatie", layout.t("checkout-donation")?, donation.options.as_slice(), hint = donation.hint, error = form.donation_error, required = true) %}{% endcall %}
+{%- endif %}
 {% call f::checkbox("nieuwsbrief", layout.t("checkout-marketing")?, checked = form.marketing) %}{% endcall %}
 <p>{{ layout.t("checkout-hold")? }}</p>
 {% call b::button(layout.t("checkout-pay")?, kind = "submit") %}{% endcall %}

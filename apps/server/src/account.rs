@@ -20,6 +20,7 @@ use tower_sessions::Session;
 use crate::components::{Cell, Table};
 use crate::csrf;
 use crate::customer_session;
+use crate::donation;
 use crate::pages::{self, Layout};
 use crate::state::AppState;
 
@@ -78,6 +79,8 @@ struct OrdersPage<'a> {
     layout: Layout<'a>,
     signed_in_as: String,
     orders: Table,
+    /// Saved donations the customer can still choose a charity for (F4d).
+    donations: Vec<donation::ChooseForm>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +92,7 @@ pub struct LoginForm {
 const CHECK_MAIL: (&str, &str) = ("account-check-title", "account-check-text");
 const LINK_FAILED: (&str, &str) = ("account-link-failed-title", "account-link-failed-text");
 
-fn message(
+pub(crate) fn message(
     state: &AppState,
     status: StatusCode,
     (title, text): (&'static str, &'static str),
@@ -110,7 +113,7 @@ fn message(
 }
 
 /// For pages whose URL holds a secret or that show a customer's own data.
-fn no_store(mut page: Response) -> Response {
+pub(crate) fn no_store(mut page: Response) -> Response {
     page.headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
     page
@@ -120,7 +123,7 @@ fn link_failed(state: &AppState) -> Response {
     message(state, StatusCode::NOT_FOUND, LINK_FAILED, "warning", true)
 }
 
-fn server_error(state: &AppState, error: &dyn std::fmt::Display) -> Response {
+pub(crate) fn server_error(state: &AppState, error: &dyn std::fmt::Display) -> Response {
     tracing::error!(%error, "customer login");
     pages::error(state, StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -237,7 +240,7 @@ async fn queue_link(state: &AppState, email: &str) -> Result<(), QueueError> {
         ),
         valid_minutes: LINK_VALID.as_mins(),
     })?;
-    notify::enqueue_expiring(&mut tx, state.clock.as_ref(), &mail, link.expires_at).await?;
+    notify::enqueue_expiring(&mut tx, state.clock.as_ref(), &mail, None, link.expires_at).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -303,17 +306,27 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
         Ok(None) => return Redirect::to(LOGIN_PATH).into_response(),
         Err(error) => return server_error(&state, &error),
     };
-    let list = {
-        let mut conn = match state.pool.acquire().await {
-            Ok(conn) => conn,
-            Err(error) => return server_error(&state, &error),
-        };
-        orders::order::for_customer(&mut conn, me.id).await
+    let mut conn = match state.pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => return server_error(&state, &error),
     };
-    let list = match list {
+    let list = match orders::order::for_customer(&mut conn, me.id).await {
         Ok(list) => list,
         Err(error) => return server_error(&state, &error),
     };
+    let saved =
+        match orders::donations::saved_of_customer(&mut conn, me.id, state.clock.now()).await {
+            Ok(saved) => saved,
+            Err(error) => return server_error(&state, &error),
+        };
+    let mut donations = Vec::with_capacity(saved.len());
+    for saved in &saved {
+        match donation::form(&state, &mut conn, saved, None, String::new()).await {
+            Ok(form) => donations.push(form),
+            Err(error) => return server_error(&state, &error),
+        }
+    }
+    std::mem::drop(conn);
     let page = orders_page(&state, &me.email, &list);
     match page {
         Ok((signed_in_as, orders)) => no_store(pages::render(
@@ -323,6 +336,7 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
                 layout: Layout::new(&state).with_csrf_token(csrf),
                 signed_in_as,
                 orders,
+                donations,
             },
         )),
         Err(error) => server_error(&state, &error),

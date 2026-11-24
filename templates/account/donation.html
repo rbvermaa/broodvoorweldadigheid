@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
+{% block title %}{{ layout.t("donation-choose-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("donation-choose-title")? }}</h1>
+{% include "account/choose_form.html" %}
+{% endblock %}

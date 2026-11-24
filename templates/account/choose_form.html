@@ -1,0 +1,9 @@
+{#- One saved donation (F4d): `form` is a donation::ChooseForm. #}
+<p>{{ form.text }}</p>
+<form class="form-stack" method="post" action="{{ form.action }}" novalidate>
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::select(form.field, layout.t("donation-choose-field")?, form.options.as_slice(), error = form.error, required = true) %}{% endcall %}
+{% call b::button(layout.t("donation-choose-submit")?, kind = "submit") %}{% endcall %}
+</form>
