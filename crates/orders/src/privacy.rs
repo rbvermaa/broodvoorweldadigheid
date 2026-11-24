@@ -391,6 +391,21 @@ pub async fn erase(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(Error::NotFound)?;
+    // Allocations before orders, the order `donations::choose` takes them in; with the
+    // orders locked, a pickup undone meanwhile is seen by the check below.
+    sqlx::query!(
+        r#"SELECT a.id FROM donation_allocation a JOIN "order" o ON o.id = a.order_id
+        WHERE o.customer_id = $1 ORDER BY a.id FOR UPDATE OF a"#,
+        id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query!(
+        r#"SELECT id FROM "order" WHERE customer_id = $1 ORDER BY id FOR UPDATE"#,
+        id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     let business = sqlx::query_scalar!(
         r#"SELECT EXISTS (SELECT 1 FROM business_account WHERE customer_id = $1) AS "b!""#,
         id,

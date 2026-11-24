@@ -33,13 +33,17 @@ fn plain_text(text: &str, max_chars: usize) -> bool {
 }
 
 /// A loose shape check of the email only: something before and after one `@`, no
-/// spaces. The confirmation email is the real test. Name and phone are single lines.
+/// spaces, and no `.invalid` domain: erased customers get one (F12). The confirmation
+/// email is the real test. Name and phone are single lines.
 pub(crate) fn validate(input: &CustomerInput) -> Result<Valid, Error> {
     let email = input.email.trim().to_lowercase();
     let well_formed = email.len() <= MAX_EMAIL_LEN
         && !email.chars().any(|c| c.is_whitespace() || c.is_control())
         && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.contains('@')
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.contains('@')
+                && !domain.ends_with(".invalid")
         });
     if !well_formed {
         return Err(Error::Invalid("email"));
@@ -131,6 +135,7 @@ mod tests {
             "j an@example.org",
             "a@b@c.nl",
             "a\u{0}@b.nl",
+            "erased-1@erased.invalid",
             &long,
         ] {
             assert!(

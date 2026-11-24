@@ -121,7 +121,7 @@ pub async fn request_link(
     }
     let mut tx = conn.begin().await?;
     let Some(customer) = sqlx::query!(
-        "SELECT id, email FROM customer WHERE email = $1 FOR UPDATE",
+        "SELECT id, email FROM customer WHERE email = $1 AND erased_at IS NULL FOR UPDATE",
         email,
     )
     .fetch_optional(&mut *tx)
