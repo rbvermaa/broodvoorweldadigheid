@@ -18,7 +18,7 @@ pub use ids::{
 pub use money::{Money, MoneyError};
 pub use pwyw::{InvalidPriceRange, PayWhatYouWant, PriceRefused};
 pub use totals::{Line, RateTotal, VatTotals};
-pub use vat::VatRate;
+pub use vat::{UnknownVatRate, VatRate};
 
 pub const TIME_ZONE: &str = "Europe/Amsterdam";
 

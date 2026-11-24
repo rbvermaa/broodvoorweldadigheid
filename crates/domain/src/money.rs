@@ -40,6 +40,12 @@ impl Money {
     }
 
     /// # Errors
+    /// [`MoneyError::Overflow`] for `i64::MIN` cents.
+    pub fn checked_neg(self) -> Result<Self, MoneyError> {
+        self.0.checked_neg().map(Self).ok_or(MoneyError::Overflow)
+    }
+
+    /// # Errors
     /// [`MoneyError::Overflow`] when the product does not fit.
     pub fn checked_mul(self, qty: u32) -> Result<Self, MoneyError> {
         self.0
@@ -90,6 +96,18 @@ mod tests {
             Err(MoneyError::Overflow)
         );
         assert_eq!(max.checked_mul(2), Err(MoneyError::Overflow));
+    }
+
+    #[test]
+    fn negation() {
+        assert_eq!(
+            Money::from_cents(450).checked_neg(),
+            Ok(Money::from_cents(-450))
+        );
+        assert_eq!(
+            Money::from_cents(i64::MIN).checked_neg(),
+            Err(MoneyError::Overflow)
+        );
     }
 
     #[test]

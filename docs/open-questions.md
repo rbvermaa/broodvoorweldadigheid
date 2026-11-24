@@ -15,3 +15,5 @@ Questions about the spec. The spec is only changed when the owner asks.
   It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
 - [ ] **advisory-db freshness.** cargo-audit is only as fresh as the pinned advisory-db.
   The weekly dependency-update job (spec, "Nightly and weekly") should bump it.
+- [ ] **Partial refund by amount on a mixed-rate order.** How is it split across BTW
+  rates? (System refunds per line for now; ADR 0005.)
