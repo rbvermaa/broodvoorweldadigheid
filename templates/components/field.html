@@ -33,10 +33,11 @@
 </div>
 {% endmacro %}
 
-{# A single option is chosen up front. An optional select keeps the empty option, so the
-   choice can still be cleared. #}
-{% macro select(name, label, options, hint = "", error = "", required = false, disabled = false) %}
-{%- let only = options.len() == 1 %}
+{# A required select with a single option chooses it. An optional select cannot tell a stored
+   empty choice from a fresh form, so it does so only when the caller sets choose_only; it
+   keeps the empty option either way. The flags arrive as bool or &bool; clone() reads both. #}
+{% macro select(name, label, options, hint = "", error = "", required = false, disabled = false, choose_only = false) %}
+{%- let only = options.len() == 1 && (required.clone() || choose_only.clone()) %}
 <div class="field{% if !error.is_empty() %} field-invalid{% endif %}">
 {% call label(name, label, required) %}{% endcall %}
 {% call help(name, hint, error) %}{% endcall %}

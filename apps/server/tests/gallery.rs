@@ -145,13 +145,14 @@ async fn components_escape_user_text() {
 
 #[derive(Template)]
 #[template(
-    source = "{% import \"components/field.html\" as f %}{% call f::select(\"keuze\", \"Keuze\", options, required = required) %}{% endcall %}",
+    source = "{% import \"components/field.html\" as f %}{% call f::select(\"keuze\", \"Keuze\", options, required = required, choose_only = choose_only) %}{% endcall %}",
     ext = "html"
 )]
 struct Select<'a> {
     layout: Layout<'a>,
     options: Vec<SelectOption>,
     required: bool,
+    choose_only: bool,
 }
 
 fn option(value: &str, selected: bool) -> SelectOption {
@@ -162,12 +163,13 @@ fn option(value: &str, selected: bool) -> SelectOption {
     }
 }
 
-fn select_html(options: Vec<SelectOption>, required: bool) -> String {
+fn select_html(options: Vec<SelectOption>, required: bool, choose_only: bool) -> String {
     let state = state();
     Select {
         layout: Layout::new(&state),
         options,
         required,
+        choose_only,
     }
     .render()
     .expect("render")
@@ -182,21 +184,28 @@ fn placeholder() -> String {
 
 #[tokio::test]
 async fn a_select_without_options_keeps_the_placeholder() {
-    let html = select_html(vec![], true);
+    let html = select_html(vec![], true, false);
     assert!(html.contains(&placeholder()), "{html}");
     assert!(!html.contains(" selected"), "{html}");
 }
 
 #[tokio::test]
-async fn a_select_with_one_option_chooses_it() {
-    let html = select_html(vec![option("proef", false)], true);
+async fn a_required_select_with_one_option_chooses_it() {
+    let html = select_html(vec![option("proef", false)], true, false);
     assert!(!html.contains(&placeholder()), "{html}");
     assert!(html.contains("<option value=\"proef\" selected>"), "{html}");
 }
 
 #[tokio::test]
-async fn an_optional_select_with_one_option_chooses_it_but_can_be_cleared() {
-    let html = select_html(vec![option("voedselbank", false)], false);
+async fn an_optional_select_with_one_option_keeps_a_stored_empty_choice() {
+    let html = select_html(vec![option("voedselbank", false)], false, false);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(!html.contains(" selected"), "{html}");
+}
+
+#[tokio::test]
+async fn an_optional_select_asked_to_choose_its_only_option_can_still_be_cleared() {
+    let html = select_html(vec![option("voedselbank", false)], false, true);
     assert!(html.contains(&placeholder()), "{html}");
     assert!(
         html.contains("<option value=\"voedselbank\" selected>"),
@@ -206,18 +215,18 @@ async fn an_optional_select_with_one_option_chooses_it_but_can_be_cleared() {
 
 #[tokio::test]
 async fn a_select_with_two_options_waits_for_a_choice() {
-    let html = select_html(vec![option("a", false), option("b", false)], true);
+    let html = select_html(vec![option("a", false), option("b", false)], true, true);
     assert!(html.contains(&placeholder()), "{html}");
     assert!(!html.contains(" selected"), "{html}");
 }
 
 #[tokio::test]
 async fn a_select_keeps_the_stored_value() {
-    let html = select_html(vec![option("a", false), option("b", true)], true);
+    let html = select_html(vec![option("a", false), option("b", true)], true, false);
     assert!(html.contains(&placeholder()), "{html}");
     assert!(html.contains("<option value=\"a\">"), "{html}");
     assert!(html.contains("<option value=\"b\" selected>"), "{html}");
 
-    let one = select_html(vec![option("a", true)], true);
+    let one = select_html(vec![option("a", true)], true, false);
     assert_eq!(one.matches(" selected").count(), 1, "{one}");
 }
