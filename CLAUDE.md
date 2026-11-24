@@ -81,5 +81,9 @@ Run `make help` for the full list. Each target wraps a Nix command.
 
 ## Current phase
 
-**Phase 0 — foundations.** Done when Gate 1 passes: the stack runs from Nix-built images,
-CI runs `nix flake check` on every push, and a backup restore test passes.
+**Phase 1 — MVP: selling online.** F1–F13 (drop calendar, charities and donation
+reports, FAQ, contact, drop alerts), the design system and component gallery, and the
+move from Payhip. Done when Gate 2 passes: the first bake day is sold online.
+
+Phase 0 is done: Gate 1 passed on 2026-11-23 (stack from Nix-built images, CI on every
+push, backup restore test).

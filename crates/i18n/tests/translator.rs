@@ -81,6 +81,34 @@ fn message_ids_are_sorted_unique_messages_including_the_required_ones() {
 }
 
 #[test]
+fn message_ids_match_every_message_in_the_ftl_files() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../locales/nl");
+    let mut on_disk = BTreeSet::new();
+    for entry in std::fs::read_dir(&dir).expect("locales/nl exists") {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "ftl") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        for line in source.lines() {
+            let Some((id, _)) = line.split_once('=') else {
+                continue;
+            };
+            let id = id.trim_end();
+            let is_message = id.starts_with(|c: char| c.is_ascii_alphabetic())
+                && id
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+            if is_message {
+                on_disk.insert(id.to_owned());
+            }
+        }
+    }
+    let listed: BTreeSet<String> = nl().message_ids().iter().cloned().collect();
+    assert_eq!(listed, on_disk);
+}
+
+#[test]
 fn translator_can_be_shared_across_threads() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Translator>();

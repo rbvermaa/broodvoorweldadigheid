@@ -5,6 +5,8 @@ mod coverage;
 mod layers;
 mod metadata;
 mod model;
+#[cfg(test)]
+mod time_zone;
 mod unsafe_forbid;
 
 use std::process::ExitCode;

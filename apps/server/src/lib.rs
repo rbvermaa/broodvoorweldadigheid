@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod assets;
+pub mod clock;
 pub mod components;
 pub mod config;
 pub mod csrf;

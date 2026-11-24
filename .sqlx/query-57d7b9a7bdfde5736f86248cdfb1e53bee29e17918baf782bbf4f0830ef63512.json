@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE charity SET name = $2, description = $3, url = $4, logo_path = $5,\n            iban = $6, anbi_rsin = $7\n        WHERE id = $1\n        RETURNING id, name, description, url, logo_path, iban, anbi_rsin,\n            (extract(epoch FROM archived_at) * 1000000)::bigint AS archived_at_us",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "logo_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "logo_path"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "anbi_rsin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "anbi_rsin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "archived_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "57d7b9a7bdfde5736f86248cdfb1e53bee29e17918baf782bbf4f0830ef63512"
+}
