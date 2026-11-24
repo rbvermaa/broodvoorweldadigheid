@@ -34,7 +34,7 @@ pub enum ConfigError {
     #[error("GALLERY {0:?} must be true or false")]
     InvalidGallery(String),
     #[error(
-        "PUBLIC_URL {0:?} must be an http(s) URL without path, like https://broodvoorweldadigheid.nl"
+        "PUBLIC_URL {0:?} must be an https URL without path, like https://broodvoorweldadigheid.nl; http only for localhost or 127.0.0.1"
     )]
     InvalidPublicUrl(String),
     #[error("BAKERY_CONTACT_EMAIL {0:?} is not an email address")]
@@ -114,17 +114,20 @@ impl Config {
     }
 }
 
-/// `http://` or `https://`, a host of letters, digits, dots and dashes, an optional
-/// port, and nothing after it.
+/// `https://`, a host of letters, digits, dots and dashes, an optional port, and nothing
+/// after it. `http://` only for `localhost` and `127.0.0.1`: email links must be https
+/// (ADR 0014).
 fn is_origin(url: &str) -> bool {
-    let Some(rest) = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-    else {
-        return false;
+    let (rest, plain) = match url.strip_prefix("https://") {
+        Some(rest) => (rest, false),
+        None => match url.strip_prefix("http://") {
+            Some(rest) => (rest, true),
+            None => return false,
+        },
     };
     let (host, port) = rest.split_once(':').unwrap_or((rest, ""));
-    !host.is_empty()
+    !(plain && host != "localhost" && host != "127.0.0.1")
+        && !host.is_empty()
         && host
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
@@ -197,6 +200,14 @@ mod tests {
         ]))
         .expect("config");
         assert_eq!(local.public_url, "https://localhost:8443");
+        for loopback in ["http://localhost:8080", "http://127.0.0.1:8080"] {
+            let config = Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("PUBLIC_URL", loopback),
+            ]))
+            .expect(loopback);
+            assert_eq!(config.public_url, loopback);
+        }
         for bad in [
             "broodvoorweldadigheid.nl",
             "https://broodvoorweldadigheid.nl/",
@@ -205,6 +216,9 @@ mod tests {
             "https://host:",
             "https://host:99999",
             "ftp://host",
+            "http://broodvoorweldadigheid.nl",
+            "http://localhost.example.nl",
+            "http://10.0.0.5:8080",
         ] {
             assert_eq!(
                 Config::from_lookup(lookup(&[

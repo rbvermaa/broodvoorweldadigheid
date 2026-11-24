@@ -29,7 +29,7 @@ Open:
   and passes it in `jobs::Mail`.
 - Unconfirmed subscribers whose link expired, and old unsubscribe tokens, stay in the
   database. A cleanup job should delete them (GDPR), with the other cleanup work.
-- `PUBLIC_URL` (default `https://broodvoorweldadigheid.nl`) builds the links. Email links must
-  be https (ADR 0014), so an `http://` value makes sign-ups fail with a 500 and alerts retry.
-  The config check still allows http, the same as the webshop branch; the compose stack should
-  set `https://localhost:8443`.
+- `PUBLIC_URL` (default `https://broodvoorweldadigheid.nl`) builds the links. The server refuses
+  to start with an `http://` value, except for `localhost` and `127.0.0.1`. Email links must be
+  https (ADR 0014), so such a loopback run cannot send sign-up or alert emails. The compose
+  stack sets `https://localhost:8443` (override with `BVW_PUBLIC_URL`).
