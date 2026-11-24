@@ -32,3 +32,14 @@ account-status-confirmed = Bevestigd
 account-status-picked_up = Opgehaald
 account-status-cancelled = Geannuleerd
 account-status-refunded = Terugbetaald
+# Choosing a charity for a saved donation (F4d).
+donation-choose-title = Kies een goed doel
+donation-choose-text = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor de drop van { $drop }. Kies vóór { $date } waar ze naartoe gaat. Kies je niets, dan gaat ze naar het goede doel van de eerstvolgende drop.
+donation-choose-field = Goed doel
+donation-choose-submit = Kies dit goede doel
+donation-choose-error = Kies een goed doel uit de lijst.
+donation-chosen-title = Bedankt!
+donation-chosen-text = Je keuze is opgeslagen. Je donatie gaat naar het goede doel dat je koos.
+donation-link-failed-title = Deze link werkt niet meer
+donation-link-failed-text = Je hebt al een goed doel gekozen, of de termijn om te kiezen is voorbij. Dan ging je donatie naar het goede doel van de eerstvolgende drop.
+donation-saved-heading = Bewaarde donaties

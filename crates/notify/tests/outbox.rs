@@ -415,7 +415,7 @@ async fn an_expiring_email_is_blanked_once_sent(pool: PgPool) {
     let clock = clock();
     let mut conn = pool.acquire().await.unwrap();
     let expires = clock.now() + SignedDuration::from_mins(30);
-    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), expires)
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), None, expires)
         .await
         .unwrap();
     enqueue(&mut conn, &clock, &email("b@example.org"), None)
@@ -438,7 +438,7 @@ async fn an_expired_email_is_never_sent_and_is_blanked(pool: PgPool) {
     let clock = clock();
     let mut conn = pool.acquire().await.unwrap();
     let expires = clock.now() + SignedDuration::from_mins(30);
-    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), expires)
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), None, expires)
         .await
         .unwrap();
     let sender = FakeEmailSender::new();
@@ -474,5 +474,24 @@ async fn every_kind_can_be_queued(pool: PgPool) {
                 .is_some(),
             "{kind:?}"
         );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expiring_email_with_a_key_is_queued_once(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_hours(24);
+    for expected in [true, false] {
+        let queued = enqueue_expiring(
+            &mut conn,
+            &clock,
+            &email("a@example.org"),
+            Some("order-confirmation:1"),
+            expires,
+        )
+        .await
+        .unwrap();
+        assert_eq!(queued.is_some(), expected);
     }
 }

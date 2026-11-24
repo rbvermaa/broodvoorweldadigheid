@@ -338,6 +338,7 @@ staff-order-action-payment_status = Betaalstatus bijgewerkt
 staff-order-action-hold_expired = Verlopen zonder betaling
 staff-order-action-cancelled = Geannuleerd
 staff-order-action-picked_up = Opgehaald
+staff-order-action-picked_up_undone = Ophalen teruggedraaid
 staff-order-action-pickup_moved = Ophaalmoment veranderd
 staff-order-action-invoiced = Gefactureerd
 staff-order-action-refund_done = Terugbetaling verstuurd
@@ -360,3 +361,85 @@ staff-sick-day-retry = Terugbetalingen opnieuw versturen
 staff-sick-day-retry-text = We vragen Mollie opnieuw om de terugbetalingen hierboven te versturen. Wat al verstuurd is, gaat niet nog een keer.
 staff-sick-day-all-done = Alle terugbetalingen zijn verstuurd naar Mollie.
 staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staan: { $numbers }. De klant krijgt wel de mail. Pas de factuur zelf aan.
+
+# Production list (F7) and pickup list (F8) screens
+# $date: zaterdag 5 december 2026
+lists-production-heading = Productielijst voor { $date }
+lists-pickup-heading = Ophaallijst voor { $date }
+lists-pdf = Pdf openen
+lists-back-day = Terug naar de bakdag
+lists-back-orders = Terug naar de bestellingen
+lists-undo = Toch niet opgehaald
+
+# Report screens (F11, F11b, F11c, F11e)
+reports-title = Rapporten
+reports-back = Terug naar de rapporten
+reports-from = Van
+reports-to = Tot en met
+reports-per = Per
+reports-per-day = Dag
+reports-per-month = Maand
+reports-per-quarter = Kwartaal
+reports-show = Tonen
+reports-csv = Download als CSV
+reports-empty = Geen gegevens in deze periode.
+reports-amount = Bedrag
+reports-cost = Post
+reports-error-date = Vul een geldige datum in.
+reports-error-order = De einddatum ligt voor de begindatum.
+reports-sales-title = Omzet per BTW-tarief
+reports-pwyw-title = Betaal wat je wilt
+# $orders: order numbers, comma separated
+reports-estimated = Deels terugbetaald over beide BTW-tarieven, naar schatting verdeeld: { $orders }.
+reports-donations-title = Giften
+reports-donations-drops-title = Giften per drop
+reports-donations-charities-title = Giften per goed doel
+reports-donations-drops-chart = Gedoneerd per drop
+reports-donations-charity-chart = { $charity }: gedoneerd per periode
+reports-contribution-title = Jouw bijdrage
+reports-contribution-total = Wat je betaalt zodat het goede doel alles krijgt
+reports-contribution-drops = Per drop
+reports-contribution-charities = Per goed doel
+reports-fees = Mollie-kosten
+reports-ingredients = Ingrediënten
+reports-drop-costs = Andere kosten
+reports-covered = Jouw bijdrage
+reports-saved-charity = Bewaard, nog geen goed doel
+# $amount: € 0,38
+reports-per-euro = Voor elke € 1 die het goede doel kreeg, betaalde jij { $amount }.
+reports-unknown-fees = { $n ->
+    [one] Van 1 bestelling zijn de Mollie-kosten nog niet bekend. Je bijdrage is daardoor te laag.
+   *[other] Van { $n } bestellingen zijn de Mollie-kosten nog niet bekend. Je bijdrage is daardoor te laag.
+}
+reports-missing-estimates = Geen kostprijs bekend voor: { $products }. De ingrediënten tellen daardoor te laag.
+reports-cost-title = Kosten van een drop toevoegen
+reports-cost-no-days = Er zijn geen drops met een goed doel in deze periode.
+reports-cost-day = Drop
+reports-cost-kind = Soort
+reports-cost-packaging = Verpakking
+reports-cost-energy = Energie
+reports-cost-other = Overig
+reports-cost-note = Notitie
+reports-cost-add = Kosten toevoegen
+reports-error-cost = Vul een bedrag boven nul in, bijvoorbeeld 2,50.
+reports-error-cost-day = Kies een drop met een goed doel.
+reports-error-cost-kind = Kies een soort kosten.
+reports-payouts-title = Uitbetalingen aan goede doelen
+reports-payouts-intro = Een goed doel krijgt alles wat klanten betaalden, min terugbetalingen. Nog over te maken geldt voor drops tot en met de einddatum.
+reports-payouts-back = Terug naar de uitbetalingen
+reports-payout-heading = Uitbetaling aan { $charity }
+reports-payout-facts = Giften in deze periode
+reports-net = Netto
+reports-corrections = Correcties
+reports-nothing-due = Er staat niets open om over te maken.
+reports-transfer-title = Overboeking vastleggen
+reports-transfer-amount-hint = Precies het bedrag dat nog over te maken is.
+reports-transfer-date = Datum van de overboeking
+reports-transfer-reference = Omschrijving of referentie
+reports-transfers = Overboekingen
+reports-no-transfers = Nog geen overboekingen.
+# $due: € 13,00
+reports-error-amount = Het bedrag om nu over te maken is { $due }.
+reports-error-amount-format = Vul een bedrag in, bijvoorbeeld 12,50.
+reports-error-reference = Vul de omschrijving of referentie van de overboeking in.
+reports-error-period = De periode van deze overboeking klopt niet. Kies de periode opnieuw en probeer het nog eens.

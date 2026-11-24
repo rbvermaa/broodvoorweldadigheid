@@ -5,9 +5,9 @@ use i18n::Translator;
 use jiff::Timestamp;
 use jiff::civil::{Date, date};
 use notify::{
-    Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Email,
-    EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail,
-    Pickup, PickupMoved, PickupReminder, Recipient, SendError, SickDayCancelled,
+    Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
+    DropAlertKind, Email, EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine,
+    OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient, SendError, SickDayCancelled,
     SubscriptionConfirmation,
 };
 
@@ -411,6 +411,29 @@ fn login_link() {
     assert_eq!(email.list_unsubscribe, None);
     assert!(email.text.contains("30 minuten"), "{}", email.text);
     snapshot("login-link", &email);
+}
+
+#[test]
+fn donation_moved() {
+    let email = compose(|c| {
+        c.donation_moved(&DonationMoved {
+            to: sanne(),
+            order_number: "2026-0042".to_owned(),
+            amount: Money::from_cents(3275),
+            charity: "Hospice Steenwijk".to_owned(),
+            drop_date: date(2027, 3, 13),
+            status_url:
+                "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+                    .to_owned(),
+        })
+    });
+    assert_eq!(email.kind, EmailKind::DonationMoved);
+    assert!(
+        email.subject.contains("Hospice Steenwijk"),
+        "{}",
+        email.subject
+    );
+    snapshot("donation-moved", &email);
 }
 
 #[test]

@@ -558,3 +558,149 @@ async fn the_login_mail_expires_with_its_link(pool: PgPool) {
     .unwrap();
     assert!(expires);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_site_header_links_to_login_or_my_orders(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    let app = app(&pool).await;
+    let guest = get(&app, "/faq", None).await;
+    assert!(
+        guest.body.contains("<a href=\"/inloggen\">"),
+        "{}",
+        guest.body
+    );
+    assert!(!guest.body.contains("<a href=\"/mijn-bestellingen\">"));
+
+    let cookie = signed_in(&app, &pool).await;
+    let page = get(&app, "/faq", Some(&cookie)).await;
+    assert!(page.body.contains(&format!(
+        "<a href=\"/mijn-bestellingen\">{}</a>",
+        dutch("site-nav-orders")
+    )));
+    assert!(!page.body.contains("<a href=\"/inloggen\">"));
+}
+
+/// A paid order of `email` on a charity drop whose donation was saved (F4d).
+async fn saved_donation_of(pool: &PgPool, clock: &FakeClock, email: &str) -> (i64, i64) {
+    let order = order_for(pool, clock, email).await;
+    let mut conn = pool.acquire().await.unwrap();
+    let charity: i64 = sqlx::query_scalar(
+        "INSERT INTO charity (name, url) VALUES ('Voedselbank', 'https://example.org') RETURNING id",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    sqlx::query(r#"UPDATE bake_day SET charity_id = $1 WHERE id = (SELECT bake_day_id FROM "order" WHERE id = $2)"#)
+        .bind(charity)
+        .bind(order.id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    orders::donations::choose_at_checkout(
+        &mut conn,
+        order.id,
+        orders::donations::DonationChoice::Save,
+    )
+    .await
+    .unwrap();
+    let outcome = orders::mark_paid(
+        &mut conn,
+        clock,
+        order.id,
+        &orders::PaymentReceived {
+            reference: format!("tr_{}", order.id.get()),
+            amount: order.total,
+        },
+    )
+    .await
+    .unwrap();
+    let orders::PaidOutcome::Paid {
+        saved: Some(saved), ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    (saved.allocation.get(), charity)
+}
+
+async fn donation_charity(pool: &PgPool, allocation: i64) -> Option<i64> {
+    sqlx::query_scalar("SELECT charity_id FROM donation_allocation WHERE id = $1")
+        .bind(allocation)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_signed_in_customer_chooses_for_a_saved_donation_on_my_orders(pool: PgPool) {
+    let app = app(&pool).await;
+    let (mine, charity) = saved_donation_of(&pool, &app.clock, KNOWN).await;
+    let cookie = signed_in(&app, &pool).await;
+    let page = get(&app, "/mijn-bestellingen", Some(&cookie)).await;
+    assert!(
+        page.body.contains(&dutch("donation-saved-heading")),
+        "{}",
+        page.body
+    );
+    assert!(
+        page.body
+            .contains(&format!("action=\"/mijn-bestellingen/donatie/{mine}\""))
+    );
+    let token = csrf_of(&page.body);
+
+    let field = format!("goed-doel-{mine}");
+    let forged = post(
+        &app,
+        &format!("/mijn-bestellingen/donatie/{mine}"),
+        Some(&cookie),
+        &format!("{field}={charity}"),
+    )
+    .await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+    assert_eq!(donation_charity(&pool, mine).await, None);
+
+    let unknown = mine + 1000;
+    let other = post(
+        &app,
+        &format!("/mijn-bestellingen/donatie/{unknown}"),
+        Some(&cookie),
+        &format!("_csrf={token}&goed-doel-{unknown}={charity}"),
+    )
+    .await;
+    assert_eq!(
+        other.status,
+        StatusCode::SEE_OTHER,
+        "another donation changes nothing"
+    );
+    assert_eq!(donation_charity(&pool, mine).await, None);
+
+    let chosen = post(
+        &app,
+        &format!("/mijn-bestellingen/donatie/{mine}"),
+        Some(&cookie),
+        &format!("_csrf={token}&{field}={charity}"),
+    )
+    .await;
+    assert_eq!(chosen.status, StatusCode::SEE_OTHER);
+    assert_eq!(chosen.location.as_deref(), Some("/mijn-bestellingen"));
+    assert_eq!(donation_charity(&pool, mine).await, Some(charity));
+    let after = get(&app, "/mijn-bestellingen", Some(&cookie)).await;
+    assert!(!after.body.contains(&dutch("donation-saved-heading")));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn choosing_on_my_orders_needs_a_login(pool: PgPool) {
+    let app = app(&pool).await;
+    let (mine, charity) = saved_donation_of(&pool, &app.clock, KNOWN).await;
+    let (cookie, token) = session_at(&app, "/inloggen").await;
+    let reply = post(
+        &app,
+        &format!("/mijn-bestellingen/donatie/{mine}"),
+        Some(&cookie),
+        &format!("_csrf={token}&goed-doel-{mine}={charity}"),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    assert_eq!(reply.location.as_deref(), Some("/inloggen"));
+    assert_eq!(donation_charity(&pool, mine).await, None);
+}

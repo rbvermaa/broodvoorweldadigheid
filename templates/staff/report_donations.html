@@ -1,0 +1,27 @@
+{% extends "staff/layout.html" %}
+{% import "components/chart.html" as ch %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("reports-donations-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("reports-donations-title")? }}</h1>
+<p><a href="/staff/reports">{{ layout.t("reports-back")? }}</a></p>
+{% call s::period(period) %}{% endcall %}
+<h2>{{ layout.t("reports-donations-drops-title")? }}</h2>
+{% if drops.rows.is_empty() %}
+{% call fb::empty_state(layout.t("reports-donations-drops-title")?, layout.t("reports-empty")?) %}{% endcall %}
+{% else %}
+{% if let Some(chart) = drops_chart %}{% call ch::bar_chart(chart) %}{% endcall %}{% endif %}
+{% call tb::table(drops) %}{% endcall %}
+{% endif %}
+<p><a href="{{ drops_csv }}">{{ layout.t("reports-csv")? }}</a></p>
+<h2>{{ layout.t("reports-donations-charities-title")? }}</h2>
+{% if charities.rows.is_empty() %}<p>{{ layout.t("reports-empty")? }}</p>{% else %}
+{% call tb::table(charities) %}{% endcall %}
+{%- for chart in charts %}
+{% call ch::bar_chart(chart) %}{% endcall %}
+{%- endfor %}
+{% endif %}
+<p><a href="{{ charities_csv }}">{{ layout.t("reports-csv")? }}</a></p>
+{% endblock %}

@@ -10,6 +10,7 @@ pub mod components;
 pub mod config;
 pub mod csrf;
 pub mod customer_session;
+pub mod donation;
 pub mod gallery;
 pub mod healthcheck;
 #[cfg(test)]
@@ -56,6 +57,7 @@ pub fn router(state: AppState) -> Router {
         .merge(site)
         .merge(alerts::routes(&state))
         .merge(account::routes())
+        .merge(donation::routes())
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
@@ -90,6 +92,7 @@ pub fn router(state: AppState) -> Router {
 /// CSRF checks inside a session layer.
 fn sessioned(routes: Router<AppState>, state: &AppState) -> Router<AppState> {
     routes
+        .layer(middleware::from_fn(pages::header_login))
         .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
         .layer(session::layer(state.pool.clone(), &state.config))
 }

@@ -689,3 +689,29 @@ textarea.field-input {
   max-width: var(--size-content);
   margin: 0 0 var(--space-6);
 }
+
+.chart {
+  margin: 0 0 var(--space-5);
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-bar {
+  fill: var(--color-ink);
+}
+
+.chart-label,
+.chart-value {
+  fill: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+}
+
+.chart-caption {
+  padding: var(--space-2) 0 0;
+  font-weight: var(--font-weight-bold);
+}

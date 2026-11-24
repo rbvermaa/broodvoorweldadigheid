@@ -1,0 +1,34 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("reports-contribution-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("reports-contribution-title")? }}</h1>
+<p><a href="/staff/reports">{{ layout.t("reports-back")? }}</a></p>
+{% call s::period(period) %}{% endcall %}
+{% call s::status(saved) %}{% endcall %}
+{% if !per_euro.is_empty() %}<p><strong>{{ per_euro }}</strong></p>{% endif %}
+{%- for warning in warnings %}
+{% call fb::alert("warning", warning) %}{% endcall %}
+{%- endfor %}
+{% call tb::table(summary) %}{% endcall %}
+{% if !drops.rows.is_empty() %}{% call tb::table(drops) %}{% endcall %}{% endif %}
+{% if !charities.rows.is_empty() %}{% call tb::table(charities) %}{% endcall %}{% endif %}
+<h2>{{ layout.t("reports-cost-title")? }}</h2>
+{% if !cost.errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+{% if cost.days.is_empty() %}<p>{{ layout.t("reports-cost-no-days")? }}</p>{% else %}
+<form method="post" action="{{ cost.action }}">
+{% call s::csrf() %}{% endcall %}
+<input type="hidden" name="van" value="{{ cost.from }}">
+<input type="hidden" name="tot" value="{{ cost.to }}">
+{% call f::select("bake_day_id", layout.t("reports-cost-day")?, cost.days, error = cost.errors.get("bake_day_id"), required = true) %}{% endcall %}
+{% call f::select("kind", layout.t("reports-cost-kind")?, cost.kinds, error = cost.errors.get("kind"), required = true) %}{% endcall %}
+{% call f::field("money", "amount", layout.t("reports-amount")?, value = cost.amount, error = cost.errors.get("amount"), required = true) %}{% endcall %}
+{% call f::field("text", "note", layout.t("reports-cost-note")?, value = cost.note) %}{% endcall %}
+{% call b::button(layout.t("reports-cost-add")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO donation_allocation (order_id, amount_cents, status, choose_token_hash,\n            choose_by, created_at)\n        VALUES ($1, $2, 'saved', $3, timestamptz 'epoch' + $4::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $5::bigint * interval '1 microsecond')\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Bytea",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c65aefdb7ca9cce4f9300ed7f4e515f9608ca9c77aa7c30c2b53a99660f51fa3"
+}

@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, a.order_id, o.number_year, o.number_seq,\n            d.date - date 'epoch' AS \"date_days!\", a.amount_cents,\n            (extract(epoch FROM a.choose_by) * 1000000)::bigint AS \"choose_by_us!\"\n        FROM donation_allocation a\n        JOIN \"order\" o ON o.id = a.order_id\n        JOIN bake_day d ON d.id = o.bake_day_id\n        WHERE o.customer_id = $1 AND a.status = 'saved'\n            AND a.choose_by > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n            AND o.status IN ('paid', 'confirmed', 'picked_up')\n        ORDER BY a.choose_by, a.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "number_year",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_year"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "number_seq",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "amount_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "donation_allocation",
+            "name": "amount_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "choose_by_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "024fb33752e63d6fbf7d3267d46151f05d5acf02a177de6a847e774c65344226"
+}

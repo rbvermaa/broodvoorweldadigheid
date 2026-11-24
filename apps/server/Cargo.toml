@@ -24,6 +24,8 @@ jiff.workspace = true
 notify = { path = "../../crates/notify" }
 orders = { path = "../../crates/orders" }
 payments = { path = "../../crates/payments" }
+production = { path = "../../crates/production" }
+reports = { path = "../../crates/reports" }
 rand.workspace = true
 serde.workspace = true
 sha2.workspace = true

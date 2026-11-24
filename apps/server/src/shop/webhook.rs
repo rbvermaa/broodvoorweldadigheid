@@ -114,9 +114,18 @@ async fn paid(
     };
     let mut email_tx = tx.begin().await.map_err(|err| TryAgain(err.to_string()))?;
     let (settled, email) = match outcome {
-        PaidOutcome::Paid { .. } => (
+        PaidOutcome::Paid { saved, .. } => (
             Settled::Paid,
-            Some(order_emails::enqueue_confirmation(&mut email_tx, clock, emails, order).await),
+            Some(
+                order_emails::enqueue_confirmation(
+                    &mut email_tx,
+                    clock,
+                    emails,
+                    order,
+                    saved.as_ref(),
+                )
+                .await,
+            ),
         ),
         PaidOutcome::AlreadyPaid(_) => (Settled::AlreadyPaid, None),
         PaidOutcome::RefundDue {

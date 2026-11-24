@@ -1,5 +1,6 @@
 //! The back office screens: products and allergen approval (F10), pickup locations
-//! (F4a), charities (F4g), bake days (F1, F3, F4c) and extra production (F7a).
+//! (F4a), charities (F4g), bake days (F1, F3, F4c), extra production (F7a), and the
+//! production (F7) and pickup (F8) lists.
 #![forbid(unsafe_code)]
 
 mod support;
@@ -134,6 +135,7 @@ fn decode(html: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
+        .replace("&#38;", "&")
         .replace("&amp;", "&")
 }
 
@@ -160,10 +162,18 @@ impl Client<'_> {
         let bytes = to_bytes(response.into_body(), 4 * 1024 * 1024)
             .await
             .expect("body");
+        let pdf = headers
+            .get(CONTENT_TYPE)
+            .is_some_and(|v| v == "application/pdf");
+        let text = if pdf {
+            String::from_utf8_lossy(&bytes).into_owned()
+        } else {
+            decode(std::str::from_utf8(&bytes).expect("utf-8"))
+        };
         Reply {
             status,
             headers,
-            text: decode(std::str::from_utf8(&bytes).expect("utf-8")),
+            text,
         }
     }
 
@@ -286,6 +296,10 @@ async fn product(pool: &PgPool) -> ProductId {
 
 /// A draft drop at De Proef on Saturday 5 December, baking from 04:00.
 async fn saturday(pool: &PgPool) -> BakeDayId {
+    saturday_for(pool, None).await
+}
+
+async fn saturday_for(pool: &PgPool, charity_id: Option<CharityId>) -> BakeDayId {
     let mut conn = pool.acquire().await.expect("conn");
     days::create(
         &mut conn,
@@ -293,7 +307,7 @@ async fn saturday(pool: &PgPool) -> BakeDayId {
             date: date(2026, 12, 5),
             location_id: DE_PROEF,
             online_ordering: true,
-            charity_id: None,
+            charity_id,
         },
     )
     .await
@@ -1728,8 +1742,13 @@ struct PaidOrder {
 }
 
 async fn paid_order(app: &App) -> PaidOrder {
+    paid_order_for(app, None).await
+}
+
+/// [`paid_order`] on a drop for `charity`.
+async fn paid_order_for(app: &App, charity: Option<CharityId>) -> PaidOrder {
     let pool = &app.pool;
-    let day = saturday(pool).await;
+    let day = saturday_for(pool, charity).await;
     let bread = product(pool).await;
     let approver = staff(pool, "Keurder Karin", Role::Owner).await;
     let mut conn = pool.acquire().await.expect("conn");
@@ -2658,4 +2677,518 @@ async fn only_the_owner_cancels_a_bake_day_and_can_run_it_again(pool: PgPool) {
         .collect();
     assert_eq!(sick.len(), 1);
     assert!(sick[0].1.contains("Ik ben ziek, sorry!"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_production_list_adds_extras_to_orders_on_screen_and_as_pdf(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let bread = paid.order.lines[0].product_id;
+    let mut conn = pool.acquire().await.expect("conn");
+    extras::add(
+        &mut conn,
+        paid.day,
+        bread,
+        &ExtraInput {
+            qty: 3,
+            purpose: Purpose::Freezer,
+            note: None,
+        },
+        &bakedays::NoOrders,
+    )
+    .await
+    .expect("extra");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}/production", paid.day.get());
+
+    let page = baker.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("production-title"));
+    page.shows("Desembrood wit");
+    page.shows(&dutch("production-extra-freezer"));
+    page.shows("<td class=\"table-number\">2</td><td class=\"table-number\">3</td>");
+    page.shows("<td class=\"table-number\">5</td></tr>");
+    page.shows(&format!("href=\"{path}/pdf\""));
+
+    let pdf = baker.get(&format!("{path}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"productielijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+
+    let day_page = baker
+        .get(&format!("/staff/bake-days/{}", paid.day.get()))
+        .await;
+    day_page.shows(&format!("href=\"{path}\""));
+    day_page.shows(&format!(
+        "href=\"/staff/bake-days/{}/pickup-list\"",
+        paid.day.get()
+    ));
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for url in [path.clone(), format!("{path}/pdf")] {
+        assert_eq!(
+            counter.get(&url).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+    let orders = counter
+        .get(&format!("/staff/bake-days/{}/orders", paid.day.get()))
+        .await;
+    orders.lacks(&format!("href=\"{path}\""));
+    orders.shows(&format!(
+        "href=\"/staff/bake-days/{}/pickup-list\"",
+        paid.day.get()
+    ));
+    assert_eq!(
+        baker.get("/staff/bake-days/999999/production").await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_counter_ticks_off_pickups_on_the_pickup_list_and_can_undo(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let n = paid.order.id.get();
+    let card = format!("bestelling-{n}");
+    let tick = format!("{list}/{n}/picked-up");
+    let undo = format!("{list}/{n}/undo");
+
+    let page = counter.get(&list).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("pickup-list-title"));
+    page.shows("Test Klant");
+    page.shows(&paid.order.number.to_string());
+    page.shows("2× Desembrood wit");
+    page.shows(&dutch("pickup-list-status-paid"));
+    page.shows("Markt Vledder");
+    page.shows(&dutch("pickup-list-empty"));
+    page.shows(&format!("id=\"{card}\""));
+    page.shows(&format!("action=\"{tick}\""));
+    page.shows(&format!("href=\"{list}/pdf\""));
+
+    counter
+        .post(&tick, &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#{card}"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
+    counter
+        .post(&tick, &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#{card}"));
+
+    let undone = counter.htmx(&undo, &[]).await;
+    assert_eq!(undone.status, StatusCode::OK);
+    undone.shows(&format!("id=\"{card}\""));
+    undone.shows(&format!("action=\"{tick}\""));
+    undone.shows(&dutch("saved"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    let ticked = counter.htmx(&tick, &[]).await;
+    assert_eq!(ticked.status, StatusCode::OK);
+    ticked.shows(&format!("action=\"{undo}\""));
+    ticked.shows(&dutch("pickup-list-status-picked-up"));
+
+    let history = counter.get(&format!("/staff/orders/{n}")).await;
+    history.shows(&dutch("staff-order-action-picked_up_undone"));
+
+    let pdf = counter.get(&format!("{list}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"ophaallijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn pickup_ticks_need_the_token_and_an_order_of_that_day(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let n = paid.order.id.get();
+    for action in ["picked-up", "undo"] {
+        let reply = baker
+            .send(
+                Request::post(format!("{list}/{n}/{action}"))
+                    .header(COOKIE, &baker.cookie)
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{action}");
+    }
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+
+    let other = saturday_after(&pool).await;
+    let elsewhere = format!("/staff/bake-days/{}/pickup-list/{n}/picked-up", other.get());
+    assert_eq!(
+        baker.post(&elsewhere, &[]).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        baker
+            .post(&format!("{list}/999999/picked-up"), &[])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::Paid
+    );
+}
+
+/// A draft drop on Saturday 12 December.
+async fn saturday_after(pool: &PgPool) -> BakeDayId {
+    let mut conn = pool.acquire().await.expect("conn");
+    days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: date(2026, 12, 12),
+            location_id: DE_PROEF,
+            online_ordering: true,
+            charity_id: None,
+        },
+    )
+    .await
+    .expect("bake day")
+    .id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn refused_pickup_ticks_say_why(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+
+    let mut conn = pool.acquire().await.expect("conn");
+    let mut cart = orders::Cart::new(paid.day);
+    cart.set(paid.order.lines[0].product_id, 1, None)
+        .expect("cart");
+    let pending = orders::checkout(
+        &mut conn,
+        app.clock.as_ref(),
+        &cart,
+        &orders::CustomerInput {
+            email: "later@example.org".to_owned(),
+            name: "Late Klant".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        paid.order.pickup_slot_id,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .expect("order");
+    drop(conn);
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let off_list = counter
+        .htmx(&format!("{list}/{}/picked-up", pending.id.get()), &[])
+        .await;
+    assert_eq!(off_list.status, StatusCode::OK);
+    assert_eq!(off_list.header("hx-retarget"), "#status");
+    assert_eq!(off_list.header("hx-reselect"), "#status");
+    off_list.shows(&dutch("staff-order-error-status"));
+
+    let n = paid.order.id.get();
+    counter
+        .post(&format!("{list}/{n}/picked-up"), &[])
+        .await
+        .redirects_to(&format!("{list}?opgeslagen=1#bestelling-{n}"));
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .post(
+            &format!("/staff/bake-days/{}/cancel", paid.day.get()),
+            &[("bericht", "Ik ben ziek, sorry!")],
+        )
+        .await;
+    let undo = counter.post(&format!("{list}/{n}/undo"), &[]).await;
+    assert_eq!(undo.status, StatusCode::UNPROCESSABLE_ENTITY);
+    undo.shows(&dutch("staff-order-error-day"));
+    assert_eq!(
+        stored_order(&pool, paid.order.id).await.status,
+        orders::OrderStatus::PickedUp
+    );
+}
+
+/// A paid order of two loaves (€ 13,00) on a drop for the Voedselbank.
+async fn charity_order(app: &App) -> (CharityId, PaidOrder) {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    let charity = charities::create(
+        &mut conn,
+        &CharityInput {
+            name: "Voedselbank".to_owned(),
+            url: "https://example.org".to_owned(),
+            ..CharityInput::default()
+        },
+    )
+    .await
+    .expect("charity")
+    .id;
+    drop(conn);
+    (charity, paid_order_for(app, Some(charity)).await)
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_the_owner_opens_the_reports(pool: PgPool) {
+    let app = app(pool.clone());
+    let (charity, _) = charity_order(&app).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let payout = format!("/staff/reports/payouts/{}", charity.get());
+    let pages = [
+        "/staff/reports",
+        "/staff/reports/sales",
+        "/staff/reports/sales.csv",
+        "/staff/reports/pay-what-you-want.csv",
+        "/staff/reports/donations",
+        "/staff/reports/donations/drops.csv",
+        "/staff/reports/donations/charities.csv",
+        "/staff/reports/contribution",
+        "/staff/reports/payouts",
+        payout.as_str(),
+    ];
+    for url in pages {
+        for who in [&baker, &counter] {
+            assert_eq!(who.get(url).await.status, StatusCode::FORBIDDEN, "{url}");
+        }
+        assert_eq!(owner.get(url).await.status, StatusCode::OK, "{url}");
+    }
+    owner
+        .get("/staff/reports")
+        .await
+        .shows("href=\"/staff/reports/sales\"");
+    for url in [
+        format!("{payout}/transfers"),
+        "/staff/reports/contribution/costs".to_owned(),
+    ] {
+        assert_eq!(
+            baker.post(&url, &[]).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_sales_report_shows_btw_per_month_and_exports_csv(pool: PgPool) {
+    let app = app(pool.clone());
+    paid_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let page = owner.get("/staff/reports/sales").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows("value=\"2026-01-01\"");
+    page.shows("value=\"2026-12-31\"");
+    page.shows(&i18n::money(1300));
+    page.shows(&i18n::money(107));
+    page.shows(&i18n::money(1193));
+    page.shows("href=\"/staff/reports/sales.csv?van=2026-01-01&tot=2026-12-31&per=maand\"");
+
+    let days = owner
+        .get("/staff/reports/sales?van=2026-11-01&tot=2026-11-30&per=dag")
+        .await;
+    days.shows(&i18n::numeric_date(date(2026, 11, 24)));
+
+    let csv = owner
+        .get("/staff/reports/sales.csv?van=2026-11-01&tot=2026-11-30&per=maand")
+        .await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
+    assert_eq!(
+        csv.header("content-disposition"),
+        "attachment; filename=\"omzet-2026-11-01-2026-11-30.csv\""
+    );
+    csv.shows("Van;Tot en met;BTW-tarief");
+    csv.shows("13,00;1,07;11,93");
+
+    let wrong = owner
+        .get("/staff/reports/sales?van=gisteren&tot=2026-01-01")
+        .await;
+    assert_eq!(wrong.status, StatusCode::OK);
+    wrong.shows(&dutch("reports-error-date"));
+    let backwards = owner
+        .get("/staff/reports/sales?van=2026-12-01&tot=2026-01-01")
+        .await;
+    backwards.shows(&dutch("reports-error-order"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn donation_reports_show_drops_charities_and_charts(pool: PgPool) {
+    let app = app(pool.clone());
+    charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let page = owner.get("/staff/reports/donations").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows("Voedselbank");
+    page.shows(&i18n::money(1300));
+    page.shows("<svg class=\"chart-svg\"");
+    page.shows(&dutch("reports-donations-drops-chart"));
+    page.shows("class=\"chart-bar\" x=\"0\" y=\"26\" width=\"480\"");
+    page.shows(&format!("<li>05-12-2026: {}</li>", i18n::money(1300)));
+
+    let drops = owner.get("/staff/reports/donations/drops.csv").await;
+    assert_eq!(drops.header("content-type"), "text/csv; charset=utf-8");
+    drops.shows("05-12-2026;Voedselbank;1;13,00;0,00;13,00;13,00;0,00;0,00");
+    let charities = owner.get("/staff/reports/donations/charities.csv").await;
+    charities.shows("Voedselbank;13,00;13,00;0,00;13,00");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_owner_records_a_transfer_of_the_amount_due(pool: PgPool) {
+    let app = app(pool.clone());
+    let (charity, _) = charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+
+    let today = owner.get("/staff/reports/payouts").await;
+    today.shows("value=\"2026-11-24\"");
+    let list = owner
+        .get("/staff/reports/payouts?van=2026-01-01&tot=2026-12-31")
+        .await;
+    assert_eq!(list.status, StatusCode::OK, "{}", list.text);
+    list.shows("Voedselbank");
+    list.shows(&i18n::money(1300));
+    let detail_path = format!("/staff/reports/payouts/{}", charity.get());
+    list.shows(&format!(
+        "href=\"{detail_path}?van=2026-01-01&tot=2026-12-31\""
+    ));
+
+    let detail = owner
+        .get(&format!("{detail_path}?van=2026-01-01&tot=2026-12-31"))
+        .await;
+    assert_eq!(detail.status, StatusCode::OK);
+    detail.shows("value=\"13,00\"");
+    let transfers = format!("{detail_path}/transfers");
+    let fields = |amount: &'static str, reference: &'static str| {
+        vec![
+            ("van", "2026-01-01"),
+            ("tot", "2026-12-31"),
+            ("amount", amount),
+            ("transferred_on", "2026-12-07"),
+            ("bank_reference", reference),
+        ]
+    };
+
+    let no_token = owner
+        .send(
+            Request::post(&transfers)
+                .header(COOKIE, &owner.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("amount=13%2C00"))
+                .expect("request"),
+        )
+        .await;
+    assert_eq!(no_token.status, StatusCode::FORBIDDEN);
+
+    let wrong = owner.post(&transfers, &fields("12,00", "BVW-1")).await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch_with(
+        "reports-error-amount",
+        &[("due", &i18n::money(1300))],
+    ));
+    let mut early = fields("13,00", "BVW-1");
+    early[1] = ("tot", "2026-12-01");
+    let before_the_drop = owner.post(&transfers, &early).await;
+    assert_eq!(before_the_drop.status, StatusCode::UNPROCESSABLE_ENTITY);
+    before_the_drop.shows(&dutch("reports-nothing-due"));
+    let mut garbled = fields("13,00", "BVW-1");
+    garbled[1] = ("tot", "kerst");
+    let bad_period = owner.post(&transfers, &garbled).await;
+    assert_eq!(bad_period.status, StatusCode::UNPROCESSABLE_ENTITY);
+    bad_period.shows(&dutch("reports-error-period"));
+    let no_reference = owner.post(&transfers, &fields("13,00", " ")).await;
+    assert_eq!(no_reference.status, StatusCode::UNPROCESSABLE_ENTITY);
+    no_reference.shows(&dutch("reports-error-reference"));
+
+    owner
+        .post(&transfers, &fields("13,00", "BVW-1"))
+        .await
+        .redirects_to(&format!(
+            "{detail_path}?van=2026-01-01&tot=2026-12-31&opgeslagen=1"
+        ));
+    let after = owner
+        .get(&format!("{detail_path}?van=2026-01-01&tot=2026-12-31"))
+        .await;
+    after.shows("BVW-1");
+    after.shows(&i18n::numeric_date(date(2026, 12, 7)));
+    after.shows(&dutch("reports-nothing-due"));
+
+    let again = owner.post(&transfers, &fields("13,00", "BVW-2")).await;
+    assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
+    again.shows(&dutch("reports-nothing-due"));
+    assert_eq!(
+        owner.get("/staff/reports/payouts/999999").await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_contribution_shows_what_the_bakery_covers(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let costs = "/staff/reports/contribution/costs";
+    let day = paid.day.get().to_string();
+
+    let page = owner.get("/staff/reports/contribution").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&i18n::money(107));
+    page.shows(&dutch_count("reports-unknown-fees", 1));
+    page.shows("Desembrood wit");
+
+    let wrong = owner
+        .post(
+            costs,
+            &[
+                ("bake_day_id", &day),
+                ("kind", "packaging"),
+                ("amount", "nul"),
+            ],
+        )
+        .await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch("reports-error-cost"));
+
+    owner
+        .post(
+            costs,
+            &[
+                ("bake_day_id", &day),
+                ("kind", "packaging"),
+                ("amount", "2,50"),
+                ("note", "zakken"),
+            ],
+        )
+        .await
+        .redirects_to("/staff/reports/contribution?van=2026-01-01&tot=2026-12-31&opgeslagen=1");
+    let after = owner.get("/staff/reports/contribution").await;
+    after.shows(&i18n::money(250));
+    after.shows(&i18n::money(357));
+    after.shows(&dutch_with(
+        "reports-per-euro",
+        &[("amount", &i18n::money(27))],
+    ));
 }

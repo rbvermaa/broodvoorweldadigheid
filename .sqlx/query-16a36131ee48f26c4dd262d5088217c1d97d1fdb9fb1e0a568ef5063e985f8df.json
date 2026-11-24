@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE donation_allocation SET status = 'earmarked', charity_id = $2,\n            choose_token = NULL, choose_token_hash = NULL, choose_by = NULL\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16a36131ee48f26c4dd262d5088217c1d97d1fdb9fb1e0a568ef5063e985f8df"
+}

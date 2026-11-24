@@ -3,14 +3,16 @@
 
 use std::sync::Arc;
 
-use domain::{Clock, Money, OrderId, bakery_time_zone};
+use domain::{Clock, DonationAllocationId, Money, OrderId, bakery_time_zone, in_bakery_time};
 use i18n::Translator;
 use jiff::civil::{Time, time};
 use jiff::{SignedDuration, Timestamp};
 use notify::{
-    Company, ComposeError, Composer, Donation, Email, Item, OrderCancelled, OrderConfirmation,
-    OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder, Recipient, SickDayCancelled,
+    Company, ComposeError, Composer, Donation, DonationMoved, Email, Item, OrderCancelled,
+    OrderConfirmation, OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder, Recipient,
+    SickDayCancelled,
 };
+use orders::donations::{Moved, SavedDonation};
 use orders::{OrderDetails, Payment};
 use sqlx::{Acquire, PgConnection};
 
@@ -90,6 +92,12 @@ pub fn sick_day_key(order: OrderId) -> String {
     format!("sick-day:{}", order.get())
 }
 
+/// `donation-moved:7`, per donation allocation.
+#[must_use]
+pub fn donation_moved_key(allocation: DonationAllocationId) -> String {
+    format!("donation-moved:{}", allocation.get())
+}
+
 /// `refund-due:7`, per payment: an order can have more than one refused payment.
 #[must_use]
 pub fn refund_key(payment: &Payment) -> String {
@@ -149,8 +157,10 @@ async fn compose(
 }
 
 /// Queues the order confirmation: lines with BTW per rate, the charity or normal sale,
-/// the ophaalmoment and a link to the status page. Call it in the transaction that marks
-/// the order paid. Queued at most once per order.
+/// the ophaalmoment and a link to the status page. With a `saved` donation (F4d) it links
+/// to the choice instead and is queued as expiring at the choice's date, so its link is
+/// blanked from the outbox once sent. Call it in the transaction that marks the order
+/// paid. Queued at most once per order.
 ///
 /// # Errors
 /// [`EmailError`].
@@ -159,6 +169,7 @@ pub async fn enqueue_confirmation(
     clock: &dyn Clock,
     emails: &OrderEmails,
     order: OrderId,
+    saved: Option<&SavedDonation>,
 ) -> Result<Option<OutboxId>, EmailError> {
     let email = compose(conn, emails, order, |composer, details| {
         composer.order_confirmation(&OrderConfirmation {
@@ -179,15 +190,55 @@ pub async fn enqueue_confirmation(
                     pay_what_you_want: line.suggested_price.is_some(),
                 })
                 .collect(),
-            donation: details
-                .charity
-                .clone()
-                .map_or(Donation::NormalSale, |name| Donation::Charity { name }),
+            donation: match (saved, details.charity.clone()) {
+                (Some(saved), _) => Donation::Saved {
+                    choose_url: format!(
+                        "{}/donatie/kies/{}",
+                        emails.public_url,
+                        saved.token.as_str()
+                    ),
+                    choose_by: in_bakery_time(saved.choose_by).date(),
+                },
+                (None, Some(name)) => Donation::Charity { name },
+                (None, None) => Donation::NormalSale,
+            },
             status_url: format!("{}/bestelling/{}", emails.public_url, details.status_token),
         })
     })
     .await?;
-    Ok(notify::enqueue(conn, clock, &email, Some(&confirmation_key(order))).await?)
+    let key = confirmation_key(order);
+    Ok(match saved {
+        Some(saved) => {
+            notify::enqueue_expiring(conn, clock, &email, Some(&key), saved.choose_by).await?
+        }
+        None => notify::enqueue(conn, clock, &email, Some(&key)).await?,
+    })
+}
+
+/// Tells the customer where their saved donation went (F4d). Call it in the transaction
+/// that moved it. Queued at most once per allocation.
+///
+/// # Errors
+/// [`EmailError`].
+pub async fn enqueue_donation_moved(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    emails: &OrderEmails,
+    moved: &Moved,
+) -> Result<Option<OutboxId>, EmailError> {
+    let email = compose(conn, emails, moved.order, |composer, details| {
+        composer.donation_moved(&DonationMoved {
+            to: recipient(details),
+            order_number: details.order.number.to_string(),
+            amount: moved.amount,
+            charity: moved.charity_name.clone(),
+            drop_date: moved.drop_date,
+            status_url: format!("{}/bestelling/{}", emails.public_url, details.status_token),
+        })
+    })
+    .await?;
+    let key = donation_moved_key(moved.allocation);
+    Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
 }
 
 async fn enqueue_cancelled(

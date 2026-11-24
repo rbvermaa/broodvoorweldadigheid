@@ -1738,3 +1738,171 @@ async fn a_payment_for_a_cancelled_day_gets_the_refund_email(pool: PgPool) {
         page.body
     );
 }
+
+impl Browser<'_> {
+    async fn checkout_with_donation(&self, day: BakeDayId, slot: &str, donation: &str) -> Reply {
+        self.post(
+            &format!("/drops/{}/bestellen", day.get()),
+            &[
+                ("naam", "Test Klant"),
+                ("email", "klant@example.org"),
+                ("telefoon", ""),
+                ("ophaalmoment", slot),
+                ("donatie", donation),
+            ],
+            false,
+            true,
+        )
+        .await
+    }
+}
+
+async fn allocation(pool: &PgPool, order: OrderId) -> (String, Option<i64>) {
+    sqlx::query_as("SELECT status, charity_id FROM donation_allocation WHERE order_id = $1")
+        .bind(order.get())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_donation_saved_at_checkout_is_chosen_later_through_its_link(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    company_details(&mut conn).await;
+    let voedselbank = charity(&mut conn, "Voedselbank").await;
+    let hospice = charity(&mut conn, "Hospice").await;
+    let archived = charity(&mut conn, "Oud doel").await;
+    sqlx::query("UPDATE charity SET archived_at = now() WHERE id = $1")
+        .bind(archived.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(Some(voedselbank), true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "2", None).await;
+    let form_page = browser
+        .get(&format!("/drops/{}/afrekenen", drop.day.get()))
+        .await;
+    assert!(
+        form_page.body.contains("name=\"donatie\""),
+        "{}",
+        form_page.body
+    );
+    assert!(form_page.body.contains("<option value=\"drop\" selected>"));
+    assert!(form_page.body.contains(&format!(
+        "<option value=\"{}\">Hospice</option>",
+        hospice.get()
+    )));
+    assert!(form_page.body.contains("<option value=\"bewaren\">"));
+    assert!(
+        !form_page.body.contains("Oud doel"),
+        "archived charities are not offered"
+    );
+    assert!(
+        form_page.body.contains("3 maanden"),
+        "the customer is told up front"
+    );
+
+    let refused = browser
+        .checkout_with_donation(drop.day, &drop.slot, &archived.get().to_string())
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.body.contains(&dutch("checkout-error-donation")));
+    assert!(
+        sqlx::query_scalar::<_, i64>(r#"SELECT count(*) FROM "order""#)
+            .fetch_one(&shop.pool)
+            .await
+            .unwrap()
+            == 0,
+        "no order and no hold for a refused choice"
+    );
+
+    let reply = browser
+        .checkout_with_donation(drop.day, &drop.slot, "bewaren")
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    shop.mollie
+        .pay(&ProviderPaymentId::new("tr_fake1").unwrap());
+    assert_eq!(webhook(&shop, "id=tr_fake1").await.status, StatusCode::OK);
+    let order = only_order(&shop.pool).await;
+    assert_eq!(
+        allocation(&shop.pool, order.id).await,
+        ("saved".to_owned(), None)
+    );
+
+    let queued = outbox(&shop.pool).await;
+    let text = &queued[0].text_body;
+    let start = text
+        .find(&format!("{PUBLIC_URL}/donatie/kies/"))
+        .expect("choose link")
+        + PUBLIC_URL.len();
+    let link = text[start..start + "/donatie/kies/".len() + 43].to_owned();
+
+    let (chooser, page) = Browser::open(&shop, &link).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert_eq!(
+        page.header(axum::http::header::CACHE_CONTROL),
+        "private, no-store"
+    );
+    assert!(page.body.contains(&dutch("donation-choose-title")));
+    assert!(page.body.contains(&order.number.to_string()));
+    assert!(page.body.contains(&format!(
+        "<option value=\"{}\">Hospice</option>",
+        hospice.get()
+    )));
+
+    let hospice_id = hospice.get().to_string();
+    let forged = chooser
+        .post(&link, &[("goed-doel", &hospice_id)], false, false)
+        .await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        allocation(&shop.pool, order.id).await,
+        ("saved".to_owned(), None)
+    );
+
+    let unknown = chooser
+        .post(&link, &[("goed-doel", "nee")], false, true)
+        .await;
+    assert_eq!(unknown.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(unknown.body.contains(&dutch("donation-choose-error")));
+
+    let chosen = chooser
+        .post(&link, &[("goed-doel", &hospice_id)], false, true)
+        .await;
+    assert_eq!(chosen.status, StatusCode::OK, "{}", chosen.body);
+    assert!(chosen.body.contains(&dutch("donation-chosen-title")));
+    assert_eq!(
+        allocation(&shop.pool, order.id).await,
+        ("earmarked".to_owned(), Some(hospice.get()))
+    );
+
+    let used = chooser.get(&link).await;
+    assert_eq!(used.status, StatusCode::NOT_FOUND);
+    assert!(used.body.contains(&dutch("donation-link-failed-title")));
+    let junk = chooser.get("/donatie/kies/kapot").await;
+    assert_eq!(junk.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_normal_sale_asks_nothing_about_donations(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+    let page = browser
+        .get(&format!("/drops/{}/afrekenen", drop.day.get()))
+        .await;
+    assert!(!page.body.contains("name=\"donatie\""));
+    let reply = browser
+        .checkout_with_donation(drop.day, &drop.slot, "bewaren")
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "the field is ignored");
+}
