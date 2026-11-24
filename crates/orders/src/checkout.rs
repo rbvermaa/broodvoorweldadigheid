@@ -81,23 +81,31 @@ fn ensure_orderable(day: &DayFacts, channel: Channel, now: Timestamp) -> Result<
     Ok(())
 }
 
-/// Locks the pickup slot after the capacity locks and checks its order limit. `except`
-/// leaves out an order that is being paid late.
+/// Locks the pickup slot after the capacity locks and returns its order limit.
 pub(crate) async fn lock_slot(
     conn: &mut PgConnection,
     day: BakeDayId,
     slot: PickupSlotId,
-    now: Timestamp,
-    except: Option<OrderId>,
-) -> Result<(), Error> {
-    let max_orders = sqlx::query_scalar!(
+) -> Result<Option<i32>, Error> {
+    sqlx::query_scalar!(
         "SELECT max_orders FROM pickup_slot WHERE id = $1 AND bake_day_id = $2 FOR UPDATE",
         slot.get(),
         day.get(),
     )
-    .fetch_optional(&mut *conn)
+    .fetch_optional(conn)
     .await?
-    .ok_or(Error::SlotNotOnDay)?;
+    .ok_or(Error::SlotNotOnDay)
+}
+
+/// Checks the slot's order limit, after [`lock_slot`]. `except` leaves out an order that
+/// is being paid late.
+pub(crate) async fn ensure_slot_room(
+    conn: &mut PgConnection,
+    slot: PickupSlotId,
+    max_orders: Option<i32>,
+    now: Timestamp,
+    except: Option<OrderId>,
+) -> Result<(), Error> {
     let Some(max_orders) = max_orders else {
         return Ok(());
     };
@@ -208,7 +216,8 @@ pub async fn checkout(
             .collect::<Vec<_>>(),
     )
     .await?;
-    lock_slot(&mut tx, day, slot, now, None).await?;
+    let max_orders = lock_slot(&mut tx, day, slot).await?;
+    ensure_slot_room(&mut tx, slot, max_orders, clock.now(), None).await?;
     let customer_id = customer::upsert(&mut tx, customer, now).await?;
     let total = cart::totals(&lines)?.gross()?;
     let (year, seq) = next_number(&mut tx, now).await?;

@@ -405,3 +405,50 @@ async fn a_payment_for_an_order_cancelled_by_staff_is_refunded(mut conn: PoolCon
         "{outcome:?}"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_payment_that_waits_past_its_hold_is_checked_as_late(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let clock = wednesday();
+    let (shop, bread) = one_loaf_day(&mut conn, &clock).await;
+    let sloth = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    drop(conn);
+
+    let expired = FakeClock::new(ts("2026-10-28T12:15:00Z"));
+    let mut quick = pool.begin().await.unwrap();
+    checkout(
+        &mut quick,
+        &expired,
+        &cart(&shop, &[(bread, 1, None)]),
+        &guest("snel@example.org"),
+        shop.slot,
+        OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+
+    let payer_clock = std::sync::Arc::new(FakeClock::new(ts("2026-10-28T12:14:59Z")));
+    let mut payer = pool.acquire().await.unwrap();
+    let pid = crate::common::backend_pid(&mut payer).await;
+    let task = tokio::spawn({
+        let clock = std::sync::Arc::clone(&payer_clock);
+        let payment = paid("tr_1", &sloth);
+        async move { mark_paid(&mut payer, clock.as_ref(), sloth.id, &payment).await }
+    });
+    crate::common::wait_until_blocked(&pool, pid).await;
+    payer_clock.set(ts("2026-10-28T12:15:00Z"));
+    quick.commit().await.unwrap();
+    let outcome = task.await.unwrap().unwrap();
+    assert!(
+        matches!(
+            outcome,
+            PaidOutcome::RefundDue {
+                reason: RefundReason::SoldOut,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+}

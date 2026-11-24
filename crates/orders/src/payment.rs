@@ -6,7 +6,7 @@ use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
 use crate::audit::{self, Actor, Entry};
-use crate::checkout::{lock_day, lock_slot};
+use crate::checkout::{ensure_slot_room, lock_day, lock_slot};
 use crate::order::{self, CancelReason, Channel, Order, OrderStatus};
 use crate::source::Orders;
 
@@ -106,7 +106,6 @@ pub async fn mark_paid(
     id: OrderId,
     payment: &PaymentReceived,
 ) -> Result<PaidOutcome, Error> {
-    let now = clock.now();
     let mut tx = conn.begin().await?;
     let placed = sqlx::query!(
         r#"SELECT bake_day_id, pickup_slot_id FROM "order" WHERE id = $1"#,
@@ -124,6 +123,8 @@ pub async fn mark_paid(
         .map(|l| l.product_id)
         .collect();
     range::lock_capacity(&mut tx, day_id, &products).await?;
+    let slot = PickupSlotId::new(placed.pickup_slot_id);
+    let max_orders = lock_slot(&mut tx, day_id, slot).await?;
     sqlx::query_scalar!(
         r#"SELECT id FROM "order" WHERE id = $1 FOR UPDATE"#,
         id.get()
@@ -131,6 +132,8 @@ pub async fn mark_paid(
     .fetch_one(&mut *tx)
     .await?;
     let before = order::get(&mut tx, id).await?;
+    // Read after the locks: a checkout that held them may have seen this hold expire.
+    let now = clock.now();
 
     if before.payment_ref.as_deref() == Some(payment.reference.as_str()) {
         tx.commit().await?;
@@ -168,21 +171,11 @@ pub async fn mark_paid(
         Err(NeedsCapacity) => {
             let request: Vec<_> = before.lines.iter().map(|l| (l.product_id, l.qty)).collect();
             match range::check_order(&mut tx, day_id, &Orders::new(clock), &request).await {
-                Ok(()) => {
-                    match lock_slot(
-                        &mut tx,
-                        day_id,
-                        PickupSlotId::new(placed.pickup_slot_id),
-                        now,
-                        Some(id),
-                    )
-                    .await
-                    {
-                        Ok(()) => None,
-                        Err(Error::SlotFull) => Some(RefundReason::SoldOut),
-                        Err(err) => return Err(err),
-                    }
-                }
+                Ok(()) => match ensure_slot_room(&mut tx, slot, max_orders, now, Some(id)).await {
+                    Ok(()) => None,
+                    Err(Error::SlotFull) => Some(RefundReason::SoldOut),
+                    Err(err) => return Err(err),
+                },
                 Err(bakedays::Error::CapacityExceeded { .. }) => Some(RefundReason::SoldOut),
                 Err(err) => return Err(err.into()),
             }

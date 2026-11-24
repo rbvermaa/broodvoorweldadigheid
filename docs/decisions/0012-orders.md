@@ -52,7 +52,10 @@ and payment completes within its hold. Mollie can still report a payment after t
 | paid with another payment | any | refund due (`PaidTwice`), order unchanged |
 
 Accepting a late payment while the loaf is still there is kinder than refunding it and
-still never oversells: the check takes the same locks as checkout. A refused payment
+still never oversells: the check takes the same locks as checkout, the slot included, and
+reads the clock only after them. A payment that waited for a checkout holding those
+locks is judged at the time it got them, so it cannot count a hold that checkout already
+saw expire. A refused payment
 leaves the order cancelled with the payment reference set (`Order::refund_due`); the
 refund itself belongs to the payments crate. The same reference reported twice changes
 nothing. An amount that differs from the order total is an error and changes nothing.
