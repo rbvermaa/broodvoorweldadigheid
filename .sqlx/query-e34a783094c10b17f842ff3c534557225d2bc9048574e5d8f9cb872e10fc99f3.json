@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE charity SET archived_at = coalesce(\n            archived_at, timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n        WHERE id = $1\n        RETURNING id, name, description, url, logo_path, iban, anbi_rsin,\n            (extract(epoch FROM archived_at) * 1000000)::bigint AS archived_at_us",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "logo_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "logo_path"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "anbi_rsin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "anbi_rsin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "archived_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "e34a783094c10b17f842ff3c534557225d2bc9048574e5d8f9cb872e10fc99f3"
+}

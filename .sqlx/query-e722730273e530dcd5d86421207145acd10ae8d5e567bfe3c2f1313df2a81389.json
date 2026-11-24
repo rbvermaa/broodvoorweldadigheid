@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO charity (name, description, url, logo_path, iban, anbi_rsin)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id, name, description, url, logo_path, iban, anbi_rsin,\n            (extract(epoch FROM archived_at) * 1000000)::bigint AS archived_at_us",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "description"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "logo_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "logo_path"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "anbi_rsin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity",
+            "name": "anbi_rsin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "archived_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "e722730273e530dcd5d86421207145acd10ae8d5e567bfe3c2f1313df2a81389"
+}
