@@ -58,6 +58,10 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
+  exported from Payhip.
+  Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
+  only come from sign-ups on the site (ADR 0021).
 - [ ] **Refund dates in the sales report** (ADR 0017). Refunds have no date in the
   database, so the sales report takes them off on the day of the sale; a late refund
   changes a period that may already be in a BTW return. Store Mollie's refund date and

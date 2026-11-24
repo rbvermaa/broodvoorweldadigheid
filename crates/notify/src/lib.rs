@@ -7,6 +7,7 @@ mod email;
 pub mod outbox;
 mod smtp;
 pub mod style;
+pub mod subscribers;
 
 pub use compose::{
     Company, ComposeError, Composer, ContactMessage, Donation, DropAlert, DropAlertKind, Item,

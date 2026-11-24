@@ -90,28 +90,58 @@ pub async fn public_drops(
         let Some(status) = day.public_status(now, sold_out) else {
             continue;
         };
-        let charity = match day.charity_id {
-            Some(id) => {
-                let charity = catalog::charities::get(conn, id).await?;
-                Some(PublicCharity {
-                    name: charity.name,
-                    description: charity.description,
-                    url: charity.url,
-                })
-            }
-            None => None,
-        };
         drops.push(PublicDrop {
             bake_day_id: day.id,
             date: day.date,
             status,
             cutoff_at: day.cutoff_at,
             pickups: pickups(conn, day.id).await?,
-            charity,
+            charity: charity(conn, &day).await?,
             menu: menu_public(&day, now).then_some(shown_menu),
         });
     }
     Ok(drops)
+}
+
+/// What a drop alert (F9a) tells about a drop: the calendar's facts with the menu, for
+/// callers that already decided the menu may be shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Announcement {
+    pub bake_day_id: BakeDayId,
+    pub date: Date,
+    pub cutoff_at: Option<Timestamp>,
+    pub pickups: Vec<PublicPickup>,
+    pub charity: Option<PublicCharity>,
+    pub menu: Vec<MenuItem>,
+}
+
+/// # Errors
+/// [`Error::NotFound`], [`Error::Db`], [`Error::Catalog`] or [`Error::Corrupt`].
+pub async fn announcement(conn: &mut PgConnection, id: BakeDayId) -> Result<Announcement, Error> {
+    let day = days::get(conn, id).await?;
+    Ok(Announcement {
+        bake_day_id: day.id,
+        date: day.date,
+        cutoff_at: day.cutoff_at,
+        pickups: pickups(conn, day.id).await?,
+        charity: charity(conn, &day).await?,
+        menu: menu(conn, day.id).await?,
+    })
+}
+
+async fn charity(
+    conn: &mut PgConnection,
+    day: &days::BakeDay,
+) -> Result<Option<PublicCharity>, Error> {
+    let Some(id) = day.charity_id else {
+        return Ok(None);
+    };
+    let charity = catalog::charities::get(conn, id).await?;
+    Ok(Some(PublicCharity {
+        name: charity.name,
+        description: charity.description,
+        url: charity.url,
+    }))
 }
 
 async fn pickups(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<PublicPickup>, Error> {
