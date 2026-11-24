@@ -63,7 +63,11 @@ pub async fn wait_for_text(driver: &WebDriver, css: &str, needle: &str) -> Resul
         let Ok(element) = driver.find(By::Css(css)).await else {
             return Ok(None);
         };
-        let text = element.text().await?.to_lowercase();
+        // HTMX swaps can replace the element between find and text: poll again.
+        let Ok(text) = element.text().await else {
+            return Ok(None);
+        };
+        let text = text.to_lowercase();
         Ok(text.contains(&needle.to_lowercase()).then_some(()))
     })
     .await

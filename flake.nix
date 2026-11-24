@@ -122,7 +122,7 @@
             ;
         };
 
-      # KVM runners are x86_64-linux (ADR 0031).
+      # KVM runners are x86_64-linux (ADR 0033).
       e2eVm =
         {
           pkgs,

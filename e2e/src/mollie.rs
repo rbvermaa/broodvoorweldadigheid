@@ -58,6 +58,8 @@ impl Payment {
 
 #[derive(Debug, Default)]
 struct Inner {
+    /// Differs per start, so a second run against the same database gets new payment ids.
+    run: i64,
     next: u64,
     payments: Vec<Payment>,
 }
@@ -80,6 +82,8 @@ struct WireAmount {
 #[serde(rename_all = "camelCase")]
 struct NewPayment {
     amount: WireAmount,
+    #[serde(rename = "description")]
+    _description: String,
     redirect_url: String,
     webhook_url: String,
     #[serde(default)]
@@ -131,7 +135,7 @@ async fn create(
     }
     inner.next += 1;
     let payment = Payment {
-        id: format!("tr_e2e{}", inner.next),
+        id: format!("tr_e2e{}x{}", inner.run, inner.next),
         value: request.amount.value,
         redirect_url: request.redirect_url,
         webhook_url: request.webhook_url,
@@ -167,6 +171,7 @@ impl MockMollie {
     pub fn start(listener: TcpListener) -> io::Result<(Self, SocketAddr)> {
         let addr = listener.local_addr()?;
         let mock = Self::default();
+        mock.lock().run = jiff::Timestamp::now().as_millisecond();
         let app = Router::new()
             .route("/v2/payments", post(create))
             .route("/v2/payments/{id}", get(read))
@@ -278,8 +283,9 @@ mod tests {
         let client = client(addr, KEY);
 
         let created = client.create_payment(&request()).await.unwrap();
-        assert_eq!(created.id.as_str(), "tr_e2e1");
-        assert_eq!(created.checkout_url, format!("{CHECKOUT_BASE}tr_e2e1"));
+        let id = created.id.as_str();
+        assert!(id.starts_with("tr_e2e"), "{id}");
+        assert_eq!(created.checkout_url, format!("{CHECKOUT_BASE}{id}"));
         let replayed = client.create_payment(&request()).await.unwrap();
         assert_eq!(
             replayed.id, created.id,
@@ -291,11 +297,11 @@ mod tests {
         assert_eq!(open.amount, Money::from_cents(450));
         assert_eq!(open.order, Some(OrderId::new(7)));
 
-        assert!(mock.pay("tr_e2e1"));
+        assert!(mock.pay(id));
         let paid = client.get_payment(&created.id).await.unwrap();
         assert_eq!(paid.status, PaymentStatus::Paid);
         assert_eq!(paid.method.as_deref(), Some("ideal"));
-        let kept = mock.payment("tr_e2e1").unwrap();
+        let kept = mock.payment(id).unwrap();
         assert_eq!(kept.redirect_url, "https://shop.example.org/bestelling/abc");
     }
 
@@ -318,7 +324,8 @@ mod tests {
     #[tokio::test]
     async fn the_webhook_goes_to_the_servers_own_address() {
         let (mock, addr) = started().await;
-        client(addr, KEY).create_payment(&request()).await.unwrap();
+        let created = client(addr, KEY).create_payment(&request()).await.unwrap();
+        let id = created.id.as_str();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let record = seen.clone();
         let app = Router::new().route(
@@ -332,8 +339,8 @@ mod tests {
         let server = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-        assert_eq!(mock.notify("tr_e2e1", &server).await, Ok(200));
-        assert_eq!(*seen.lock().unwrap(), vec!["id=tr_e2e1".to_owned()]);
+        assert_eq!(mock.notify(id, &server).await, Ok(200));
+        assert_eq!(*seen.lock().unwrap(), vec![format!("id={id}")]);
         assert!(mock.notify("tr_nope", &server).await.is_err());
     }
 

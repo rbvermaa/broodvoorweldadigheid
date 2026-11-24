@@ -1,4 +1,4 @@
-# Browser tests in a NixOS VM without the NixOS test driver, which is Python (ADR 0031).
+# Browser tests in a NixOS VM without the NixOS test driver, which is Python (ADR 0033).
 # The VM boots PostgreSQL, the server and geckodriver with headless Firefox; a one-shot
 # unit runs the e2e binary, prints its exit code on the serial console and powers off.
 # The check fails unless that exit code is 0.
@@ -147,10 +147,9 @@ in
     pkgs.runCommand "e2e-vm"
       {
         requiredSystemFeatures = [ "kvm" ];
-        nativeBuildInputs = [ pkgs.coreutils ];
       }
       ''
-        if grep -E "^/nix/store/[a-z0-9]{32}-python" ${closure}/store-paths; then
+        if grep -E "^/nix/store/[a-z0-9]{32}-(python|pypy)" ${closure}/store-paths; then
           echo "Python is in the closure of the VM or its runner (CLAUDE.md: no Python anywhere)"
           exit 1
         fi

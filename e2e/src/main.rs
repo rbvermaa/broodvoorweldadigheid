@@ -39,7 +39,9 @@ struct Args {
 }
 
 async fn wait_until_up(url: &str, timeout: Duration) -> Result<(), Error> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         match client.get(url).send().await {

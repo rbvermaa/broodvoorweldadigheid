@@ -1,4 +1,4 @@
-# 0031 Browser tests in a NixOS VM without the Python test driver
+# 0033 Browser tests in a NixOS VM without the Python test driver
 
 Status: proposed, 2026-11-24
 
@@ -16,6 +16,7 @@ The crate is `e2e/`; the VM is `nix/e2e-vm.nix`, run by `make e2e` and the `e2e`
 | Each flow seeds its own data (a drop at least a week ahead, a product with approved allergens, a charity) through `bakedays` and SQL, so a flow can run again on the same database | No shared fixtures between flows; the binary also runs outside the VM (`e2e/README.md`) |
 | axe-core 4.14.1 is pinned in `nix/axe-core.nix` (npm tarball) and injected with `execute`; the check runs the `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa` and `wcag22aa` rules and fails on any violation | WCAG 2.2 AA from the spec. The server never serves it |
 | `e2e` is layer 8: it may use every crate and HTTP crates, and nothing may depend on it (`cargo xtask layers`). Like xtask it sits outside `crates/` and `apps/`, so the coverage gate does not count it | It is a test of the apps, not part of them |
+| thirtyfour turns on serde_json's `preserve_order`, and workspace builds share it. The two `production` snapshot tests of the JSON handed to Typst now sort keys first; the snapshots did not change. The server and cli are built per package, without it | Feature unification would otherwise make those snapshots depend on whether e2e is in the build |
 | CI: one matrix job `e2e` that makes `/dev/kvm` usable with a udev rule and adds `kvm` to Nix's system features; it fails loudly if the runner has no `/dev/kvm` | GitHub's ubuntu-24.04 runners have KVM, but only root can open it by default |
 
 Follow-ups, each its own PR:

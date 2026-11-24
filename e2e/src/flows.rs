@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use domain::OrderId;
-use i18n::Translator;
+use i18n::{FluentArgs, Translator};
 use serde_json::Value;
 use sqlx::PgPool;
 use thirtyfour::prelude::*;
@@ -30,6 +30,12 @@ pub struct Ctx {
 impl Ctx {
     fn t(&self, id: &str) -> Result<String, Error> {
         Ok(self.i18n.t(id, None)?)
+    }
+
+    fn t_with(&self, id: &str, key: &str, value: String) -> Result<String, Error> {
+        let mut args = FluentArgs::new();
+        args.set(key.to_owned(), value);
+        Ok(self.i18n.t(id, Some(&args))?)
     }
 
     fn url(&self, path: &str) -> String {
@@ -168,11 +174,16 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
     let checks = [
         (to == CUSTOMER_EMAIL, "is sent to the customer"),
         (
-            subject.contains(&number.to_string()),
+            subject
+                == ctx.t_with(
+                    "email-order-confirmation-subject",
+                    "number",
+                    number.to_string(),
+                )?,
             "names the order number",
         ),
         (
-            body.contains(&format!("Hoi {CUSTOMER_NAME},")),
+            body.contains(&ctx.t_with("email-greeting", "name", CUSTOMER_NAME.to_owned())?),
             "greets the customer",
         ),
         (
@@ -192,7 +203,7 @@ async fn gallery_is_accessible(ctx: &Ctx, driver: &WebDriver) -> Result<(), Erro
     let axe = std::fs::read_to_string(&ctx.axe_js)
         .map_err(|err| format!("{}: {err}", ctx.axe_js.display()))?;
     driver.goto(ctx.url("/gallery")).await?;
-    wait_for_text(driver, "h1", "").await?;
+    wait_for_text(driver, "h1", &ctx.t("gallery-title")?).await?;
     driver.execute(axe, Vec::new()).await?;
     let script = format!(
         "const done = arguments[arguments.length - 1];

@@ -1,4 +1,4 @@
-Browser tests for the webshop and back office (thirtyfour). ADR 0031 has the design.
+Browser tests for the webshop and back office (thirtyfour). ADR 0033 has the design.
 
 `make e2e` runs them in a NixOS VM (x86_64-linux with kvm; on macOS on `LINUX_BUILDER`).
 
