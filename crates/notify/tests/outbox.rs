@@ -7,8 +7,8 @@ use domain::Clock;
 use jiff::SignedDuration;
 use notify::outbox::{BACKOFF, MAX_ATTEMPTS};
 use notify::{
-    Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport, enqueue,
-    enqueue_expiring, send_pending, withdraw_unsent,
+    Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport,
+    delete_finished, enqueue, enqueue_expiring, forget_address, send_pending, withdraw_unsent,
 };
 use sqlx::{Acquire, PgPool};
 use testkit::{FakeClock, FakeEmailSender};
@@ -494,4 +494,67 @@ async fn an_expiring_email_with_a_key_is_queued_once(pool: PgPool) {
         .unwrap();
         assert_eq!(queued.is_some(), expected);
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn forgetting_an_address_deletes_its_emails_sent_or_not(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("Klant@example.nl"), None)
+        .await
+        .unwrap();
+    send(&pool, &FakeEmailSender::new(), &clock, 10).await;
+    enqueue(&mut conn, &clock, &email("klant@example.nl"), None)
+        .await
+        .unwrap();
+    let mut contact = email("bakker@example.nl");
+    contact.kind = EmailKind::ContactMessage;
+    contact.reply_to = Some("KLANT@example.nl".to_owned());
+    enqueue(&mut conn, &clock, &contact, None).await.unwrap();
+    enqueue(&mut conn, &clock, &email("ander@example.nl"), None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        forget_address(&mut conn, "klant@example.nl").await.unwrap(),
+        3
+    );
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(left, ["ander@example.nl"]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn finished_emails_of_one_kind_are_deleted(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut deleted = email("weg@example.nl");
+    deleted.kind = EmailKind::AccountDeleted;
+    enqueue(&mut conn, &clock, &deleted, None).await.unwrap();
+    enqueue(&mut conn, &clock, &email("klant@example.nl"), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_finished(&mut conn, EmailKind::AccountDeleted)
+            .await
+            .unwrap(),
+        0,
+        "not before it is sent"
+    );
+    send(&pool, &FakeEmailSender::new(), &clock, 10).await;
+    assert_eq!(
+        delete_finished(&mut conn, EmailKind::AccountDeleted)
+            .await
+            .unwrap(),
+        1
+    );
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(left, ["klant@example.nl"]);
 }

@@ -321,6 +321,24 @@ async fn accounts_are_opened_listed_and_changed_with_an_audit_entry(
         Err(Error::Invalid("company name"))
     ));
 
+    let erased = customer(&mut conn, "gewist@example.org").await;
+    sqlx::query("UPDATE customer SET erased_at = now() WHERE id = $1")
+        .bind(erased.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert!(matches!(
+        invoices::open_account(
+            &mut conn,
+            &clock,
+            STAFF,
+            &contact("gewist@example.org"),
+            &details()
+        )
+        .await,
+        Err(Error::Invalid("contact email"))
+    ));
+
     let existing = customer(&mut conn, "bestaand@example.org").await;
     let linked = invoices::open_account(
         &mut conn,

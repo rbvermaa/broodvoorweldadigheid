@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email FROM customer WHERE email = $1 FOR UPDATE",
+  "query": "SELECT id, email FROM customer WHERE email = $1 AND erased_at IS NULL FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       false
     ]
   },
-  "hash": "1299355b045155a0c0a985bb3d6f1f64f31cb5958f25fabd5d35014e4bf72311"
+  "hash": "7a97c59f386af137082ea150c37c25048c1924ab8fa7121df189237a128feb06"
 }

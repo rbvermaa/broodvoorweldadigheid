@@ -20,6 +20,7 @@ Owner can do everything. The other roles get what their work needs.
 | Invoicing | business accounts, the invoice overview, marking orders invoiced (F11a) | ✓ | | |
 | ManageCharities | charities and payouts | ✓ | | |
 | ManageStaff | adding staff and changing roles | ✓ | | |
+| Privacy | exporting and erasing a customer's data on their request (F12, ADR 0031) | ✓ | | |
 
 The table lives in `auth::Role::can` and its test. Routes call `Staff::require(permission)`,
 which answers with the Dutch 403 page.

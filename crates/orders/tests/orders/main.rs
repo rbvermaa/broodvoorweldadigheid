@@ -9,5 +9,6 @@ mod manage;
 mod on_account;
 mod payment;
 mod pickup;
+mod privacy;
 mod refunds;
 mod tracking;

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use askama::Template;
 use auth::customer::{self, LINK_VALID, LinkRequest};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -81,6 +81,27 @@ struct OrdersPage<'a> {
     orders: Table,
     /// Saved donations the customer can still choose a charity for (F4d).
     donations: Vec<donation::ChooseForm>,
+    /// Whether the address gets drop alerts (F12).
+    drop_alerts: bool,
+    saved: bool,
+    /// Why the account was not deleted, as a text id.
+    refused: Option<&'static str>,
+}
+
+/// `?opgeslagen=1` after saving the drop-alert choice, `?verwijderen=open|zakelijk` when
+/// deleting the account was refused (F12).
+#[derive(Debug, Default, Deserialize)]
+pub struct OrdersQuery {
+    opgeslagen: Option<String>,
+    verwijderen: Option<String>,
+}
+
+fn refusal(reason: Option<&str>) -> Option<&'static str> {
+    match reason {
+        Some("open") => Some("privacy-refused-open"),
+        Some("zakelijk") => Some("privacy-refused-business"),
+        _ => None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -296,7 +317,11 @@ async fn use_link(
     }
 }
 
-async fn my_orders(State(state): State<AppState>, session: Session) -> Response {
+async fn my_orders(
+    State(state): State<AppState>,
+    session: Session,
+    Query(query): Query<OrdersQuery>,
+) -> Response {
     let csrf = match csrf::token(&session).await {
         Ok(csrf) => csrf,
         Err(error) => return server_error(&state, &error),
@@ -326,6 +351,10 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
             Err(error) => return server_error(&state, &error),
         }
     }
+    let drop_alerts = match notify::subscribers::of_address(&mut conn, &me.email).await {
+        Ok(subscription) => subscription.is_some_and(|s| s.is_active()),
+        Err(error) => return server_error(&state, &error),
+    };
     std::mem::drop(conn);
     let page = orders_page(&state, &me.email, &list);
     match page {
@@ -337,6 +366,9 @@ async fn my_orders(State(state): State<AppState>, session: Session) -> Response 
                 signed_in_as,
                 orders,
                 donations,
+                drop_alerts,
+                saved: query.opgeslagen.is_some(),
+                refused: refusal(query.verwijderen.as_deref()),
             },
         )),
         Err(error) => server_error(&state, &error),
@@ -404,5 +436,10 @@ mod tests {
             let id = status_id(*status);
             i18n.t(id, None).expect(id);
         }
+        for reason in ["open", "zakelijk"] {
+            let id = refusal(Some(reason)).expect(reason);
+            i18n.t(id, None).expect(id);
+        }
+        assert_eq!(refusal(Some("anders")), None);
     }
 }

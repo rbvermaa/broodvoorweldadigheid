@@ -7,6 +7,7 @@ Back-office part of F11a, on top of the tables and the overview in ADR 0017.
 | Choice | Why |
 |---|---|
 | The owner opens an account with a contact email and name. The email is the account's `customer`; a new email creates the customer, an existing one is linked as it is and never changed. The contact email cannot be changed afterwards | Same rule as checkout (ADR 0012): anyone can type any email. Moving an account to another customer would move its order history |
+| Opening an account reads an existing customer `FOR SHARE` and refuses one that is erased or being erased (F12, ADR 0031). Erasing refuses a customer with a business account | An account never points at an erased customer; its orders stay with the bookkeeping |
 | Opening and changing an account write `business_account` audit entries (`created`, `changed` with before and after) | Who allowed whom to order on account, and when |
 | New permission `Invoicing` (owner only) for opening and changing accounts, the overview, its CSV and marking orders invoiced. The account list and placing an order on account need `EditOrders` (owner, baker); without `Invoicing` the list shows only the order links | Invoices are money matters like the reports. Taking a phone order from a café is daily work |
 | The contact email and the company name must pass checkout's customer check (`orders::check_customer`) when an account is opened or changed | Every order on account carries them; an account that checkout refuses could never order |

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_outbox WHERE kind = $1 AND status IN ('sent', 'failed')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0786e581ea11cfec251f3752c1fab1dd7bf5978bac2883c28b6d51a2080b68b"
+}

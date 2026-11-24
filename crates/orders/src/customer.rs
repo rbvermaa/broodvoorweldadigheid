@@ -33,13 +33,17 @@ fn plain_text(text: &str, max_chars: usize) -> bool {
 }
 
 /// A loose shape check of the email only: something before and after one `@`, no
-/// spaces. The confirmation email is the real test. Name and phone are single lines.
+/// spaces, and no `.invalid` domain: erased customers get one (F12). The confirmation
+/// email is the real test. Name and phone are single lines.
 pub(crate) fn validate(input: &CustomerInput) -> Result<Valid, Error> {
     let email = input.email.trim().to_lowercase();
     let well_formed = email.len() <= MAX_EMAIL_LEN
         && !email.chars().any(|c| c.is_whitespace() || c.is_control())
         && email.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.contains('@')
+            !local.is_empty()
+                && domain.contains('.')
+                && !domain.contains('@')
+                && !domain.ends_with(".invalid")
         });
     if !well_formed {
         return Err(Error::Invalid("email"));
@@ -65,32 +69,25 @@ pub(crate) fn validate(input: &CustomerInput) -> Result<Valid, Error> {
 
 /// Finds the customer by email, or creates them from these details. A guest checkout
 /// never changes an existing customer: anyone can type any email address. The order
-/// keeps the name and phone entered for it.
+/// keeps the name and phone entered for it. The no-op update locks the row until the
+/// checkout commits, so an erase (F12) waits and then sees the new order.
 pub(crate) async fn find_or_create(
     conn: &mut PgConnection,
     valid: &Valid,
     now: Timestamp,
 ) -> Result<CustomerId, Error> {
-    let created = sqlx::query_scalar!(
+    let id = sqlx::query_scalar!(
         "INSERT INTO customer (email, name, phone, created_at)
         VALUES ($1, $2, $3, timestamptz 'epoch' + $4::bigint * interval '1 microsecond')
-        ON CONFLICT (email) DO NOTHING
+        ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
         RETURNING id",
         valid.email,
         valid.name,
         valid.phone,
         to_micros(now),
     )
-    .fetch_optional(&mut *conn)
+    .fetch_one(conn)
     .await?;
-    let id = match created {
-        Some(id) => id,
-        None => {
-            sqlx::query_scalar!("SELECT id FROM customer WHERE email = $1", valid.email)
-                .fetch_one(conn)
-                .await?
-        }
-    };
     Ok(CustomerId::new(id))
 }
 
@@ -138,6 +135,7 @@ mod tests {
             "j an@example.org",
             "a@b@c.nl",
             "a\u{0}@b.nl",
+            "erased-1@erased.invalid",
             &long,
         ] {
             assert!(

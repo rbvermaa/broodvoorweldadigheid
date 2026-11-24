@@ -234,9 +234,15 @@ pub async fn open_account(
     let customer_id = match created {
         Some(id) => id,
         None => {
-            sqlx::query_scalar!("SELECT id FROM customer WHERE email = $1", contact_email)
-                .fetch_one(&mut *tx)
-                .await?
+            // FOR SHARE waits for an erase (F12) of this customer; the erase changes the
+            // email, so the row no longer matches and the account is refused.
+            sqlx::query_scalar!(
+                "SELECT id FROM customer WHERE email = $1 AND erased_at IS NULL FOR SHARE",
+                contact_email,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(Error::Invalid("contact email"))?
         }
     };
     let account = create_account(
