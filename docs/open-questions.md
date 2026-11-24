@@ -20,3 +20,6 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Gate 3 names the till.** The roadmap picture says "Gate 3: till in daily use,
   two weeks at the counter", but the till is out of scope (SumUp). What is Gate 3?
 - [ ] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
+- [ ] **Mollie fees need a second secret.** Per-payment fees (F11e) come from Mollie's
+  balance transactions, which need an organization access token with `balances.read`,
+  not the website API key (ADR 0013). OK to add that token to the sops secrets?
