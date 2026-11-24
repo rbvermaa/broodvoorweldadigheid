@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod allergen;
+mod clock;
 mod ids;
 mod money;
 mod pwyw;
@@ -8,6 +9,7 @@ mod totals;
 mod vat;
 
 pub use allergen::{Allergen, UnknownAllergen};
+pub use clock::{Clock, SystemClock, bakery_time_zone, in_bakery_time};
 pub use ids::{
     BakeDayId, BusinessAccountId, CapacityPoolId, CharityId, CustomerId, DonationAllocationId,
     OrderId, OrderLineId, PaymentId, PickupLocationId, PickupSlotId, PickupWindowId, ProductId,

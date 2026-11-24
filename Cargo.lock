@@ -403,6 +403,7 @@ dependencies = [
 name = "domain"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "proptest",
  "thiserror",
 ]
@@ -883,6 +884,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7b1af7547d47354bc438d797e3854601bde8f8d185780c5ba4ab27afa54f1ba"
 dependencies = [
  "jiff-core",
+ "jiff-tzdb",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
