@@ -43,3 +43,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   bakery reads, or should replies go to another address? (ADR 0014)
 - [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
+- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
+  allergen data cannot be ordered, also not by staff. OK?
+- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
+  like web orders. How do phone orders get paid: payment link, at pickup, on account?

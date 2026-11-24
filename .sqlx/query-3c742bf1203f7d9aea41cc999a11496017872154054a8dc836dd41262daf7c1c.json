@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.product_id, sum(l.qty)::bigint AS \"qty!\"\n            FROM order_line l JOIN \"order\" o ON o.id = l.order_id\n            WHERE o.bake_day_id = $1\n                AND (o.status IN ('paid', 'confirmed', 'picked_up')\n                    OR (o.status = 'pending_payment'\n                        AND o.hold_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))\n            GROUP BY l.product_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "qty!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "3c742bf1203f7d9aea41cc999a11496017872154054a8dc836dd41262daf7c1c"
+}
