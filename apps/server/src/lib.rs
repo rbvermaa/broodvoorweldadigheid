@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod alerts;
 pub mod assets;
 pub mod background;
 pub mod clock;
@@ -47,7 +48,8 @@ pub fn router(state: AppState) -> Router {
     let mut routes = Router::new()
         .route("/", get(pages::home))
         .merge(shop::routes())
-        .merge(site);
+        .merge(site)
+        .merge(alerts::routes(&state));
     if state.config.gallery {
         routes = routes.route("/gallery", get(gallery::page).post(gallery::save));
     }
@@ -57,7 +59,13 @@ pub fn router(state: AppState) -> Router {
         shop::CHECKOUT_PERIOD,
         shop::CHECKOUT_BURST,
     );
-    shell(routes, Some(checkout), shop::webhook_routes(), state)
+    shell(
+        routes,
+        Some(checkout),
+        shop::webhook_routes(),
+        state.clone(),
+    )
+    .merge(alerts::one_click_routes(state))
 }
 
 /// CSRF checks inside a session layer.

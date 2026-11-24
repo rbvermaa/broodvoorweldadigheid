@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE drop_alert_sent SET recipients = $3 WHERE bake_day_id = $1 AND kind = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "515024ffdca28eebf9bcfa38c65a0d7ab9104a555453211f667fbea963295e3d"
+}

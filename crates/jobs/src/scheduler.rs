@@ -5,17 +5,26 @@ use std::time::Duration;
 use apalis::prelude::{BoxDynError, Data, TaskBuilder, TaskSink, TaskSinkError, WorkerBuilder};
 use apalis_postgres::PostgresStorage;
 use domain::{Clock, OrderId};
+use i18n::Translator;
 use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
+use notify::subscribers::Links;
+use notify::{EmailSender, OutgoingEmail, SendError, SendFuture, SendReport};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::time::MissedTickBehavior;
 
 use crate::Error;
 use crate::bake_days::{self, TickReport};
+use crate::drop_alerts::{self, AlertReport};
 use crate::order_emails::{self, OrderEmails};
 
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
+/// Emails handed to the relay per tick at most; the rest wait for the next minute.
+pub const SEND_BATCH: u32 = 500;
+/// Sending stops after this much time in one tick, also in the middle of an email, so a
+/// slow relay cannot keep a tick, and its connection, busy past the next one.
+pub const SEND_BUDGET: Duration = Duration::from_secs(40);
 
 /// The every-minute job that opens and closes bake days, releases expired order holds
 /// and queues due pickup reminders. `minute` is the start of the minute it was scheduled
@@ -31,9 +40,36 @@ pub type TickStorage = PostgresStorage<BakeDayTick>;
 #[derive(Clone)]
 pub struct TickClock(pub Arc<dyn Clock>);
 
-/// What the worker needs to compose order emails.
+/// One instant for the bake-day and alert steps, so a day whose menu and opening time
+/// fall in the same minute is opened before the alerts look at it.
+struct Frozen(Timestamp);
+
+impl Clock for Frozen {
+    fn now(&self) -> Timestamp {
+        self.0
+    }
+}
+
+/// What the tick needs to write and send email: drop alerts (F9a), pickup reminders (F9)
+/// and the outbox (ADR 0014). Without a `sender` (no SMTP relay configured) emails are
+/// still queued and wait in the outbox.
 #[derive(Clone)]
-pub struct TickEmails(pub Arc<OrderEmails>);
+pub struct Mail {
+    pub sender: Option<Arc<dyn EmailSender>>,
+    pub i18n: Arc<Translator>,
+    pub links: Links,
+    pub orders: Arc<OrderEmails>,
+}
+
+/// What one tick did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TickOutcome {
+    pub days: TickReport,
+    pub released: Vec<OrderId>,
+    pub reminded: Vec<OrderId>,
+    pub alerts: AlertReport,
+    pub sent: SendReport,
+}
 
 /// Creates or upgrades the apalis tables in their own `apalis` schema.
 ///
@@ -90,57 +126,158 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// Runs one queued tick (bake days, expired holds, then pickup reminders) against the
-/// current time, not the minute it was queued for, so a late run still does what is due.
-/// Reminders that cannot be queued are logged and tried again next tick.
+/// One tick's work, in order: open and close bake days, release expired order holds, queue
+/// due pickup reminders (an error there is logged and tried again next tick), queue
+/// the drop alerts that are now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
+/// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
+/// step fails, so a day that should open never gets the menu alert instead; emails are
+/// sent either way. The first error is returned.
 ///
 /// # Errors
-/// Any [`Error`] from [`bake_days::tick`]; apalis retries the job.
+/// The first [`Error`] of [`bake_days::tick`], [`orders::release_expired_holds`],
+/// [`drop_alerts::tick`] or
+/// [`notify::send_pending`].
+pub fn work<'a>(
+    pool: &'a PgPool,
+    clock: &'a dyn Clock,
+    mail: &'a Mail,
+) -> Pin<Box<dyn Future<Output = Result<TickOutcome, Error>> + Send + 'a>> {
+    // Boxed as a `dyn Send` future: without it rustc cannot prove the sqlx futures inside
+    // are `Send` for every lifetime, and spawning `run` fails to compile.
+    Box::pin(async move {
+        let mut conn = pool.acquire().await?;
+        let mut outcome = TickOutcome::default();
+        let mut first_error = None;
+        let frozen = Frozen(clock.now());
+        let days_ok = match bake_days::tick(&mut conn, &frozen).await {
+            Ok(report) => {
+                outcome.days = report;
+                true
+            }
+            Err(err) => {
+                first_error = Some(err);
+                false
+            }
+        };
+        match orders::release_expired_holds(&mut conn, &frozen).await {
+            Ok(released) => outcome.released = released,
+            Err(err) => {
+                first_error.get_or_insert(err.into());
+            }
+        }
+        match order_emails::enqueue_due_reminders(&mut conn, &frozen, &mail.orders).await {
+            Ok(reminded) => outcome.reminded = reminded,
+            Err(error @ order_emails::EmailError::CompanyIncomplete) => {
+                tracing::warn!(%error, "no pickup reminders");
+            }
+            Err(error) => tracing::error!(%error, "cannot queue pickup reminders"),
+        }
+        if days_ok {
+            match drop_alerts::tick(&mut conn, &frozen, &mail.i18n, &mail.links).await {
+                Ok(report) => outcome.alerts = report,
+                Err(err) => {
+                    first_error.get_or_insert(err);
+                }
+            }
+        }
+        if let Some(sender) = &mail.sender {
+            match drain(&mut conn, sender.as_ref(), clock).await {
+                Ok(report) => outcome.sent = report,
+                Err(err) => {
+                    first_error.get_or_insert(err.into());
+                }
+            }
+        }
+        match first_error {
+            Some(err) => Err(err),
+            None => Ok(outcome),
+        }
+    })
+}
+
+/// An [`EmailSender`] that gives up at `deadline` with [`SendError::Transient`], so the
+/// outbox records a retry instead of waiting on a relay that stopped answering.
+struct Deadline<'a> {
+    inner: &'a dyn EmailSender,
+    deadline: tokio::time::Instant,
+}
+
+impl EmailSender for Deadline<'_> {
+    fn send<'a>(&'a self, email: &'a OutgoingEmail) -> SendFuture<'a> {
+        Box::pin(async move {
+            tokio::time::timeout_at(self.deadline, self.inner.send(email))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(SendError::Transient(
+                        "the relay did not answer within the tick's send budget".to_owned(),
+                    ))
+                })
+        })
+    }
+}
+
+/// Sends one email at a time until none is due, [`SEND_BATCH`] went out or
+/// [`SEND_BUDGET`] is used up.
+async fn drain(
+    conn: &mut sqlx::PgConnection,
+    sender: &dyn EmailSender,
+    clock: &dyn Clock,
+) -> Result<SendReport, notify::OutboxError> {
+    let sender = Deadline {
+        inner: sender,
+        deadline: tokio::time::Instant::now() + SEND_BUDGET,
+    };
+    let mut total = SendReport::default();
+    for _ in 0..SEND_BATCH {
+        if tokio::time::Instant::now() >= sender.deadline {
+            break;
+        }
+        let report = notify::send_pending(conn, &sender, clock, 1).await?;
+        if report == SendReport::default() {
+            break;
+        }
+        total.sent += report.sent;
+        total.retrying += report.retrying;
+        total.failed += report.failed;
+    }
+    Ok(total)
+}
+
+/// Runs one queued tick against the current time, not the minute it was queued for, so a
+/// late run still does what is due.
+///
+/// # Errors
+/// Any [`Error`] from [`work`]; apalis retries the job.
 pub async fn handle_tick(
     tick: BakeDayTick,
     pool: Data<PgPool>,
     clock: Data<TickClock>,
-    emails: Data<TickEmails>,
+    mail: Data<Mail>,
 ) -> Result<(), BoxDynError> {
-    let mut conn = pool.acquire().await?;
-    // Boxed as a `dyn Send` future: without it rustc cannot prove the sqlx futures inside
-    // are `Send` for every lifetime, and spawning `run` fails to compile.
-    let due: Pin<Box<dyn Future<Output = Result<TickReport, Error>> + Send + '_>> =
-        Box::pin(bake_days::tick(&mut conn, clock.0.0.as_ref()));
-    let report = due.await?;
-    let released: Pin<Box<dyn Future<Output = Result<Vec<OrderId>, orders::Error>> + Send + '_>> =
-        Box::pin(orders::release_expired_holds(&mut conn, clock.0.0.as_ref()));
-    let released = released.await?;
-    let reminders: Pin<
-        Box<dyn Future<Output = Result<Vec<OrderId>, order_emails::EmailError>> + Send + '_>,
-    > = Box::pin(order_emails::enqueue_due_reminders(
-        &mut conn,
-        clock.0.0.as_ref(),
-        &emails.0.0,
-    ));
-    let reminded = match reminders.await {
-        Ok(reminded) => reminded,
-        Err(error @ order_emails::EmailError::CompanyIncomplete) => {
-            tracing::warn!(minute = %tick.minute, %error, "no pickup reminders");
-            Vec::new()
-        }
-        Err(error) => {
-            tracing::error!(minute = %tick.minute, %error, "cannot queue pickup reminders");
-            Vec::new()
-        }
-    };
-    if !report.opened.is_empty()
-        || !report.closed.is_empty()
-        || !released.is_empty()
-        || !reminded.is_empty()
-    {
+    let outcome = work(&pool, clock.0.0.as_ref(), &mail).await?;
+    let days = &outcome.days;
+    if !days.opened.is_empty() || !days.closed.is_empty() || !outcome.released.is_empty() {
         tracing::info!(
             minute = %tick.minute,
-            opened = ?report.opened,
-            closed = ?report.closed,
-            released = ?released,
-            reminded = ?reminded,
+            opened = ?days.opened,
+            closed = ?days.closed,
+            released = ?outcome.released,
             "bake day tick"
+        );
+    }
+    if !outcome.reminded.is_empty() {
+        tracing::info!(minute = %tick.minute, orders = ?outcome.reminded, "pickup reminders queued");
+    }
+    if !outcome.alerts.queued.is_empty() {
+        tracing::info!(minute = %tick.minute, alerts = ?outcome.alerts.queued, "drop alerts queued");
+    }
+    if outcome.sent != SendReport::default() {
+        tracing::info!(
+            minute = %tick.minute,
+            sent = outcome.sent.sent,
+            retrying = outcome.sent.retrying,
+            failed = outcome.sent.failed,
+            "emails"
         );
     }
     Ok(())
@@ -160,7 +297,7 @@ async fn queue_tick(storage: &mut TickStorage, clock: &dyn Clock) {
 pub async fn run<F>(
     pool: PgPool,
     clock: Arc<dyn Clock>,
-    emails: Arc<OrderEmails>,
+    mail: Mail,
     worker_id: String,
     shutdown: F,
 ) -> Result<(), Error>
@@ -175,7 +312,7 @@ where
         .backend(storage.clone())
         .data(pool)
         .data(TickClock(Arc::clone(&clock)))
-        .data(TickEmails(emails))
+        .data(mail)
         .build(handle_tick);
     let schedule = async move {
         let mut every_minute =
@@ -192,5 +329,45 @@ where
             Ok::<(), std::io::Error>(())
         }) => result.map_err(|err| Error::Worker(err.to_string())),
         () = schedule => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use notify::{Email, EmailKind};
+
+    use super::*;
+
+    struct Silent;
+
+    impl EmailSender for Silent {
+        fn send<'a>(&'a self, _: &'a OutgoingEmail) -> SendFuture<'a> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_stops_answering_is_temporary_at_the_deadline() {
+        let email = OutgoingEmail {
+            id: "0b5e7c2a-1111-4222-8333-944455556666".to_owned(),
+            date: "2026-12-01T08:00:00Z".parse().unwrap(),
+            email: Email {
+                kind: EmailKind::PickupReminder,
+                to: "sanne@example.org".to_owned(),
+                subject: "Ophalen".to_owned(),
+                text: "Hoi Sanne,\n".to_owned(),
+                html: "<p>Hoi Sanne,</p>".to_owned(),
+                list_unsubscribe: None,
+                reply_to: None,
+            },
+        };
+        let sender = Deadline {
+            inner: &Silent,
+            deadline: tokio::time::Instant::now() + Duration::from_millis(20),
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), sender.send(&email))
+            .await
+            .expect("the deadline ends the send");
+        assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
     }
 }

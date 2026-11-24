@@ -6,10 +6,7 @@ use std::time::Duration;
 
 use db::PgPool;
 use domain::Clock;
-use jobs::OrderEmails;
-use notify::{EmailSender, SendReport};
 use tokio::sync::watch;
-use tokio::time::MissedTickBehavior;
 
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -57,14 +54,15 @@ pub fn worker_id() -> String {
     format!("{host}-{}", std::process::id())
 }
 
-/// Creates the apalis tables and runs the bake day tick, pickup reminders included, until
-/// `shutdown`. Setup is raced against `shutdown`; the worker stops by itself when it fires.
+/// Creates the apalis tables and runs the bake day tick until `shutdown`. The tick also
+/// queues pickup reminders and drop alerts and sends the outbox ([`jobs::work`]).
+/// Setup is raced against `shutdown`; the worker stops by itself when it fires.
 /// After a failure, such as a database restart, both start again, so scheduled work never
 /// stops while the server runs. Each restart gets a fresh worker id: apalis refuses an id it still counts as live.
 pub async fn run_jobs(
     pool: PgPool,
     clock: Arc<dyn Clock>,
-    emails: Arc<OrderEmails>,
+    mail: jobs::Mail,
     worker_id: String,
     shutdown: Shutdown,
 ) {
@@ -84,7 +82,7 @@ pub async fn run_jobs(
                 jobs::run(
                     pool.clone(),
                     Arc::clone(&clock),
-                    Arc::clone(&emails),
+                    mail.clone(),
                     id,
                     shutdown.wait(),
                 )
@@ -101,59 +99,4 @@ pub async fn run_jobs(
             () = tokio::time::sleep(RETRY) => {}
         }
     }
-}
-
-/// How many outbox emails one round sends at most; the rest wait for the next round.
-const MAIL_BATCH: u32 = 20;
-
-/// Sends due emails from the outbox (ADR 0014) every `every` until `shutdown`. Shutdown is
-/// checked between emails, so an email that went out is also recorded as sent.
-pub async fn run_mail(
-    pool: PgPool,
-    sender: Arc<dyn EmailSender>,
-    clock: Arc<dyn Clock>,
-    every: Duration,
-    shutdown: Shutdown,
-) {
-    let mut rounds = tokio::time::interval(every);
-    rounds.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    loop {
-        tokio::select! {
-            () = shutdown.wait() => return,
-            _ = rounds.tick() => {}
-        }
-        match send_round(&pool, sender.as_ref(), clock.as_ref(), &shutdown).await {
-            Ok(report) if report == SendReport::default() => {}
-            Ok(report) => tracing::info!(
-                sent = report.sent,
-                retrying = report.retrying,
-                failed = report.failed,
-                "outbox round"
-            ),
-            Err(error) => tracing::warn!(%error, "cannot send the outbox; trying next round"),
-        }
-    }
-}
-
-async fn send_round(
-    pool: &PgPool,
-    sender: &dyn EmailSender,
-    clock: &dyn Clock,
-    shutdown: &Shutdown,
-) -> Result<SendReport, Box<dyn std::error::Error + Send + Sync>> {
-    let mut conn = pool.acquire().await?;
-    let mut total = SendReport::default();
-    for _ in 0..MAIL_BATCH {
-        if shutdown.requested() {
-            break;
-        }
-        let one = notify::send_pending(&mut conn, sender, clock, 1).await?;
-        if one == SendReport::default() {
-            break;
-        }
-        total.sent += one.sent;
-        total.retrying += one.retrying;
-        total.failed += one.failed;
-    }
-    Ok(total)
 }

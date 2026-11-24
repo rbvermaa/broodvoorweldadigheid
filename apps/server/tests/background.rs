@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use i18n::Translator;
 use jobs::OrderEmails;
+use notify::subscribers::Links;
 use notify::{Email, EmailKind};
-use server::background::{Shutdown, run_jobs, run_mail, worker_id};
+use server::background::{Shutdown, run_jobs, worker_id};
 use sqlx::PgPool;
 use testkit::{FakeClock, FakeEmailSender};
 
@@ -18,11 +19,14 @@ fn clock() -> Arc<FakeClock> {
     Arc::new(FakeClock::new("2026-10-28T12:00:00Z".parse().unwrap()))
 }
 
-fn emails() -> Arc<OrderEmails> {
-    Arc::new(OrderEmails::new(
-        Arc::new(Translator::dutch().unwrap()),
-        "https://shop.example.org",
-    ))
+fn mail(sender: Option<Arc<FakeEmailSender>>) -> jobs::Mail {
+    let i18n = Arc::new(Translator::dutch().unwrap());
+    jobs::Mail {
+        sender: sender.map(|sender| sender as Arc<dyn notify::EmailSender>),
+        i18n: Arc::clone(&i18n),
+        links: Links::new("https://shop.example.org"),
+        orders: Arc::new(OrderEmails::new(i18n, "https://shop.example.org")),
+    }
 }
 
 #[tokio::test]
@@ -54,7 +58,7 @@ async fn the_runner_registers_its_worker_and_stops_at_shutdown(pool: PgPool) {
     let runner = tokio::spawn(run_jobs(
         pool.clone(),
         clock(),
-        emails(),
+        mail(None),
         id.clone(),
         shutdown,
     ));
@@ -98,7 +102,7 @@ async fn the_runner_waits_for_the_database_and_still_stops() {
         stopped.await.ok();
     });
     tokio::spawn(trigger);
-    let runner = tokio::spawn(run_jobs(pool, clock(), emails(), worker_id(), shutdown));
+    let runner = tokio::spawn(run_jobs(pool, clock(), mail(None), worker_id(), shutdown));
     stop.send(()).unwrap();
     tokio::time::timeout(BOUND, runner)
         .await
@@ -116,7 +120,7 @@ fn worker_ids_carry_the_process_id() {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn the_mail_loop_sends_the_outbox_and_stops_at_shutdown(pool: PgPool) {
+async fn the_runner_sends_the_outbox_from_its_first_tick(pool: PgPool) {
     let clock = clock();
     let email = Email {
         kind: EmailKind::OrderConfirmation,
@@ -138,11 +142,11 @@ async fn the_mail_loop_sends_the_outbox_and_stops_at_shutdown(pool: PgPool) {
         stopped.await.ok();
     });
     tokio::spawn(trigger);
-    let mailer = tokio::spawn(run_mail(
+    let mailer = tokio::spawn(run_jobs(
         pool.clone(),
-        Arc::clone(&sender) as Arc<dyn notify::EmailSender>,
         clock,
-        Duration::from_millis(20),
+        mail(Some(Arc::clone(&sender))),
+        format!("mail-test-{}", std::process::id()),
         shutdown,
     ));
     let delivered = async {

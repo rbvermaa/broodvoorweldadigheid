@@ -224,10 +224,15 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
         let handle = tokio::spawn(jobs::run(
             pool.clone(),
             Arc::clone(&clock),
-            Arc::new(jobs::OrderEmails::new(
-                Arc::new(i18n::Translator::dutch().unwrap()),
-                "https://shop.example.org",
-            )),
+            jobs::Mail {
+                sender: Some(Arc::new(testkit::FakeEmailSender::new())),
+                i18n: Arc::new(i18n::Translator::dutch().unwrap()),
+                links: notify::subscribers::Links::new("https://broodvoorweldadigheid.nl"),
+                orders: Arc::new(jobs::OrderEmails::new(
+                    Arc::new(i18n::Translator::dutch().unwrap()),
+                    "https://shop.example.org",
+                )),
+            },
             name.to_owned(),
             async {
                 stopped.await.ok();
