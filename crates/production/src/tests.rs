@@ -218,3 +218,16 @@ fn templates_read_no_other_files() {
     let template = pdf::Template::inline("/evil.typ", "#include \"/other.typ\"");
     assert!(pdf::layout(&template, &serde_json::json!({})).is_err());
 }
+
+#[test]
+fn names_are_printed_as_text_never_as_markup() {
+    let mut list = pickup_list();
+    let name = "*Bo* #read(\"/a\") $x$ ]";
+    list.slots[0].orders[0].customer_name = name.to_owned();
+    let data = paper::pickup(&list, &dutch()).unwrap();
+    let (document, _) = pdf::layout(&pdf::PICKUP, &data).unwrap();
+    let text = pdf::text(&document);
+    for literal in ["*Bo*", "#read(\"/a\")", "$x$ ]"] {
+        assert!(text.contains(literal), "{text}");
+    }
+}

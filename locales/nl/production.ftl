@@ -15,8 +15,8 @@ production-pool-used = Bakken
 production-pool-max = Maximum
 
 pickup-list-title = Ophaallijst
-# $range: 11:00–12:00, $location: De Proef
-pickup-list-slot = { $range } · { $location }
+# $day: za 31 okt, $range: 11:00–12:00, $location: De Proef
+pickup-list-slot = { $day }, { $range } · { $location }
 pickup-list-number = Bestelling
 pickup-list-customer = Naam
 pickup-list-items = Producten

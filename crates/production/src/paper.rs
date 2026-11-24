@@ -98,6 +98,7 @@ pub(crate) fn pickup(list: &PickupList, t: &Translator) -> Result<Value, Error> 
             "range",
             zone.time_range(slot.slot.starts_at, slot.slot.ends_at)?,
         );
+        args.set("day", t.short_date(zone.date(slot.slot.starts_at)));
         args.set("location", slot.location.as_str());
         let mut orders = Vec::with_capacity(slot.orders.len());
         for order in &slot.orders {

@@ -1,5 +1,3 @@
-// Pickup list (F8): one table per pickup slot, a box to tick per order. Rust passes every
-// text translated in /data.json (crates/production/src/paper.rs).
 #let data = json("/data.json")
 #let l = data.labels
 

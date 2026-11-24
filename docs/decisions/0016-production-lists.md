@@ -52,3 +52,11 @@ so we think the code is not reachable. The gate stays as it is until the owner d
 ignore these two advisories with this reasoning, or wait for an upstream release. Typst
 also brings unmaintained-crate warnings (ttf-parser, rustybuzz, yaml-rust, unsafe-libyaml,
 bincode, paste); `cargo audit` allows those.
+
+**Open: names in other scripts.** Only Inter and Oswald are embedded, and Typst does not
+warn about a missing glyph. A name in, say, Arabic or Chinese prints as empty boxes. A
+pinned fallback font (Noto) would fix it; not added yet.
+
+Each pickup slot heading carries its own date, because staff can move a slot to another
+day than the bake day. `typst::comemo::evict` runs after each compile so memoized results
+do not pile up in a long-running server.

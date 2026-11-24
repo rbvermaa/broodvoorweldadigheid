@@ -14,7 +14,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
   },
   "slots": [
     {
-      "heading": "11:00–12:00 · De Proef",
+      "heading": "za 31 okt, 11:00–12:00 · De Proef",
       "orders": [
         {
           "lines": [
@@ -60,7 +60,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
       ]
     },
     {
-      "heading": "12:00–13:00 · De Proef",
+      "heading": "za 31 okt, 12:00–13:00 · De Proef",
       "orders": []
     }
   ],

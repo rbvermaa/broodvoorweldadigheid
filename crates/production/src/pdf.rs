@@ -144,6 +144,8 @@ pub(crate) fn layout(
         data: Bytes::from_string(data.to_string()),
     };
     let compiled = typst::compile::<PagedDocument>(&world);
+    // Typst memoizes globally; without eviction every rendered list stays in memory.
+    typst::comemo::evict(10);
     let warnings = compiled
         .warnings
         .iter()

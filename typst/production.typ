@@ -1,5 +1,3 @@
-// Production list (F7). Rust passes every text translated in /data.json
-// (crates/production/src/paper.rs); this file holds layout only.
 #let data = json("/data.json")
 #let l = data.labels
 
