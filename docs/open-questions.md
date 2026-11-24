@@ -64,6 +64,11 @@ Questions about the spec. The spec is only changed when the owner asks.
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
   server refuse to start without them?
+- [ ] **Staff login through Kanidm is parked** (ADR 0010, branch `rv-p1-staff-oidc`).
+  openidconnect 4.1 pulls in `rsa 0.9` with RUSTSEC-2023-0071, so `make audit` fails.
+  Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
+  keys), or verify ID tokens without openidconnect? Until then staff can only sign in
+  through the local dev login.
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers

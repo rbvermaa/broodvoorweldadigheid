@@ -207,6 +207,14 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 [[package]]
 name = "auth"
 version = "0.1.0"
+dependencies = [
+ "db",
+ "domain",
+ "jiff",
+ "sqlx",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "autocfg"
@@ -463,6 +471,7 @@ checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 name = "cli"
 version = "0.1.0"
 dependencies = [
+ "auth",
  "clap",
  "db",
  "jiff",
@@ -2372,6 +2381,7 @@ version = "0.1.0"
 dependencies = [
  "ai",
  "askama",
+ "auth",
  "axum",
  "bakedays",
  "base64 0.22.1",

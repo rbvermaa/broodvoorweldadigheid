@@ -45,9 +45,11 @@ async fn company_details(conn: &mut PgConnection) {
 
 async fn bread(conn: &mut PgConnection) -> ProductId {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+         INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
             dough_g_per_piece, sold_online, allergens_approved_by, allergens_approved_at)
-         VALUES ('Desem', 450, 9, 800, 900, true, 1, '2026-10-01T10:00:00Z') RETURNING id",
+         VALUES ('Desem', 450, 9, 800, 900, true, (SELECT id FROM baker), '2026-10-01T10:00:00Z') RETURNING id",
     )
     .fetch_one(conn)
     .await

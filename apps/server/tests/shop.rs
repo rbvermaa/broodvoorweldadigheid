@@ -292,12 +292,14 @@ const BREAD: Spec<'static> = Spec {
 async fn product(conn: &mut PgConnection, spec: &Spec<'_>) -> ProductId {
     let allergens: Vec<String> = spec.allergens.iter().map(|a| (*a).to_owned()).collect();
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, description_nl, price_incl_cents, vat_rate,
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+         INSERT INTO product (name_nl, description_nl, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, sold_online, allergens, ingredient_text,
             allergens_approved_by, allergens_approved_at)
          VALUES ($1, 'Lekker brood', $2, 9, $3, $4, $5, 800, 900, $6, $7, $8,
-            CASE WHEN $9 THEN 1 END, CASE WHEN $9 THEN timestamptz '2026-10-01T10:00:00Z' END)
+            CASE WHEN $9 THEN (SELECT id FROM baker) END, CASE WHEN $9 THEN timestamptz '2026-10-01T10:00:00Z' END)
          RETURNING id",
     )
     .bind(spec.name)

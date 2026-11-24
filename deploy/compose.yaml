@@ -57,6 +57,7 @@ services:
     environment:
       TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
       GALLERY: "false"
+      DEV_STAFF_LOGIN: "false"
       PUBLIC_URL: ${BVW_PUBLIC_URL:-https://localhost:${BVW_HTTPS_PORT:-8443}}
       MOLLIE_API_KEY_FILE: ${BVW_MOLLIE_API_KEY_FILE:-}
       # Mailpit catches every email on the local stack (ADR 0014, ADR 0022).

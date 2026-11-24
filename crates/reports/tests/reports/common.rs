@@ -96,10 +96,12 @@ pub const COOKIES: ProductSpec = ProductSpec {
 
 pub async fn product(conn: &mut PgConnection, spec: &ProductSpec) -> ProductId {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, pay_what_you_want,
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+         INSERT INTO product (name_nl, price_incl_cents, vat_rate, pay_what_you_want,
             min_price_cents, max_price_cents, unit_weight_g, dough_g_per_piece,
             estimated_cost_cents, allergens_approved_by, allergens_approved_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 800, 900, $7, 1, '2026-08-01T10:00:00Z') RETURNING id",
+         VALUES ($1, $2, $3, $4, $5, $6, 800, 900, $7, (SELECT id FROM baker), '2026-08-01T10:00:00Z') RETURNING id",
     )
     .bind(spec.name)
     .bind(spec.price)
