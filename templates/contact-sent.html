@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("contact-sent-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("contact-sent-title")? }}</h1>
+{% call fb::alert("success", layout.t("contact-sent-text")?) %}{% endcall %}
+<p><a href="/faq">{{ layout.t("contact-faq")? }}</a></p>
+<p><a href="/">{{ layout.t("error-back-home")? }}</a></p>
+{% endblock %}

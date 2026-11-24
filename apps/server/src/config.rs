@@ -13,8 +13,11 @@ pub struct Config {
     /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
     pub gallery: bool,
     /// Lets anyone sign in as any staff member at `/staff/dev-login`. Off unless
-    /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR`.
+    /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR` and no
+    /// `TRUSTED_PROXY`.
     pub dev_staff_login: bool,
+    /// Where the contact form (F4f) sends messages. Without it the form shows the 500 page.
+    pub contact_email: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -35,6 +38,10 @@ pub enum ConfigError {
     InvalidDevStaffLogin(String),
     #[error("DEV_STAFF_LOGIN=true needs a loopback BIND_ADDR like 127.0.0.1:8080, not {0}")]
     DevStaffLoginNotLocal(SocketAddr),
+    #[error("DEV_STAFF_LOGIN=true cannot be combined with TRUSTED_PROXY")]
+    DevStaffLoginBehindProxy,
+    #[error("BAKERY_CONTACT_EMAIL {0:?} is not an email address")]
+    InvalidContactEmail(String),
 }
 
 impl std::fmt::Debug for Config {
@@ -46,6 +53,7 @@ impl std::fmt::Debug for Config {
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
             .field("dev_staff_login", &self.dev_staff_login)
+            .field("contact_email", &self.contact_email)
             .finish()
     }
 }
@@ -91,6 +99,19 @@ impl Config {
         if dev_staff_login && !bind_addr.ip().is_loopback() {
             return Err(ConfigError::DevStaffLoginNotLocal(bind_addr));
         }
+        if dev_staff_login && trusted_proxy.is_some() {
+            return Err(ConfigError::DevStaffLoginBehindProxy);
+        }
+        let contact_email = lookup("BAKERY_CONTACT_EMAIL")
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| {
+                if notify::is_address(&raw) {
+                    Ok(raw)
+                } else {
+                    Err(ConfigError::InvalidContactEmail(raw))
+                }
+            })
+            .transpose()?;
         Ok(Self {
             bind_addr,
             database_url,
@@ -98,6 +119,7 @@ impl Config {
             trusted_proxy,
             gallery,
             dev_staff_login,
+            contact_email,
         })
     }
 }
@@ -218,6 +240,28 @@ mod tests {
     }
 
     #[test]
+    fn contact_email_is_optional_and_must_be_an_address() {
+        let none = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(none.contact_email, None);
+        let set = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("BAKERY_CONTACT_EMAIL", "bakker@example.org"),
+        ]))
+        .expect("config");
+        assert_eq!(set.contact_email.as_deref(), Some("bakker@example.org"));
+        for bad in ["bakker", "bakker@example.org\r\nBcc: x@example.org"] {
+            assert_eq!(
+                Config::from_lookup(lookup(&[
+                    ("DATABASE_URL", "postgres://db/bakery"),
+                    ("BAKERY_CONTACT_EMAIL", bad),
+                ])),
+                Err(ConfigError::InvalidContactEmail(bad.to_string()))
+            );
+        }
+    }
+
+    #[test]
     fn gallery_is_off_unless_turned_on() {
         let on = Config::from_lookup(lookup(&[
             ("DATABASE_URL", "postgres://db/bakery"),
@@ -267,6 +311,15 @@ mod tests {
                 ("DEV_STAFF_LOGIN", "ja"),
             ])),
             Err(ConfigError::InvalidDevStaffLogin("ja".to_string()))
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BIND_ADDR", "127.0.0.1:8080"),
+                ("TRUSTED_PROXY", "127.0.0.1"),
+                ("DEV_STAFF_LOGIN", "true"),
+            ])),
+            Err(ConfigError::DevStaffLoginBehindProxy)
         );
     }
 }

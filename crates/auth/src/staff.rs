@@ -1,7 +1,5 @@
 use db::PgPool;
 use domain::StaffUserId;
-use sqlx::Row;
-use sqlx::postgres::PgRow;
 
 use crate::identity::Identity;
 use crate::role::{Role, UnknownRole};
@@ -24,7 +22,7 @@ pub struct NewStaff {
     pub role: Role,
 }
 
-/// Who may log in while nobody is staff yet. Set from `BVW_BOOTSTRAP_OWNER_SUB` or
+/// Who may sign in while nobody is owner yet. Set from `BVW_BOOTSTRAP_OWNER_SUB` or
 /// `BVW_BOOTSTRAP_OWNER_EMAIL`; an email only counts when the provider says it is verified.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BootstrapOwner {
@@ -57,101 +55,160 @@ pub enum Error {
     Inactive(String),
     #[error("unknown OIDC subject; the owner must add this person first")]
     Unknown,
+    #[error("the last active owner cannot be removed, demoted or deactivated")]
+    LastOwner,
     #[error(transparent)]
     Role(#[from] UnknownRole),
     #[error("database error: {0}")]
-    Db(#[from] sqlx::Error),
+    Db(sqlx::Error),
 }
 
-/// Serializes bootstrap logins, so two people matching the bootstrap setting cannot both
-/// become owner.
+impl From<sqlx::Error> for Error {
+    fn from(error: sqlx::Error) -> Self {
+        let last_owner = error
+            .as_database_error()
+            .and_then(|db| db.constraint())
+            .is_some_and(|constraint| constraint == "staff_user_last_owner");
+        if last_owner {
+            Self::LastOwner
+        } else {
+            Self::Db(error)
+        }
+    }
+}
+
+/// Serializes bootstrap sign-ins, so two people matching the bootstrap setting cannot both
+/// become owner. The `keep_last_owner` trigger takes the same lock.
 const BOOTSTRAP_LOCK: i64 = 0x6276_775f_6f77_6e72;
 
-macro_rules! columns {
-    () => {
-        "id, oidc_sub, name, email, role, active"
-    };
+pub(crate) struct Row {
+    pub id: i64,
+    pub oidc_sub: String,
+    pub name: String,
+    pub email: Option<String>,
+    pub role: String,
+    pub active: bool,
 }
 
-fn from_row(row: &PgRow) -> Result<StaffUser, Error> {
-    Ok(StaffUser {
-        id: StaffUserId::new(row.try_get("id")?),
-        oidc_sub: row.try_get("oidc_sub")?,
-        name: row.try_get("name")?,
-        email: row.try_get("email")?,
-        role: row.try_get::<String, _>("role")?.parse()?,
-        active: row.try_get("active")?,
-    })
+impl TryFrom<Row> for StaffUser {
+    type Error = Error;
+
+    fn try_from(row: Row) -> Result<Self, Error> {
+        Ok(Self {
+            id: StaffUserId::new(row.id),
+            oidc_sub: row.oidc_sub,
+            name: row.name,
+            email: row.email,
+            role: row.role.parse()?,
+            active: row.active,
+        })
+    }
 }
 
 /// # Errors
 /// `DuplicateSub` when the subject is taken, or a database error.
 pub async fn add(pool: &PgPool, staff: &NewStaff) -> Result<StaffUser, Error> {
-    let row = sqlx::query(concat!(
+    let row = sqlx::query_as!(
+        Row,
         "INSERT INTO staff_user (oidc_sub, name, email, role) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (oidc_sub) DO NOTHING RETURNING ",
-        columns!()
-    ))
-    .bind(&staff.oidc_sub)
-    .bind(&staff.name)
-    .bind(&staff.email)
-    .bind(staff.role.as_str())
+         ON CONFLICT (oidc_sub) DO NOTHING
+         RETURNING id, oidc_sub, name, email, role, active",
+        staff.oidc_sub,
+        staff.name,
+        staff.email,
+        staff.role.as_str(),
+    )
     .fetch_optional(pool)
     .await?;
-    row.as_ref().map(from_row).ok_or(Error::DuplicateSub)?
+    row.ok_or(Error::DuplicateSub)?.try_into()
 }
 
 /// # Errors
 /// A database error, or a role the code does not know.
 pub async fn find(pool: &PgPool, id: StaffUserId) -> Result<Option<StaffUser>, Error> {
-    let row = sqlx::query(concat!(
-        "SELECT ",
-        columns!(),
-        " FROM staff_user WHERE id = $1"
-    ))
-    .bind(id.get())
+    sqlx::query_as!(
+        Row,
+        "SELECT id, oidc_sub, name, email, role, active FROM staff_user WHERE id = $1",
+        id.get(),
+    )
     .fetch_optional(pool)
-    .await?;
-    row.as_ref().map(from_row).transpose()
+    .await?
+    .map(StaffUser::try_from)
+    .transpose()
 }
 
 /// # Errors
 /// A database error, or a role the code does not know.
 pub async fn find_by_sub(pool: &PgPool, sub: &str) -> Result<Option<StaffUser>, Error> {
-    let row = sqlx::query(concat!(
-        "SELECT ",
-        columns!(),
-        " FROM staff_user WHERE oidc_sub = $1"
-    ))
-    .bind(sub)
+    sqlx::query_as!(
+        Row,
+        "SELECT id, oidc_sub, name, email, role, active FROM staff_user WHERE oidc_sub = $1",
+        sub,
+    )
     .fetch_optional(pool)
+    .await?
+    .map(StaffUser::try_from)
+    .transpose()
+}
+
+/// Gives a staff member another role. Takes effect on their next request.
+///
+/// # Errors
+/// `LastOwner` when this would leave no active owner, or a database error.
+pub async fn set_role(pool: &PgPool, id: StaffUserId, role: Role) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE staff_user SET role = $2 WHERE id = $1",
+        id.get(),
+        role.as_str(),
+    )
+    .execute(pool)
     .await?;
-    row.as_ref().map(from_row).transpose()
+    Ok(())
+}
+
+/// Stops a staff member from signing in and ends every login they have.
+///
+/// # Errors
+/// `LastOwner` when this would leave no active owner, or a database error.
+pub async fn deactivate(pool: &PgPool, id: StaffUserId) -> Result<(), Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE staff_user SET active = false WHERE id = $1",
+        id.get()
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!("DELETE FROM staff_login WHERE staff_id = $1", id.get())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Lets a known, active person in and refreshes their name and email from the provider.
 /// An unknown person only gets in as the bootstrap owner, and only while there is no owner.
 ///
 /// # Errors
-/// `Inactive` or `Unknown` when the person may not log in, or a database error.
+/// `Inactive` or `Unknown` when the person may not sign in, or a database error.
 pub async fn sign_in(
     pool: &PgPool,
     identity: &Identity,
     bootstrap: &BootstrapOwner,
 ) -> Result<StaffUser, Error> {
     let name = identity.display_name();
-    let row = sqlx::query(concat!(
+    let row = sqlx::query_as!(
+        Row,
         "UPDATE staff_user SET name = $2, email = COALESCE($3, email)
-         WHERE oidc_sub = $1 AND active RETURNING ",
-        columns!()
-    ))
-    .bind(&identity.sub)
-    .bind(name)
-    .bind(&identity.email)
+         WHERE oidc_sub = $1 AND active
+         RETURNING id, oidc_sub, name, email, role, active",
+        identity.sub,
+        name,
+        identity.email,
+    )
     .fetch_optional(pool)
     .await?;
     if let Some(row) = row {
-        return from_row(&row);
+        return row.try_into();
     }
     if let Some(staff) = find_by_sub(pool, &identity.sub).await? {
         return Err(Error::Inactive(staff.name));
@@ -164,20 +221,22 @@ pub async fn sign_in(
         .bind(BOOTSTRAP_LOCK)
         .execute(&mut *tx)
         .await?;
-    let row = sqlx::query(concat!(
-        "INSERT INTO staff_user (oidc_sub, name, email, role)
+    let row = sqlx::query_as!(
+        Row,
+        r#"INSERT INTO staff_user (oidc_sub, name, email, role)
          SELECT $1, $2, $3, 'owner'
          WHERE NOT EXISTS (SELECT 1 FROM staff_user WHERE role = 'owner')
-         ON CONFLICT (oidc_sub) DO NOTHING RETURNING ",
-        columns!()
-    ))
-    .bind(&identity.sub)
-    .bind(name)
-    .bind(&identity.email)
+         ON CONFLICT (oidc_sub) DO NOTHING
+         RETURNING id AS "id!", oidc_sub AS "oidc_sub!", name AS "name!", email,
+            role AS "role!", active AS "active!""#,
+        identity.sub,
+        name,
+        identity.email,
+    )
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
-    row.as_ref().map(from_row).ok_or(Error::Unknown)?
+    row.ok_or(Error::Unknown)?.try_into()
 }
 
 #[cfg(test)]

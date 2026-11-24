@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_outbox SET status = 'sent', attempts = $2, last_error = NULL,\n                        sent_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n                    WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2a7a14a920471187386d14f9f155ac38f0bd2b5592ac678c48ab4ac05a308360"
+}

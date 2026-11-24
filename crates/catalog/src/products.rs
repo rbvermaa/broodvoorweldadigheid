@@ -450,42 +450,40 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
     .collect()
 }
 
-/// The product's own sourdough lead time, or the bakery default from `company`.
+/// The product's own sourdough lead time, if it sets one.
 ///
 /// # Errors
 /// [`Error::NotFound`] when there is no such product.
-pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<i32, Error> {
+pub async fn lead_time_hours(conn: &mut PgConnection, id: ProductId) -> Result<Option<i32>, Error> {
     sqlx::query_scalar!(
-        r#"SELECT coalesce(lead_time_hours, (SELECT default_lead_time_hours FROM company)) AS hours
-        FROM product WHERE id = $1"#,
-        id.get(),
+        "SELECT lead_time_hours FROM product WHERE id = $1",
+        id.get()
     )
     .fetch_optional(conn)
     .await?
-    .ok_or(Error::NotFound)?
-    .ok_or_else(|| Error::Corrupt("no company row".to_owned()))
+    .ok_or(Error::NotFound)
 }
 
-/// [`lead_time_hours`] for several products in one query, by product id. Unknown ids are
-/// left out.
+/// [`lead_time_hours`] for several products in one query, by product id. Unknown ids and
+/// products without their own lead time are left out.
 ///
 /// # Errors
-/// [`Error::Db`] or [`Error::Corrupt`].
+/// [`Error::Db`].
 pub async fn lead_times(
     conn: &mut PgConnection,
     ids: &[ProductId],
 ) -> Result<Vec<(ProductId, i32)>, Error> {
     let ids: Vec<i64> = ids.iter().map(|id| id.get()).collect();
-    sqlx::query!(
-        r#"SELECT p.id, coalesce(p.lead_time_hours, c.default_lead_time_hours) AS "hours!"
-        FROM product p CROSS JOIN company c WHERE p.id = ANY($1) ORDER BY p.id"#,
+    Ok(sqlx::query!(
+        r#"SELECT id, lead_time_hours AS "hours!" FROM product
+        WHERE id = ANY($1) AND lead_time_hours IS NOT NULL ORDER BY id"#,
         &ids,
     )
     .fetch_all(conn)
     .await?
     .into_iter()
-    .map(|row| Ok((ProductId::new(row.id), row.hours)))
-    .collect()
+    .map(|row| (ProductId::new(row.id), row.hours))
+    .collect())
 }
 
 #[cfg(test)]

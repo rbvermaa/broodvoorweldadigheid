@@ -47,7 +47,20 @@ fn sourdough() -> ProductInput {
     }
 }
 
+/// Approvals name a staff user, so `BAKER` has to exist.
+async fn add_baker(conn: &mut PgConnection) {
+    sqlx::query(
+        "INSERT INTO staff_user (id, oidc_sub, name, role) OVERRIDING SYSTEM VALUE
+         VALUES ($1, 'baker-fixture', 'Bakker', 'baker') ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(BAKER.get())
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
 async fn approved(conn: &mut PgConnection, clock: &FakeClock) -> ProductId {
+    add_baker(conn).await;
     let product = products::create(conn, &sourdough()).await.unwrap();
     products::approve_allergens(conn, product.id, &product.allergen_info, BAKER, clock)
         .await
@@ -397,7 +410,7 @@ async fn products_not_sold_online_never_reach_the_webshop_list(mut conn: PoolCon
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn lead_time_falls_back_to_the_company_default(mut conn: PoolConnection<Postgres>) {
+async fn only_products_with_their_own_lead_time_have_one(mut conn: PoolConnection<Postgres>) {
     let default = products::create(&mut conn, &sourdough()).await.unwrap();
     let own = products::create(
         &mut conn,
@@ -413,17 +426,17 @@ async fn lead_time_falls_back_to_the_company_default(mut conn: PoolConnection<Po
         products::lead_time_hours(&mut conn, default.id)
             .await
             .unwrap(),
-        36
+        None
     );
     assert_eq!(
         products::lead_time_hours(&mut conn, own.id).await.unwrap(),
-        48
+        Some(48)
     );
     assert_eq!(
         products::lead_times(&mut conn, &[own.id, ProductId::new(999), default.id])
             .await
             .unwrap(),
-        [(default.id, 36), (own.id, 48)]
+        [(own.id, 48)]
     );
 }
 
@@ -570,6 +583,7 @@ async fn every_allergen_code_is_accepted_and_approvable(mut conn: PoolConnection
         };
         let product = products::create(&mut conn, &input).await.unwrap();
         assert_eq!(product.allergen_info, info);
+        add_baker(&mut conn).await;
         products::approve_allergens(&mut conn, product.id, &info, BAKER, &clock)
             .await
             .unwrap();
@@ -593,6 +607,7 @@ async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection
         .execute(&mut *conn)
         .await
         .unwrap();
+    add_baker(&mut conn).await;
     let approved =
         products::approve_allergens(&mut conn, product.id, &allergen_info(), BAKER, &clock)
             .await

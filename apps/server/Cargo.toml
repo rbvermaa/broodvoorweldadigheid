@@ -20,9 +20,11 @@ db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
 jiff.workspace = true
+notify = { path = "../../crates/notify" }
 rand.workspace = true
 serde.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower-sessions.workspace = true
@@ -39,7 +41,7 @@ toml.workspace = true
 insta.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
-testkit = { path = "../../crates/testkit" }
+testkit = { path = "../../crates/testkit", features = ["email"] }
 tower.workspace = true
 toml.workspace = true
 

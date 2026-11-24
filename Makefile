@@ -6,12 +6,13 @@
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
-#   make staff-add SUB=<sub> NAME=Bas ROLE=baker   let a person into the back office (stack must be up)
+#   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
 #   make smoke                  throwaway stack: health, Kanidm, backup and restore test
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
+#   MOLLIE_TEST_API_KEY_FILE=path make mollie-contract   contract test against Mollie test mode
 
 SHELL := bash
 HOST_SYSTEM := $(shell nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null)
@@ -34,7 +35,7 @@ endif
 NIX_DEV := nix develop --command
 CHECK = nix build --no-link --print-build-logs .\#checks.$(HOST_SYSTEM).$(1)
 
-IMAGES := server postgres kanidm caddy backup
+IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
@@ -46,6 +47,11 @@ PG_PORT ?= 54331
 DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/postgres
 export DATABASE_URL
 SQLX_DATABASE_URL ?= postgres://postgres@127.0.0.1:$(PG_PORT)/bvw_sqlx_prepare
+# apalis-postgres checks its queries against DATABASE_URL whenever SQLX_OFFLINE is false, so
+# sqlx prepare needs its tables too, and a fresh build of it so its query data is written
+# (ADR 0011).
+APALIS_MIGRATIONS := cargo metadata --format-version 1 --locked | grep -o "\"manifest_path\":\"[^\"]*apalis-postgres-[^/\"]*/Cargo.toml\"" \
+	| sed -e "s/\"manifest_path\":\"//" -e "s|/Cargo.toml\"$$|/migrations|"
 
 COMPOSE_PROJECT ?= bvw
 SMOKE_PROJECT ?= bvw-smoke
@@ -57,11 +63,11 @@ BVW_IMAGE_TAG ?= dev
 BVW_HTTP_PORT ?= 8080
 BVW_HTTPS_PORT ?= 8443
 export BVW_HTTP_PORT BVW_HTTPS_PORT BVW_IMAGE_TAG
-COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT)
+COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PROJECT) --profile mail
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add
+	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -104,7 +110,10 @@ coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 
 sqlx-prepare: ## Regenerate .sqlx/ (offline query data) against a scratch database (needs make db-up)
 	$(NIX_DEV) bash -c 'set -e; export DATABASE_URL=$(SQLX_DATABASE_URL) SQLX_OFFLINE=false; \
-		sqlx database drop -y; sqlx database create; sqlx migrate run --source crates/db/migrations; \
+		sqlx database drop -y; sqlx database create; \
+		sqlx migrate run --source "$$($(APALIS_MIGRATIONS))"; \
+		sqlx migrate run --ignore-missing --source crates/db/migrations; \
+		cargo clean --package apalis-postgres; \
 		cargo sqlx prepare --workspace -- --all-targets --all-features'
 
 sqlx-check: ## Check .sqlx/ matches the queries and migrations
@@ -112,6 +121,10 @@ sqlx-check: ## Check .sqlx/ matches the queries and migrations
 
 restore-test: ## Back up a seeded database, restore it and verify (Gate 1)
 	$(call CHECK,restore)
+
+mollie-contract: ## Contract test against Mollie test mode (needs MOLLIE_TEST_API_KEY_FILE)
+	@test -n "$$MOLLIE_TEST_API_KEY_FILE" || { echo "Set MOLLIE_TEST_API_KEY_FILE to a file holding a Mollie test_ key" >&2; exit 1; }
+	$(NIX_DEV) cargo nextest run --package payments --test mollie_contract --no-capture
 
 server: ## Build the server binary
 	nix build --print-build-logs .\#server
@@ -122,10 +135,12 @@ up: ## Start the Compose stack on BVW_HTTP_PORT/BVW_HTTPS_PORT (default 8080/844
 down: ## Stop the Compose stack (volumes stay)
 	$(COMPOSE) down
 
-staff-add: ## Let a person into the back office: SUB (identity provider subject), NAME, ROLE (owner, baker, counter), EMAIL
-	@test -n "$(SUB)" -a -n "$(NAME)" -a -n "$(ROLE)" || { echo "usage: make staff-add SUB=<sub> NAME=Bas ROLE=baker"; exit 2; }
-	$(COMPOSE) run --rm --no-deps migrate staff add --sub '$(SUB)' --name '$(NAME)' --role '$(ROLE)' \
-		$(if $(EMAIL),--email '$(EMAIL)')
+# The values reach the cli as environment variables, never spliced into the command line,
+# so names like "Bas van 't Hof" survive.
+staff-add: ## Let a person into the back office: SUB (their Kanidm UUID), NAME, ROLE (owner, baker, counter), EMAIL
+	@test -n "$$SUB" -a -n "$$NAME" -a -n "$$ROLE" || { echo "usage: make staff-add SUB=<uuid> NAME=\"Bas van 't Hof\" ROLE=baker [EMAIL=...]"; exit 2; }
+	STAFF_SUB="$$SUB" STAFF_NAME="$$NAME" STAFF_ROLE="$$ROLE" STAFF_EMAIL="$$EMAIL" \
+		$(COMPOSE) run --rm --no-deps -e STAFF_SUB -e STAFF_NAME -e STAFF_ROLE -e STAFF_EMAIL migrate staff add
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)

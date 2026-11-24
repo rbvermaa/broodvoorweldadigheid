@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO manual_invoice (customer_id, invoice_number, invoice_date, period_from,\n            period_to, total_cents, recorded_at, recorded_by)\n        VALUES ($1, $2, date 'epoch' + $3::integer, date 'epoch' + $4::integer,\n            date 'epoch' + $5::integer, $6,\n            timestamptz 'epoch' + $7::bigint * interval '1 microsecond', $8)\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "manual_invoice",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cf6096299299bb18cd9a0fd867042419ca05e91ee2c9289ec1e9cae3b7789ab0"
+}

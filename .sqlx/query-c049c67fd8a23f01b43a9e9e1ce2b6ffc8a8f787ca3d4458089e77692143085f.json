@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO staff_login (staff_id, created_at, last_seen_at)\n         VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond',\n            timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "staff_login",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c049c67fd8a23f01b43a9e9e1ce2b6ffc8a8f787ca3d4458089e77692143085f"
+}

@@ -1,0 +1,151 @@
+#![forbid(unsafe_code)]
+
+use notify::{
+    Email, EmailKind, EmailSender, OutgoingEmail, SendError, SmtpConfig, SmtpSender, TlsMode,
+};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
+
+/// A one-connection SMTP server on 127.0.0.1 that answers RCPT with `rcpt_reply` and
+/// returns everything the client said.
+async fn fake_relay(rcpt_reply: &'static str) -> (u16, JoinHandle<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        let (read, mut write) = socket.into_split();
+        let mut lines = BufReader::new(read).lines();
+        let mut said = String::new();
+        let mut in_data = false;
+        write.write_all(b"220 fake ESMTP\r\n").await.unwrap();
+        while let Some(line) = lines.next_line().await.unwrap() {
+            said.push_str(&line);
+            said.push('\n');
+            let reply = if in_data {
+                if line != "." {
+                    continue;
+                }
+                in_data = false;
+                "250 queued"
+            } else {
+                let command = line.get(..4).unwrap_or_default().to_ascii_uppercase();
+                match command.as_str() {
+                    "EHLO" | "HELO" | "MAIL" | "RSET" | "NOOP" => "250 OK",
+                    "RCPT" => rcpt_reply,
+                    "DATA" => {
+                        in_data = true;
+                        "354 go ahead"
+                    }
+                    "QUIT" => "221 bye",
+                    _ => "500 what",
+                }
+            };
+            write
+                .write_all(format!("{reply}\r\n").as_bytes())
+                .await
+                .unwrap();
+            if reply.starts_with("250 queued") || !reply.starts_with(['2', '3']) {
+                break;
+            }
+        }
+        said
+    });
+    (port, server)
+}
+
+fn sender(port: u16) -> SmtpSender {
+    let config = SmtpConfig::from_lookup(
+        |key| {
+            Some(match key {
+                "SMTP_HOST" => "127.0.0.1".to_owned(),
+                "SMTP_PORT" => port.to_string(),
+                "SMTP_TLS" => "none".to_owned(),
+                "MAIL_FROM" => {
+                    "Brood voor Weldadigheid <bakker@broodvoorweldadigheid.nl>".to_owned()
+                }
+                _ => return None,
+            })
+        },
+        |_| Err("no files".to_owned()),
+    )
+    .unwrap();
+    assert_eq!(config.tls, TlsMode::None);
+    SmtpSender::new(&config).unwrap()
+}
+
+fn outgoing() -> OutgoingEmail {
+    OutgoingEmail {
+        id: "0b5e7c2a-1111-4222-8333-944455556666".to_owned(),
+        date: "2026-12-01T08:00:00Z".parse().unwrap(),
+        email: Email {
+            kind: EmailKind::PickupReminder,
+            to: "sanne@example.org".to_owned(),
+            subject: "Ophalen: je bestelling 2026-0042".to_owned(),
+            text: "Hoi Sanne,\n".to_owned(),
+            html: "<p>Hoi Sanne,</p>".to_owned(),
+            list_unsubscribe: None,
+            reply_to: None,
+        },
+    }
+}
+
+#[tokio::test]
+async fn sends_over_smtp() {
+    let (port, server) = fake_relay("250 OK").await;
+    let sender = sender(port);
+    sender.send(&outgoing()).await.expect("sent");
+    let said = server.await.unwrap();
+    assert!(
+        said.starts_with("EHLO broodvoorweldadigheid.nl\n"),
+        "{said}"
+    );
+    assert!(
+        said.contains("MAIL FROM:<bakker@broodvoorweldadigheid.nl>"),
+        "{said}"
+    );
+    assert!(said.contains("RCPT TO:<sanne@example.org>"), "{said}");
+    assert!(
+        said.contains("Subject: Ophalen: je bestelling 2026-0042"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "Message-ID: <0b5e7c2a-1111-4222-8333-944455556666@broodvoorweldadigheid.nl>"
+        ),
+        "{said}"
+    );
+}
+
+#[tokio::test]
+async fn a_rejected_recipient_is_permanent() {
+    let (port, server) = fake_relay("550 5.1.1 no such user").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Permanent(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_busy_relay_is_temporary() {
+    let (port, server) = fake_relay("451 4.3.0 try again later").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_refused_login_is_temporary_so_the_queue_survives_a_wrong_password() {
+    let (port, server) = fake_relay("535 5.7.8 authentication failed").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_relay_that_is_down_is_temporary() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+}

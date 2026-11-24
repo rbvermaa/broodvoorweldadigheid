@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO charity_transfer (charity_id, amount_cents, transferred_on, bank_reference,\n            recorded_at, recorded_by)\n        VALUES ($1, $2, date 'epoch' + $3::integer, $4,\n            timestamptz 'epoch' + $5::bigint * interval '1 microsecond', $6)\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity_transfer",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f210923111b219ce28642747a878cb00b568658234c93d8f80c1eb6462627112"
+}

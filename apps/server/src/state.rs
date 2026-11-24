@@ -25,7 +25,6 @@ impl AppState {
         }
     }
 
-    /// Replaces the system clock, so tests can set "now".
     #[must_use]
     pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
         self.clock = clock;

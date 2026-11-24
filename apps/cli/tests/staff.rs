@@ -53,3 +53,37 @@ async fn staff_add_stores_the_person_with_the_role(pool: PgPool) {
         "{error}"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_empty_email_from_make_staff_add_means_none(pool: PgPool) {
+    for (sub, email) in [
+        ("0d2f1f9e-1c2b-4e3a-9f00-000000000001", ""),
+        ("0d2f1f9e-1c2b-4e3a-9f00-000000000002", "  "),
+    ] {
+        let Command::Staff(StaffCommand::Add {
+            database_url,
+            name,
+            role,
+            ..
+        }) = add(&pool, sub, Role::Counter)
+        else {
+            unreachable!("add builds a staff add command");
+        };
+        let command = Command::Staff(StaffCommand::Add {
+            database_url,
+            sub: sub.to_string(),
+            name,
+            email: Some(email.to_string()),
+            role,
+        });
+        let code = execute(command, jiff::Timestamp::UNIX_EPOCH)
+            .await
+            .expect("add");
+        assert_eq!(code, ExitCode::SUCCESS);
+        let staff = auth::staff::find_by_sub(&pool, sub)
+            .await
+            .expect("find")
+            .expect("added");
+        assert_eq!(staff.email, None, "{email:?}");
+    }
+}

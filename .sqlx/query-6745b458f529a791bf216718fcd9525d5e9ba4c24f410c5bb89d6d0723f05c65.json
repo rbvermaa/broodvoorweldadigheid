@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM \"order\"\n        WHERE pickup_slot_id = $1 AND id IS DISTINCT FROM $3\n            AND (status IN ('paid', 'confirmed', 'picked_up')\n                OR (status = 'pending_payment'\n                    AND hold_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6745b458f529a791bf216718fcd9525d5e9ba4c24f410c5bb89d6d0723f05c65"
+}

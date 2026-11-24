@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("contact-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("contact-title")? }}</h1>
+<p>{{ layout.t("contact-intro")? }}</p>
+{%- if !errors.form.is_empty() %}
+{% call fb::alert("error", errors.form) %}{% endcall %}
+{%- endif %}
+<form class="contact-form" method="post" action="/contact">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::field("text", "name", layout.t("contact-name")?, value = form.name, error = errors.name, required = true) %}{% endcall %}
+{% call f::field("email", "email", layout.t("contact-email")?, value = form.email, hint = layout.t("contact-email-hint")?, error = errors.email, required = true) %}{% endcall %}
+{% call f::field("textarea", "message", layout.t("contact-message")?, value = form.message, error = errors.message, required = true) %}{% endcall %}
+{% call f::trap("website", layout.t("contact-trap")?) %}{% endcall %}
+{% call b::button(layout.t("contact-send")?, kind = "submit") %}{% endcall %}
+</form>
+<p><a href="/faq">{{ layout.t("contact-faq")? }}</a></p>
+{% endblock %}

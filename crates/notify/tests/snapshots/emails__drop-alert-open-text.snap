@@ -1,0 +1,25 @@
+---
+source: crates/notify/tests/emails.rs
+expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
+---
+To: abonnee@example.org
+Subject: Bestellen kan: drop van zaterdag 5 december 2026
+
+Je kunt nu bestellen
+
+Hoi,
+
+Je kunt nu bestellen voor de drop van zaterdag 5 december 2026. Op is op!
+
+Ophaalmoment: zaterdag 5 december 2026, 11:00–12:00
+Locatie: De Proef, Majoor van Swietenlaan 15, 8382 CE Frederiksoord
+Goed doel: Normale verkoop, zonder goed doel
+
+Naar de webshop: https://broodvoorweldadigheid.nl/drops/2026-12-05
+
+Groetjes van de bakker
+
+-- 
+Je krijgt deze mail omdat je je hebt aangemeld voor drop-alerts.
+Afmelden: https://broodvoorweldadigheid.nl/drop-alerts/afmelden/tok3n
+Brood voor Weldadigheid · Majoor van Swietenlaan 15, 8382 CE Frederiksoord · KvK 12345678

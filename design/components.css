@@ -1,6 +1,7 @@
 /* Styles for the macros in templates/components/. Tokens only; mobile first. */
 .visually-hidden,
-.pickup-input {
+.pickup-input,
+.field-trap {
   position: absolute;
   width: var(--border-thin);
   height: var(--border-thin);
@@ -504,4 +505,14 @@
   margin: 0 0 var(--space-5);
   padding: 0;
   border: 0;
+}
+
+.faq-item {
+  max-width: var(--size-content);
+  margin: 0 0 var(--space-6);
+}
+
+.contact-form {
+  max-width: var(--size-content);
+  margin: 0 0 var(--space-6);
 }

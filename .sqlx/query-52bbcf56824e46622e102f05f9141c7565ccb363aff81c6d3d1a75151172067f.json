@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM bake_day\n        WHERE status = 'open'\n            AND cutoff_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n        ORDER BY id FOR UPDATE SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "52bbcf56824e46622e102f05f9141c7565ccb363aff81c6d3d1a75151172067f"
+}

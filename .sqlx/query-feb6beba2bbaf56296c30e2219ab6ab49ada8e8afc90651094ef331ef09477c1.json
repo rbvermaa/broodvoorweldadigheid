@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE donation_allocation SET status = 'transferred'\n        WHERE id = ANY($1) AND status = 'earmarked'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "feb6beba2bbaf56296c30e2219ab6ab49ada8e8afc90651094ef331ef09477c1"
+}
