@@ -70,6 +70,8 @@ pub enum SmtpConfigError {
     InvalidTls(String),
     #[error("SMTP_USERNAME and SMTP_PASSWORD_FILE must be set together")]
     HalfCredentials,
+    #[error("SMTP_TLS=none cannot be used with a login: the password would go out unencrypted")]
+    LoginWithoutTls,
     #[error("cannot read SMTP_PASSWORD_FILE {path}: {error}")]
     PasswordFile { path: String, error: String },
     #[error("SMTP_PASSWORD_FILE {0} is empty")]
@@ -134,6 +136,9 @@ impl SmtpConfig {
             }
             _ => return Err(SmtpConfigError::HalfCredentials),
         };
+        if tls == TlsMode::None && username.is_some() {
+            return Err(SmtpConfigError::LoginWithoutTls);
+        }
         let raw_from = set("MAIL_FROM").ok_or(SmtpConfigError::MissingFrom)?;
         let from =
             Mailbox::from_str(&raw_from).map_err(|_| SmtpConfigError::InvalidFrom(raw_from))?;
@@ -195,7 +200,8 @@ impl EmailSender for SmtpSender {
                 .await
                 .map(|_| ())
                 .map_err(|error| {
-                    if error.is_permanent() {
+                    let code = error.status().map(|code| code.to_string());
+                    if error.is_permanent() && is_recipient_refusal(code.as_deref()) {
                         SendError::Permanent(error.to_string())
                     } else {
                         SendError::Transient(error.to_string())
@@ -203,6 +209,13 @@ impl EmailSender for SmtpSender {
                 })
         })
     }
+}
+
+/// Only replies about the recipient mailbox are final. Other 5xx replies, such as 535
+/// (authentication failed) or 554, usually mean the relay or our settings are wrong, and
+/// would otherwise fail every queued email at once.
+fn is_recipient_refusal(code: Option<&str>) -> bool {
+    matches!(code, Some("550" | "551" | "553"))
 }
 
 /// The MIME message: multipart/alternative with the text part first, a Message-ID on the
@@ -242,6 +255,16 @@ pub fn message(from: &Mailbox, outgoing: &OutgoingEmail) -> Result<Message, Send
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_mailbox_refusals_are_final() {
+        for code in ["550", "551", "553"] {
+            assert!(is_recipient_refusal(Some(code)), "{code}");
+        }
+        for code in [Some("535"), Some("530"), Some("554"), Some("552"), None] {
+            assert!(!is_recipient_refusal(code), "{code:?}");
+        }
+    }
 
     fn lookup<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
         move |key| {
@@ -365,6 +388,13 @@ mod tests {
         assert!(debug.contains("<redacted>"), "{debug}");
         assert!(debug.contains("smtp.example.org"), "{debug}");
         assert!(builds(&config));
+
+        let mut plain = vars.to_vec();
+        plain.push(("SMTP_TLS", "none"));
+        assert_eq!(
+            SmtpConfig::from_lookup(lookup(&plain), |_| Ok("geheim".to_owned())),
+            Err(SmtpConfigError::LoginWithoutTls)
+        );
 
         assert_eq!(
             SmtpConfig::from_lookup(lookup(&vars), |_| Ok("\n".to_owned())),

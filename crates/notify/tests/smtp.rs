@@ -133,6 +133,14 @@ async fn a_busy_relay_is_temporary() {
 }
 
 #[tokio::test]
+async fn a_refused_login_is_temporary_so_the_queue_survives_a_wrong_password() {
+    let (port, server) = fake_relay("535 5.7.8 authentication failed").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
 async fn a_relay_that_is_down_is_temporary() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();

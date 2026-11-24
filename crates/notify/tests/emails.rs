@@ -19,8 +19,8 @@ fn ts(s: &str) -> Timestamp {
 fn company() -> Company {
     Company {
         name: "Brood voor Weldadigheid".to_owned(),
-        address: Some("Majoor van Swietenlaan 15, 8382 CE Frederiksoord".to_owned()),
-        kvk: Some("12345678".to_owned()),
+        address: "Majoor van Swietenlaan 15, 8382 CE Frederiksoord".to_owned(),
+        kvk: "12345678".to_owned(),
     }
 }
 
@@ -395,12 +395,8 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
 #[test]
 fn bad_inputs_are_refused() {
     let i18n = i18n();
-    let company = Company {
-        name: "Brood voor Weldadigheid".to_owned(),
-        address: None,
-        kvk: None,
-    };
-    let c = Composer::new(&i18n, &company);
+    let complete = company();
+    let c = Composer::new(&i18n, &complete);
 
     let mut order = confirmation(Donation::NormalSale);
     order.lines.clear();
@@ -413,7 +409,7 @@ fn bad_inputs_are_refused() {
     order.to.email = "sanne".to_owned();
     assert!(matches!(
         c.order_confirmation(&order),
-        Err(ComposeError::Address(_))
+        Err(ComposeError::Address)
     ));
 
     let mut order = confirmation(Donation::NormalSale);
@@ -425,7 +421,7 @@ fn bad_inputs_are_refused() {
 
     let mut alert = drop_alert(DropAlertKind::MenuPublished);
     alert.unsubscribe_url = "http://broodvoorweldadigheid.nl/afmelden".to_owned();
-    assert!(matches!(c.drop_alert(&alert), Err(ComposeError::Url(_))));
+    assert!(matches!(c.drop_alert(&alert), Err(ComposeError::Url)));
 
     let mut reminder = PickupReminder {
         to: sanne(),
@@ -451,16 +447,38 @@ fn bad_inputs_are_refused() {
         );
     }
 
-    let email = c
-        .subscription_confirmation(&SubscriptionConfirmation {
-            to: "abonnee@example.org".to_owned(),
-            confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+    let subscription = SubscriptionConfirmation {
+        to: "abonnee@example.org".to_owned(),
+        confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+    };
+    for blank in ["name", "address", "kvk"] {
+        let mut incomplete = company();
+        match blank {
+            "name" => incomplete.name = " ".to_owned(),
+            "address" => incomplete.address.clear(),
+            _ => incomplete.kvk.clear(),
+        }
+        let composer = Composer::new(&i18n, &incomplete);
+        assert!(
+            matches!(
+                composer.subscription_confirmation(&subscription),
+                Err(ComposeError::Company)
+            ),
+            "{blank}"
+        );
+    }
+    let error = c
+        .order_confirmation(&OrderConfirmation {
+            to: Recipient {
+                email: "geheim@".to_owned(),
+                name: None,
+            },
+            ..confirmation(Donation::NormalSale)
         })
-        .expect("compose");
+        .unwrap_err();
     assert!(
-        email.text.ends_with("-- \nBrood voor Weldadigheid\n"),
-        "{}",
-        email.text
+        !error.to_string().contains("geheim"),
+        "no customer data in errors"
     );
 }
 

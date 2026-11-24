@@ -15,8 +15,8 @@ use crate::email::{Email, EmailKind};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Company {
     pub name: String,
-    pub address: Option<String>,
-    pub kvk: Option<String>,
+    pub address: String,
+    pub kvk: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,10 +138,12 @@ pub enum ComposeError {
     Money(#[from] MoneyError),
     #[error(transparent)]
     Render(#[from] RenderError),
-    #[error("{0:?} is not an email address")]
-    Address(String),
-    #[error("{0:?} is not an https URL")]
-    Url(String),
+    #[error("the recipient is not an email address")]
+    Address,
+    #[error("a link is not a plain https URL")]
+    Url,
+    #[error("the company name, address and KvK number must all be filled in")]
+    Company,
     #[error("an order confirmation needs at least one line")]
     NoLines,
     #[error("a refund must be more than zero, got {0} cents")]
@@ -580,21 +582,22 @@ impl<'a> Composer<'a> {
         })
     }
 
-    fn company_line(&self) -> Result<String, I18nError> {
-        let mut parts = vec![self.company.name.clone()];
-        if let Some(address) = self.company.address.as_deref().filter(|a| !a.is_empty()) {
-            parts.push(address.to_owned());
+    fn company_line(&self) -> Result<String, ComposeError> {
+        let Company { name, address, kvk } = self.company;
+        if [name, address, kvk]
+            .iter()
+            .any(|part| part.trim().is_empty())
+        {
+            return Err(ComposeError::Company);
         }
-        if let Some(kvk) = self.company.kvk.as_deref().filter(|k| !k.is_empty()) {
-            parts.push(self.t("email-footer-kvk", &[("kvk", kvk.to_owned())])?);
-        }
-        Ok(parts.join(" · "))
+        let kvk = self.t("email-footer-kvk", &[("kvk", kvk.clone())])?;
+        Ok([name.clone(), address.clone(), kvk].join(" · "))
     }
 }
 
 fn address(to: &str) -> Result<String, ComposeError> {
     let to = to.trim();
-    lettre::Address::from_str(to).map_err(|_| ComposeError::Address(to.to_owned()))?;
+    lettre::Address::from_str(to).map_err(|_| ComposeError::Address)?;
     Ok(to.to_owned())
 }
 
@@ -610,7 +613,7 @@ fn https(url: &str) -> Result<String, ComposeError> {
     if ok {
         Ok(url.to_owned())
     } else {
-        Err(ComposeError::Url(url.to_owned()))
+        Err(ComposeError::Url)
     }
 }
 

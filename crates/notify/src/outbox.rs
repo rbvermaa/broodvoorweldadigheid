@@ -102,7 +102,8 @@ enum Outcome {
 /// Sends up to `batch` due emails, oldest first. Each email is locked with
 /// `FOR UPDATE SKIP LOCKED` in its own transaction while it is sent, so several workers
 /// never send the same email, and a crash re-sends at most the one email in flight, with
-/// the same Message-ID.
+/// the same Message-ID. Pass a connection outside any transaction: inside one, the row
+/// locks last until the outer commit.
 ///
 /// # Errors
 /// [`OutboxError`] when the database fails; send failures are recorded on the row instead.
@@ -116,6 +117,9 @@ pub async fn send_pending(
     for _ in 0..batch {
         let now = clock.now();
         let mut tx = conn.begin().await?;
+        sqlx::query("SET LOCAL idle_in_transaction_session_timeout = 0")
+            .execute(&mut *tx)
+            .await?;
         let Some(due) = sqlx::query_as!(
             Due,
             r#"SELECT id, message_id::text AS "message_id!", kind, to_address, subject,
@@ -225,7 +229,11 @@ fn outgoing(due: Due, now: Timestamp) -> Result<OutgoingEmail, OutboxError> {
 }
 
 fn truncate(error: &str) -> String {
-    error.chars().take(MAX_ERROR_LEN).collect()
+    error
+        .chars()
+        .filter(|c| *c != '\0')
+        .take(MAX_ERROR_LEN)
+        .collect()
 }
 
 #[cfg(test)]
@@ -253,5 +261,6 @@ mod tests {
     fn long_errors_are_cut() {
         assert_eq!(truncate(&"é".repeat(5000)).chars().count(), MAX_ERROR_LEN);
         assert_eq!(truncate("kort"), "kort");
+        assert_eq!(truncate("a\0b"), "ab");
     }
 }
