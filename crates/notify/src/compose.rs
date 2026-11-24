@@ -93,6 +93,8 @@ pub struct OrderConfirmation {
     pub pickup: Pickup,
     pub lines: Vec<OrderLine>,
     pub donation: Donation,
+    /// The order's status page.
+    pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +246,10 @@ impl<'a> Composer<'a> {
                 }));
             }
         }
+        blocks.push(Block::Button(Link {
+            label: self.t("email-order-confirmation-status", &[])?,
+            url: https(&order.status_url)?,
+        }));
         blocks.push(Block::Paragraph(self.t("email-questions", &[])?));
         let parts = Parts {
             subject: self.t(

@@ -82,6 +82,23 @@ pub async fn enqueue(
     Ok(id.map(OutboxId))
 }
 
+/// Which of `keys` are already used as a dedupe key, sent or not.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn queued_keys(
+    conn: &mut PgConnection,
+    keys: &[String],
+) -> Result<Vec<String>, OutboxError> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT dedupe_key AS "key!" FROM email_outbox WHERE dedupe_key = ANY($1)"#,
+        keys,
+    )
+    .fetch_all(conn)
+    .await?;
+    Ok(found)
+}
+
 struct Due {
     id: i64,
     message_id: String,

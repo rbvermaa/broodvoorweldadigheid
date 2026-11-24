@@ -29,6 +29,10 @@ pub enum Error {
     },
     #[error("an order that is {0} cannot be picked up")]
     NotPickable(crate::OrderStatus),
+    #[error("the order to replace is no longer pending")]
+    NotReplaceable,
+    #[error("the order total is zero")]
+    FreeOrder,
     #[error("the payment is recorded for another order")]
     PaymentOfOtherOrder,
     #[error("amount out of range")]

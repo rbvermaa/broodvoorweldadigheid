@@ -5,9 +5,11 @@
 pub mod bake_days;
 pub mod drop_alerts;
 mod error;
+pub mod order_emails;
 pub mod scheduler;
 
 pub use bake_days::TickReport;
 pub use drop_alerts::AlertReport;
 pub use error::Error;
+pub use order_emails::{EmailError, OrderEmails};
 pub use scheduler::{BakeDayTick, Mail, TickOutcome, run, schedule_tick, setup, work};
