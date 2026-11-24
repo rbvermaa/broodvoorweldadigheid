@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t(title)? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t(title)? }}</h1>
+{% call fb::alert(kind, layout.t(text)?) %}{% endcall %}
+{%- if login_link %}
+<p><a href="/inloggen">{{ layout.t("account-link-again")? }}</a></p>
+{%- endif %}
+{% endblock %}

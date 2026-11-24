@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod account;
 pub mod alerts;
 pub mod assets;
 pub mod background;
@@ -8,6 +9,7 @@ pub mod clock;
 pub mod components;
 pub mod config;
 pub mod csrf;
+pub mod customer_session;
 pub mod gallery;
 pub mod healthcheck;
 #[cfg(test)]
@@ -53,6 +55,7 @@ pub fn router(state: AppState) -> Router {
         .merge(shop::routes())
         .merge(site)
         .merge(alerts::routes(&state))
+        .merge(account::routes(&state))
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
