@@ -8,7 +8,8 @@ Questions about the spec. The spec is only changed when the owner asks.
   list of allowed external services?
 - [ ] **Off-site backup target.** Which host or provider does the second rustic
   repository go to?
-- [ ] **Label fonts.** Which fonts go into the server image for PDFs and labels?
+- [x] **Label fonts.** Which fonts go into the server image for PDFs and labels?
+  **Answered:** Oswald and Inter, pinned by Nix (ADR 0009); the PDFs embed their TTFs (ADR 0016).
 - [x] **Branch protection.** Not available on a free private GitHub repo (ADR 0001).
   Done 2026-11-24: the repo is public now and `main` requires the CI jobs (ADR 0001).
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
@@ -41,14 +42,17 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
-- [ ] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
+- [x] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?
-- [ ] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
+  **Done:** a failed payment start can be retried for the same order within its hold (ADR 0015).
+- [x] **Logo file.** Emails, PDFs and labels need the brand mark. Add an SVG (or the
   1024-pixel PNG) to `design/`; emails use a text wordmark until then (ADR 0014).
   **Partly answered 2026-11-24:** the PNG is in `design/` now (logo, favicon and touch
   icon, ADR 0023). Still open: an SVG for sharp labels and PDFs. Emails keep the text
   wordmark until the server knows its public URL.
+  **Answered 2026-11-24:** the owner keeps the PNG for everything; no SVG is needed (the
+  supplied DXF only wraps the same PNG).
 - [x] **Accent colour.** The spec leaves "one accent colour" to choose.
   **Answered 2026-11-24:** none. The owner chose style "Stempel": ink #111111 on white,
   like the logo (ADR 0023).
@@ -65,10 +69,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
   keys), or verify ID tokens without openidconnect? Until then staff can only sign in
   through the local dev login.
-- [ ] **Unapproved allergens block checkout** (ADR 0012). A product without approved
-  allergen data cannot be ordered, also not by staff. OK?
-- [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
-  like web orders. How do phone orders get paid: payment link, at pickup, on account?
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
@@ -79,3 +79,10 @@ Questions about the spec. The spec is only changed when the owner asks.
   count refunds on that day instead?
 - [ ] **On-account orders on charity drops.** Do they create a donation allocation
   (F4b says they pay the suggested price), and when: at confirmation or once invoiced?
+- [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
+  commercially without Niimbot's consent).
+  **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a
+  300 dpi PNG at its exact size, plus CSV rows for the Niimbot app's import; the owner
+  prints through the official Niimbot app (ADR 0024).
+- [x] **Redirects from old Payhip links** (spec, Architecture: `/b/…` and `/contact`).
+  **Answered 2026-11-24:** not needed; the owner dropped them.

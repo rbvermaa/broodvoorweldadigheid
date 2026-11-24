@@ -19,3 +19,13 @@ history rewritten to the owner's personal email; the old private repo is kept as
 requires the check and smoke jobs on both architectures, applies to admins, and refuses
 force-pushes and deletion. "No merge without a green pipeline" (spec, "Rules that keep
 it safe") is enforced by GitHub. PRs still also need a Claude and a Codex review.
+
+Update 2026-11-24 (later): `main` uses a merge queue. A PR is queued with auto-merge once its
+reviews are clean; the queue re-runs the checks on the PR merged with the latest `main` and
+merges only if they pass, so PRs no longer need main merged in by hand before merging.
+
+Update 2026-11-24 (Cachix): CI pushes and pulls build output through the public Cachix
+cache `rbvermaa` (owner's choice), and flake.nix lists it as an extra substituter, so dev1,
+dev2 and the Mac can reuse CI's builds. Like GitHub, it holds only build output of this
+public repository, never customer data or secrets. The spec names a self-hosted attic cache;
+Cachix replaces it for now. The push token is the `CACHIX_AUTH_TOKEN` repository secret.

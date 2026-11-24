@@ -1,6 +1,13 @@
 {
   description = "Brood voor Weldadigheid bakery platform";
 
+  nixConfig = {
+    extra-substituters = [ "https://rbvermaa.cachix.org" ];
+    extra-trusted-public-keys = [
+      "rbvermaa.cachix.org-1:pNfK77adCg94nKplW/niSN7kgLqLmiEopPiarYNGBUw="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
