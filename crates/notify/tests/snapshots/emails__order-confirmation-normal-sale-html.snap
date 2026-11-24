@@ -2,7 +2,6 @@
 source: crates/notify/tests/emails.rs
 expression: email.html
 ---
-
 <!doctype html>
 <html lang="nl">
 <head>
@@ -39,6 +38,7 @@ expression: email.html
 <tr><td style="padding: 4px 0 0; color: #525252; font-size: 14px; text-align: right; white-space: nowrap;" colspan="4">BTW 21% over € 10,33: € 2,17</td></tr>
 </tfoot>
 </table>
+<p style="margin: 24px 0;"><a style="display: inline-block; padding: 12px 24px; border-radius: 8px; background: #000000; color: #ffffff; font-weight: 700; text-decoration: none;" href="https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666">Bekijk je bestelling</a></p>
 <p style="margin: 0 0 16px;">Vragen? Beantwoord deze mail, dan helpen we je verder.</p>
 <p style="margin: 0 0 16px;">Groetjes van de bakker</p>
 </td></tr>

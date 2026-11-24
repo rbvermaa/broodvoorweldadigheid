@@ -35,6 +35,7 @@ email-order-confirmation-intro = We gaan voor je bakken. Hieronder zie je wat je
 email-order-confirmation-charity = Alles wat je voor deze drop betaalt, gaat naar { $charity }.
 email-order-confirmation-saved = Je bewaart je donatie voor later. Kies vóór { $date } een goed doel. Kies je niets, dan gaat je donatie naar het goede doel van de eerstvolgende drop.
 email-order-confirmation-choose = Kies een goed doel
+email-order-confirmation-status = Bekijk je bestelling
 
 email-pickup-reminder-subject = Ophalen: je bestelling { $number }
 email-pickup-reminder-heading = Je brood ligt bijna klaar

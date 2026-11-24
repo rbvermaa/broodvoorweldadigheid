@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT dedupe_key AS \"key!\" FROM email_outbox WHERE dedupe_key = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "dedupe_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "92b1f018c5f469c084bbf7e5547ff04b39f1cf79e99183ddc0bbfb52fb8aac43"
+}
