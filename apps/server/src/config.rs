@@ -459,6 +459,9 @@ mod tests {
             ])),
             Err(ConfigError::DevStaffLoginBehindProxy)
         );
+    }
+
+    #[test]
     fn public_url_is_an_origin_and_gives_the_host() {
         let config = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
             .expect("config");
