@@ -16,6 +16,7 @@ use tokio::time::MissedTickBehavior;
 use crate::Error;
 use crate::bake_days::{self, TickReport};
 use crate::drop_alerts::{self, AlertReport};
+use crate::order_emails::{self, OrderEmails};
 
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
@@ -25,9 +26,9 @@ pub const SEND_BATCH: u32 = 500;
 /// slow relay cannot keep a tick, and its connection, busy past the next one.
 pub const SEND_BUDGET: Duration = Duration::from_secs(40);
 
-/// The every-minute job that opens and closes bake days and releases expired order
-/// holds. `minute` is the start of the minute it was scheduled for and makes the job
-/// unique.
+/// The every-minute job that opens and closes bake days, releases expired order holds
+/// and queues due pickup reminders. `minute` is the start of the minute it was scheduled
+/// for and makes the job unique.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BakeDayTick {
     pub minute: Timestamp,
@@ -49,13 +50,15 @@ impl Clock for Frozen {
     }
 }
 
-/// What the tick needs to write and send email: drop alerts (F9a) and the outbox
-/// (ADR 0014).
+/// What the tick needs to write and send email: drop alerts (F9a), pickup reminders (F9)
+/// and the outbox (ADR 0014). Without a `sender` (no SMTP relay configured) emails are
+/// still queued and wait in the outbox.
 #[derive(Clone)]
 pub struct Mail {
-    pub sender: Arc<dyn EmailSender>,
+    pub sender: Option<Arc<dyn EmailSender>>,
     pub i18n: Arc<Translator>,
     pub links: Links,
+    pub orders: Arc<OrderEmails>,
 }
 
 /// What one tick did.
@@ -63,6 +66,7 @@ pub struct Mail {
 pub struct TickOutcome {
     pub days: TickReport,
     pub released: Vec<OrderId>,
+    pub reminded: Vec<OrderId>,
     pub alerts: AlertReport,
     pub sent: SendReport,
 }
@@ -123,6 +127,7 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
 }
 
 /// One tick's work, in order: open and close bake days, release expired order holds, queue
+/// due pickup reminders (an error there is logged and tried again next tick), queue
 /// the drop alerts that are now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
 /// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
 /// step fails, so a day that should open never gets the menu alert instead; emails are
@@ -160,6 +165,13 @@ pub fn work<'a>(
                 first_error.get_or_insert(err.into());
             }
         }
+        match order_emails::enqueue_due_reminders(&mut conn, &frozen, &mail.orders).await {
+            Ok(reminded) => outcome.reminded = reminded,
+            Err(error @ order_emails::EmailError::CompanyIncomplete) => {
+                tracing::warn!(%error, "no pickup reminders");
+            }
+            Err(error) => tracing::error!(%error, "cannot queue pickup reminders"),
+        }
         if days_ok {
             match drop_alerts::tick(&mut conn, &frozen, &mail.i18n, &mail.links).await {
                 Ok(report) => outcome.alerts = report,
@@ -168,10 +180,12 @@ pub fn work<'a>(
                 }
             }
         }
-        match drain(&mut conn, mail.sender.as_ref(), clock).await {
-            Ok(report) => outcome.sent = report,
-            Err(err) => {
-                first_error.get_or_insert(err.into());
+        if let Some(sender) = &mail.sender {
+            match drain(&mut conn, sender.as_ref(), clock).await {
+                Ok(report) => outcome.sent = report,
+                Err(err) => {
+                    first_error.get_or_insert(err.into());
+                }
             }
         }
         match first_error {
@@ -250,6 +264,9 @@ pub async fn handle_tick(
             released = ?outcome.released,
             "bake day tick"
         );
+    }
+    if !outcome.reminded.is_empty() {
+        tracing::info!(minute = %tick.minute, orders = ?outcome.reminded, "pickup reminders queued");
     }
     if !outcome.alerts.queued.is_empty() {
         tracing::info!(minute = %tick.minute, alerts = ?outcome.alerts.queued, "drop alerts queued");

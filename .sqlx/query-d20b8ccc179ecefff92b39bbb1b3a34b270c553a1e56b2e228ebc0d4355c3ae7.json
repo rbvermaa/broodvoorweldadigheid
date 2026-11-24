@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE payment SET status = 'paid', amount_cents = $2, refund_due = $3,\n                refund_reason = $4,\n                received_at = timestamptz 'epoch' + $5::bigint * interval '1 microsecond'\n            WHERE provider_payment_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d20b8ccc179ecefff92b39bbb1b3a34b270c553a1e56b2e228ebc0d4355c3ae7"
+}

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, refund_due,\n                refund_reason, received_at)\n            VALUES ($1, $2, $3, 'paid', $4, $5,\n                timestamptz 'epoch' + $6::bigint * interval '1 microsecond')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Bool",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b249ae6483a19a8a5c986c2dd3a1b5495ab459cadd6d469f261aabc0c808444c"
+}

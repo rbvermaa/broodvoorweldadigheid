@@ -26,6 +26,7 @@
 .field-error,
 .product-name,
 .product-description,
+.product-ingredients,
 .alert-text,
 .empty-state-title,
 .dialog-title,
@@ -217,8 +218,16 @@ textarea.field-input {
 }
 
 .product-description,
+.product-ingredients,
 .product-status {
   margin: 0;
+}
+
+.product-order {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: auto;
 }
 
 .product-tile-sold-out .product-status {
@@ -563,6 +572,106 @@ textarea.field-input {
     flex-direction: row;
     justify-content: flex-end;
   }
+}
+
+.drop-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-stamp) solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+}
+
+.drop-date {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  overflow-wrap: anywhere;
+}
+
+.drop-status {
+  align-self: flex-start;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-thick) solid var(--color-ink);
+  border-radius: var(--radius-full);
+  font-family: var(--font-heading);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-label);
+  text-transform: uppercase;
+}
+
+.drop-status-open {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.drop-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drop-facts li,
+.drop-charity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-stamp) solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+}
+
+.cart-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-xl);
+}
+
+.cart-total {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0;
+  font-weight: var(--font-weight-bold);
+}
+
+.cart-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--size-content);
 }
 
 .faq-item {

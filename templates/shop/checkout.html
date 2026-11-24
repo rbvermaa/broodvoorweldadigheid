@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% import "components/drop.html" as dr %}
+{% import "components/cart.html" as c %}
+{% import "components/field.html" as f %}
+{% import "components/picker.html" as pick %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("checkout-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("checkout-title")? }}</h1>
+<h2>{{ drop.date }}</h2>
+{% call dr::drop_facts(drop) %}{% endcall %}
+{% call c::cart_panel(cart) %}{% endcall %}
+<div role="status">
+{%- if let Some(message) = message %}
+{% call fb::alert(message.kind, message.text) %}{% endcall %}
+{%- endif %}
+</div>
+<form class="form-stack" method="post" action="{{ action }}" novalidate>
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::field("text", "naam", layout.t("checkout-name")?, value = form.name, error = form.name_error, required = true) %}{% endcall %}
+{% call f::field("email", "email", layout.t("checkout-email")?, value = form.email, hint = layout.t("checkout-email-hint")?, error = form.email_error, required = true) %}{% endcall %}
+{% call f::field("tel", "telefoon", layout.t("checkout-phone")?, value = form.phone, hint = layout.t("checkout-phone-hint")?, error = form.phone_error) %}{% endcall %}
+{% call pick::pickup_picker("ophaalmoment", layout.t("checkout-pickup")?, windows, error = form.slot_error) %}{% endcall %}
+{% call f::checkbox("nieuwsbrief", layout.t("checkout-marketing")?, checked = form.marketing) %}{% endcall %}
+<p>{{ layout.t("checkout-hold")? }}</p>
+{% call b::button(layout.t("checkout-pay")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

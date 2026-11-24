@@ -24,8 +24,8 @@ menu is published or ordering opens.
 
 Open:
 
-- The server binary does not start `jobs::run` yet: on main, apps are in the same layer as
-  `jobs`. With ADR 0020 (apps above jobs) the server builds `SmtpSender` from `SmtpConfig`
+- Done since the merge with the order emails (ADR 0020, ADR 0022): the server starts
+  `jobs::run`, builds `SmtpSender` from `SmtpConfig`
   and passes it in `jobs::Mail`.
 - Unconfirmed subscribers whose link expired, and old unsubscribe tokens, stay in the
   database. A cleanup job should delete them (GDPR), with the other cleanup work.

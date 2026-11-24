@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, address, kvk FROM company",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "address"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kvk",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "kvk"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "dd60f258c1a573ec7402e7488936857e01316240cd9c1def57fae673d3dabc96"
+}
