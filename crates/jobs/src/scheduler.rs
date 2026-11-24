@@ -8,7 +8,7 @@ use domain::{Clock, OrderId};
 use i18n::Translator;
 use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
 use notify::subscribers::Links;
-use notify::{EmailSender, SendReport};
+use notify::{EmailSender, OutgoingEmail, SendError, SendFuture, SendReport};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::time::MissedTickBehavior;
@@ -21,8 +21,8 @@ const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
 /// Emails handed to the relay per tick at most; the rest wait for the next minute.
 pub const SEND_BATCH: u32 = 500;
-/// No new email is started after this much time in one tick, so a slow relay cannot keep
-/// a tick, and its connection, busy past the next one.
+/// Sending stops after this much time in one tick, also in the middle of an email, so a
+/// slow relay cannot keep a tick, and its connection, busy past the next one.
 pub const SEND_BUDGET: Duration = Duration::from_secs(40);
 
 /// The every-minute job that opens and closes bake days and releases expired order
@@ -181,6 +181,27 @@ pub fn work<'a>(
     })
 }
 
+/// An [`EmailSender`] that gives up at `deadline` with [`SendError::Transient`], so the
+/// outbox records a retry instead of waiting on a relay that stopped answering.
+struct Deadline<'a> {
+    inner: &'a dyn EmailSender,
+    deadline: tokio::time::Instant,
+}
+
+impl EmailSender for Deadline<'_> {
+    fn send<'a>(&'a self, email: &'a OutgoingEmail) -> SendFuture<'a> {
+        Box::pin(async move {
+            tokio::time::timeout_at(self.deadline, self.inner.send(email))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(SendError::Transient(
+                        "the relay did not answer within the tick's send budget".to_owned(),
+                    ))
+                })
+        })
+    }
+}
+
 /// Sends one email at a time until none is due, [`SEND_BATCH`] went out or
 /// [`SEND_BUDGET`] is used up.
 async fn drain(
@@ -188,13 +209,16 @@ async fn drain(
     sender: &dyn EmailSender,
     clock: &dyn Clock,
 ) -> Result<SendReport, notify::OutboxError> {
-    let started = tokio::time::Instant::now();
+    let sender = Deadline {
+        inner: sender,
+        deadline: tokio::time::Instant::now() + SEND_BUDGET,
+    };
     let mut total = SendReport::default();
     for _ in 0..SEND_BATCH {
-        if started.elapsed() >= SEND_BUDGET {
+        if tokio::time::Instant::now() >= sender.deadline {
             break;
         }
-        let report = notify::send_pending(conn, sender, clock, 1).await?;
+        let report = notify::send_pending(conn, &sender, clock, 1).await?;
         if report == SendReport::default() {
             break;
         }
@@ -280,5 +304,45 @@ where
             Ok::<(), std::io::Error>(())
         }) => result.map_err(|err| Error::Worker(err.to_string())),
         () = schedule => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use notify::{Email, EmailKind};
+
+    use super::*;
+
+    struct Silent;
+
+    impl EmailSender for Silent {
+        fn send<'a>(&'a self, _: &'a OutgoingEmail) -> SendFuture<'a> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relay_that_stops_answering_is_temporary_at_the_deadline() {
+        let email = OutgoingEmail {
+            id: "0b5e7c2a-1111-4222-8333-944455556666".to_owned(),
+            date: "2026-12-01T08:00:00Z".parse().unwrap(),
+            email: Email {
+                kind: EmailKind::PickupReminder,
+                to: "sanne@example.org".to_owned(),
+                subject: "Ophalen".to_owned(),
+                text: "Hoi Sanne,\n".to_owned(),
+                html: "<p>Hoi Sanne,</p>".to_owned(),
+                list_unsubscribe: None,
+                reply_to: None,
+            },
+        };
+        let sender = Deadline {
+            inner: &Silent,
+            deadline: tokio::time::Instant::now() + Duration::from_millis(20),
+        };
+        let result = tokio::time::timeout(Duration::from_secs(5), sender.send(&email))
+            .await
+            .expect("the deadline ends the send");
+        assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
     }
 }
