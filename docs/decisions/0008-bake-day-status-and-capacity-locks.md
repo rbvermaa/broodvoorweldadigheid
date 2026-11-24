@@ -1,4 +1,4 @@
-# 0007 Bake day status and capacity locks
+# 0008 Bake day status and capacity locks
 
 Status: proposed, 2026-11-24
 

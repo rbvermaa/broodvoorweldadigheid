@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use jiff::Timestamp;
 
-/// Stored status of a bake day. See ADR 0007 for how it maps to the public drop status.
+/// Stored status of a bake day. See ADR 0008 for how it maps to the public drop status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BakeDayStatus {
     Draft,

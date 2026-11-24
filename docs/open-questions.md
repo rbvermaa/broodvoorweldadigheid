@@ -22,6 +22,6 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] Default sourdough lead time: 36 h assumed (company.default_lead_time_hours); confirm with the baker.
 - [ ] **Cancelled drops on the public calendar.** F1a lists planned, menu announced, open,
   sold out and closed. A cancelled (sick-day) drop is shown as "cancelled" for now
-  (ADR 0007). OK?
+  (ADR 0008). OK?
 - [ ] **Bake start time.** No default rule in the spec; staff enter `bake_starts_at` per
   bake day. Should it default from the pickup window (e.g. 04:00 on the bake date)?

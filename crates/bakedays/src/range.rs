@@ -39,7 +39,7 @@ fn from_db(value: i32) -> Result<u32, Error> {
 }
 
 /// Locks the bake day against status changes (`FOR SHARE`) and refuses done or cancelled
-/// days. Every write to a day's range, pools or extras starts here (ADR 0007).
+/// days. Every write to a day's range, pools or extras starts here (ADR 0008).
 pub(crate) async fn lock_editable_day(
     conn: &mut PgConnection,
     day: BakeDayId,
@@ -60,7 +60,7 @@ pub(crate) async fn lock_editable_day(
     Ok(())
 }
 
-/// Takes the capacity locks for one product on a bake day, in the fixed order of ADR 0007:
+/// Takes the capacity locks for one product on a bake day, in the fixed order of ADR 0008:
 /// the `bake_day_product` row, then its `capacity_pool` row, both `FOR UPDATE`. Anything
 /// that takes capacity (extra production now, checkout later) holds these locks while it
 /// checks and writes, so two writers never both take the last piece.

@@ -33,7 +33,7 @@ CREATE TABLE pickup_slot (
 CREATE INDEX pickup_slot_bake_day_idx ON pickup_slot (bake_day_id);
 
 -- Checkout and extra production lock this row (SELECT ... FOR UPDATE) while they check
--- the pool's remaining units (ADR 0007).
+-- the pool's remaining units (ADR 0008).
 CREATE TABLE capacity_pool (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     bake_day_id bigint NOT NULL REFERENCES bake_day (id),
