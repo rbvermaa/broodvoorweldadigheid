@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod adr_numbers;
 mod compose_smoke;
 mod coverage;
 mod layers;
@@ -11,8 +12,7 @@ mod unsafe_forbid;
 
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: cargo xtask <layers|unsafe-forbid|coverage <lcov-report>|compose-smoke [options]>";
+const USAGE: &str = "usage: cargo xtask <layers|unsafe-forbid|adr-numbers|coverage <lcov-report>|compose-smoke [options]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -29,6 +29,12 @@ fn main() -> ExitCode {
                     &metadata,
                 )?));
                 Ok(violations)
+            }),
+        ),
+        [task] if task == "adr-numbers" => (
+            task,
+            metadata::load(None).and_then(|metadata| {
+                adr_numbers::check(metadata.workspace_root.join("docs/decisions").as_std_path())
             }),
         ),
         [task, report] if task == "coverage" => (

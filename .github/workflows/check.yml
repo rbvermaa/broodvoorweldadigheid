@@ -41,7 +41,7 @@ jobs:
       matrix:
         include:
           - name: cheap
-            targets: fmt-check deny audit layers unsafe-forbid
+            targets: fmt-check deny audit layers unsafe-forbid adr-numbers
           - name: clippy
             targets: lint
           - name: nextest
