@@ -10,4 +10,6 @@ pub enum Error {
     Worker(String),
     #[error("database error: {0}")]
     Db(#[from] sqlx::Error),
+    #[error(transparent)]
+    Outbox(#[from] notify::OutboxError),
 }

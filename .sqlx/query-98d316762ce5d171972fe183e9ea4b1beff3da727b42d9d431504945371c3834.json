@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriber (email, created_at)\n        VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n        ON CONFLICT ((lower(email))) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98d316762ce5d171972fe183e9ea4b1beff3da727b42d9d431504945371c3834"
+}

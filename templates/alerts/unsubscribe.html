@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% block title %}{{ layout.t("alerts-unsubscribe-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("alerts-unsubscribe-title")? }}</h1>
+<p>{{ layout.t("alerts-unsubscribe-text")? }}</p>
+<form method="post" action="{{ action }}">
+<input type="hidden" name="List-Unsubscribe" value="One-Click">
+{% call b::button(layout.t("alerts-unsubscribe-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}
