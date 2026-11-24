@@ -1,0 +1,109 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.id, o.number_year, o.number_seq, (bd.date - date 'epoch') AS \"drop_day!\",\n            p.name_nl, ol.qty, ol.unit_price_cents, ol.vat_rate\n        FROM \"order\" o\n        JOIN bake_day bd ON bd.id = o.bake_day_id\n        JOIN order_line ol ON ol.order_id = o.id\n        JOIN product p ON p.id = ol.product_id\n        WHERE o.customer_id = $1 AND o.payment_mode = 'on_account'\n            AND o.manual_invoice_id IS NULL AND o.status IN ('confirmed', 'picked_up')\n            AND bd.date BETWEEN date 'epoch' + $2::integer AND date 'epoch' + $3::integer\n        ORDER BY bd.date, o.number_year, o.number_seq, ol.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "number_year",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_year"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "number_seq",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "drop_day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "qty"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "unit_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "unit_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "order_line",
+            "name": "vat_rate"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e29d83980e12166fc3fd87eb04648397ead934beefc6cefb2de3b1dde9f6c762"
+}
