@@ -5,16 +5,22 @@ use std::time::Duration;
 use apalis::prelude::{BoxDynError, Data, TaskBuilder, TaskSink, TaskSinkError, WorkerBuilder};
 use apalis_postgres::PostgresStorage;
 use domain::Clock;
+use i18n::Translator;
 use jiff::{RoundMode, Timestamp, TimestampRound, Unit};
+use notify::subscribers::Links;
+use notify::{EmailSender, SendReport};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::time::MissedTickBehavior;
 
 use crate::Error;
 use crate::bake_days::{self, TickReport};
+use crate::drop_alerts::{self, AlertReport};
 
 const TICK_EVERY: Duration = Duration::from_secs(60);
 const TICK_ATTEMPTS: usize = 3;
+/// Emails handed to the relay per tick at most; the rest wait for the next minute.
+pub const SEND_BATCH: u32 = 500;
 
 /// The every-minute job that opens and closes bake days. `minute` is the start of the
 /// minute it was scheduled for and makes the job unique.
@@ -28,6 +34,23 @@ pub type TickStorage = PostgresStorage<BakeDayTick>;
 /// The clock the worker hands to each tick.
 #[derive(Clone)]
 pub struct TickClock(pub Arc<dyn Clock>);
+
+/// What the tick needs to write and send email: drop alerts (F9a) and the outbox
+/// (ADR 0014).
+#[derive(Clone)]
+pub struct Mail {
+    pub sender: Arc<dyn EmailSender>,
+    pub i18n: Arc<Translator>,
+    pub links: Links,
+}
+
+/// What one tick did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TickOutcome {
+    pub days: TickReport,
+    pub alerts: AlertReport,
+    pub sent: SendReport,
+}
 
 /// Creates or upgrades the apalis tables in their own `apalis` schema.
 ///
@@ -84,28 +107,80 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// Runs one queued tick against the current time, not the minute it was queued for, so a
-/// late run still opens and closes what is due.
+/// One tick's work, in order: open and close bake days, queue the drop alerts that are
+/// now due, then hand due emails to the relay. Every step is safe to repeat, so a retry
+/// of the whole tick changes nothing that already happened. Alerts wait while the bake-day
+/// step fails, so a day that should open never gets the menu alert instead; emails are
+/// sent either way. The first error is returned.
 ///
 /// # Errors
-/// Any [`Error`] from [`bake_days::tick`]; apalis retries the job.
+/// The first [`Error`] of [`bake_days::tick`], [`drop_alerts::tick`] or
+/// [`notify::send_pending`].
+pub fn work<'a>(
+    pool: &'a PgPool,
+    clock: &'a dyn Clock,
+    mail: &'a Mail,
+) -> Pin<Box<dyn Future<Output = Result<TickOutcome, Error>> + Send + 'a>> {
+    // Boxed as a `dyn Send` future: without it rustc cannot prove the sqlx futures inside
+    // are `Send` for every lifetime, and spawning `run` fails to compile.
+    Box::pin(async move {
+        let mut conn = pool.acquire().await?;
+        let mut outcome = TickOutcome::default();
+        let mut first_error = None;
+        match bake_days::tick(&mut conn, clock).await {
+            Ok(report) => outcome.days = report,
+            Err(err) => first_error = Some(err),
+        }
+        if first_error.is_none() {
+            match drop_alerts::tick(&mut conn, clock, &mail.i18n, &mail.links).await {
+                Ok(report) => outcome.alerts = report,
+                Err(err) => first_error = Some(err),
+            }
+        }
+        match notify::send_pending(&mut conn, mail.sender.as_ref(), clock, SEND_BATCH).await {
+            Ok(report) => outcome.sent = report,
+            Err(err) => {
+                first_error.get_or_insert(err.into());
+            }
+        }
+        match first_error {
+            Some(err) => Err(err),
+            None => Ok(outcome),
+        }
+    })
+}
+
+/// Runs one queued tick against the current time, not the minute it was queued for, so a
+/// late run still does what is due.
+///
+/// # Errors
+/// Any [`Error`] from [`work`]; apalis retries the job.
 pub async fn handle_tick(
     tick: BakeDayTick,
     pool: Data<PgPool>,
     clock: Data<TickClock>,
+    mail: Data<Mail>,
 ) -> Result<(), BoxDynError> {
-    let mut conn = pool.acquire().await?;
-    // Boxed as a `dyn Send` future: without it rustc cannot prove the sqlx futures inside
-    // are `Send` for every lifetime, and spawning `run` fails to compile.
-    let due: Pin<Box<dyn Future<Output = Result<TickReport, Error>> + Send + '_>> =
-        Box::pin(bake_days::tick(&mut conn, clock.0.0.as_ref()));
-    let report = due.await?;
-    if !report.opened.is_empty() || !report.closed.is_empty() {
+    let outcome = work(&pool, clock.0.0.as_ref(), &mail).await?;
+    let days = &outcome.days;
+    if !days.opened.is_empty() || !days.closed.is_empty() {
         tracing::info!(
             minute = %tick.minute,
-            opened = ?report.opened,
-            closed = ?report.closed,
+            opened = ?days.opened,
+            closed = ?days.closed,
             "bake day tick"
+        );
+    }
+    if !outcome.alerts.queued.is_empty() {
+        tracing::info!(minute = %tick.minute, alerts = ?outcome.alerts.queued, "drop alerts queued");
+    }
+    if outcome.sent != SendReport::default() {
+        tracing::info!(
+            minute = %tick.minute,
+            sent = outcome.sent.sent,
+            retrying = outcome.sent.retrying,
+            failed = outcome.sent.failed,
+            "emails"
         );
     }
     Ok(())
@@ -119,6 +194,7 @@ pub async fn handle_tick(
 pub async fn run<F>(
     pool: PgPool,
     clock: Arc<dyn Clock>,
+    mail: Mail,
     worker_id: String,
     shutdown: F,
 ) -> Result<(), Error>
@@ -130,6 +206,7 @@ where
         .backend(storage.clone())
         .data(pool)
         .data(TickClock(Arc::clone(&clock)))
+        .data(mail)
         .build(handle_tick);
     let schedule = async move {
         let mut every_minute = tokio::time::interval(TICK_EVERY);
