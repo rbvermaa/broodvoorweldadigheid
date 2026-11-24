@@ -411,15 +411,11 @@ pub async fn submit(
             if let Err(err) = session.insert(UNPAID_KEY, order.id.get()).await {
                 tracing::warn!(error = %err, "cannot remember the unpaid order");
             }
-            // tower-sessions does not save a session on a 5xx answer.
-            if let Err(err) = session.save().await {
-                tracing::warn!(error = %err, "cannot save the session");
-            }
             let message = Some(Message {
                 kind: "error",
                 text: text(&state, "checkout-error-payment", None),
             });
-            render_page(
+            let response = render_page(
                 &state,
                 &mut conn,
                 &session,
@@ -428,7 +424,14 @@ pub async fn submit(
                 message,
                 StatusCode::SERVICE_UNAVAILABLE,
             )
-            .await
+            .await;
+            // tower-sessions does not save a session on a 5xx answer. The store takes its
+            // own pool connection, so ours goes back first.
+            std::mem::drop(conn);
+            if let Err(err) = session.save().await {
+                tracing::warn!(error = %err, "cannot save the session");
+            }
+            response
         }
     }
 }
@@ -437,9 +440,10 @@ pub async fn submit(
 /// of placing another one and holding the stock twice.
 const UNPAID_KEY: &str = "unpaid_order";
 
-/// When the session remembers an order of this drop whose payment did not start and
-/// whose hold still runs, tries the payment again. The idempotency key makes Mollie return
-/// the same payment if the first try did reach it. `None` lets checkout go on as normal.
+/// When the session remembers an order of this drop, still open for orders, whose payment
+/// did not start and whose hold still runs, tries the payment again. The idempotency key
+/// makes Mollie return the same payment if the first try did reach it. `None` lets
+/// checkout go on as normal.
 async fn retry_unpaid(
     state: &AppState,
     conn: &mut PgConnection,
@@ -457,6 +461,7 @@ async fn retry_unpaid(
     let now = state.clock.now();
     let order = orders::order::get(conn, id).await.ok().filter(|order| {
         order.bake_day_id == drop.bake_day_id
+            && drop.status == PublicStatus::Open
             && order.status == OrderStatus::PendingPayment
             && order.hold_expires_at.is_some_and(|hold| now < hold)
     });
