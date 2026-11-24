@@ -25,7 +25,7 @@ use jiff::Timestamp;
 use jiff::civil::date;
 use server::AppState;
 use server::config::Config;
-use support::{signed_in, signed_in_at};
+use support::signed_in_at;
 use testkit::{FakeClock, FakePaymentProvider};
 use tower::ServiceExt;
 
@@ -252,7 +252,7 @@ async fn staff(pool: &PgPool, name: &str, role: Role) -> StaffUser {
 
 async fn client<'a>(app: &'a App, name: &str, role: Role) -> Client<'a> {
     let user = staff(&app.pool, name, role).await;
-    let (cookie, token) = signed_in(&app.pool, &user).await;
+    let (cookie, token) = signed_in_at(&app.pool, &user, app.clock.now()).await;
     Client { app, cookie, token }
 }
 

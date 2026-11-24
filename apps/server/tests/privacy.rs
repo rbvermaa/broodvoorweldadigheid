@@ -24,7 +24,7 @@ use jiff::Timestamp;
 use orders::{Cart, CustomerInput, OrderedBy};
 use server::AppState;
 use server::config::Config;
-use support::{signed_in, signed_in_at};
+use support::signed_in_at;
 use testkit::FakeClock;
 use tower::ServiceExt;
 
@@ -420,7 +420,7 @@ async fn only_the_owner_reaches_the_customer_tools(pool: PgPool) {
     let id = customer(&pool, KNOWN).await;
     let app = app(&pool).await;
     for role in [Role::Baker, Role::Counter] {
-        let (cookie, token) = signed_in(&pool, &staff_user(&pool, role).await).await;
+        let (cookie, token) = signed_in_at(&pool, &staff_user(&pool, role).await, ts(NOW)).await;
         for reply in [
             get(&app, "/staff/customers", Some(&cookie)).await,
             post(
