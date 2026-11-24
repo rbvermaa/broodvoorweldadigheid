@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM \"order\" o JOIN bake_day d ON d.id = o.bake_day_id\n            WHERE o.customer_id = $1\n                AND (o.status = 'pending_payment'\n                    OR (o.status IN ('paid', 'confirmed') AND d.date >= date 'epoch' + $2::integer))\n        ) AS \"open!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "open!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0f993bfbe7273f58d845060e018c51ba8f87114e449392c0e0c49071ffba1c43"
+}

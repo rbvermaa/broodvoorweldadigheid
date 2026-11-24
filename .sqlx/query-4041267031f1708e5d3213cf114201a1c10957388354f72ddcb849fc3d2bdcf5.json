@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber SET\n            unsubscribed_at = coalesce(unsubscribed_at,\n                timestamptz 'epoch' + $2::bigint * interval '1 microsecond'),\n            confirm_token_hash = NULL,\n            confirm_expires_at = NULL,\n            confirm_sent_at = NULL\n        WHERE lower(email) = lower($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4041267031f1708e5d3213cf114201a1c10957388354f72ddcb849fc3d2bdcf5"
+}

@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, name, phone, marketing_consent,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\"\n        FROM customer WHERE id = $1 AND erased_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "phone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "phone"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "marketing_consent",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "marketing_consent"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "created_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "f3e0498c22a251399bd5afb30f78b883eefc8bdbe492b94cf1d07db614d2868b"
+}

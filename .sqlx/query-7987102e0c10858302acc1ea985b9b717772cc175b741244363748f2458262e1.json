@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"order\" SET customer_name = $2, customer_phone = NULL,\n            marketing_opt_in = false, status_token = gen_random_uuid()\n        WHERE customer_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7987102e0c10858302acc1ea985b9b717772cc175b741244363748f2458262e1"
+}

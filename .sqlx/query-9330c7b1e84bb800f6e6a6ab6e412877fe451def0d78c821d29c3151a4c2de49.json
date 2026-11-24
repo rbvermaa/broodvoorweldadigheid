@@ -1,0 +1,133 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.id, o.number_year, o.number_seq, d.date::text AS \"bake_day!\", o.status,\n            o.customer_name, o.customer_phone, o.marketing_opt_in, o.total_cents,\n            (extract(epoch FROM o.created_at) * 1000000)::bigint AS \"created_us!\",\n            (extract(epoch FROM o.paid_at) * 1000000)::bigint AS paid_us\n        FROM \"order\" o JOIN bake_day d ON d.id = o.bake_day_id\n        WHERE o.customer_id = $1\n        ORDER BY o.created_at, o.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "number_year",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_year"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "number_seq",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "number_seq"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "bake_day!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "customer_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "customer_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "customer_phone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "customer_phone"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "marketing_opt_in",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "marketing_opt_in"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "total_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "\"order\"",
+            "name": "total_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "created_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "paid_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "9330c7b1e84bb800f6e6a6ab6e412877fe451def0d78c821d29c3151a4c2de49"
+}

@@ -80,7 +80,8 @@ pub struct Moved {
     pub charity_name: String,
     pub drop_date: Date,
     pub amount: Money,
-    /// The order is still a sale; a cancelled order's customer gets no email.
+    /// The order is still a sale and its customer is not erased (F12); a cancelled
+    /// order's customer gets no email.
     pub notify: bool,
 }
 
@@ -453,8 +454,9 @@ async fn earmark(
 /// [`Error::Db`] or [`Error::Corrupt`].
 pub async fn move_next_expired(conn: &mut PgConnection, now: Timestamp) -> Result<Expired, Error> {
     let Some(row) = sqlx::query!(
-        r#"SELECT a.id, a.order_id, a.amount_cents, o.status
+        r#"SELECT a.id, a.order_id, a.amount_cents, o.status, c.erased_at IS NOT NULL AS "erased!"
         FROM donation_allocation a JOIN "order" o ON o.id = a.order_id
+        JOIN customer c ON c.id = o.customer_id
         WHERE a.status = 'saved'
             AND a.choose_by <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
         ORDER BY a.choose_by, a.id
@@ -501,10 +503,11 @@ pub async fn move_next_expired(conn: &mut PgConnection, now: Timestamp) -> Resul
         charity_name: next.name,
         drop_date: from_epoch_days(next.date_days)?,
         amount: Money::from_cents(row.amount_cents),
-        notify: matches!(
-            status,
-            OrderStatus::Paid | OrderStatus::Confirmed | OrderStatus::PickedUp
-        ),
+        notify: !row.erased
+            && matches!(
+                status,
+                OrderStatus::Paid | OrderStatus::Confirmed | OrderStatus::PickedUp
+            ),
     }))
 }
 
