@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 ai = { path = "../../crates/ai", optional = true }
 askama.workspace = true
+auth = { path = "../../crates/auth" }
 axum.workspace = true
 base64.workspace = true
 clap.workspace = true

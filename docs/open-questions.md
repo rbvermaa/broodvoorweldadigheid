@@ -29,3 +29,8 @@ Questions about the spec. The spec is only changed when the owner asks.
   earlier than 08:00 is before the default Thursday 20:00 deadline, so every default
   drop gets the lead-time warning. Either the lead time, the deadline or the bake start
   default is off.
+- [ ] **Staff login through Kanidm is parked** (ADR 0010, branch `rv-p1-staff-oidc`).
+  openidconnect 4.1 pulls in `rsa 0.9` with RUSTSEC-2023-0071, so `make audit` fails.
+  Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
+  keys), or verify ID tokens without openidconnect? Until then staff can only sign in
+  through the local dev login.

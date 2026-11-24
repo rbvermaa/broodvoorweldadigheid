@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
+{% block title %}{{ layout.t("staff-dev-login-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("staff-dev-login-title")? }}</h1>
+<p>{{ layout.t("staff-dev-login-text")? }}</p>
+<form method="post" action="{{ action }}">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::field("number", "staff_id", layout.t("staff-dev-login-id")?, required = true) %}{% endcall %}
+{% call b::button(layout.t("staff-dev-login-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

@@ -12,6 +12,9 @@ pub struct Config {
     pub trusted_proxy: Option<IpAddr>,
     /// Serves the component gallery at `/gallery`. Off unless `GALLERY=true`.
     pub gallery: bool,
+    /// Lets anyone sign in as any staff member at `/staff/dev-login`. Off unless
+    /// `DEV_STAFF_LOGIN=true`, and only allowed with a loopback `BIND_ADDR`.
+    pub dev_staff_login: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -28,6 +31,10 @@ pub enum ConfigError {
     InvalidTrustedProxy(String),
     #[error("GALLERY {0:?} must be true or false")]
     InvalidGallery(String),
+    #[error("DEV_STAFF_LOGIN {0:?} must be true or false")]
+    InvalidDevStaffLogin(String),
+    #[error("DEV_STAFF_LOGIN=true needs a loopback BIND_ADDR like 127.0.0.1:8080, not {0}")]
+    DevStaffLoginNotLocal(SocketAddr),
 }
 
 impl std::fmt::Debug for Config {
@@ -38,6 +45,7 @@ impl std::fmt::Debug for Config {
             .field("cookie_secure", &self.cookie_secure)
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
+            .field("dev_staff_login", &self.dev_staff_login)
             .finish()
     }
 }
@@ -49,7 +57,7 @@ impl Config {
 
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
         let raw_bind_addr = lookup("BIND_ADDR").unwrap_or_else(|| DEFAULT_BIND_ADDR.to_string());
-        let bind_addr = raw_bind_addr
+        let bind_addr: SocketAddr = raw_bind_addr
             .parse()
             .map_err(|_| ConfigError::InvalidBindAddr(raw_bind_addr))?;
         let database_url = lookup("DATABASE_URL")
@@ -75,12 +83,21 @@ impl Config {
             Some("true") => true,
             Some(other) => return Err(ConfigError::InvalidGallery(other.to_string())),
         };
+        let dev_staff_login = match lookup("DEV_STAFF_LOGIN").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(other) => return Err(ConfigError::InvalidDevStaffLogin(other.to_string())),
+        };
+        if dev_staff_login && !bind_addr.ip().is_loopback() {
+            return Err(ConfigError::DevStaffLoginNotLocal(bind_addr));
+        }
         Ok(Self {
             bind_addr,
             database_url,
             cookie_secure,
             trusted_proxy,
             gallery,
+            dev_staff_login,
         })
     }
 }
@@ -106,6 +123,7 @@ mod tests {
         assert!(config.cookie_secure);
         assert_eq!(config.trusted_proxy, None);
         assert!(!config.gallery);
+        assert!(!config.dev_staff_login);
     }
 
     #[test]
@@ -213,6 +231,42 @@ mod tests {
                 ("GALLERY", "ja"),
             ])),
             Err(ConfigError::InvalidGallery("ja".to_string()))
+        );
+    }
+
+    #[test]
+    fn dev_staff_login_needs_a_loopback_bind_addr() {
+        let local = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("BIND_ADDR", "127.0.0.1:8080"),
+            ("DEV_STAFF_LOGIN", "true"),
+        ]))
+        .expect("config");
+        assert!(local.dev_staff_login);
+        assert!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BIND_ADDR", "[::1]:8080"),
+                ("DEV_STAFF_LOGIN", "true"),
+            ]))
+            .is_ok()
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("DEV_STAFF_LOGIN", "true"),
+            ])),
+            Err(ConfigError::DevStaffLoginNotLocal(
+                DEFAULT_BIND_ADDR.parse().expect("addr")
+            ))
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BIND_ADDR", "127.0.0.1:8080"),
+                ("DEV_STAFF_LOGIN", "ja"),
+            ])),
+            Err(ConfigError::InvalidDevStaffLogin("ja".to_string()))
         );
     }
 }

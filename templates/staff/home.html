@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% block title %}{{ layout.t("staff-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("staff-title")? }}</h1>
+<p>{{ layout.t("staff-signed-in-as")? }} <strong>{{ name }}</strong> ({{ layout.t(role)? }})</p>
+<p>{{ layout.t("staff-intro")? }}</p>
+<form method="post" action="/staff/logout">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call b::button(layout.t("staff-logout")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

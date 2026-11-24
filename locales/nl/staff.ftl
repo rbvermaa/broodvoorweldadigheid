@@ -1,0 +1,17 @@
+staff-title = Medewerkers
+staff-signed-in-as = Je bent ingelogd als
+staff-role-owner = eigenaar
+staff-role-baker = bakker
+staff-role-counter = toonbank
+staff-intro = Hier komt het beheer van de bakkerij.
+staff-logout = Uitloggen
+staff-not-allowed-title = Geen toegang
+staff-not-allowed-text = Dit account hoort niet bij een medewerker. Vraag de eigenaar om je toe te voegen.
+staff-forbidden-title = Geen toegang
+staff-forbidden-text = Je rol geeft geen toegang tot deze pagina. Vraag de eigenaar als je dit nodig hebt.
+staff-unavailable-title = Inloggen lukt nu niet
+staff-unavailable-text = Het inloggen voor medewerkers werkt even niet. Probeer het over een paar minuten opnieuw.
+staff-dev-login-title = Inloggen voor ontwikkelaars
+staff-dev-login-text = Alleen voor lokaal testen. Je logt in als de medewerker met dit nummer, zonder wachtwoord.
+staff-dev-login-id = Nummer van de medewerker
+staff-dev-login-submit = Inloggen

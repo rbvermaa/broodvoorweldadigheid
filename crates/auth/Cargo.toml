@@ -6,3 +6,12 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+db = { path = "../db" }
+domain = { path = "../domain" }
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

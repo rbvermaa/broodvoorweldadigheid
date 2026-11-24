@@ -32,6 +32,25 @@ pub enum Command {
         #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
         database_url: String,
     },
+    #[command(subcommand, about = "Staff who may log in to the back office (F13)")]
+    Staff(StaffCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StaffCommand {
+    #[command(about = "Let a Kanidm person log in with a role; --sub is their Kanidm UUID")]
+    Add {
+        #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
+        database_url: String,
+        #[arg(long)]
+        sub: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long, help = "owner, baker or counter")]
+        role: auth::Role,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -87,6 +106,8 @@ pub enum Error {
     DevSecrets(#[from] dev_secrets::Error),
     #[error(transparent)]
     Db(#[from] db::Error),
+    #[error(transparent)]
+    Staff(#[from] auth::staff::Error),
 }
 
 pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode, Error> {
@@ -97,6 +118,33 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
             db::migrate(&pool).await?;
             pool.close().await;
             println!("migrations applied");
+        }
+        Command::Staff(StaffCommand::Add {
+            database_url,
+            sub,
+            name,
+            email,
+            role,
+        }) => {
+            let pool = db::connect(&database_url).await?;
+            let added = auth::staff::add(
+                &pool,
+                &auth::NewStaff {
+                    oidc_sub: sub,
+                    name,
+                    email,
+                    role,
+                },
+            )
+            .await;
+            pool.close().await;
+            let added = added?;
+            println!(
+                "added {} as {} (id {})",
+                added.name,
+                added.role,
+                added.id.get()
+            );
         }
         Command::DevSecrets { dir } => {
             for path in dev_secrets::write(&dir, dev_secrets::random_password)? {
@@ -239,6 +287,52 @@ mod tests {
             panic!("expected dev-secrets, got {cli:?}");
         };
         assert_eq!(dir, PathBuf::from("deploy/secrets"));
+    }
+
+    #[test]
+    fn parses_staff_add_with_a_role() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db/bakflow",
+            "--sub",
+            "0d2f1f9e-uuid",
+            "--name",
+            "Bas",
+            "--role",
+            "baker",
+        ])
+        .expect("valid arguments");
+        let Command::Staff(StaffCommand::Add {
+            sub, role, email, ..
+        }) = cli.command
+        else {
+            panic!("expected staff add, got {cli:?}");
+        };
+        assert_eq!(sub, "0d2f1f9e-uuid");
+        assert_eq!(role, auth::Role::Baker);
+        assert_eq!(email, None);
+
+        let error = Cli::try_parse_from([
+            "cli",
+            "staff",
+            "add",
+            "--database-url",
+            "postgres://db",
+            "--sub",
+            "x",
+            "--name",
+            "X",
+            "--role",
+            "admin",
+        ])
+        .expect_err("unknown role");
+        assert!(
+            error.to_string().contains("owner, baker or counter"),
+            "{error}"
+        );
     }
 
     #[test]
