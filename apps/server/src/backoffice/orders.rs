@@ -95,7 +95,6 @@ pub async fn days_list(State(state): State<AppState>, staff: Staff) -> Response 
         drop(conn);
         let rows = list
             .iter()
-            .filter(|day| day.online_ordering)
             .map(|day| {
                 vec![
                     Cell::link(state.i18n.long_date(day.date), day_orders_path(day)),

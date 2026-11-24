@@ -270,8 +270,8 @@ extra-error-capacity-line = { $n ->
 }
 
 # Back office: orders (F6)
-staff-orders-days-caption = Bakdagen met online bestellen
-staff-orders-days-empty = Er zijn geen bakdagen met online bestellen in deze periode.
+staff-orders-days-caption = Bakdagen
+staff-orders-days-empty = Er zijn geen bakdagen in deze periode.
 staff-orders-day-heading = Bestellingen voor { $date }
 staff-orders-back = Andere bakdag kiezen
 staff-orders-caption = Bestellingen
