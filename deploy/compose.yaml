@@ -54,6 +54,8 @@ services:
     environment:
       TRUSTED_PROXY: ${BVW_CADDY_IP:-10.89.0.10}
       GALLERY: "false"
+      PUBLIC_URL: ${BVW_PUBLIC_URL:-https://localhost:8443}
+      MOLLIE_API_KEY_FILE: ${BVW_MOLLIE_API_KEY_FILE:-}
     env_file:
       - ${BVW_SECRETS_DIR:-./secrets}/database.env
     depends_on:
