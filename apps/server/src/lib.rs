@@ -5,10 +5,13 @@ pub mod clock;
 pub mod config;
 pub mod csrf;
 pub mod healthcheck;
+pub mod oidc_http;
 pub mod pages;
 pub mod rate_limit;
 pub mod security;
 pub mod session;
+pub mod staff;
+pub mod staff_login;
 pub mod state;
 #[cfg(test)]
 mod tokens;
@@ -20,7 +23,7 @@ use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router, middleware};
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -33,8 +36,25 @@ struct Health {
     db: &'static str,
 }
 
+/// Ten login attempts at once per client, then one more every six seconds.
+const LOGIN_BURST: u32 = 10;
+const LOGIN_PERIOD: Duration = Duration::from_secs(6);
+
 pub fn router(state: AppState) -> Router {
-    with_shell(Router::new().route("/", get(pages::home)), state)
+    let login = rate_limit::apply(
+        Router::new()
+            .route(staff::LOGIN_PATH, get(staff::login))
+            .route("/staff/oidc/callback", get(staff::callback)),
+        &state,
+        LOGIN_PERIOD,
+        LOGIN_BURST,
+    );
+    let routes = Router::new()
+        .route("/", get(pages::home))
+        .route("/staff", get(staff::home))
+        .route("/staff/logout", post(staff::logout))
+        .merge(login);
+    with_shell(routes, state)
 }
 
 /// Wraps `routes` with what every page needs: the Dutch 404 and 405 pages, CSRF checks,

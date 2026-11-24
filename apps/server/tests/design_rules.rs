@@ -12,15 +12,27 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+fn html_files(dir: &Path, files: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("templates/") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            html_files(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "html") {
+            files.push(path);
+        }
+    }
+}
+
 fn templates() -> Vec<(String, String)> {
-    let mut files: Vec<(String, String)> = std::fs::read_dir(repo().join("templates"))
-        .expect("templates/")
-        .map(|entry| entry.expect("entry").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "html"))
+    let root = repo().join("templates");
+    let mut paths = Vec::new();
+    html_files(&root, &mut paths);
+    let mut files: Vec<(String, String)> = paths
+        .into_iter()
         .map(|path| {
             let name = path
-                .file_name()
-                .expect("name")
+                .strip_prefix(&root)
+                .expect("under templates/")
                 .to_string_lossy()
                 .into_owned();
             (name, std::fs::read_to_string(&path).expect("read template"))

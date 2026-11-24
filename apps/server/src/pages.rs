@@ -89,6 +89,17 @@ pub fn error_messages(status: StatusCode) -> (&'static str, &'static str) {
 
 pub fn error(state: &AppState, status: StatusCode) -> Response {
     let (title, text) = error_messages(status);
+    error_with(state, status, title, text)
+}
+
+/// The error page with its own Fluent title and text, for when the generic text per status
+/// does not fit.
+pub fn error_with(
+    state: &AppState,
+    status: StatusCode,
+    title: &'static str,
+    text: &'static str,
+) -> Response {
     let page = ErrorPage {
         layout: Layout::new(state),
         title,

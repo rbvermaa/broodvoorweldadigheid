@@ -7,9 +7,9 @@ use openidconnect::core::{
     CoreAuthenticationFlow, CoreClient, CoreJwsSigningAlgorithm, CoreProviderMetadata,
 };
 use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet, EndpointNotSet,
-    EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
-    TokenResponse,
+    AsyncHttpClient, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
+    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
+    RedirectUrl, Scope, TokenResponse,
 };
 pub use openidconnect::{HttpRequest, HttpResponse, http, url};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,18 @@ pub type HttpFuture = Pin<Box<dyn Future<Output = Result<HttpResponse, HttpError
 /// The provider's HTTP endpoints, behind a trait so tests can answer without a network.
 pub trait OidcHttp: Send + Sync {
     fn send(&self, request: HttpRequest) -> HttpFuture;
+}
+
+/// A named type instead of a closure, so the request futures stay `Send` for axum.
+struct Client<'a>(&'a dyn OidcHttp);
+
+impl<'c> AsyncHttpClient<'c> for Client<'_> {
+    type Error = HttpError;
+    type Future = HttpFuture;
+
+    fn call(&'c self, request: HttpRequest) -> HttpFuture {
+        self.0.send(request)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -129,8 +141,7 @@ impl Provider {
                 name: "redirect_url",
                 reason: error.to_string(),
             })?;
-        let send = |request| http.send(request);
-        let metadata = CoreProviderMetadata::discover_async(issuer, &send)
+        let metadata = CoreProviderMetadata::discover_async(issuer, &Client(http))
             .await
             .map_err(|error| OidcError::Discovery(error_chain(&error)))?;
         let client = CoreClient::from_provider_metadata(
@@ -181,14 +192,13 @@ impl Provider {
         if !constant_time_eq(state.as_bytes(), pending.state.as_bytes()) {
             return Err(OidcError::StateMismatch);
         }
-        let send = |request| http.send(request);
         let request = self
             .client
             .exchange_code(AuthorizationCode::new(code.to_string()))
             .map_err(|error| OidcError::Exchange(error.to_string()))?;
         let response = request
             .set_pkce_verifier(PkceCodeVerifier::new(pending.pkce_verifier))
-            .request_async(&send)
+            .request_async(&Client(http))
             .await
             .map_err(|error| OidcError::Exchange(error_chain(&error)))?;
         let id_token = response.id_token().ok_or(OidcError::NoIdToken)?;
@@ -215,7 +225,9 @@ impl Provider {
     }
 }
 
-fn error_chain(error: &dyn std::error::Error) -> String {
+/// The error and its sources, joined with ": ".
+#[must_use]
+pub fn error_chain(error: &dyn std::error::Error) -> String {
     let mut text = error.to_string();
     let mut source = error.source();
     while let Some(cause) = source {
