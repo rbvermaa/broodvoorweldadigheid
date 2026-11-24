@@ -37,6 +37,8 @@ pub enum Error {
     Invoiced,
     #[error("the order total is zero")]
     FreeOrder,
+    #[error("the customer has no business account that may order on account")]
+    NotOnAccount,
     #[error("the payment is recorded for another order")]
     PaymentOfOtherOrder,
     #[error("amount out of range")]

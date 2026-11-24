@@ -187,7 +187,7 @@ pub async fn checkout(
     slot: PickupSlotId,
     ordered_by: OrderedBy,
 ) -> Result<Order, Error> {
-    place(conn, clock, cart, customer, slot, ordered_by, None).await
+    place(conn, clock, cart, customer, slot, ordered_by, Mode::Online(None)).await
 }
 
 /// [`checkout`] that first cancels `replaces`, a pending order of the same bake day, as
@@ -214,9 +214,48 @@ pub async fn checkout_replacing(
         customer,
         slot,
         ordered_by,
-        Some(replaces),
+        Mode::Online(Some(replaces)),
     )
     .await
+}
+
+/// A staff order on account for a business customer (F11a): confirmed straight away,
+/// without payment or hold. Pay-what-you-want lines take the suggested price (F4b).
+/// `customer` must carry the email of a business account that may order on account; that
+/// account is read `FOR SHARE` after the customer lock.
+///
+/// # Errors
+/// Those of [`checkout`], and [`Error::NotOnAccount`] for a customer without a business
+/// account that may order on account.
+pub async fn checkout_on_account(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    cart: &Cart,
+    customer: &CustomerInput,
+    slot: PickupSlotId,
+    staff: StaffUserId,
+) -> Result<Order, Error> {
+    let mut suggested = Cart::new(cart.bake_day());
+    for (product, line) in cart.lines() {
+        suggested.set(product, line.qty, None)?;
+    }
+    place(
+        conn,
+        clock,
+        &suggested,
+        customer,
+        slot,
+        OrderedBy::Staff(staff),
+        Mode::OnAccount,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Mode {
+    /// Waits for payment within its hold; replaces the given pending order, if any.
+    Online(Option<OrderId>),
+    OnAccount,
 }
 
 async fn place(
@@ -226,7 +265,7 @@ async fn place(
     customer: &CustomerInput,
     slot: PickupSlotId,
     ordered_by: OrderedBy,
-    replaces: Option<OrderId>,
+    mode: Mode,
 ) -> Result<Order, Error> {
     let now = clock.now();
     let channel = ordered_by.channel();
@@ -239,6 +278,10 @@ async fn place(
     let facts = lock_day(&mut tx, day).await?;
     ensure_orderable(&facts, channel, now)?;
     let products = cart.products();
+    let replaces = match mode {
+        Mode::Online(replaces) => replaces,
+        Mode::OnAccount => None,
+    };
     let replaced = match replaces {
         Some(id) => Some(order::get(&mut tx, id).await?),
         None => None,
@@ -303,8 +346,27 @@ async fn place(
     let max_orders = lock_slot(&mut tx, day, slot).await?;
     ensure_slot_room(&mut tx, slot, max_orders, clock.now(), None).await?;
     let customer_id = customer::find_or_create(&mut tx, &details, now).await?;
+    let (payment_mode, status, hold_expires_at) = match mode {
+        Mode::Online(_) => (
+            PaymentMode::Online,
+            OrderStatus::PendingPayment,
+            Some(now.checked_add(HOLD).map_err(|_| Error::Invalid("time"))?),
+        ),
+        Mode::OnAccount => {
+            let allowed = sqlx::query_scalar!(
+                "SELECT on_account_allowed FROM business_account WHERE customer_id = $1
+                FOR SHARE",
+                customer_id.get(),
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            if allowed != Some(true) {
+                return Err(Error::NotOnAccount);
+            }
+            (PaymentMode::OnAccount, OrderStatus::Confirmed, None)
+        }
+    };
     let (year, seq) = next_number(&mut tx, now).await?;
-    let hold_expires_at = now.checked_add(HOLD).map_err(|_| Error::Invalid("time"))?;
     let id = sqlx::query_scalar!(
         r#"INSERT INTO "order" (number_year, number_seq, customer_id, customer_name,
             customer_phone, marketing_opt_in, bake_day_id, pickup_slot_id, channel,
@@ -322,10 +384,10 @@ async fn place(
         day.get(),
         slot.get(),
         channel.as_str(),
-        PaymentMode::Online.as_str(),
-        OrderStatus::PendingPayment.as_str(),
+        payment_mode.as_str(),
+        status.as_str(),
         total.cents(),
-        to_micros(hold_expires_at),
+        hold_expires_at.map(to_micros),
         to_micros(now),
     )
     .fetch_one(&mut *tx)
