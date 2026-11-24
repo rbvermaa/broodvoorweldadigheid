@@ -771,11 +771,12 @@ pub async fn repeat_weekly(
     Ok(copies)
 }
 
-/// Warns when the deadline leaves less than the longest lead time of the drop's products
-/// before baking starts (F1). Production-only days take no orders, so they never warn.
+/// Warns when the deadline is later than the bakery's sourdough deadline for the bake
+/// date, or than a product's own lead time on the drop allows (F1). Production-only days
+/// take no orders, so they never warn.
 ///
 /// # Errors
-/// [`Error::NotFound`], [`Error::Catalog`] or [`Error::Db`].
+/// [`Error::NotFound`], [`Error::Invalid`], [`Error::Catalog`] or [`Error::Db`].
 pub async fn lead_time_warning(
     conn: &mut PgConnection,
     id: BakeDayId,
@@ -794,9 +795,12 @@ pub async fn lead_time_warning(
     .map(ProductId::new)
     .collect();
     let lead_times = catalog::products::lead_times(conn, &products).await?;
-    Ok(schedule::lead_time_warning(
+    let sourdough = catalog::company::sourdough_deadline(conn).await?;
+    schedule::lead_time_warning(
         day.cutoff_at,
+        day.date,
         day.bake_starts_at,
+        sourdough,
         &lead_times,
-    ))
+    )
 }
