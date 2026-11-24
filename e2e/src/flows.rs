@@ -152,11 +152,6 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
     if status != 200 {
         return Err(format!("the webhook answered {status}").into());
     }
-    driver
-        .goto(on_server(&payment.redirect_url, &ctx.server)?.as_str())
-        .await?;
-    wait_for_text(driver, "#bestelstatus", &ctx.t("order-status-paid")?).await?;
-
     let (to, subject, body): (String, String, String) =
         wait_for("the confirmation email", || async {
             Ok(sqlx::query_as(
@@ -168,9 +163,13 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
             .await?)
         })
         .await?;
-    let number = orders::order::get(&mut *ctx.pool.acquire().await?, OrderId::new(order))
-        .await?
-        .number;
+    // Checked before the status page opens: that page asks Mollie itself and would settle
+    // the payment even if the webhook did not.
+    let placed = orders::order::get(&mut *ctx.pool.acquire().await?, OrderId::new(order)).await?;
+    if placed.status != orders::OrderStatus::Paid {
+        return Err(format!("after the webhook the order is {:?}", placed.status).into());
+    }
+    let number = placed.number;
     let checks = [
         (to == CUSTOMER_EMAIL, "is sent to the customer"),
         (
@@ -196,6 +195,10 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
             return Err(format!("the confirmation {what}: {subject}\n{body}").into());
         }
     }
+    driver
+        .goto(on_server(&payment.redirect_url, &ctx.server)?.as_str())
+        .await?;
+    wait_for_text(driver, "#bestelstatus", &ctx.t("order-status-paid")?).await?;
     Ok(())
 }
 
