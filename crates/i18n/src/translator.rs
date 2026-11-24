@@ -21,7 +21,11 @@ const GALLERY: (&str, &str) = (
     "gallery.ftl",
     include_str!("../../../locales/nl/gallery.ftl"),
 );
-const DUTCH: &[(&str, &str)] = &[COMMON, DATES, CALENDAR, COMPONENTS, GALLERY];
+const PRODUCTION: (&str, &str) = (
+    "production.ftl",
+    include_str!("../../../locales/nl/production.ftl"),
+);
+const DUTCH: &[(&str, &str)] = &[COMMON, DATES, CALENDAR, COMPONENTS, GALLERY, PRODUCTION];
 
 /// Names of the `locales/nl/*.ftl` files compiled into the binary.
 pub fn resource_files() -> impl Iterator<Item = &'static str> {

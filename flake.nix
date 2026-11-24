@@ -58,6 +58,7 @@
               (lib.fileset.fileFilter (file: file.hasExt "snap") ./crates)
               ./design
               ./templates
+              ./typst
               ./apps/server/tests/snapshots
             ];
           };

@@ -1,0 +1,15 @@
+---
+source: crates/production/src/tests.rs
+expression: "pdf::text(&document)"
+---
+Ophaallijst
+zaterdag 31 oktober 2026
+11:00–12:00 · De Proef
+Opgehaald | Bestelling | Naam | Producten | Status
+2026-0003 | Anna Test | 2× Desem | Betaald
+0600000000 | 1× Koekjes
+2026-0009 | Bakkerij Test | 10× Desem | Op rekening
+2026-0001 | Piet Test | 1× Desem | Opgehaald
+2026-0002 | Piet Test | 1× Desem | Bevestigd
+12:00–13:00 · De Proef
+Geen bestellingen.

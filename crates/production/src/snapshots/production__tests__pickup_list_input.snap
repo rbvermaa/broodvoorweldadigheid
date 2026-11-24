@@ -1,0 +1,68 @@
+---
+source: crates/production/src/tests.rs
+expression: "serde_json::to_string_pretty(&data).unwrap()"
+---
+{
+  "date": "zaterdag 31 oktober 2026",
+  "labels": {
+    "customer": "Naam",
+    "done": "Opgehaald",
+    "empty": "Geen bestellingen.",
+    "items": "Producten",
+    "number": "Bestelling",
+    "status": "Status"
+  },
+  "slots": [
+    {
+      "heading": "11:00–12:00 · De Proef",
+      "orders": [
+        {
+          "lines": [
+            "2× Desem",
+            "1× Koekjes"
+          ],
+          "name": "Anna Test",
+          "number": "2026-0003",
+          "phone": "0600000000",
+          "picked_up": false,
+          "status": "Betaald"
+        },
+        {
+          "lines": [
+            "10× Desem"
+          ],
+          "name": "Bakkerij Test",
+          "number": "2026-0009",
+          "phone": "",
+          "picked_up": false,
+          "status": "Op rekening"
+        },
+        {
+          "lines": [
+            "1× Desem"
+          ],
+          "name": "Piet Test",
+          "number": "2026-0001",
+          "phone": "",
+          "picked_up": true,
+          "status": "Opgehaald"
+        },
+        {
+          "lines": [
+            "1× Desem"
+          ],
+          "name": "Piet Test",
+          "number": "2026-0002",
+          "phone": "",
+          "picked_up": false,
+          "status": "Bevestigd"
+        }
+      ]
+    },
+    {
+      "heading": "12:00–13:00 · De Proef",
+      "orders": []
+    }
+  ],
+  "title": "Ophaallijst"
+}
