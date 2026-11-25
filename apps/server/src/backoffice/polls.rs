@@ -3,9 +3,11 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::routing::get;
 use bakedays::days;
 use catalog::products;
 use domain::{BakeDayId, PollId, ProductId};
@@ -22,6 +24,13 @@ use crate::components::{BarChart, Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(PATH, get(list))
+        .route("/staff/polls/new", get(new_form).post(create))
+        .route("/staff/polls/{id}", get(show).post(update))
+}
 
 pub const PATH: &str = "/staff/polls";
 /// Drops from this many days back can still be picked.

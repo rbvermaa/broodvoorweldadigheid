@@ -6,9 +6,11 @@ use std::collections::BTreeMap;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::routing::{get, post};
 use bakedays::{days, pickup, range};
 use domain::{BakeDayId, BusinessAccountId, OrderId, PickupSlotId, ProductId, VatRate};
 use jobs::order_emails;
@@ -33,6 +35,30 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/business-accounts", get(list))
+        .route("/staff/business-accounts/new", get(new_form).post(create))
+        .route("/staff/business-accounts/{id}", get(show).post(update))
+        .route("/staff/business-accounts/{id}/invoice", get(invoice_page))
+        .route(
+            "/staff/business-accounts/{id}/invoice.csv",
+            get(invoice_csv),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoice.pdf",
+            get(invoice_pdf),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoices",
+            post(mark_invoiced),
+        )
+        .route(
+            "/staff/business-accounts/{id}/order",
+            get(order_form).post(place_order),
+        )
+}
 
 const LIST: &str = "/staff/business-accounts";
 const NEW: &str = "/staff/business-accounts/new";

@@ -3,9 +3,11 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::routing::{get, post};
 use catalog::charities;
 use domain::{CharityId, Money};
 use orders::audit::Actor;
@@ -24,6 +26,13 @@ use crate::components::{Cell, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/reports/payouts", get(list))
+        .route("/staff/reports/payouts/{id}", get(detail))
+        .route("/staff/reports/payouts/{id}/transfers", post(record))
+}
 
 const LIST: &str = "/staff/reports/payouts";
 

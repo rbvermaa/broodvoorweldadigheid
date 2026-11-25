@@ -68,6 +68,7 @@
               ./design
               ./templates
               ./typst
+              ./docs/permissions.md
               ./apps/server/tests/snapshots
               ./crates/notify/tests/snapshots
             ];

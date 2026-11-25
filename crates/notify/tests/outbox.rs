@@ -564,6 +564,34 @@ async fn every_kind_can_be_queued(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_email_kind_table_lists_exactly_the_kinds_in_code(pool: PgPool) {
+    let mut in_db: Vec<String> = sqlx::query_scalar("SELECT kind FROM email_kind")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    in_db.sort();
+    let mut in_code: Vec<String> = EmailKind::ALL.map(|k| k.as_str().to_owned()).into();
+    in_code.sort();
+    assert_eq!(in_db, in_code);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unknown_kind_is_refused(pool: PgPool) {
+    let error = sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body,
+             next_attempt_at, created_at)
+         VALUES ('newsletter', 'a@example.org', 'Hoi', '', '', now(), now())",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().and_then(|e| e.constraint()),
+        Some("email_outbox_kind_fkey")
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn an_expiring_email_with_a_key_is_queued_once(pool: PgPool) {
     let clock = clock();
     let mut conn = pool.acquire().await.unwrap();

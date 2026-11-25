@@ -5,9 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::routing::{get, post};
 use bakedays::capacity::Remaining;
 use bakedays::status::TransitionRefused;
 use bakedays::{
@@ -35,6 +37,34 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/bake-days", get(list))
+        .route("/staff/bake-days/new", get(new_form).post(create))
+        .route("/staff/bake-days/{id}", get(show))
+        .route("/staff/bake-days/{id}/schedule", post(schedule))
+        .route("/staff/bake-days/{id}/charity", post(charity))
+        .route("/staff/bake-days/{id}/range", post(set_product))
+        .route(
+            "/staff/bake-days/{id}/range/{product}",
+            post(update_product),
+        )
+        .route(
+            "/staff/bake-days/{id}/range/{product}/remove",
+            post(remove_product),
+        )
+        .route("/staff/bake-days/{id}/copy", post(copy))
+        .route("/staff/bake-days/{id}/repeat", post(repeat))
+        .route("/staff/bake-days/{id}/slots", post(add_slot))
+        .route("/staff/bake-days/{id}/slots/{slot}", post(update_slot))
+        .route(
+            "/staff/bake-days/{id}/slots/{slot}/remove",
+            post(remove_slot),
+        )
+        .route("/staff/bake-days/{id}/open", post(open))
+        .route("/staff/bake-days/{id}/close", post(close))
+}
 
 const DAYS_AHEAD: i32 = 366;
 

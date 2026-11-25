@@ -6,10 +6,12 @@ use std::collections::BTreeMap;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
 use bakedays::days;
 use catalog::charities;
 use domain::{BakeDayId, CharityId, Money, VatRate};
@@ -27,6 +29,28 @@ use crate::components::{BarChart, Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/reports", get(index))
+        .route("/staff/reports/sales", get(sales_page))
+        .route("/staff/reports/sales.csv", get(sales_csv))
+        .route(
+            "/staff/reports/pay-what-you-want.csv",
+            get(pay_what_you_want_csv),
+        )
+        .route("/staff/reports/donations", get(donations_page))
+        .route(
+            "/staff/reports/donations/drops.csv",
+            get(donation_drops_csv),
+        )
+        .route(
+            "/staff/reports/donations/charities.csv",
+            get(donation_charities_csv),
+        )
+        .route("/staff/reports/contribution", get(contribution_page))
+        .route("/staff/reports/contribution/costs", post(add_cost))
+}
 
 /// `?van=2026-01-01&tot=2026-12-31&per=maand`; `opgeslagen` after a save.
 #[derive(Debug, Default, Deserialize)]

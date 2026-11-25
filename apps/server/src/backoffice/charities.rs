@@ -2,9 +2,11 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::routing::{get, post};
 use catalog::{Charity, CharityInput, charities};
 use domain::CharityId;
 use tower_sessions::Session;
@@ -18,6 +20,15 @@ use crate::components::{Cell, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/charities", get(list))
+        .route("/staff/charities/new", get(new_form).post(create))
+        .route("/staff/charities/check", post(check))
+        .route("/staff/charities/{id}", get(edit_form).post(update))
+        .route("/staff/charities/{id}/archive", post(archive))
+}
 
 const CHECK: &str = "/staff/charities/check";
 

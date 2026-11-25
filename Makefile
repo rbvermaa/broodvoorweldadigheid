@@ -71,7 +71,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
-	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
+	db-down sqlx-prepare sqlx-check migrations-lock permissions-doc logo restore-test mollie-contract ci-deps image-contents linux-check \
 	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e e2e-local
 
 help: ## List targets
@@ -203,6 +203,9 @@ db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 
 db-down: ## Stop the local PostgreSQL
 	$(NIX_DEV) pg_ctl --pgdata=$(PG_DIR)/data --wait --mode=fast stop
+
+permissions-doc: ## Regenerate docs/permissions.md from the permission table in crates/auth
+	$(NIX_DEV) env BVW_WRITE_PERMISSIONS_DOC=1 cargo nextest run --package auth --test permissions_doc
 
 migrations-lock: ## Append new migrations to crates/db/migrations/migrations.lock; never rewrites entries
 	$(NIX_DEV) bash -c 'set -e; cd crates/db/migrations; touch migrations.lock; \
