@@ -25,3 +25,16 @@ Open:
   a photo field on the product first.
 - Labels and PDFs still want the logo as SVG (open question "Logo file").
 - `/favicon.ico` is not served; browsers that ignore `<link rel="icon">` get a 404.
+
+## Amendment, 2026-11-25: desktop layout
+
+The owner asked for an app that works well on a desktop too, not only on a phone. Phones
+keep the layout above; from the `lg` breakpoint (64rem) the page widens.
+
+| Choice | Why |
+|---|---|
+| From `lg`, header, main and footer are `size.page` (80rem) wide. Paragraphs in main keep `size.content` (48rem) | Tables, grids and forms use the width; running text stays readable |
+| From `lg`, the staff menu is a sidebar (`size.sidebar`, 14rem). The entry of the current section is shown inverted and has `aria-current`: `page` on its own page, `true` on a page below it. On a phone the menu stays the wrapping list | The back office is used at a desk; a sidebar keeps 14 entries in view without pushing the page down. Neither the sidebar nor the cart is sticky: a sticky box taller than the window hides its lower part, such as the checkout link. `aria-current` tells screen readers where they are on every width |
+| `templates/components/layout.html`: `form_grid` (short fields side by side from `md`, at most `size.tile-max` wide; textareas, checkboxes, fieldsets and text take a row), `choice_grid` (checkbox columns), `card_grid` (bordered cards from `md`) and `split` (a side column from `lg`, used for the cart). Each adds one div and nothing on a phone | Opt-in per page, so pages and shared macros keep their API and a page that does not call them is unchanged. Flex instead of grid: the token checks allow no `fr` values |
+| Table cells break only between words (`overflow-wrap: break-word`, no hyphens), and numeric headers may wrap. A table wider than its column scrolls inside `.table-wrap` | With `overflow-wrap: anywhere` a table squeezed text columns to one letter per line, on every width |
+| New size tokens: `tile-max`, `page`, `sidebar`, `aside` | Every size is a token |

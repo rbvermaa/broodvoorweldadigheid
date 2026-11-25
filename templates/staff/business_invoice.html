@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -28,12 +29,14 @@
 {% call s::csrf() %}{% endcall %}
 <input type="hidden" name="van" value="{{ form.from }}">
 <input type="hidden" name="tot" value="{{ form.to }}">
+{% call l::form_grid() %}
 {%- for order in form.orders %}
 <input type="hidden" name="order" value="{{ order }}">
 {%- endfor %}
 {% call f::field("text", "invoice_number", layout.t("b2b-invoice-number")?, value = form.invoice_number, error = form.errors.get("invoice_number"), required = true) %}{% endcall %}
 {% call f::field("date", "invoice_date", layout.t("b2b-invoice-date")?, value = form.invoice_date, error = form.errors.get("invoice_date"), required = true) %}{% endcall %}
 {% call b::button(layout.t("b2b-invoice-mark")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 <h2>{{ layout.t("b2b-invoices")? }}</h2>

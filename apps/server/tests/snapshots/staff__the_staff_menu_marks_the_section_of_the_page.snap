@@ -1,0 +1,24 @@
+---
+source: apps/server/tests/staff.rs
+expression: staff_menu(&home.body)
+---
+<div class="staff-shell">
+<nav class="staff-sidebar" aria-labelledby="staff-nav-title">
+<h2 class="visually-hidden" id="staff-nav-title">Beheer</h2>
+<ul class="staff-nav">
+<li><a href="/staff" aria-current="page">Medewerkers</a></li>
+<li><a href="/staff/bake-days">Bakdagen</a></li>
+<li><a href="/staff/orders">Bestellingen</a></li>
+<li><a href="/staff/customers">Klanten</a></li>
+<li><a href="/staff/products">Producten</a></li>
+<li><a href="/staff/ingredients">Ingrediënten</a></li>
+<li><a href="/staff/recipes">Recepten</a></li>
+<li><a href="/staff/locations">Ophaallocaties</a></li>
+<li><a href="/staff/charities">Goede doelen</a></li>
+<li><a href="/staff/polls">Stemmingen</a></li>
+<li><a href="/staff/business-accounts">Zakelijk</a></li>
+<li><a href="/staff/costing">Kostprijzen</a></li>
+<li><a href="/staff/reports">Rapporten</a></li>
+<li><a href="/staff/settings">Instellingen</a></li>
+</ul>
+</nav>

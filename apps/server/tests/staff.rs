@@ -588,3 +588,31 @@ async fn signing_in_on_a_shared_browser_ends_the_previous_login(pool: PgPool) {
         .expect("logins");
     assert_eq!(left, [second.id.get()]);
 }
+
+/// The staff menu as served: a phone list that becomes a sidebar on wide screens, with the
+/// section of the current page marked for screen readers and the sidebar.
+fn staff_menu(page: &str) -> &str {
+    let start = page
+        .find("<div class=\"staff-shell\">")
+        .expect("staff shell");
+    let end = page[start..].find("</nav>").expect("end of the menu") + start + "</nav>".len();
+    &page[start..end]
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_staff_menu_marks_the_section_of_the_page(pool: PgPool) {
+    let owner = add(&pool, "uuid-owner", "Eigenaar Eva", Role::Owner).await;
+    let (cookie, _) = signed_in_at(&pool, &owner, Timestamp::now()).await;
+    let app = app(pool, &[]);
+    let home = get_with(&app, "/staff", Some(&cookie)).await;
+    assert_eq!(home.status, StatusCode::OK, "{}", home.body);
+    insta::assert_snapshot!(staff_menu(&home.body));
+    let deeper = get_with(&app, "/staff/bake-days/new", Some(&cookie)).await;
+    assert_eq!(deeper.status, StatusCode::OK, "{}", deeper.body);
+    let menu = staff_menu(&deeper.body);
+    assert_eq!(menu.matches("aria-current").count(), 1, "{menu}");
+    assert!(
+        menu.contains("<a href=\"/staff/bake-days\" aria-current=\"true\">"),
+        "{menu}"
+    );
+}
