@@ -17,7 +17,7 @@ localhost {
 idm.localhost {
 	tls internal
 	# Kanidm always serves TLS itself, with the self-signed cert from cert-generate.
-	reverse_proxy https://kanidm:8443 {
+	reverse_proxy https://kanidm:{$BVW_HTTPS_PORT:8443} {
 		header_up Host {host}
 		transport http {
 			tls_insecure_skip_verify

@@ -3,6 +3,7 @@
 pub mod customer;
 pub mod identity;
 pub mod login;
+pub mod oidc;
 pub mod role;
 pub mod staff;
 

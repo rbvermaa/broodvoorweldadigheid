@@ -3,6 +3,7 @@
 pub mod backup;
 pub mod dev_secrets;
 pub mod entrypoint;
+pub mod kanidm;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -32,6 +33,11 @@ pub enum Command {
         #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
         database_url: String,
     },
+    #[command(
+        subcommand,
+        about = "Local Kanidm set-up for staff login; runs inside the kanidm container"
+    )]
+    Kanidm(kanidm::KanidmCommand),
     #[command(subcommand, about = "Staff who may log in to the back office (F13)")]
     Staff(StaffCommand),
 }
@@ -55,19 +61,8 @@ pub enum StaffCommand {
 
 /// Kanidm's `sub` is the person's UUID; anything else is most likely their user name.
 fn uuid_sub(raw: &str) -> Result<String, String> {
-    let sub = raw.trim().to_ascii_lowercase();
-    let groups: Vec<&str> = sub.split('-').collect();
-    let lengths = groups.iter().map(|group| group.len()).collect::<Vec<_>>();
-    let hex = groups
-        .iter()
-        .all(|group| group.bytes().all(|b| b.is_ascii_hexdigit()));
-    if hex && lengths == [8, 4, 4, 4, 12] {
-        Ok(sub)
-    } else {
-        Err(format!(
-            "{raw:?} is not a UUID; use the person's Kanidm UUID"
-        ))
-    }
+    auth::identity::canonical_uuid(raw.trim())
+        .ok_or_else(|| format!("{raw:?} is not a UUID; use the person's Kanidm UUID"))
 }
 
 fn trimmed(raw: &str) -> Result<String, String> {
@@ -133,6 +128,8 @@ pub enum Error {
     #[error(transparent)]
     Db(#[from] db::Error),
     #[error(transparent)]
+    Kanidm(#[from] kanidm::Error),
+    #[error(transparent)]
     Staff(#[from] auth::staff::Error),
 }
 
@@ -145,6 +142,7 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
             pool.close().await;
             println!("migrations applied");
         }
+        Command::Kanidm(command) => print!("{}", kanidm::execute(command)?),
         Command::Staff(StaffCommand::Add {
             database_url,
             sub,
@@ -418,6 +416,27 @@ mod tests {
             cli.command,
             Command::Staff(StaffCommand::Add { .. })
         ));
+    }
+
+    #[test]
+    fn parses_kanidm_oauth2_client() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "kanidm",
+            "oauth2-client",
+            "--landing-url",
+            "https://localhost:8443/staff",
+            "--redirect-url",
+            "https://localhost:8443/staff/oidc/callback",
+        ])
+        .expect("valid arguments");
+        let Command::Kanidm(kanidm::KanidmCommand::Oauth2Client { url, client_id, .. }) =
+            cli.command
+        else {
+            panic!("expected kanidm oauth2-client, got {cli:?}");
+        };
+        assert_eq!(url, kanidm::DEFAULT_URL);
+        assert_eq!(client_id, "bvw-staff");
     }
 
     #[test]

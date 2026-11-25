@@ -9,9 +9,10 @@
 let
   inherit (pkgs) lib;
   uid = "1000";
-  # kanidmd and its web UI only: kanidm_unixd hard-codes a bash path, which would put a shell
-  # in the image. kanidmd embeds its own store path for the UI, so that path is rewritten to
-  # $out; the name is unchanged, so the rewrite keeps the binary's byte length.
+  # kanidmd, its web UI and the kanidm client (for `make kanidm-setup`) only: kanidm_unixd
+  # hard-codes a bash path, which would put a shell in the image. kanidmd embeds its own store
+  # path for the UI, so that path is rewritten to $out; the name is unchanged, so the rewrite
+  # keeps the binary's byte length.
   kanidm =
     let
       upstream = pkgs.kanidm_1_12;
@@ -19,10 +20,12 @@ let
     pkgs.runCommand upstream.name { meta.mainProgram = "kanidmd"; } ''
       mkdir -p $out/bin
       cp -r ${upstream}/ui $out/ui
-      cp ${upstream}/bin/kanidmd $out/bin/kanidmd
-      chmod u+w $out/bin/kanidmd
-      LC_ALL=C sed -i "s|${builtins.baseNameOf upstream}|$(basename $out)|g" $out/bin/kanidmd
-      if grep -q ${builtins.baseNameOf upstream} $out/bin/kanidmd; then exit 1; fi
+      for bin in kanidmd kanidm; do
+        cp ${upstream}/bin/$bin $out/bin/$bin
+        chmod u+w $out/bin/$bin
+        LC_ALL=C sed -i "s|${builtins.baseNameOf upstream}|$(basename $out)|g" $out/bin/$bin
+        if grep -q ${builtins.baseNameOf upstream} $out/bin/$bin; then exit 1; fi
+      done
     '';
 
   nss = pkgs.dockerTools.fakeNss.override {
@@ -127,7 +130,7 @@ let
         "kanidm"
       ];
       env = [
-        "PATH=${kanidm}/bin"
+        "PATH=${kanidm}/bin:${cli}/bin"
         "KANIDM_BINDADDRESS=0.0.0.0:8443"
         "KANIDM_DB_PATH=/data/kanidm.db"
         "KANIDM_TLS_CHAIN=/data/chain.pem"

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE staff_user SET name = $2, email = COALESCE($3, email)\n         WHERE oidc_sub = $1 AND active\n         RETURNING id, oidc_sub, name, email, role, active",
+  "query": "UPDATE staff_user SET name = COALESCE($2, name), email = COALESCE($3, email)\n         WHERE oidc_sub = $1 AND active\n         RETURNING id, oidc_sub, name, email, role, active",
   "describe": {
     "columns": [
       {
@@ -86,5 +86,5 @@
       false
     ]
   },
-  "hash": "4098a2bdb4e305289b83d8b0066098b0b9ac399ffb4a94f5624c3924df05907f"
+  "hash": "47c24972e5f79f3a00a11016063598335dcf028ce51cdf25d84196cbf5ecebef"
 }

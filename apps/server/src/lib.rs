@@ -16,6 +16,7 @@ pub mod healthcheck;
 #[cfg(test)]
 mod icon_set;
 pub mod icons;
+pub mod oidc_http;
 pub mod pages;
 pub mod payment_provider;
 pub mod privacy;
@@ -26,6 +27,7 @@ pub mod session;
 pub mod shop;
 pub mod site;
 pub mod staff;
+pub mod staff_login;
 pub mod staff_session;
 pub mod state;
 #[cfg(test)]
@@ -52,6 +54,10 @@ struct Health {
     db: &'static str,
 }
 
+/// Ten login attempts at once per client, then one more every six seconds.
+const LOGIN_BURST: u32 = 10;
+const LOGIN_PERIOD: Duration = Duration::from_secs(6);
+
 pub fn router(state: AppState) -> Router {
     let site = site::routes(&state, state.clock.clone());
     let mut routes = Router::new()
@@ -65,7 +71,6 @@ pub fn router(state: AppState) -> Router {
         .merge(privacy::routes())
         .merge(public_donations::routes())
         .route("/staff", get(staff::home))
-        .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
         .merge(backoffice::routes());
     if state.config.dev_staff_login {
@@ -86,9 +91,20 @@ pub fn router(state: AppState) -> Router {
         account::LOGIN_PERIOD,
         account::LOGIN_BURST,
     );
+    let staff_login = rate_limit::apply(
+        sessioned(
+            Router::new()
+                .route(staff::LOGIN_PATH, get(staff::login))
+                .route(staff::CALLBACK_PATH, get(staff::callback)),
+            &state,
+        ),
+        &state,
+        LOGIN_PERIOD,
+        LOGIN_BURST,
+    );
     shell(
         routes,
-        Some(checkout.merge(login)),
+        Some(checkout.merge(login).merge(staff_login)),
         shop::webhook_routes(),
         state.clone(),
     )

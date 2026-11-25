@@ -172,7 +172,7 @@ Everything we write is Rust. The few services we run but do not write are C, C++
 | PDFs | Typst used as a library, also rendering label PNGs for the Niimbot app | Rust |
 | Excel import | calamine | Rust |
 | Payments | mollie-rs, or a small own client on reqwest | Rust |
-| Staff login | Kanidm (OIDC, passkeys) with the openidconnect crate (Rauthy) | Rust |
+| Staff login | Kanidm (OIDC, passkeys) with a small own client: ES256 ID tokens verified with ring (Rauthy) | Rust |
 | Customer login | Email magic links, sessions via tower-sessions | Rust |
 | AI serving | mistral.rs, OpenAI-compatible API (llama.cpp server) | Rust (C++) |
 | Vector search | pgvector inside PostgreSQL (Qdrant) | C (Rust) |

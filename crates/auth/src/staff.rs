@@ -185,7 +185,8 @@ pub async fn deactivate(pool: &PgPool, id: StaffUserId) -> Result<(), Error> {
     Ok(())
 }
 
-/// Lets a known, active person in and refreshes their name and email from the provider.
+/// Lets a known, active person in and refreshes their name and verified email from the
+/// provider.
 /// An unknown person only gets in as the bootstrap owner, and only while there is no owner.
 ///
 /// # Errors
@@ -195,15 +196,18 @@ pub async fn sign_in(
     identity: &Identity,
     bootstrap: &BootstrapOwner,
 ) -> Result<StaffUser, Error> {
-    let name = identity.display_name();
+    let verified_email = identity
+        .email
+        .as_deref()
+        .filter(|_| identity.email_verified);
     let row = sqlx::query_as!(
         Row,
-        "UPDATE staff_user SET name = $2, email = COALESCE($3, email)
+        "UPDATE staff_user SET name = COALESCE($2, name), email = COALESCE($3, email)
          WHERE oidc_sub = $1 AND active
          RETURNING id, oidc_sub, name, email, role, active",
         identity.sub,
-        name,
-        identity.email,
+        identity.claimed_name(),
+        verified_email,
     )
     .fetch_optional(pool)
     .await?;
@@ -221,6 +225,7 @@ pub async fn sign_in(
         .bind(BOOTSTRAP_LOCK)
         .execute(&mut *tx)
         .await?;
+    let name = identity.display_name();
     let row = sqlx::query_as!(
         Row,
         r#"INSERT INTO staff_user (oidc_sub, name, email, role)
@@ -231,7 +236,7 @@ pub async fn sign_in(
             role AS "role!", active AS "active!""#,
         identity.sub,
         name,
-        identity.email,
+        verified_email,
     )
     .fetch_optional(&mut *tx)
     .await?;

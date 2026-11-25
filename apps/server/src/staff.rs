@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 
 use askama::Template;
-use auth::staff as repo;
+use auth::oidc::{OidcError, PendingLogin};
+use auth::staff::{self as repo, Error as StaffError};
 use auth::{Permission, Role, StaffUser};
 use axum::Extension;
-use axum::extract::{ConnectInfo, Form, FromRequestParts, State};
+use axum::extract::{ConnectInfo, Form, FromRequestParts, Query, State};
 use axum::http::header::HOST;
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -20,6 +21,7 @@ use crate::state::AppState;
 
 pub const LOGIN_PATH: &str = "/staff/login";
 pub const DEV_LOGIN_PATH: &str = "/staff/dev-login";
+pub const CALLBACK_PATH: &str = "/staff/oidc/callback";
 
 /// Headers a reverse proxy adds; a request carrying one did not come straight from the
 /// developer's own machine.
@@ -164,29 +166,154 @@ struct DevLoginPage<'a> {
     action: &'static str,
 }
 
+const PENDING_KEY: &str = "staff_login_pending";
+
+fn unavailable(state: &AppState) -> Response {
+    pages::error_with(
+        state,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "staff-unavailable-title",
+        "staff-unavailable-text",
+    )
+}
+
+fn login_down(state: &AppState) -> Response {
+    pages::error_with(
+        state,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "staff-login-down-title",
+        "staff-login-down-text",
+    )
+}
+
+fn login_failed(state: &AppState, status: StatusCode, reason: &str) -> Response {
+    tracing::warn!(reason, "staff login failed");
+    pages::error_with(
+        state,
+        status,
+        "staff-login-failed-title",
+        "staff-login-failed-text",
+    )
+}
+
+/// Sends the browser to Kanidm with a fresh state, nonce and PKCE challenge. Without
+/// `OIDC_ISSUER` it falls back to the dev login, or 503.
 pub async fn login(
     State(state): State<AppState>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     session: Session,
 ) -> Response {
-    if !dev_login_allowed(&state, peer, &headers) {
-        return pages::error_with(
-            &state,
-            StatusCode::SERVICE_UNAVAILABLE,
-            "staff-unavailable-title",
-            "staff-unavailable-text",
-        );
+    let Some(login) = state.staff_login.as_deref() else {
+        return dev_login_page(&state, peer, &headers, &session).await;
+    };
+    let provider = match login.provider(state.clock.now()).await {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(error = %auth::oidc::error_chain(&error), "staff login unavailable");
+            return login_down(&state);
+        }
+    };
+    let (url, pending) = provider.begin();
+    if let Err(error) = session.insert(PENDING_KEY, pending).await {
+        return server_error(&state, &error);
     }
-    let token = match csrf::token(&session).await {
-        Ok(token) => token,
+    Redirect::to(&url).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+pub async fn callback(
+    State(state): State<AppState>,
+    session: Session,
+    Query(query): Query<CallbackQuery>,
+) -> Response {
+    let pending = match session.remove::<PendingLogin>(PENDING_KEY).await {
+        Ok(Some(pending)) => pending,
+        Ok(None) => return login_failed(&state, StatusCode::BAD_REQUEST, "no login pending"),
         Err(error) => return server_error(&state, &error),
     };
+    if let Some(error) = query.error.as_deref() {
+        let code: String = error
+            .chars()
+            .take(40)
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        return login_failed(&state, StatusCode::BAD_REQUEST, &code);
+    }
+    let (Some(code), Some(returned_state)) = (query.code, query.state) else {
+        return login_failed(&state, StatusCode::BAD_REQUEST, "code or state missing");
+    };
+    let Some(login) = state.staff_login.as_deref() else {
+        return unavailable(&state);
+    };
+    let now = state.clock.now();
+    let provider = match login.provider(now).await {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(error = %auth::oidc::error_chain(&error), "staff login unavailable");
+            return login_down(&state);
+        }
+    };
+    let identity = match provider
+        .complete(login.http(), pending, &returned_state, &code, now)
+        .await
+    {
+        Ok(identity) => identity,
+        Err(OidcError::StateMismatch) => {
+            return login_failed(&state, StatusCode::BAD_REQUEST, "state mismatch");
+        }
+        Err(OidcError::UnknownKey) => {
+            login.forget();
+            return login_failed(&state, StatusCode::FORBIDDEN, "unknown signing key");
+        }
+        Err(error @ OidcError::Unreachable(_)) => {
+            tracing::error!(error = %auth::oidc::error_chain(&error), "staff login unavailable");
+            return login_down(&state);
+        }
+        Err(error) => {
+            let reason = auth::oidc::error_chain(&error);
+            return login_failed(&state, StatusCode::FORBIDDEN, &reason);
+        }
+    };
+    let user = match repo::sign_in(&state.pool, &identity, &state.config.bootstrap_owner).await {
+        Ok(user) => user,
+        Err(StaffError::Unknown | StaffError::Inactive(_)) => {
+            tracing::warn!(sub = %identity.sub, "refused staff login");
+            return not_allowed(&state);
+        }
+        Err(error) => return server_error(&state, &error),
+    };
+    if let Err(error) = staff_session::sign_in(&state, &session, &user).await {
+        return server_error(&state, &error);
+    }
+    tracing::info!(staff = user.id.get(), role = %user.role, "staff logged in");
+    Redirect::to("/staff").into_response()
+}
+
+async fn dev_login_page(
+    state: &AppState,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+    session: &Session,
+) -> Response {
+    if !dev_login_allowed(state, peer, headers) {
+        return unavailable(state);
+    }
+    let token = match csrf::token(session).await {
+        Ok(token) => token,
+        Err(error) => return server_error(state, &error),
+    };
     pages::render(
-        &state,
+        state,
         StatusCode::OK,
         &DevLoginPage {
-            layout: Layout::new(&state).with_csrf_token(token),
+            layout: Layout::new(state).with_csrf_token(token),
             action: DEV_LOGIN_PATH,
         },
     )

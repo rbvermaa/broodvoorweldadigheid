@@ -1,10 +1,12 @@
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
+use auth::BootstrapOwner;
 use jiff::civil::Time;
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:8080";
 pub const DEFAULT_PUBLIC_URL: &str = "https://broodvoorweldadigheid.nl";
+pub const DEFAULT_OIDC_CLIENT_ID: &str = "bvw-staff";
 
 #[derive(PartialEq, Eq)]
 pub struct Config {
@@ -31,6 +33,21 @@ pub struct Config {
     pub pickup_reminder_at: Time,
     /// Where the contact form (F4f) sends messages. Without it the form shows the 500 page.
     pub contact_email: Option<String>,
+    /// Staff login through Kanidm; `None` when `OIDC_ISSUER` is not set.
+    pub oidc: Option<OidcConfig>,
+    pub bootstrap_owner: BootstrapOwner,
+}
+
+/// The client secret and CA are files that may appear after the server starts (`make
+/// kanidm-setup`), so they are read when someone logs in, not here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OidcConfig {
+    pub issuer: String,
+    pub client_id: String,
+    pub redirect_url: String,
+    pub client_secret_file: PathBuf,
+    /// Extra PEM CA certificates to trust on top of the system ones.
+    pub ca_file: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -53,6 +70,12 @@ pub enum ConfigError {
     DevStaffLoginNotLocal(SocketAddr),
     #[error("DEV_STAFF_LOGIN=true cannot be combined with TRUSTED_PROXY")]
     DevStaffLoginBehindProxy,
+    #[error("DEV_STAFF_LOGIN=true cannot be combined with OIDC_ISSUER")]
+    DevStaffLoginWithOidc,
+    #[error("BVW_BOOTSTRAP_OWNER_SUB {0:?} is not a UUID; use the person's Kanidm UUID")]
+    InvalidBootstrapOwnerSub(String),
+    #[error("{0} must be set when OIDC_ISSUER is set")]
+    MissingOidc(&'static str),
     #[error(
         "PUBLIC_URL {0:?} must be an https URL without path, like https://broodvoorweldadigheid.nl; http only for localhost or 127.0.0.1"
     )]
@@ -72,6 +95,8 @@ impl std::fmt::Debug for Config {
             .field("trusted_proxy", &self.trusted_proxy)
             .field("gallery", &self.gallery)
             .field("dev_staff_login", &self.dev_staff_login)
+            .field("oidc", &self.oidc)
+            .field("bootstrap_owner", &self.bootstrap_owner)
             .field("public_url", &self.public_url)
             .field("mollie_api_key_file", &self.mollie_api_key_file)
             .field("mollie_api_url", &self.mollie_api_url)
@@ -125,6 +150,20 @@ impl Config {
         if dev_staff_login && trusted_proxy.is_some() {
             return Err(ConfigError::DevStaffLoginBehindProxy);
         }
+        let oidc = oidc_config(&lookup)?;
+        if dev_staff_login && oidc.is_some() {
+            return Err(ConfigError::DevStaffLoginWithOidc);
+        }
+        let bootstrap_sub = non_empty(&lookup, "BVW_BOOTSTRAP_OWNER_SUB")
+            .map(|raw| {
+                auth::identity::canonical_uuid(&raw)
+                    .ok_or(ConfigError::InvalidBootstrapOwnerSub(raw))
+            })
+            .transpose()?;
+        let bootstrap_owner = BootstrapOwner {
+            sub: bootstrap_sub,
+            email: non_empty(&lookup, "BVW_BOOTSTRAP_OWNER_EMAIL"),
+        };
         let public_url = lookup("PUBLIC_URL").unwrap_or_else(|| DEFAULT_PUBLIC_URL.to_string());
         if !is_origin(&public_url) {
             return Err(ConfigError::InvalidPublicUrl(public_url));
@@ -154,6 +193,8 @@ impl Config {
             trusted_proxy,
             gallery,
             dev_staff_login,
+            oidc,
+            bootstrap_owner,
             public_url,
             mollie_api_key_file,
             mollie_api_url,
@@ -201,6 +242,27 @@ fn is_origin(url: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
         && (port.is_empty() || port.parse::<u16>().is_ok())
         && !(port.is_empty() && rest.ends_with(':'))
+}
+
+fn non_empty(lookup: &impl Fn(&str) -> Option<String>, key: &str) -> Option<String> {
+    lookup(key).filter(|value| !value.is_empty())
+}
+
+fn oidc_config(
+    lookup: &impl Fn(&str) -> Option<String>,
+) -> Result<Option<OidcConfig>, ConfigError> {
+    let Some(issuer) = non_empty(lookup, "OIDC_ISSUER") else {
+        return Ok(None);
+    };
+    let required = |key: &'static str| non_empty(lookup, key).ok_or(ConfigError::MissingOidc(key));
+    Ok(Some(OidcConfig {
+        issuer,
+        client_id: non_empty(lookup, "OIDC_CLIENT_ID")
+            .unwrap_or_else(|| DEFAULT_OIDC_CLIENT_ID.to_string()),
+        redirect_url: required("OIDC_REDIRECT_URL")?,
+        client_secret_file: required("OIDC_CLIENT_SECRET_FILE")?.into(),
+        ca_file: non_empty(lookup, "OIDC_CA_FILE").map(PathBuf::from),
+    }))
 }
 
 #[cfg(test)]
@@ -458,6 +520,136 @@ mod tests {
                 ("DEV_STAFF_LOGIN", "true"),
             ])),
             Err(ConfigError::DevStaffLoginBehindProxy)
+        );
+    }
+
+    /// The server image sets no `BIND_ADDR` (so 0.0.0.0) and compose adds the proxy and
+    /// Kanidm; dev login must not start next to OIDC there, whatever else is set.
+    #[test]
+    fn the_image_config_with_oidc_refuses_dev_login() {
+        let image = [
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("TRUSTED_PROXY", "10.89.0.10"),
+            (
+                "OIDC_ISSUER",
+                "https://idm.localhost:8443/oauth2/openid/bvw-staff",
+            ),
+            (
+                "OIDC_REDIRECT_URL",
+                "https://localhost:8443/staff/oidc/callback",
+            ),
+            ("OIDC_CLIENT_SECRET_FILE", "/run/oidc/client-secret"),
+            ("DEV_STAFF_LOGIN", "true"),
+        ];
+        assert_eq!(
+            Config::from_lookup(lookup(&image)),
+            Err(ConfigError::DevStaffLoginNotLocal(
+                DEFAULT_BIND_ADDR.parse().expect("addr")
+            ))
+        );
+        let mut loopback = image.to_vec();
+        loopback.push(("BIND_ADDR", "127.0.0.1:8080"));
+        assert_eq!(
+            Config::from_lookup(lookup(&loopback)),
+            Err(ConfigError::DevStaffLoginBehindProxy)
+        );
+        let local: Vec<_> = loopback
+            .into_iter()
+            .filter(|(key, _)| *key != "TRUSTED_PROXY")
+            .collect();
+        assert_eq!(
+            Config::from_lookup(lookup(&local)),
+            Err(ConfigError::DevStaffLoginWithOidc),
+            "not even on a developer's own machine"
+        );
+    }
+
+    #[test]
+    fn staff_login_is_off_without_an_issuer() {
+        let config = Config::from_lookup(lookup(&[("DATABASE_URL", "postgres://db/bakery")]))
+            .expect("config");
+        assert_eq!(config.oidc, None);
+        assert_eq!(config.bootstrap_owner, BootstrapOwner::default());
+    }
+
+    #[test]
+    fn staff_login_reads_issuer_redirect_secret_and_ca() {
+        let config = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            (
+                "OIDC_ISSUER",
+                "https://idm.localhost:8443/oauth2/openid/bvw-staff",
+            ),
+            (
+                "OIDC_REDIRECT_URL",
+                "https://localhost:8443/staff/oidc/callback",
+            ),
+            ("OIDC_CLIENT_SECRET_FILE", "/run/oidc/client-secret"),
+            ("OIDC_CA_FILE", "/run/oidc/kanidm-ca.pem"),
+            ("BVW_BOOTSTRAP_OWNER_EMAIL", "eigenaar@example.org"),
+            ("BVW_BOOTSTRAP_OWNER_SUB", ""),
+        ]))
+        .expect("config");
+        assert_eq!(
+            config.oidc,
+            Some(OidcConfig {
+                issuer: "https://idm.localhost:8443/oauth2/openid/bvw-staff".to_string(),
+                client_id: DEFAULT_OIDC_CLIENT_ID.to_string(),
+                redirect_url: "https://localhost:8443/staff/oidc/callback".to_string(),
+                client_secret_file: "/run/oidc/client-secret".into(),
+                ca_file: Some("/run/oidc/kanidm-ca.pem".into()),
+            })
+        );
+        assert_eq!(
+            config.bootstrap_owner,
+            BootstrapOwner {
+                sub: None,
+                email: Some("eigenaar@example.org".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn the_bootstrap_sub_must_be_a_uuid_and_is_lowercased() {
+        let config = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            (
+                "BVW_BOOTSTRAP_OWNER_SUB",
+                "0D2F1F9E-1111-2222-3333-444455556666",
+            ),
+        ]))
+        .expect("config");
+        assert_eq!(
+            config.bootstrap_owner.sub.as_deref(),
+            Some("0d2f1f9e-1111-2222-3333-444455556666")
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BVW_BOOTSTRAP_OWNER_SUB", "bas"),
+            ])),
+            Err(ConfigError::InvalidBootstrapOwnerSub("bas".to_string()))
+        );
+    }
+
+    #[test]
+    fn staff_login_needs_a_redirect_url_and_secret_file() {
+        let base = [
+            ("DATABASE_URL", "postgres://db/bakery"),
+            ("OIDC_ISSUER", "https://idm.test"),
+        ];
+        assert_eq!(
+            Config::from_lookup(lookup(&base)),
+            Err(ConfigError::MissingOidc("OIDC_REDIRECT_URL"))
+        );
+        let with_redirect = [
+            base[0],
+            base[1],
+            ("OIDC_REDIRECT_URL", "https://shop.test/cb"),
+        ];
+        assert_eq!(
+            Config::from_lookup(lookup(&with_redirect)),
+            Err(ConfigError::MissingOidc("OIDC_CLIENT_SECRET_FILE"))
         );
     }
 

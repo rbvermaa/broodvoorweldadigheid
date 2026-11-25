@@ -45,17 +45,19 @@ fn ignore_entries(audit: &str) -> Vec<&'static str> {
 
 #[test]
 fn quick_xml_ignores_go_once_the_old_quick_xml_is_gone() {
-    let audit = read(".cargo/audit.toml");
-    let ignored = ignore_entries(&audit);
     let lock = read("Cargo.lock");
     let vulnerable = locked_versions(&lock, "quick-xml")
         .into_iter()
         .any(|version| version < (0, 41));
-    assert!(
-        vulnerable || ignored.is_empty(),
-        "no quick-xml below 0.41 is left in Cargo.lock: remove {ignored:?} from \
-         .cargo/audit.toml and the accepted advisories in ADR 0016"
-    );
+    for file in [".cargo/audit.toml", "deny.toml"] {
+        let config = read(file);
+        let ignored = ignore_entries(&config);
+        assert!(
+            vulnerable || ignored.is_empty(),
+            "no quick-xml below 0.41 is left in Cargo.lock: remove {ignored:?} from \
+             {file} and the accepted advisories in ADR 0016"
+        );
+    }
 }
 
 #[test]

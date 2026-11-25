@@ -267,8 +267,12 @@ dependencies = [
  "domain",
  "jiff",
  "rand 0.9.5",
+ "ring",
+ "serde",
+ "serde_json",
  "sha2",
  "sqlx",
+ "testkit",
  "thiserror 2.0.21",
  "tokio",
 ]
@@ -3910,6 +3914,8 @@ dependencies = [
  "rand 0.9.5",
  "recipes",
  "reports",
+ "reqwest 0.12.28",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2",
@@ -4427,9 +4433,14 @@ dependencies = [
 name = "testkit"
 version = "0.1.0"
 dependencies = [
+ "auth",
+ "base64 0.22.1",
  "domain",
  "jiff",
  "notify",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

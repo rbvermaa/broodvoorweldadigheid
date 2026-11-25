@@ -86,13 +86,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
   server refuse to start without them?
-- [ ] **Staff login through Kanidm is parked** (ADR 0010, branch `rv-p1-staff-oidc`).
-  openidconnect 4.1 pulls in `rsa 0.9` with RUSTSEC-2023-0071, so `make audit` fails.
-  Wait for openidconnect on rsa 0.10, accept the advisory (we only verify with public
-  keys), or verify ID tokens without openidconnect? Until then staff can only sign in
-  through the local dev login.
+- [x] **Staff login through Kanidm** (ADR 0010). Owner decision 2026-11-25: no
+  openidconnect. A small client of our own accepts ES256 ID tokens only and verifies them
+  with ring, which was already in Cargo.lock. Roles stay in `staff_user`; Kanidm only
+  decides who may log in (group `bvw_staff`).
 - [ ] **Typst advisories.** On the next Typst release, check whether quick-xml < 0.41 is
-  gone and drop the two ignores in `.cargo/audit.toml` (ADR 0016).
+  gone and drop the two ignores in `.cargo/audit.toml` and `deny.toml` (ADR 0016).
 - [x] **Payhip subscribers for drop alerts.** F9a says the list starts with subscribers
   exported from Payhip.
   Answer: F9a: no Payhip subscribers exist; no import (owner, 2026-11-24). Subscribers
