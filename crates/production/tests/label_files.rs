@@ -435,7 +435,11 @@ async fn freezer_labels_count_from_the_freeze_date_in_amsterdam(pool: PgPool) {
     let product = label_files::label(&mut conn, id, k.bread, LabelKind::Product)
         .await
         .unwrap();
-    assert_eq!(product.copies(), 3, "frozen pieces get only a freezer label");
+    assert_eq!(
+        product.copies(),
+        3,
+        "frozen pieces get only a freezer label"
+    );
     assert_eq!(label.label().kind, labels::Kind::Freezer { frozen_on: on });
     assert_eq!(
         label.label().best_before,
