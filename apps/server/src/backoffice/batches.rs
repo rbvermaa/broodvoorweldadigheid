@@ -49,6 +49,18 @@ fn kg_text(grams: u64) -> String {
     }
 }
 
+/// Grams as kilograms for the input field: no thousands separator, so [`parse_kg`] reads it
+/// back unchanged.
+fn kg_value(grams: u32) -> String {
+    let fraction = format!("{:03}", grams % 1000);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        (grams / 1000).to_string()
+    } else {
+        format!("{},{fraction}", grams / 1000)
+    }
+}
+
 /// Kilograms as typed (`12`, `12,5`, `12.250`) in whole grams; more than three decimals
 /// is refused.
 fn parse_kg(input: &str) -> Option<u32> {
@@ -154,13 +166,14 @@ async fn render_list(
     let startable = batches::startable_products(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
+    let unbatched = batches::unbatched(&mut conn, day.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
     drop(conn);
     let path = list_path(day);
     let mut messages = Vec::new();
-    let (mut capacity_value, mut capacity_error) = (
-        capacity.map(|g| kg_text(u64::from(g))).unwrap_or_default(),
-        String::new(),
-    );
+    let (mut capacity_value, mut capacity_error) =
+        (capacity.map(kg_value).unwrap_or_default(), String::new());
     let (mut manual, mut errors, mut saved) = (
         ManualForm {
             product_id: String::new(),
@@ -199,6 +212,14 @@ async fn render_list(
             errors = e;
         }
     }
+    messages.extend(unbatched.into_iter().map(|(_, name, n)| Message {
+        kind: "warning",
+        text: t_with(
+            state,
+            "batches-unbatched",
+            &[("product", name), ("n", n.to_string())],
+        ),
+    }));
     let batches = (!list.is_empty()).then(|| Table {
         id: "batches".to_owned(),
         caption: t(state, "batches-caption"),
@@ -402,11 +423,18 @@ pub async fn start(
         match result {
             Ok(batch) => Ok(saved(&headers, &batch_path(&day, batch))),
             Err(
-                production::Error::NotFound
+                error @ (production::Error::NotFound
                 | production::Error::Invalid(_)
-                | production::Error::DayFinal,
+                | production::Error::DayFinal),
             ) => {
-                errors.add("product_id", t(&state, "batches-manual-error-recipe"));
+                let (field, text) = match error {
+                    production::Error::DayFinal => ("product_id", "day-final"),
+                    production::Error::Invalid("pieces") => {
+                        ("pieces", "batches-manual-error-pieces")
+                    }
+                    _ => ("product_id", "batches-manual-error-recipe"),
+                };
+                errors.add(field, t(&state, text));
                 let status = invalid_status(&headers);
                 render_list(&state, &session, status, &day, refuse(form, errors)).await
             }
@@ -648,6 +676,8 @@ enum BatchAnswer {
         raw: Vec<(String, String)>,
         error: String,
     },
+    /// A change the batch refused as it is; the text says why.
+    Refused(String),
 }
 
 fn posted_or(raw: &[(String, String)], name: &str, fallback: String) -> String {
@@ -792,11 +822,13 @@ async fn render_batch(
     let mut add = (empty_add(), Errors::default());
     let mut actuals = (Vec::new(), String::new());
     let mut adjusting = None;
+    let mut refused = None;
     match answer {
         BatchAnswer::Plain { saved: s } => saved = s,
         BatchAnswer::Adjust(posted) => adjusting = Some(posted),
         BatchAnswer::Add { form, errors } => add = (form, errors),
         BatchAnswer::Actuals { raw, error } => actuals = (raw, error),
+        BatchAnswer::Refused(text) => refused = Some(text),
     }
     let batch = adjusting.as_ref().map_or(&stored, |p| &p.batch);
     let (lines, totals, mut messages) = grams(state, batch).await?;
@@ -804,6 +836,15 @@ async fn render_batch(
     if locked {
         let text = t(state, "batch-locked");
         messages.insert(0, Message { kind: "info", text });
+    }
+    if let Some(text) = refused {
+        messages.insert(
+            0,
+            Message {
+                kind: "error",
+                text,
+            },
+        );
     }
     let (line_fields, piece_fields) = adjust_fields(
         state,
@@ -997,6 +1038,24 @@ pub async fn save(
         drop(conn);
         match result {
             Ok(()) => Ok(saved(&headers, &batch_path(&day, batch.id))),
+            Err(production::Error::Invalid("empty")) => {
+                let mut posted = posted;
+                if let Some(first) = posted.batch.lines.first() {
+                    posted
+                        .errors
+                        .add(&line_field(first.id), t(&state, "batch-error-empty"));
+                }
+                let status = invalid_status(&headers);
+                render_batch(
+                    &state,
+                    &session,
+                    status,
+                    &day,
+                    batch,
+                    BatchAnswer::Adjust(posted),
+                )
+                .await
+            }
             Err(production::Error::Locked) => {
                 locked_answer(&state, &session, &headers, &day, batch.id).await
             }
@@ -1097,6 +1156,11 @@ pub async fn mixed(
         drop(conn);
         match result {
             Ok(()) => Ok(saved(&headers, &batch_path(&day, batch.id))),
+            Err(production::Error::Invalid("empty")) => {
+                let answer = BatchAnswer::Refused(t(&state, "batch-error-empty"));
+                let status = invalid_status(&headers);
+                render_batch(&state, &session, status, &day, batch, answer).await
+            }
             Err(production::Error::Locked) => {
                 locked_answer(&state, &session, &headers, &day, batch.id).await
             }
@@ -1141,7 +1205,9 @@ pub async fn actuals(
             raw.push((waste_name, waste));
         }
         if !batch.status.is_locked() {
-            error = t(&state, "batch-actuals-hint");
+            let answer = BatchAnswer::Refused(t(&state, "batch-error-not-mixed"));
+            let status = invalid_status(&headers);
+            return render_batch(&state, &session, status, &day, batch, answer).await;
         }
         if !error.is_empty() {
             let status = invalid_status(&headers);
@@ -1181,6 +1247,9 @@ mod tests {
         assert_eq!(kg_text(12_500), "12,5");
         assert_eq!(kg_text(9_000), "9");
         assert_eq!(kg_text(1_250_125), "1.250,125");
+        assert_eq!(kg_value(1_000_000), "1000");
+        assert_eq!(parse_kg(&kg_value(1_000_000)), Some(1_000_000));
+        assert_eq!(kg_value(12_500), "12,5");
     }
 
     #[test]

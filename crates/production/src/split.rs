@@ -1,7 +1,8 @@
 //! Splitting one dough into batches by mixer capacity (F14a, ADR 0042). Pure: no I/O.
 //!
-//! A batch holds whole pieces. The split takes the fewest batches for which dealing the
-//! pieces fits: pieces go out heaviest first, each to the batch with the least dough so
+//! A batch holds whole pieces. A binary search finds the fewest batches for which dealing
+//! the pieces fits (exact for one product, where more batches never fit worse): pieces go
+//! out heaviest first, each to the batch with the least dough so
 //! far (the earlier batch on a tie). No batch then exceeds the capacity, and two batches
 //! differ by at most the dough of the heaviest piece.
 
@@ -54,14 +55,31 @@ pub fn split(demands: &[Demand], capacity_g: u32) -> Result<Vec<Planned>, SplitE
     if total == 0 {
         return Ok(Vec::new());
     }
-    let mut count = usize::try_from(total.div_ceil(u64::from(capacity_g))).unwrap_or(usize::MAX);
-    loop {
+    let fits = |count: usize| {
         let planned = deal(&pieces, count);
-        if planned.iter().all(|b| b.grams <= u64::from(capacity_g)) {
-            return Ok(planned);
+        planned
+            .iter()
+            .all(|b| b.grams <= u64::from(capacity_g))
+            .then_some(planned)
+    };
+    let mut low = usize::try_from(total.div_ceil(u64::from(capacity_g))).unwrap_or(usize::MAX);
+    // One piece per batch always fits, since every piece fits on its own.
+    let mut high: usize = pieces
+        .iter()
+        .map(|d| usize::try_from(d.pieces).unwrap_or(usize::MAX))
+        .sum();
+    let mut best = fits(high).unwrap_or_default();
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match fits(middle) {
+            Some(planned) => {
+                best = planned;
+                high = middle;
+            }
+            None => low = middle + 1,
         }
-        count += 1;
     }
+    Ok(best)
 }
 
 fn deal(pieces: &[Demand], count: usize) -> Vec<Planned> {
@@ -137,6 +155,13 @@ mod tests {
         // 3 × 6 kg is 18 kg, but two 10 kg batches hold only one 6 kg piece each.
         let planned = split(&[demand(1, 6_000, 3)], 10_000).expect("split");
         assert_eq!(planned.len(), 3);
+    }
+
+    #[test]
+    fn many_small_batches_are_found_quickly() {
+        // 600 g pieces in a 1 kg mixer: one piece per batch, far above total ÷ capacity.
+        let planned = split(&[demand(1, 600, 100_000)], 1_000).expect("split");
+        assert_eq!(planned.len(), 100_000);
     }
 
     #[test]

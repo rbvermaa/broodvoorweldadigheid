@@ -95,3 +95,10 @@ batch-actuals-hint = Vul per product in hoeveel stuks uit de oven kwamen en hoev
 batch-actual-pieces = { $product }: gebakken stuks
 batch-actual-waste = { $product }: waarvan afval
 batch-error-waste = Afval kan niet meer zijn dan de gebakken stuks.
+batch-error-empty = Zet minstens één regel op meer dan 0%.
+batch-error-not-mixed = Deze batch is nog niet gemengd. Na het mengen vul je de gebakken stuks in.
+# $product: Desem wit, $n: 4
+batches-unbatched = { $n ->
+    [one] 1 stuk { $product } zit nog niet in een batch.
+   *[other] { $n } stuks { $product } zitten nog niet in een batch.
+}

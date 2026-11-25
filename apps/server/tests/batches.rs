@@ -446,11 +446,13 @@ async fn baker_sets_the_capacity_and_makes_batches(pool: PgPool) {
         .redirects_to(&format!("{list}?opgeslagen=1"));
     let page = baker.get(&list).await;
     page.lacks(&dutch("batches-capacity-missing"));
+    page.shows("25 stuks Desem wit zitten nog niet in een batch.");
     page.shows(&dutch_with("batches-capacity-current", &[("kg", "10")]));
 
     let made = baker.post(&format!("{list}/split"), &[]).await;
     assert_eq!(made.status, StatusCode::OK);
     made.shows("3 batches gemaakt.");
+    made.lacks("zitten nog niet in een batch");
     for code in ["261205-1", "261205-2", "261205-3"] {
         made.shows(code);
     }

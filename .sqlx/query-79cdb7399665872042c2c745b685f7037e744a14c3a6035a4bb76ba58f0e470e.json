@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.id FROM bake_day d\n        WHERE d.status = 'closed'\n            AND d.cutoff_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            AND d.date >= date 'epoch' + $2::integer\n            AND NOT EXISTS (SELECT 1 FROM batch_split s WHERE s.bake_day_id = d.id)\n            AND NOT EXISTS (\n                SELECT 1 FROM \"order\" o\n                WHERE o.bake_day_id = d.id AND o.status = 'pending_payment'\n                    AND o.hold_expires_at > timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            )\n        ORDER BY d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "79cdb7399665872042c2c745b685f7037e744a14c3a6035a4bb76ba58f0e470e"
+}

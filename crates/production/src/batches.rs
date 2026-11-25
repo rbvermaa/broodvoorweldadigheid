@@ -25,6 +25,8 @@ use crate::split::{self, Demand, SplitError};
 
 /// The most pieces of one product in one batch.
 pub const MAX_PIECES: u32 = 100_000;
+/// The most dough one piece may have; the limit of `batch_output.dough_g_per_piece`.
+pub const MAX_DOUGH_G_PER_PIECE: u32 = 1_000_000;
 /// The highest mixer capacity the setting takes: 1000 kg.
 pub const MAX_CAPACITY_G: u32 = 1_000_000;
 /// Longest reason the baker can give for an adjustment.
@@ -381,16 +383,14 @@ async fn to_bake(
     Ok(pieces)
 }
 
-/// Pieces already planned in this day's batches, per recipe version and product.
-async fn planned(
-    conn: &mut PgConnection,
-    day: BakeDayId,
-) -> Result<HashMap<(i64, i64), u32>, Error> {
+/// Pieces already planned in this day's batches per product, whatever recipe version the
+/// batch uses, so a new version in use does not plan the same pieces again.
+async fn planned(conn: &mut PgConnection, day: BakeDayId) -> Result<HashMap<i64, u32>, Error> {
     sqlx::query!(
-        r#"SELECT b.recipe_version_id, o.product_id, sum(o.planned_pieces)::bigint AS "pieces!"
+        r#"SELECT o.product_id, sum(o.planned_pieces)::bigint AS "pieces!"
         FROM batch b JOIN batch_output o ON o.batch_id = b.id
         WHERE b.bake_day_id = $1
-        GROUP BY b.recipe_version_id, o.product_id"#,
+        GROUP BY o.product_id"#,
         day.get(),
     )
     .fetch_all(conn)
@@ -398,9 +398,54 @@ async fn planned(
     .into_iter()
     .map(|row| {
         let pieces = u32::try_from(row.pieces).map_err(|_| Error::Corrupt("pieces".to_owned()))?;
-        Ok(((row.recipe_version_id, row.product_id), pieces))
+        Ok((row.product_id, pieces))
     })
     .collect()
+}
+
+/// Pieces still to bake on a day that are in none of its batches, per product with its
+/// name, by name. Shows what the split skipped and what was added after it.
+///
+/// # Errors
+/// [`Error::Db`], [`Error::Orders`] or [`Error::BakeDays`].
+pub async fn unbatched(
+    conn: &mut PgConnection,
+    day: BakeDayId,
+) -> Result<Vec<(ProductId, String, u32)>, Error> {
+    let pieces = to_bake(conn, day).await?;
+    let already = planned(conn, day).await?;
+    let ids: Vec<i64> = pieces.keys().map(|id| id.get()).collect();
+    let products = product_recipes(conn, &ids).await?;
+    let mut left: Vec<(ProductId, String, u32)> = pieces
+        .into_iter()
+        .filter_map(|(id, count)| {
+            let left = count.saturating_sub(already.get(&id.get()).copied().unwrap_or(0));
+            let name = products.get(&id.get())?.name.clone();
+            (left > 0).then_some((id, name, left))
+        })
+        .collect();
+    left.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then(a.0.cmp(&b.0))
+    });
+    Ok(left)
+}
+
+/// Refuses a batch whose lines are all at 0%: there would be nothing to weigh.
+async fn require_lines(conn: &mut PgConnection, id: BatchId) -> Result<(), Error> {
+    let any = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM batch_line WHERE batch_id = $1 AND actual_pct_x1000 > 0)
+            AS "any!""#,
+        id.get(),
+    )
+    .fetch_one(conn)
+    .await?;
+    if any {
+        Ok(())
+    } else {
+        Err(Error::Invalid("empty"))
+    }
 }
 
 /// Splits what is still to bake on a day into batches: per dough (recipe version in use
@@ -463,6 +508,7 @@ async fn split_day(
     actor: Actor,
     clock: &dyn Clock,
 ) -> Result<SplitReport, Error> {
+    lock_day(conn, day_id).await?;
     let day = days::get(conn, day_id).await?;
     if day.status.is_final() {
         return Err(Error::DayFinal);
@@ -503,10 +549,11 @@ async fn split_day(
             report.skipped.push(skip(SkipReason::EmptyRecipe));
             continue;
         }
-        let done = already
-            .get(&(version_id, product_id.get()))
-            .copied()
-            .unwrap_or(0);
+        if grams_per_piece > capacity {
+            report.skipped.push(skip(SkipReason::TooHeavy));
+            continue;
+        }
+        let done = already.get(&product_id.get()).copied().unwrap_or(0);
         let left = count.saturating_sub(done);
         if left > 0 {
             doughs
@@ -559,6 +606,14 @@ async fn split_day(
         }
     }
     Ok(report)
+}
+
+/// Holds the bake day row, so it cannot be cancelled or finished while batches are made.
+async fn lock_day(conn: &mut PgConnection, day: BakeDayId) -> Result<(), Error> {
+    sqlx::query_scalar!("SELECT id FROM bake_day WHERE id = $1 FOR SHARE", day.get())
+        .fetch_optional(conn)
+        .await?;
+    Ok(())
 }
 
 async fn lock_numbering(conn: &mut PgConnection) -> Result<(), Error> {
@@ -673,6 +728,7 @@ pub async fn start_manual(
         return Err(Error::Invalid("pieces"));
     }
     let mut tx = conn.begin().await?;
+    lock_day(&mut tx, day_id).await?;
     let day = days::get(&mut tx, day_id).await?;
     if day.status.is_final() {
         return Err(Error::DayFinal);
@@ -686,7 +742,7 @@ pub async fn start_manual(
     };
     let grams = u32::try_from(product.dough_g_per_piece)
         .ok()
-        .filter(|g| *g > 0)
+        .filter(|g| (1..=MAX_DOUGH_G_PER_PIECE).contains(g))
         .ok_or(Error::Invalid("dough"))?;
     lock_numbering(&mut tx).await?;
     let new = NewBatch {
@@ -995,7 +1051,8 @@ fn clean_reason(reason: Option<&str>) -> Result<Option<String>, Error> {
 ///
 /// # Errors
 /// [`Error::Locked`] once mixed; [`Error::Invalid`] with `pct`, `pieces`, `line`,
-/// `product` or `reason` for values out of range or not in this batch.
+/// `product` or `reason` for values out of range or not in this batch, `empty` when every
+/// line would be at 0%.
 pub async fn adjust(
     conn: &mut PgConnection,
     id: BatchId,
@@ -1086,6 +1143,7 @@ pub async fn adjust(
         changed = true;
     }
     if changed {
+        require_lines(&mut tx, id).await?;
         sqlx::query!(
             "UPDATE batch SET status = 'adjusted' WHERE id = $1",
             id.get()
@@ -1173,7 +1231,8 @@ pub async fn add_line(
 /// Marks the batch mixed; from now on its lines and planned pieces are locked.
 ///
 /// # Errors
-/// [`Error::Locked`] when it is already mixed.
+/// [`Error::Locked`] when it is already mixed; [`Error::Invalid`] with `empty` when every
+/// line is at 0%.
 pub async fn mark_mixed(
     conn: &mut PgConnection,
     id: BatchId,
@@ -1185,6 +1244,7 @@ pub async fn mark_mixed(
     if status.is_locked() {
         return Err(Error::Locked);
     }
+    require_lines(&mut tx, id).await?;
     let now = clock.now();
     sqlx::query!(
         "UPDATE batch SET status = 'mixed',

@@ -321,15 +321,19 @@ async fn products_that_cannot_be_split_are_reported(pool: PgPool) {
     .await
     .unwrap();
     let rye = product(&mut conn, "Rogge", 900).await;
+    let roll = product(&mut conn, "Bolletje", 80).await;
+    store::link_product(&mut conn, k.recipe, roll)
+        .await
+        .unwrap();
     store::link_product(&mut conn, empty.id, rye).await.unwrap();
-    for p in [k.bread, granola, cookie, rye] {
+    for p in [k.bread, granola, cookie, rye, roll] {
         extra(&mut conn, k.day, p, 2).await;
     }
     set_capacity(&mut conn, Some(800)).await;
     let report = batches::make_batches(&mut conn, k.day, BAKER, &clock())
         .await
         .unwrap();
-    assert!(report.created.is_empty());
+    assert_eq!(report.created.len(), 1, "the rolls fit, the bread does not");
     let mut reasons: Vec<(String, SkipReason)> = report
         .skipped
         .into_iter()
@@ -647,4 +651,56 @@ async fn paid_orders_count_and_pending_ones_do_not(pool: PgPool) {
         .unwrap();
     let batch = batches::get(&mut conn, report.created[0]).await.unwrap();
     assert_eq!(batch.outputs[0].planned_pieces, 4, "3 paid plus 1 extra");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_version_in_use_does_not_plan_the_same_pieces_again(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    extra(&mut conn, k.day, k.bread, 10).await;
+    set_capacity(&mut conn, Some(10_000)).await;
+    batches::make_batches(&mut conn, k.day, BAKER, &clock())
+        .await
+        .unwrap();
+    let next = store::new_version(&mut conn, k.recipe).await.unwrap();
+    store::set_current(&mut conn, k.recipe, next.id)
+        .await
+        .unwrap();
+    let again = batches::make_batches(&mut conn, k.day, BAKER, &clock())
+        .await
+        .unwrap();
+    assert!(again.created.is_empty());
+    assert!(
+        batches::unbatched(&mut conn, k.day)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    extra(&mut conn, k.day, k.bread, 3).await;
+    let left = batches::unbatched(&mut conn, k.day).await.unwrap();
+    assert_eq!(left, [(k.bread, "Desem wit".to_owned(), 3)]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_batch_with_every_line_at_zero_is_refused(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    let zero = Adjustment {
+        lines: batch.lines.iter().map(|l| (l.id, Pct::default())).collect(),
+        ..Adjustment::default()
+    };
+    let refused = batches::adjust(&mut conn, id, &zero, BAKER, &clock()).await;
+    assert!(
+        matches!(refused, Err(Error::Invalid("empty"))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        batches::get(&mut conn, id).await.unwrap(),
+        batch,
+        "nothing saved"
+    );
 }

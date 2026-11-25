@@ -127,3 +127,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   ingredient's allergens change. Clear it now already, or wait for F17?
   **Status: block and ask.** The owner has been asked; the answer is pending. Until then
   nothing computed from recipes is published or printed.
+- [ ] **Mixer capacity and the batch data model** (ADR 0042). How many kg of dough does
+  the mixer take per batch? Until the owner says, the deadline split is off and only
+  manual batches work. The spec has a `Mixer` table (`name, max_dough_kg`),
+  `Batch.mixer_id` and `Batch.flour_g`; this slice keeps one company setting
+  (`company.mixer_capacity_g`) and derives flour from planned pieces × dough per piece.
+  Update the spec to match, or is there more than one mixer?
+- [ ] **Extras after the split** (ADR 0042). F7a says extras can change until the batch is
+  mixed. Should a change after the deadline split resize planned batches, or is
+  "Maak batches" (adds new pieces) plus adjusting by hand enough?

@@ -245,3 +245,69 @@ async fn bread_again(conn: &mut PgConnection, clock: &FakeClock, day: BakeDayId)
     .await
     .unwrap();
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_split_waits_for_orders_still_in_their_payment_hold(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-11-25T10:00:00Z"));
+    let day = open_day(&mut conn, &clock, "2026-12-05").await;
+    let product = bread(&mut conn, &clock, day.id, 2).await;
+    batches::set_capacity(&mut conn, Some(10_000), OWNER, &clock)
+        .await
+        .unwrap();
+    sqlx::query(
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role)
+            VALUES ('test-baker', 'Testbakker', 'baker') RETURNING id)
+        UPDATE product SET allergens_approved_by = (SELECT id FROM baker),
+            allergens_approved_at = '2026-11-01T10:00:00Z' WHERE id = $1",
+    )
+    .bind(product.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    clock.set(ts("2026-12-03T18:58:00Z"));
+    let slot = days::list_slots(&mut conn, day.id).await.unwrap()[0].id;
+    let mut cart = orders::Cart::new(day.id);
+    cart.set(product, 3, None).unwrap();
+    let customer = orders::CustomerInput {
+        email: "sanne@example.org".to_owned(),
+        name: "Sanne".to_owned(),
+        phone: None,
+        marketing_opt_in: false,
+    };
+    let order = orders::checkout(
+        &mut conn,
+        &clock,
+        &cart,
+        &customer,
+        slot,
+        orders::OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+
+    close_at(&mut conn, &clock, "2026-12-03T19:00:00Z").await;
+    let report = tick(&mut conn, &clock).await.unwrap();
+    assert!(report.days.is_empty(), "an order is still in its hold");
+
+    clock.set(ts("2026-12-03T19:05:00Z"));
+    orders::mark_paid(
+        &mut conn,
+        &clock,
+        order.id,
+        &orders::PaymentReceived {
+            reference: "tr_1".to_owned(),
+            amount: order.total,
+        },
+    )
+    .await
+    .unwrap();
+    let report = tick(&mut conn, &clock).await.unwrap();
+    assert_eq!(report.days, [day.id]);
+    let list = batches::list(&mut conn, day.id).await.unwrap();
+    assert_eq!(
+        list[0].outputs[0].planned_pieces, 5,
+        "3 paid after the deadline plus 2 extra"
+    );
+}
