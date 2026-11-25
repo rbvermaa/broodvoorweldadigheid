@@ -12,65 +12,143 @@ use domain::{Allergen, Clock, IngredientId, ProductId, RecipeVersionId, StaffUse
 use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
-use crate::formula::{Formula, Line, Part, ingredient_totals};
+use crate::formula::{Formula, Line, Part, SubRecipe, ingredient_totals};
 use crate::ingredients::{self, Ingredient};
 use crate::needs::product_recipes;
 use crate::recipes::{formula, lock_graph};
 
-/// The dough weight the order by weight is decided at: large enough that the rounding of
-/// whole units does not move an ingredient past another one.
+/// The dough weight for the rounded fallback in [`weights`].
 const REFERENCE_GRAMS: u64 = 1_000_000_000_000;
 
-fn used(lines: &[Line], ids: &mut BTreeSet<IngredientId>) {
-    for line in lines.iter().filter(|line| line.pct.thousandths() > 0) {
+/// The formula without lines at 0% and without what is below them.
+fn pruned(lines: &[Line]) -> Result<Vec<Line>, Error> {
+    let kept: Vec<Line> = lines
+        .iter()
+        .filter(|line| line.pct.thousandths() > 0)
+        .map(|line| {
+            Ok(Line {
+                pct: line.pct,
+                part: match &line.part {
+                    Part::Ingredient(ingredient) => Part::Ingredient(ingredient.clone()),
+                    Part::Sub(sub) => Part::Sub(SubRecipe {
+                        formula: Formula {
+                            lines: pruned(&sub.formula.lines)?,
+                        },
+                        ..sub.clone()
+                    }),
+                },
+            })
+        })
+        .collect::<Result<_, Error>>()?;
+    if kept.is_empty() {
+        return Err(Error::Unweighable);
+    }
+    Ok(kept)
+}
+
+fn gcd(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+/// Each leaf as the fraction `numerator / denominator` of the dough.
+fn fractions(
+    lines: &[Line],
+    numerator: u128,
+    denominator: u128,
+    out: &mut Vec<(IngredientId, u128, u128)>,
+) -> Option<()> {
+    let sum: u128 = lines.iter().map(|l| u128::from(l.pct.thousandths())).sum();
+    let denominator = denominator.checked_mul(sum)?;
+    for line in lines {
+        let numerator = numerator.checked_mul(u128::from(line.pct.thousandths()))?;
         match &line.part {
-            Part::Ingredient(ingredient) => {
-                ids.insert(ingredient.id);
-            }
-            Part::Sub(sub) => used(&sub.formula.lines, ids),
+            Part::Ingredient(ingredient) => out.push((ingredient.id, numerator, denominator)),
+            Part::Sub(sub) => fractions(&sub.formula.lines, numerator, denominator, out)?,
         }
     }
+    Some(())
+}
+
+/// Exact weights on one common denominator, so equal weights compare equal; `None` when
+/// they do not fit in 128 bits.
+fn exact_weights(lines: &[Line]) -> Option<Vec<(IngredientId, u128)>> {
+    let mut leaves = Vec::new();
+    fractions(lines, 1, 1, &mut leaves)?;
+    let mut common: u128 = 1;
+    for &(_, _, denominator) in &leaves {
+        common = (common / gcd(common, denominator)).checked_mul(denominator)?;
+    }
+    leaves
+        .into_iter()
+        .map(|(id, numerator, denominator)| {
+            Some((id, numerator.checked_mul(common / denominator)?))
+        })
+        .collect()
+}
+
+/// The weight of every ingredient in the dough, in order of first use. Exact when it fits,
+/// else whole units of a dough of [`REFERENCE_GRAMS`].
+fn weights(lines: &[Line]) -> Result<Vec<(IngredientId, u128)>, Error> {
+    let leaves = match exact_weights(lines) {
+        Some(leaves) => leaves,
+        None => {
+            let formula = Formula {
+                lines: lines.to_vec(),
+            };
+            let scaled = formula
+                .scale(REFERENCE_GRAMS)
+                .map_err(|_| Error::Unweighable)?;
+            ingredient_totals(&scaled)
+                .into_iter()
+                .map(|(ingredient, grams)| (ingredient.id, u128::from(grams)))
+                .collect()
+        }
+    };
+    let mut totals: Vec<(IngredientId, u128)> = Vec::new();
+    for (id, weight) in leaves {
+        match totals.iter_mut().find(|(known, _)| *known == id) {
+            Some((_, total)) => *total += weight,
+            None => totals.push((id, weight)),
+        }
+    }
+    Ok(totals)
 }
 
 struct Entry<'a> {
     name: &'a str,
-    grams: u64,
+    weight: u128,
     allergens: BTreeSet<Allergen>,
 }
 
 /// # Errors
-/// [`Error::Unweighable`] when the formula or one of its sub-recipes has no lines;
-/// [`Error::Corrupt`] when an ingredient is missing from `ingredients`.
+/// [`Error::Unweighable`] when the formula or one of its sub-recipes has no lines above
+/// 0%; [`Error::Corrupt`] when an ingredient is missing from `ingredients`.
 pub fn compute(
     formula: &Formula,
     ingredients: &HashMap<IngredientId, Ingredient>,
 ) -> Result<ComputedAllergens, Error> {
-    let scaled = formula
-        .scale(REFERENCE_GRAMS)
-        .map_err(|_| Error::Unweighable)?;
-    let mut ids = BTreeSet::new();
-    used(&formula.lines, &mut ids);
+    let lines = pruned(&formula.lines)?;
     let mut entries: Vec<Entry<'_>> = Vec::new();
-    for (line, grams) in ingredient_totals(&scaled) {
-        if !ids.contains(&line.id) {
-            continue;
-        }
+    for (id, weight) in weights(&lines)? {
         let ingredient = ingredients
-            .get(&line.id)
-            .ok_or_else(|| Error::Corrupt(format!("ingredient {}", line.id.get())))?;
+            .get(&id)
+            .ok_or_else(|| Error::Corrupt(format!("ingredient {}", id.get())))?;
         match entries.iter_mut().find(|e| e.name == ingredient.label()) {
             Some(entry) => {
-                entry.grams += grams;
+                entry.weight += weight;
                 entry.allergens.extend(ingredient.allergens.iter().copied());
             }
             None => entries.push(Entry {
                 name: ingredient.label(),
-                grams,
+                weight,
                 allergens: ingredient.allergens.clone(),
             }),
         }
     }
-    entries.sort_by_key(|e| std::cmp::Reverse(e.grams));
+    entries.sort_by_key(|e| std::cmp::Reverse(e.weight));
     Ok(ComputedAllergens {
         allergens: entries
             .iter()
@@ -190,4 +268,74 @@ pub async fn approve_product(
             })?;
     tx.commit().await?;
     Ok(approved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::formula::{IngredientRef, IngredientRole, Pct, RecipeKind};
+    use domain::RecipeId;
+
+    fn leaf(id: i64, thousandths: u32) -> Line {
+        Line {
+            pct: Pct::from_thousandths(thousandths),
+            part: Part::Ingredient(IngredientRef {
+                id: IngredientId::new(id),
+                name: String::new(),
+                role: IngredientRole::Other,
+            }),
+        }
+    }
+
+    fn sub(lines: Vec<Line>) -> Line {
+        Line {
+            pct: Pct::from_thousandths(1000),
+            part: Part::Sub(SubRecipe {
+                version_id: RecipeVersionId::new(1),
+                recipe_id: RecipeId::new(1),
+                name: String::new(),
+                version: 1,
+                kind: RecipeKind::Filling,
+                formula: Formula { lines },
+            }),
+        }
+    }
+
+    /// Three branches three levels deep whose sums are different primes: their common
+    /// denominator does not fit in 128 bits.
+    fn too_fine() -> Vec<Line> {
+        let branch = |id: i64, [a, b, c]: [u32; 3]| {
+            sub(vec![
+                leaf(id, a),
+                sub(vec![leaf(id, b), sub(vec![leaf(id, c), leaf(9, 1)])]),
+            ])
+        };
+        vec![
+            branch(1, [999_982, 999_978, 999_960]),
+            branch(2, [999_952, 999_930, 999_906]),
+            branch(3, [999_870, 999_852, 999_828]),
+            leaf(4, 1000),
+        ]
+    }
+
+    #[test]
+    fn weights_fall_back_to_whole_units_when_exact_ones_do_not_fit() {
+        let lines = too_fine();
+        assert_eq!(exact_weights(&lines), None);
+        let fallback = weights(&lines).unwrap();
+        let ids: Vec<i64> = fallback.iter().map(|(id, _)| id.get()).collect();
+        assert_eq!(ids, [1, 9, 2, 3, 4]);
+        let total: u128 = fallback.iter().map(|&(_, w)| w).sum();
+        assert_eq!(total, u128::from(REFERENCE_GRAMS));
+    }
+
+    #[test]
+    fn exact_weights_share_one_denominator() {
+        let lines = vec![leaf(1, 50_000), sub(vec![leaf(1, 1000), leaf(2, 2000)])];
+        let exact = exact_weights(&lines).unwrap();
+        // 50/51 flour, then 1/51 × 1/3 flour and 1/51 × 2/3 water.
+        let w: Vec<u128> = exact.iter().map(|&(_, w)| w).collect();
+        assert_eq!((w[0], w[2]), (150 * w[1], 2 * w[1]));
+        assert_eq!(gcd(12, 18), 6);
+    }
 }

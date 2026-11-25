@@ -640,3 +640,67 @@ async fn changing_the_stored_list_clears_the_approval(mut conn: PoolConnection<P
         None
     );
 }
+
+#[test]
+fn an_empty_sub_recipe_at_zero_percent_is_left_out() {
+    let formula = Formula {
+        lines: vec![leaf(FLOUR, 100), leaf(WATER, 70), sub(10, 0, vec![])],
+    };
+    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    assert_eq!(
+        computed.ingredients,
+        listed(&[("tarwebloem", true), ("Water", false)])
+    );
+}
+
+#[test]
+fn equal_weights_through_a_sub_recipe_are_a_tie() {
+    // Flour 95 + 5 from the levain and water 97.5 + 2.5 from it: both 100.
+    let thousandths = |id, t| Line {
+        pct: Pct::from_thousandths(t),
+        ..leaf(id, 0)
+    };
+    let formula = Formula {
+        lines: vec![
+            thousandths(FLOUR, 95_000),
+            Line {
+                pct: Pct::from_thousandths(7_500),
+                ..sub(10, 0, vec![leaf(FLOUR, 100), leaf(WATER, 50)])
+            },
+            thousandths(WATER, 97_500),
+            leaf(SALT, 2),
+        ],
+    };
+    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    assert_eq!(
+        computed.ingredients,
+        listed(&[("tarwebloem", true), ("Water", false), ("zout", false)])
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_recipe_change_drops_the_approved_list(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let revision = products::get(&mut conn, k.bread)
+        .await
+        .unwrap()
+        .allergen_revision;
+    rollup::approve_product(&mut conn, k.bread, &expected(), revision, BAKER, &clock())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE recipe_line SET bakers_pct_x1000 = 90000 WHERE recipe_version_id = $1 AND position = 2")
+        .bind(k.dough.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let changed = products::get(&mut conn, k.bread).await.unwrap();
+    assert_eq!(changed.approval, None);
+    assert_eq!(
+        changed.ingredient_list, None,
+        "a hand approval cannot bring it back"
+    );
+    assert_eq!(
+        changed.allergen_info.ingredient_text,
+        "tarwebloem, Water, zout"
+    );
+}

@@ -10,9 +10,17 @@ ALTER TABLE product
         AND cardinality(ingredient_names) = cardinality(ingredient_emphasis)
     );
 
+-- A recipe change (a new revision, or another recipe) also drops the stored list, so the
+-- hand approval cannot approve a list the recipe no longer computes.
 CREATE FUNCTION product_ingredient_list_clears_approval() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF NEW.allergens_recipe_rev IS DISTINCT FROM OLD.allergens_recipe_rev
+        OR NEW.recipe_id IS DISTINCT FROM OLD.recipe_id
+    THEN
+        NEW.ingredient_names := NULL;
+        NEW.ingredient_emphasis := NULL;
+    END IF;
     IF NEW.ingredient_names IS DISTINCT FROM OLD.ingredient_names
         OR NEW.ingredient_emphasis IS DISTINCT FROM OLD.ingredient_emphasis
     THEN

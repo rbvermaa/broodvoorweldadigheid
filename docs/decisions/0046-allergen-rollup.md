@@ -12,9 +12,9 @@ own lines:
 | Choice | Why |
 |---|---|
 | Sub-recipe ingredients are merged into the dough, not listed as a compound ingredient with its components in brackets | The spec does not say. EU 1169/2011 allows both; for a levain of flour and water, listing "tarwebloem" once at its full weight is what bakeries print and reads best |
-| Order: descending weight in the final dough, sub-recipes included. Equal weights keep the order in which the recipe first uses them | EU 1169/2011 art. 18. Weights come from the existing scaling rule (ADR 0037) at 10^12 g, so whole-unit rounding never moves one ingredient past another in practice |
+| Order: descending weight in the final dough, sub-recipes included. Equal weights keep the order in which the recipe first uses them | EU 1169/2011 art. 18. Weights are exact fractions of the dough on one common denominator, so equal weights through a sub-recipe stay a tie. When that does not fit in 128 bits, whole units of a 10^12 g dough (ADR 0037 rounding) decide |
 | Each entry uses the ingredient's label name (its name when empty). Ingredients with the same label name are one entry with their weights added | Two mills of "tarwebloem" are one ingredient on a label |
-| A line at 0% is left out, with everything below it | That is how a batch swaps an ingredient (ADR 0042) |
+| A line at 0% is left out, with everything below it, before anything is weighed | That is how a batch swaps an ingredient (ADR 0042) |
 | An entry is marked when its ingredients hold any of the 14 allergens; labels print marked entries in bold. The allergens are the union over every ingredient left in, at any depth | Spec compliance table. The list stores the structure (`catalog::IngredientList`: names and marks), never markup |
 | Water is listed like any other ingredient | Simplest; the 5% exemption for added water is optional |
 
@@ -25,7 +25,7 @@ when they differ from what was shown or the revision moved (409 with the new val
 then `catalog::products::approve_computed` stores allergens, ingredient text (the names
 joined with commas) and the list (`product.ingredient_names`, `ingredient_emphasis`) and
 approves them. Nothing is approved without that explicit post. A trigger clears the
-approval when the stored list changes. Saving the product form with other allergens or
+approval when the stored list changes, and a recipe change (new revision or another recipe) drops the list, so the hand approval cannot bring back a list the recipe no longer computes. Saving the product form with other allergens or
 ingredient text drops the list, so the product is back to hand-entered values. The
 existing hand approval and its revision check are unchanged.
 
