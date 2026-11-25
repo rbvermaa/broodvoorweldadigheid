@@ -204,8 +204,7 @@ pub async fn enqueue_confirmation(
 }
 
 /// Queues the confirmation of an order staff placed on account (F11a): to the business
-/// account's contact email, with a copy to its invoice email when that differs. Pay what you
-/// want lines show no "jouw prijs": the order took the suggested price (F4b). Call it in the
+/// account's contact email, with a copy to its invoice email when that differs. Call it in the
 /// transaction that places the order. Queued at most once per order.
 ///
 /// # Errors
@@ -322,7 +321,8 @@ pub async fn enqueue_cancellation(
 /// Queues the sick-day email (F2) for an order cancelled with its bake day: the baker's
 /// message and what goes back, `None` when nothing was paid. Call it in the transaction
 /// that cancels the day. Queued at most once per order, so a second run of the cancel adds
-/// nothing.
+/// nothing. Nothing is queued once the drop is older than the outbox retention
+/// ([`notify::outbox::RETENTION`]), since its first email may be deleted by then.
 ///
 /// # Errors
 /// [`EmailError`].
@@ -338,6 +338,15 @@ pub async fn enqueue_sick_day(
     if !notify::queued_keys(conn, std::slice::from_ref(&key))
         .await?
         .is_empty()
+    {
+        return Ok(None);
+    }
+    let kept_since = clock
+        .now()
+        .checked_sub(notify::outbox::RETENTION)
+        .map(|since| in_bakery_time(since).date());
+    if let Ok(since) = kept_since
+        && orders::details(conn, order).await?.drop_date < since
     {
         return Ok(None);
     }

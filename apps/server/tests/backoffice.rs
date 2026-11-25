@@ -3549,3 +3549,40 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     refused.shows(&dutch("b2b-error-not-on-account"));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_order_on_account_is_placed_without_its_email_when_company_details_are_missing(
+    pool: PgPool,
+) {
+    let app = app(pool.clone());
+    let (day, bread) = open_drop(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let account = business_account(&owner).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    drop(conn);
+    let pieces = format!("qty_{}", bread.get());
+    let placed = owner
+        .post(
+            &format!("{account}/order"),
+            &[
+                ("dag", day.get().to_string().as_str()),
+                ("slot", slot.get().to_string().as_str()),
+                ("product", bread.get().to_string().as_str()),
+                (pieces.as_str(), "1"),
+            ],
+        )
+        .await;
+    assert_eq!(placed.status, StatusCode::SEE_OTHER, "{}", placed.text);
+    let orders: i64 =
+        sqlx::query_scalar(r#"SELECT count(*) FROM "order" WHERE payment_mode = 'on_account'"#)
+            .fetch_one(&pool)
+            .await
+            .expect("orders");
+    assert_eq!(orders, 1);
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox")
+        .fetch_one(&pool)
+        .await
+        .expect("outbox");
+    assert_eq!(queued, 0);
+}

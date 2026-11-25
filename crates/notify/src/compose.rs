@@ -97,8 +97,7 @@ pub struct OrderConfirmation {
     pub status_url: String,
 }
 
-/// F11a: an order staff placed on account for a business customer. No payment, so no status
-/// page link: that page speaks of a payment.
+/// F11a: an order staff placed on account for a business customer. It has no status page link.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OnAccountConfirmation {
     pub to: Recipient,

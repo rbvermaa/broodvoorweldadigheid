@@ -11,7 +11,7 @@ use jiff::civil::time;
 use jobs::OrderEmails;
 use jobs::order_emails::{
     confirmation_key, enqueue_cancellation, enqueue_due_reminders, enqueue_on_account_confirmation,
-    reminder_due, reminder_key,
+    enqueue_sick_day, reminder_due, reminder_key,
 };
 use orders::{Cart, CustomerInput, OrderedBy, PaidOutcome, PaymentReceived};
 use sqlx::{PgConnection, PgPool};
@@ -408,4 +408,32 @@ async fn no_copy_when_the_invoice_address_is_the_contact(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(cc(&pool).await, [None]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn no_sick_day_email_once_the_drop_is_older_than_the_outbox_keeps_emails(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = shop(&mut conn).await;
+    let paid = order(&mut conn, &shop, "klant@example.org", true).await;
+    shop.clock.set(ts("2027-01-29T12:00:00Z"));
+    assert!(
+        enqueue_sick_day(&mut conn, &shop.clock, &emails(), paid, "Ziek", None)
+            .await
+            .unwrap()
+            .is_some(),
+        "the drop of 31 October is 90 days ago"
+    );
+    sqlx::query("DELETE FROM email_outbox")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    shop.clock.set(ts("2027-01-30T12:00:00Z"));
+    assert_eq!(
+        enqueue_sick_day(&mut conn, &shop.clock, &emails(), paid, "Ziek", None)
+            .await
+            .unwrap(),
+        None,
+        "91 days: its first email may have been deleted already"
+    );
+    assert!(outbox(&pool).await.is_empty());
 }

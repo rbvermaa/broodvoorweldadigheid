@@ -65,9 +65,9 @@ Questions about the spec. The spec is only changed when the owner asks.
   bakery reads, or should replies go to another address? (ADR 0014)
 - [x] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
-  Answer: 90 days after an email was sent or failed for good (owner, 2026-11-25). The
-  cleanup job deletes the row, body and addresses included; pending emails stay. Emails
-  with a secret keep their faster blanking (ADR 0031).
+  **Answered 2026-11-25:** 90 days after an email was sent or failed for good. The cleanup
+  job deletes the row, body and addresses included; pending emails stay. Emails with a
+  secret keep their faster blanking (ADR 0031).
 - [ ] **Company KvK number and address.** Order emails need both (Compliance), but the
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
@@ -92,8 +92,8 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Confirmation email for orders on account.** F9 sends an order confirmation, but order
   emails go out on payment (ADR 0022) and orders on account have none (ADR 0032). Send one
   when staff place the order, to the contact email or the invoice email?
-  Answer: yes, when staff place the order, in the same transaction (owner, 2026-11-25). To
-  the contact email with a copy to the invoice email when that differs, with "op rekening"
+  **Answered 2026-11-25:** yes, when staff place the order, in the same transaction. To the
+  contact email with a copy to the invoice email when that differs, with "op rekening"
   wording and no payment (ADR 0032).
 - [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
   commercially without Niimbot's consent).

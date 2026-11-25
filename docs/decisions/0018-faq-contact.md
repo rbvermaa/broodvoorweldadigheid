@@ -23,8 +23,9 @@ the staff-role slice; the repository functions they need are already in `catalog
 | The contact email carries only the company name in the footer, not address and KvK | It goes to the bakery, not to a customer; it then also works before staff fill in the company details |
 
 Privacy (F12): contact messages are not stored anywhere except the `email_outbox` row
-that sends them. That row holds the sender's name, address and message. The cleanup job
-deletes it 90 days after it was sent or failed, like every outbox row (ADR 0031). Logs never hold the name, address or message.
+that sends them. That row holds the sender's name, address and message. The cleanup
+job deletes it 90 days after it was sent or failed, like every outbox row (ADR 0031).
+Logs never hold the name, address or message.
 
 Open:
 
