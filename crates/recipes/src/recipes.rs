@@ -219,10 +219,10 @@ pub async fn update(
 ) -> Result<Recipe, Error> {
     validate_recipe(input)?;
     let mut tx = conn.begin().await?;
+    // Taken before reading, so no freeze or other edit can slip in before the update.
+    lock_graph(&mut tx).await?;
     let current = get(&mut tx, id).await?;
     if current.kind != input.kind {
-        // Taken before the check, so no freeze can slip in between check and update.
-        lock_graph(&mut tx).await?;
         let frozen_use = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM recipe_line l
                 JOIN recipe_version v ON v.id = l.recipe_version_id

@@ -836,3 +836,32 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
         Some(format!("{levain}?opgeslagen=1").as_str())
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn too_many_lines_come_back_without_rows_that_would_be_lost(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let flour = format!("i{}", k.flour.get());
+    let names: Vec<(String, String)> = (0..64)
+        .map(|i| (format!("part-{i}"), format!("pct-{i}")))
+        .collect();
+    let mut fields: Vec<(&str, &str)> = Vec::new();
+    for (part, pct) in &names {
+        fields.push((part, &flour));
+        fields.push((pct, "1"));
+    }
+    let reply = baker
+        .post(
+            &format!("{}/edit", version_path(k.dough, k.dough_v1)),
+            &fields,
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    reply.shows(&dutch("recipe-error-lines"));
+    reply.shows("\"part-63\"");
+    assert!(
+        !reply.text.contains("\"part-64\""),
+        "every row on the page is read back on the next save"
+    );
+}

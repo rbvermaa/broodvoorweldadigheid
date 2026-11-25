@@ -30,6 +30,9 @@ const LIST: &str = "/staff/recipes";
 const NEW: &str = "/staff/recipes/new";
 /// Empty line rows below the existing ones on the edit form.
 const BLANK_ROWS: usize = 3;
+/// Line rows the edit form shows and reads back; one more than fits, so too many is refused
+/// rather than cut off.
+const FORM_ROWS: usize = MAX_LINES + BLANK_ROWS + 1;
 const DEFAULT_WEIGHT_G: u64 = 1000;
 const MAX_WEIGHT_G: u64 = 1_000_000;
 
@@ -907,6 +910,7 @@ async fn render_edit(
         .lines
         .into_iter()
         .chain(blanks)
+        .take(FORM_ROWS)
         .enumerate()
         .map(|(index, line)| {
             let (part_error, pct_error) = edit.line_errors.get(index).cloned().unwrap_or_default();
@@ -1006,7 +1010,7 @@ pub async fn edit_form(
 }
 
 fn posted_lines(fields: &Fields) -> Vec<RawLine> {
-    (0..MAX_LINES + BLANK_ROWS + 1)
+    (0..FORM_ROWS)
         .map(|index| RawLine {
             part: fields.text(&format!("part-{index}")).to_owned(),
             pct: fields.text(&format!("pct-{index}")).to_owned(),
