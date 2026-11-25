@@ -474,12 +474,14 @@ fn vote_confirmation() {
             to: "stemmer@example.org".to_owned(),
             poll: "Welk brood bakken we in december?".to_owned(),
             choice: "Spelt-walnoot".to_owned(),
+            wish: Some("Graag met zaden".to_owned()),
             confirm_url: "https://broodvoorweldadigheid.nl/stemmen/bevestig/tok3n".to_owned(),
         })
     });
     assert_eq!(email.kind, EmailKind::VoteConfirmation);
     assert_eq!(email.list_unsubscribe, None);
     assert!(email.text.contains("Spelt-walnoot"), "{}", email.text);
+    assert!(email.text.contains("Graag met zaden"), "{}", email.text);
     snapshot("vote-confirmation", &email);
 }
 
@@ -551,6 +553,7 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
             to: "stemmer@example.org".to_owned(),
             poll: "Stemming".to_owned(),
             choice: "Spelt".to_owned(),
+            wish: None,
             confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
         }),
         composer.account_deleted("klant@example.org"),

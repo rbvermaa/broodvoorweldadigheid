@@ -570,4 +570,16 @@ async fn the_baker_creates_a_poll_and_sees_results_and_wishes(pool: PgPool) {
     let poll = polls::get(&mut conn, PollId::new(id)).await.unwrap();
     assert!(!poll.is_open(ts(NOW)), "closed early");
     assert!(!poll.public_results);
+
+    let reopen = post(
+        &app,
+        &format!("/staff/polls/{id}"),
+        Some(&cookie),
+        &format!("_csrf={token}&title=Welk+brood%3F&closes_at=2026-12-24T10%3A00"),
+    )
+    .await;
+    assert_eq!(reopen.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(reopen.body.contains(&dutch("poll-error-reopen")));
+    let poll = polls::get(&mut conn, PollId::new(id)).await.unwrap();
+    assert!(!poll.is_open(ts(NOW)), "stays closed");
 }

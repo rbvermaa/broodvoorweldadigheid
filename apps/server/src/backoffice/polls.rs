@@ -329,6 +329,7 @@ fn invalid_message(state: &AppState, invalid: Invalid) -> (&'static str, String)
         Invalid::TooManyOptions => ("options", t(state, "poll-error-many")),
         Invalid::OptionName => ("options", t(state, "poll-error-option")),
         Invalid::DuplicateOption => ("options", t(state, "poll-error-duplicate")),
+        Invalid::Reopen => ("closes_at", t(state, "poll-error-reopen")),
     }
 }
 
@@ -499,26 +500,32 @@ pub async fn update(
         let poll = load(&state, &id).await?;
         let form = SettingsForm::posted(&fields);
         let days = day_choices(&state, Some(&poll)).await?;
-        let input = match form.input(&state, &days) {
-            Ok(input) => input,
-            Err(errors) => {
-                return render_poll(
-                    &state,
-                    &session,
-                    invalid_status(&headers),
-                    &poll,
-                    form,
-                    errors,
-                    false,
-                )
-                .await;
+        let errors = match form.input(&state, &days) {
+            Ok(input) => {
+                let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+                match polls::update(&mut conn, state.clock.as_ref(), poll.id, &input).await {
+                    Ok(()) => return Ok(saved(&headers, &poll_path(poll.id))),
+                    Err(PollError::Invalid(invalid)) => {
+                        let mut errors = Errors::default();
+                        let (field, text) = invalid_message(&state, invalid);
+                        errors.add(field, text);
+                        errors
+                    }
+                    Err(other) => return Err(poll_error(&state, &other).into()),
+                }
             }
+            Err(errors) => errors,
         };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        polls::update(&mut conn, poll.id, &input)
-            .await
-            .map_err(|e| poll_error(&state, &e))?;
-        Ok(saved(&headers, &poll_path(poll.id)))
+        render_poll(
+            &state,
+            &session,
+            invalid_status(&headers),
+            &poll,
+            form,
+            errors,
+            false,
+        )
+        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

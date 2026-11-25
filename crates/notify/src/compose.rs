@@ -196,6 +196,7 @@ pub struct VoteConfirmation {
     pub to: String,
     pub poll: String,
     pub choice: String,
+    pub wish: Option<String>,
     pub confirm_url: String,
 }
 
@@ -205,6 +206,7 @@ impl std::fmt::Debug for VoteConfirmation {
             .field("to", &self.to)
             .field("poll", &self.poll)
             .field("choice", &self.choice)
+            .field("wish", &self.wish)
             .field("confirm_url", &"<redacted>")
             .finish()
     }
@@ -652,18 +654,24 @@ impl<'a> Composer<'a> {
     /// # Errors
     /// See [`Composer::order_confirmation`].
     pub fn vote_confirmation(&self, vote: &VoteConfirmation) -> Result<Email, ComposeError> {
+        let mut blocks = vec![Block::Paragraph(
+            self.t("email-vote-intro", &[("choice", vote.choice.clone())])?,
+        )];
+        if let Some(wish) = &vote.wish {
+            blocks.push(Block::Paragraph(
+                self.t("email-vote-wish", &[("wish", wish.clone())])?,
+            ));
+        }
+        blocks.push(Block::Button(Link {
+            label: self.t("email-vote-confirm", &[])?,
+            url: https(&vote.confirm_url)?,
+        }));
+        blocks.push(Block::Paragraph(self.t("email-vote-ignore", &[])?));
         let parts = Parts {
             subject: self.t("email-vote-subject", &[("poll", vote.poll.clone())])?,
             heading: self.t("email-vote-heading", &[])?,
             greeting: self.greeting(None)?,
-            blocks: vec![
-                Block::Paragraph(self.t("email-vote-intro", &[("choice", vote.choice.clone())])?),
-                Block::Button(Link {
-                    label: self.t("email-vote-confirm", &[])?,
-                    url: https(&vote.confirm_url)?,
-                }),
-                Block::Paragraph(self.t("email-vote-ignore", &[])?),
-            ],
+            blocks,
             unsubscribe: None,
         };
         self.email(EmailKind::VoteConfirmation, &vote.to, parts)

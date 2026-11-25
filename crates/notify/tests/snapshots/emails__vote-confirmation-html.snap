@@ -19,6 +19,7 @@ expression: email.html
 <h1 style="margin: 0 0 16px; color: #111111; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: 0.03em; text-transform: uppercase;">Bevestig je stem</h1>
 <p style="margin: 0 0 16px;">Hoi,</p>
 <p style="margin: 0 0 16px;">Bedankt voor je stem op Spelt-walnoot! Bevestig hem via de knop hieronder, dan telt hij mee. De link werkt 7 dagen, en niet meer als de stemming gesloten is.</p>
+<p style="margin: 0 0 16px;">Je wens voor de bakker: Graag met zaden</p>
 <p style="margin: 24px 0;"><a style="display: inline-block; padding: 12px 24px; border-radius: 9999px; background: #111111; color: #ffffff; font-family: 'Oswald', 'Arial Narrow', 'Roboto Condensed', sans-serif; font-weight: 500; letter-spacing: 0.05em; text-decoration: none; text-transform: uppercase;" href="https://broodvoorweldadigheid.nl/stemmen/bevestig/tok3n">Stem bevestigen</a></p>
 <p style="margin: 0 0 16px;">Heb je niet gestemd? Dan kun je deze mail negeren. Er telt dan geen stem en je krijgt geen mails van ons.</p>
 <p style="margin: 0 0 16px;">Groetjes van de bakker</p>

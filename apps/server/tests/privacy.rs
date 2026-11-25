@@ -622,7 +622,7 @@ async fn voted(pool: &PgPool, email: &str) {
     sqlx::query(
         "WITH p AS (
             INSERT INTO poll (title, closes_at, created_at)
-            VALUES ('Welk brood?', now() + interval '1 day', now()) RETURNING id
+            VALUES ('Welk brood?', '2026-10-01T12:00:00Z', now()) RETURNING id
         ), o AS (
             INSERT INTO poll_option (poll_id, name, position)
             SELECT id, name, pos FROM p, (VALUES ('Spelt', 0), ('Rogge', 1)) v(name, pos)
@@ -662,6 +662,6 @@ async fn votes_are_in_the_export_and_lose_address_and_wish_on_delete(pool: PgPoo
     assert_eq!(
         left,
         [(None, None, true)],
-        "the vote still counts, anonymously"
+        "the vote in the closed poll still counts, anonymously"
     );
 }

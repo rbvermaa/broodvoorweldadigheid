@@ -32,6 +32,8 @@ pub enum Invalid {
     TooManyOptions,
     OptionName,
     DuplicateOption,
+    /// A closed poll cannot get a closing time in the future.
+    Reopen,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -135,6 +137,14 @@ pub enum Voted {
     AlreadyVoted,
     /// Counted at once: the address was proven by signing in.
     Counted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Link {
+    Open,
+    Closed(PollId),
+    /// Unknown, expired or already used.
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,32 +263,51 @@ pub async fn create(
 }
 
 /// Changes title, drop, closing time and whether results are public. The candidates
-/// stay as they are. A closing time in the past closes the poll at once.
+/// stay as they are. A closing time in the past closes the poll at once. A closed poll
+/// never opens again: an erase may have taken the address off a vote in it, and that
+/// address could then vote twice.
 ///
 /// # Errors
-/// [`PollError::Invalid`] for a bad title, [`PollError::NotFound`] or [`PollError::Db`].
+/// [`PollError::Invalid`] for a bad title or for reopening, [`PollError::NotFound`] or
+/// [`PollError::Db`].
 pub async fn update(
     conn: &mut PgConnection,
+    clock: &dyn Clock,
     id: PollId,
     input: &PollInput,
 ) -> Result<(), PollError> {
     check_title(&input.title)?;
+    let now = clock.now();
+    let reopens = input.closes_at > now;
     let updated = sqlx::query!(
         "UPDATE poll SET title = $2, bake_day_id = $3,
             closes_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond',
             public_results = $5
-        WHERE id = $1",
+        WHERE id = $1 AND NOT ($6
+            AND closes_at <= timestamptz 'epoch' + $7::bigint * interval '1 microsecond')",
         id.get(),
         input.title.trim(),
         input.bake_day.map(BakeDayId::get),
         micros(input.closes_at),
         input.public_results,
+        reopens,
+        micros(now),
     )
-    .execute(conn)
+    .execute(&mut *conn)
     .await?
     .rows_affected();
     if updated == 0 {
-        return Err(PollError::NotFound);
+        let exists = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM poll WHERE id = $1) AS "exists!""#,
+            id.get()
+        )
+        .fetch_one(conn)
+        .await?;
+        return Err(if exists {
+            PollError::Invalid(Invalid::Reopen)
+        } else {
+            PollError::NotFound
+        });
     }
     Ok(())
 }
@@ -501,6 +530,7 @@ pub async fn vote(
         to: row.email,
         poll: title,
         choice,
+        wish: wish.clone(),
         confirm_url: links.vote_confirm(&token),
     })?;
     outbox::enqueue_expiring(&mut tx, clock, &mail, None, expires).await?;
@@ -562,24 +592,19 @@ async fn existing_or_new(
     email: &str,
     wish: Option<&str>,
 ) -> Result<Existing, PollError> {
-    sqlx::query!(
-        "INSERT INTO vote (poll_id, poll_option_id, email, wish, created_at)
+    // The no-op update locks and returns an existing row in the same statement, so an
+    // erase or cleanup cannot delete it in between.
+    let row = sqlx::query!(
+        r#"INSERT INTO vote (poll_id, poll_option_id, email, wish, created_at)
         VALUES ($1, $2, $3, $4, timestamptz 'epoch' + $5::bigint * interval '1 microsecond')
-        ON CONFLICT (poll_id, lower(email)) DO NOTHING",
+        ON CONFLICT (poll_id, lower(email)) DO UPDATE SET poll_id = EXCLUDED.poll_id
+        RETURNING id, email AS "email!", confirmed_at IS NOT NULL AS "confirmed!",
+            (extract(epoch FROM confirm_sent_at) * 1000000)::bigint AS sent_at_us"#,
         poll.get(),
         option.get(),
         email,
         wish,
         micros(now),
-    )
-    .execute(&mut *conn)
-    .await?;
-    let row = sqlx::query!(
-        r#"SELECT id, email AS "email!", confirmed_at IS NOT NULL AS "confirmed!",
-            (extract(epoch FROM confirm_sent_at) * 1000000)::bigint AS sent_at_us
-        FROM vote WHERE poll_id = $1 AND lower(email) = lower($2) FOR UPDATE"#,
-        poll.get(),
-        email,
     )
     .fetch_one(conn)
     .await?;
@@ -591,27 +616,35 @@ async fn existing_or_new(
     })
 }
 
-/// Whether `token` is an unexpired confirmation link, for the page that asks to confirm.
+/// What an unexpired confirmation link would do, for the page that asks to confirm.
 ///
 /// # Errors
 /// [`PollError::Db`].
-pub async fn confirm_link_known(
+pub async fn confirm_link(
     conn: &mut PgConnection,
     clock: &dyn Clock,
     token: &str,
-) -> Result<bool, PollError> {
+) -> Result<Link, PollError> {
     let Some(hash) = token_hash(token) else {
-        return Ok(false);
+        return Ok(Link::Unknown);
     };
-    Ok(sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM vote WHERE confirm_token_hash = $1
-            AND confirm_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')
-            AS "known!""#,
+    let now = micros(clock.now());
+    let found = sqlx::query!(
+        r#"SELECT v.poll_id,
+            p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond' AS "open!"
+        FROM vote v JOIN poll p ON p.id = v.poll_id
+        WHERE v.confirm_token_hash = $1
+            AND v.confirm_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'"#,
         hash,
-        micros(clock.now()),
+        now,
     )
-    .fetch_one(conn)
-    .await?)
+    .fetch_optional(conn)
+    .await?;
+    Ok(match found {
+        Some(row) if row.open => Link::Open,
+        Some(row) => Link::Closed(PollId::new(row.poll_id)),
+        None => Link::Unknown,
+    })
 }
 
 /// Makes the vote behind an unexpired confirmation link count, while its poll is open.
@@ -690,16 +723,25 @@ pub async fn of_address(conn: &mut PgConnection, email: &str) -> Result<Vec<Vote
     .collect()
 }
 
-/// Erases `email` from the votes (F12): unconfirmed votes are deleted; confirmed ones
-/// keep counting, without the address or the wish.
+/// Erases `email` from the votes (F12). Votes in polls that are still open, and
+/// unconfirmed ones, are deleted, so the address could vote again but never twice.
+/// Confirmed votes in closed polls keep counting, without the address or the wish.
 ///
 /// # Errors
 /// [`PollError::Db`].
-pub async fn forget(conn: &mut PgConnection, email: &str) -> Result<(), PollError> {
+pub async fn forget(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &str,
+) -> Result<(), PollError> {
     let mut tx = conn.begin().await?;
     sqlx::query!(
-        "DELETE FROM vote WHERE lower(email) = lower($1) AND confirmed_at IS NULL",
+        "DELETE FROM vote v USING poll p
+        WHERE p.id = v.poll_id AND lower(v.email) = lower($1)
+            AND (v.confirmed_at IS NULL
+                OR p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')",
         email,
+        micros(clock.now()),
     )
     .execute(&mut *tx)
     .await?;

@@ -14,7 +14,7 @@ use domain::{PollId, PollOptionId};
 use i18n::{Amsterdam, FluentArgs, I18nError};
 use jiff::Timestamp;
 use notify::Composer;
-use notify::polls::{self, Ballot, Confirmed, Poll, PollError, Voted};
+use notify::polls::{self, Ballot, Confirmed, Link, Poll, PollError, Voted};
 use notify::subscribers::Links;
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -460,8 +460,8 @@ async fn confirm_page(
         Ok(conn) => conn,
         Err(error) => return server_error(&state, &error),
     };
-    match polls::confirm_link_known(&mut conn, state.clock.as_ref(), &token).await {
-        Ok(true) => {
+    match polls::confirm_link(&mut conn, state.clock.as_ref(), &token).await {
+        Ok(Link::Open) => {
             let csrf = match csrf::token(&session).await {
                 Ok(csrf) => csrf,
                 Err(error) => return server_error(&state, &error),
@@ -475,7 +475,14 @@ async fn confirm_page(
                 },
             ))
         }
-        Ok(false) => no_store(message(
+        Ok(Link::Closed(poll)) => no_store(message(
+            &state,
+            StatusCode::CONFLICT,
+            CLOSED,
+            "warning",
+            Some(poll),
+        )),
+        Ok(Link::Unknown) => no_store(message(
             &state,
             StatusCode::NOT_FOUND,
             LINK_FAILED,

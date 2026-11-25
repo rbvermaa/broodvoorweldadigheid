@@ -1,6 +1,6 @@
 # Broodstemming (F9b): stemmen op de site en de stemmingen in het beheer.
 votes-title = Broodstemming
-votes-intro = Welk brood moeten we bakken? Stem mee! Je stem telt zodra je hem via de mail bevestigt.
+votes-intro = Welk brood moeten we bakken? Stem mee! Je krijgt een mail om je stem te bevestigen. Ben je ingelogd, dan telt je stem meteen.
 votes-empty-title = Er is nu geen stemming
 votes-empty-text = Kijk later nog eens, of meld je aan voor drop-alerts.
 votes-open-until = Stemmen kan tot { $at }.
@@ -62,7 +62,7 @@ poll-total = { $n ->
 poll-wishes = Eigen wensen
 poll-wishes-empty = Nog geen wensen.
 poll-settings = Instellingen
-poll-settings-hint = Kandidaten veranderen niet meer, zodat elke stem blijft kloppen. Zet de sluittijd in het verleden om de stemming nu te sluiten.
+poll-settings-hint = Kandidaten veranderen niet meer, zodat elke stem blijft kloppen. Zet de sluittijd in het verleden om de stemming nu te sluiten. Een gesloten stemming gaat niet meer open.
 poll-site-link = Bekijk op de site
 poll-error-title = Vul een vraag in van hooguit 200 tekens.
 poll-error-closes = Kies een sluittijd in de toekomst.
@@ -71,3 +71,4 @@ poll-error-many = Geef hooguit 12 kandidaten.
 poll-error-option = Elke kandidaat heeft een naam van hooguit 100 tekens.
 poll-error-duplicate = Elke kandidaat mag maar één keer voorkomen.
 poll-error-bake-day = Kies een bestaande drop.
+poll-error-reopen = Een gesloten stemming gaat niet meer open. Je kunt wel een nieuwe maken.

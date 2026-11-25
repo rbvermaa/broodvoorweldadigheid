@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, email AS \"email!\", confirmed_at IS NOT NULL AS \"confirmed!\",\n            (extract(epoch FROM confirm_sent_at) * 1000000)::bigint AS sent_at_us\n        FROM vote WHERE poll_id = $1 AND lower(email) = lower($2) FOR UPDATE",
+  "query": "INSERT INTO vote (poll_id, poll_option_id, email, wish, created_at)\n        VALUES ($1, $2, $3, $4, timestamptz 'epoch' + $5::bigint * interval '1 microsecond')\n        ON CONFLICT (poll_id, lower(email)) DO UPDATE SET poll_id = EXCLUDED.poll_id\n        RETURNING id, email AS \"email!\", confirmed_at IS NOT NULL AS \"confirmed!\",\n            (extract(epoch FROM confirm_sent_at) * 1000000)::bigint AS sent_at_us",
   "describe": {
     "columns": [
       {
@@ -41,7 +41,10 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text"
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -51,5 +54,5 @@
       null
     ]
   },
-  "hash": "5e1407b4bf7dfdbb4fd098b80b1528d2135b55c64b38309e0435a4c98261f4eb"
+  "hash": "fbe902b385f990fba323fb9473c315286a79b27f2506092b34549e0feb315736"
 }

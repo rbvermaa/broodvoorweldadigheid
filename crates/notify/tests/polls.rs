@@ -5,8 +5,8 @@ use domain::{BakeDayId, Clock, PollId, PollOptionId};
 use i18n::Translator;
 use jiff::{SignedDuration, Timestamp};
 use notify::polls::{
-    self, Ballot, CONFIRM_VALID, Confirmed, Invalid, NewOption, PollError, PollInput, RESEND_AFTER,
-    Voted,
+    self, Ballot, CONFIRM_VALID, Confirmed, Invalid, Link, NewOption, PollError, PollInput,
+    RESEND_AFTER, Voted,
 };
 use notify::subscribers::Links;
 use notify::{Company, Composer};
@@ -134,10 +134,11 @@ async fn a_vote_counts_once_its_address_is_confirmed(mut conn: PoolConnection<Po
     assert!(polls::wishes(&mut conn, id).await.unwrap().is_empty());
 
     let token = last_token(&mut conn).await;
-    assert!(
-        polls::confirm_link_known(&mut conn, &clock, &token)
+    assert_eq!(
+        polls::confirm_link(&mut conn, &clock, &token)
             .await
-            .unwrap()
+            .unwrap(),
+        Link::Open
     );
     let stored: Vec<u8> = sqlx::query_scalar("SELECT confirm_token_hash FROM vote")
         .fetch_one(&mut *conn)
@@ -302,12 +303,30 @@ async fn closing_early_refuses_a_pending_confirmation(mut conn: PoolConnection<P
     let token = last_token(&mut conn).await;
     let mut closed = input(SignedDuration::ZERO);
     closed.closes_at = clock.now() - SignedDuration::from_secs(1);
-    polls::update(&mut conn, id, &closed).await.unwrap();
+    polls::update(&mut conn, &clock, id, &closed).await.unwrap();
+    assert_eq!(
+        polls::confirm_link(&mut conn, &clock, &token)
+            .await
+            .unwrap(),
+        Link::Closed(id)
+    );
     assert_eq!(
         polls::confirm(&mut conn, &clock, &token).await.unwrap(),
         Confirmed::Closed(id)
     );
     assert_eq!(counts(&mut conn, id).await, [0, 0]);
+    let reopened =
+        polls::update(&mut conn, &clock, id, &input(SignedDuration::from_hours(1))).await;
+    assert!(
+        matches!(reopened, Err(PollError::Invalid(Invalid::Reopen))),
+        "an erase may have blanked an address in it, so it could vote twice"
+    );
+    assert!(
+        !polls::get(&mut conn, id)
+            .await
+            .unwrap()
+            .is_open(clock.now())
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -446,9 +465,13 @@ async fn the_site_lists_open_polls_and_closed_ones_with_public_results(
     let (public, ..) = poll(&mut conn, &clock).await;
     let mut settings = input(SignedDuration::ZERO);
     settings.closes_at = clock.now() + SignedDuration::from_hours(1);
-    polls::update(&mut conn, private, &settings).await.unwrap();
+    polls::update(&mut conn, &clock, private, &settings)
+        .await
+        .unwrap();
     settings.public_results = true;
-    polls::update(&mut conn, public, &settings).await.unwrap();
+    polls::update(&mut conn, &clock, public, &settings)
+        .await
+        .unwrap();
     clock.advance(SignedDuration::from_hours(2));
     let shown: Vec<PollId> = polls::list_public(&mut conn, clock.now())
         .await
@@ -461,7 +484,9 @@ async fn the_site_lists_open_polls_and_closed_ones_with_public_results(
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn erasing_an_address_keeps_its_vote_counting_without_it(mut conn: PoolConnection<Postgres>) {
+async fn erasing_an_address_keeps_closed_votes_counting_without_it(
+    mut conn: PoolConnection<Postgres>,
+) {
     let clock = now();
     let (id, spelt, rogge) = poll(&mut conn, &clock).await;
     vote(&mut conn, &clock, id, spelt, "iemand@example.nl", "Spelt!")
@@ -485,16 +510,30 @@ async fn erasing_an_address_keeps_its_vote_counting_without_it(mut conn: PoolCon
         .await
         .unwrap();
 
+    let (still_open, open_option, _) = poll(&mut conn, &clock).await;
+    let ballot = Ballot {
+        option: open_option,
+        wish: "",
+    };
+    polls::vote_verified(&mut conn, &clock, still_open, ballot, "iemand@example.nl")
+        .await
+        .unwrap();
+    let mut closed = input(SignedDuration::ZERO);
+    closed.closes_at = clock.now() - SignedDuration::from_secs(1);
+    polls::update(&mut conn, &clock, id, &closed).await.unwrap();
+
     let mine = polls::of_address(&mut conn, "IEMAND@example.nl")
         .await
         .unwrap();
-    assert_eq!(mine.len(), 2);
+    assert_eq!(mine.len(), 3);
     assert_eq!(mine[0].choice, "Spelt");
     assert_eq!(mine[0].wish.as_deref(), Some("Spelt!"));
     assert!(mine[0].confirmed_at.is_some());
     assert!(mine[1].confirmed_at.is_none());
 
-    polls::forget(&mut conn, "iemand@example.nl").await.unwrap();
+    polls::forget(&mut conn, &clock, "iemand@example.nl")
+        .await
+        .unwrap();
     assert!(
         polls::of_address(&mut conn, "iemand@example.nl")
             .await
@@ -504,7 +543,19 @@ async fn erasing_an_address_keeps_its_vote_counting_without_it(mut conn: PoolCon
     assert_eq!(
         counts(&mut conn, id).await,
         [1, 0],
-        "the confirmed vote still counts"
+        "the confirmed vote in the closed poll still counts"
+    );
+    assert_eq!(
+        counts(&mut conn, still_open).await,
+        [0, 0],
+        "a vote in an open poll is deleted"
+    );
+    assert_eq!(
+        polls::vote_verified(&mut conn, &clock, still_open, ballot, "iemand@example.nl")
+            .await
+            .unwrap(),
+        Voted::Counted,
+        "and the address can vote there again, once"
     );
     assert!(
         polls::wishes(&mut conn, id).await.unwrap().is_empty(),

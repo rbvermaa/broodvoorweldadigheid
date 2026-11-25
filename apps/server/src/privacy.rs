@@ -132,7 +132,7 @@ pub async fn erase(
         Err(error) => return Err(error.into()),
     };
     notify::subscribers::forget(&mut tx, &email).await?;
-    notify::polls::forget(&mut tx, &email).await?;
+    notify::polls::forget(&mut tx, state.clock.as_ref(), &email).await?;
     notify::outbox::forget_address(&mut tx, &email).await?;
     let company = notify::Company::load(&mut tx).await?;
     match Composer::new(&state.i18n, &company).account_deleted(&email) {
