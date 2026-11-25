@@ -140,6 +140,14 @@ a {
   list-style: none;
 }
 
+.staff-nav a[aria-current] {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  text-decoration: none;
+}
+
 @media (min-width: 64rem) {
   .site-header,
   .site-main,
@@ -178,7 +186,8 @@ a {
     margin: 0;
   }
 
-  .staff-nav a {
+  .staff-nav a,
+  .staff-nav a[aria-current] {
     display: block;
     padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-full);
@@ -187,10 +196,5 @@ a {
 
   .staff-nav a:hover {
     text-decoration: underline;
-  }
-
-  .staff-nav a[aria-current] {
-    background: var(--color-ink);
-    color: var(--color-paper);
   }
 }

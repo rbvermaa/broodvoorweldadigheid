@@ -31,3 +31,17 @@
 {{ caller() }}
 </div>
 {% endmacro %}
+
+{# cluster: buttons and short items on one wrapping row, on every width. #}
+{% macro cluster() %}
+<div class="cluster">
+{{ caller() }}
+</div>
+{% endmacro %}
+
+{# link_row: a named group of links to the parts of a page, as one wrapping row of pills. #}
+{% macro link_row(label) %}
+<nav class="link-row" aria-label="{{ label }}">
+{{ caller() }}
+</nav>
+{% endmacro %}

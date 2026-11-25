@@ -99,6 +99,11 @@ async fn gallery_shows_every_component_and_state() {
         "<div class=\"choice-grid\">",
         "<div class=\"card-grid\">",
         "<div class=\"split\">",
+        "<div class=\"cluster\">",
+        "<nav class=\"link-row\"",
+        "class=\"button button-secondary button-small\"",
+        "<div class=\"field-inline\">",
+        "<div class=\"field-inline field-invalid\">",
     ] {
         assert!(html.contains(needle), "{needle} missing");
     }

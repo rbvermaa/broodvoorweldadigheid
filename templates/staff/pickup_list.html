@@ -43,7 +43,9 @@
 {% if !allergens.is_empty() %}
 <section>
 <h2>{{ layout.t("pickup-list-allergens")? }}</h2>
+{% call l::card_grid() %}
 {%- for product in allergens %}
+<article>
 <h3>{{ product.name }}</h3>
 {%- if let Some(info) = product.allergens %}
 {% call p::allergen_list(info.contains()) %}{% endcall %}
@@ -61,7 +63,9 @@
 <p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(notice.ingredients) %}{% endcall %}</p>
 {%- endif %}
 {%- endfor %}
+</article>
 {%- endfor %}
+{% endcall %}
 </section>
 {% endif %}
 {% endblock %}

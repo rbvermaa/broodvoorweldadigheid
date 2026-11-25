@@ -145,6 +145,18 @@
 {% call f::checkbox("keuze-b", layout.t("gallery-charity-b")?) %}{% endcall %}
 {% call f::checkbox("keuze-c", layout.t("gallery-long-word")?) %}{% endcall %}
 {% endcall %}
+{% call l::cluster() %}
+{% call b::button(layout.t("gallery-primary")?, small = true) %}{% endcall %}
+{% call b::button(layout.t("gallery-secondary")?, variant = "secondary", small = true) %}{% endcall %}
+{% call b::button(layout.t("gallery-long-button")?, variant = "secondary") %}{% endcall %}
+{% endcall %}
+{% call l::link_row(layout.t("gallery-layout")?) %}
+<a href="#gallery-fields">{{ layout.t("gallery-fields")? }}</a>
+<a href="#gallery-products">{{ layout.t("gallery-products")? }}</a>
+<a href="#gallery-icons">{{ layout.t("gallery-icons")? }}</a>
+{% endcall %}
+{% call f::inline_number("inline-aantal", layout.t("gallery-amount")?, value = "12") %}{% endcall %}
+{% call f::inline_select("inline-doel", layout.t("gallery-charity")?, charities, error = layout.t("gallery-charity-error")?) %}{% endcall %}
 {% call l::split() %}
 {% call l::card_grid() %}
 <article><h3>{{ layout.t("gallery-product-short")? }}</h3><p>{{ layout.t("gallery-product-short-desc")? }}</p></article>

@@ -7,13 +7,13 @@ use askama::Template;
 use auth::Permission;
 use axum::Router;
 use axum::extract::{Form, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::Response;
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bakedays::capacity::Remaining;
 use bakedays::status::TransitionRefused;
 use bakedays::{
-    BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, PickupLocation, PickupSlot,
+    BakeDay, BakeDayProduct, BakeDayStatus, NewBakeDay, OrderSource, PickupLocation, PickupSlot,
     PickupSlotInput, Schedule, days, pickup, range, schedule,
 };
 use catalog::{Charity, Product, charities, products};
@@ -521,11 +521,14 @@ pub struct NewSlot {
 }
 
 pub struct RangeRow {
-    pub text: String,
+    pub anchor: String,
     pub name: String,
+    pub ordered: u32,
+    pub left: String,
     pub edit: String,
     pub max_field: String,
     pub max_qty: String,
+    pub remove_id: String,
     pub dialog: String,
     pub action: String,
     pub confirm: String,
@@ -621,22 +624,9 @@ fn product_name(names: &BTreeMap<ProductId, String>, id: ProductId) -> String {
 
 fn remaining_text(state: &AppState, remaining: Option<Remaining>) -> String {
     match remaining {
-        Some(Remaining::Pieces(n)) => t_count(state, "range-remaining", n),
+        Some(Remaining::Pieces(n)) => n.to_string(),
         Some(Remaining::Unlimited) | None => t(state, "range-unlimited"),
     }
-}
-
-fn range_text(
-    state: &AppState,
-    name: &str,
-    item: &BakeDayProduct,
-    remaining: Option<Remaining>,
-) -> String {
-    let max = item.max_qty.map_or_else(
-        || t(state, "range-no-max"),
-        |n| t_count(state, "range-max", n),
-    );
-    [name.to_owned(), max, remaining_text(state, remaining)].join(" · ")
 }
 
 async fn lead_time_alert(state: &AppState, day: &BakeDay) -> Step<Option<String>> {
@@ -844,6 +834,10 @@ async fn render_day(
     let items = range::list_products(&mut conn, day.id)
         .await
         .map_err(|e| fail(state, &e))?;
+    let ordered = Orders::new(state.clock.as_ref())
+        .ordered(&mut conn, day.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
     let remaining: BTreeMap<ProductId, Remaining> =
         range::availability(&mut conn, day.id, &Orders::new(state.clock.as_ref()))
             .await
@@ -888,7 +882,10 @@ async fn render_day(
                 item.max_qty.map(|n| n.to_string()).unwrap_or_default()
             };
             RangeRow {
-                text: range_text(state, &name, item, remaining.get(&item.product_id).copied()),
+                anchor: format!("aanbod-{id}"),
+                remove_id: format!("aanbod-{id}-weg"),
+                ordered: ordered.get(&item.product_id).copied().unwrap_or(0),
+                left: remaining_text(state, remaining.get(&item.product_id).copied()),
                 edit: format!("{path}/range/{id}"),
                 max_field: format!("max_qty_{id}"),
                 max_qty,
@@ -1125,6 +1122,18 @@ pub async fn charity(
 }
 
 /// A product's maximum as posted; empty means none.
+/// Sends htmx to `path` as a full page load.
+fn reload(path: &str) -> Response {
+    match HeaderValue::try_from(path) {
+        Ok(value) => (
+            StatusCode::OK,
+            [(HeaderName::from_static("hx-redirect"), value)],
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 fn parse_max(state: &AppState, max_qty: &str) -> Result<Option<u32>, String> {
     if max_qty.is_empty() {
         return Ok(None);
@@ -1246,6 +1255,10 @@ pub async fn update_product(
         let result = range::update_product(&mut conn, day.id, product, max_qty).await;
         drop(conn);
         let error = match result {
+            Ok(()) if is_htmx(&headers) => {
+                let answer = Answer::plain(true);
+                return render_day(&state, &staff, &session, StatusCode::OK, &day, answer).await;
+            }
             Ok(()) => return Ok(saved(&headers, &day_path(day.id))),
             Err(error) => error,
         };
@@ -1256,6 +1269,11 @@ pub async fn update_product(
             "max_qty" => max_field,
             _ => String::new(),
         };
+        if field.is_empty() && is_htmx(&headers) {
+            // The answer may lack the row, for instance on a day that became final; the
+            // reloaded page says why.
+            return Ok(reload(&day_path(day.id)));
+        }
         let answer = Answer::row(forms, &field, problem.text);
         render_day(
             &state,
