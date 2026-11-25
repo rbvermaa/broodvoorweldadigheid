@@ -28,8 +28,3 @@
 {% call b::button(layout.t("reports-show")?, variant = "secondary", kind = "submit") %}{% endcall %}
 </form>
 {% endmacro %}
-
-{# An ingredient list (F17): allergens in bold, as on labels. items: backoffice::products::ListedView. #}
-{% macro ingredient_list(items) %}
-<p>{% for item in items.iter() %}{% if item.emphasised %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}{% if !loop.last %}, {% endif %}{% endfor %}</p>
-{% endmacro %}

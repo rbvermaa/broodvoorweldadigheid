@@ -658,6 +658,9 @@ async fn an_approve_page_opened_before_a_recipe_change_cannot_approve(pool: PgPo
     recipes::recipes::link_product(&mut conn, recipe.id, id)
         .await
         .expect("link");
+    recipes::recipes::unlink_product(&mut conn, recipe.id, id)
+        .await
+        .expect("unlink");
     drop(conn);
     let action = format!("{path}/approve");
     let fields = |revision| {
@@ -671,9 +674,9 @@ async fn an_approve_page_opened_before_a_recipe_change_cannot_approve(pool: PgPo
     let stale = baker.post(&action, &fields("0")).await;
     assert_eq!(stale.status, StatusCode::CONFLICT);
     stale.shows(&dutch("approve-changed"));
-    stale.shows("name=\"revisie\" value=\"1\"");
+    stale.shows("name=\"revisie\" value=\"2\"");
     baker
-        .post(&action, &fields("1"))
+        .post(&action, &fields("2"))
         .await
         .redirects_to(&format!("{path}?opgeslagen=1"));
 }
@@ -4171,4 +4174,109 @@ async fn the_public_donation_page_shows_totals_only_from_five_orders(pool: PgPoo
     page.shows(&dutch("giften-hidden"));
     page.lacks(&i18n::money(total - more[0].total.cents()));
     page.lacks("<svg class=\"chart-svg\"");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_pickup_list_shows_approved_ingredients_with_allergens_in_bold(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let page = counter.get(&list).await;
+    page.shows(&dutch("pickup-list-allergens"));
+    page.shows(&dutch("allergen-cereals_containing_gluten"));
+
+    for change in [
+        "UPDATE product SET ingredient_names = '{tarwebloem,water}',
+            ingredient_emphasis = '{t,f}', ingredient_text = 'tarwebloem, water'",
+        "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
+            allergens_approved_at = now()",
+    ] {
+        sqlx::query(change).execute(&pool).await.expect("update");
+    }
+    counter
+        .get(&list)
+        .await
+        .shows("<strong>tarwebloem</strong>, water");
+
+    sqlx::query("UPDATE product SET allergens_approved_by = NULL, allergens_approved_at = NULL")
+        .execute(&pool)
+        .await
+        .expect("unapprove");
+    let pending = counter.get(&list).await;
+    pending.shows(&dutch("product-allergens-pending"));
+    pending.lacks("<strong>tarwebloem</strong>");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_pickup_list_warns_about_a_batch_with_other_allergens(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let mut conn = pool.acquire().await.expect("conn");
+    let product: i64 = sqlx::query_scalar("SELECT product_id FROM order_line LIMIT 1")
+        .fetch_one(&mut *conn)
+        .await
+        .expect("product");
+    let product = domain::ProductId::new(product);
+    let sesame = recipes::ingredients::create(
+        &mut conn,
+        &recipes::IngredientInput {
+            name: "Sesam".to_owned(),
+            label_name: "sesamzaad".to_owned(),
+            role: recipes::IngredientRole::Other,
+            supplier_name: String::new(),
+            allergens: std::collections::BTreeSet::from([domain::Allergen::SesameSeeds]),
+        },
+    )
+    .await
+    .expect("ingredient");
+    let (recipe, version) = recipes::recipes::create(
+        &mut conn,
+        &recipes::RecipeInput {
+            name: "Sesambrood".to_owned(),
+            kind: recipes::RecipeKind::Dough,
+        },
+    )
+    .await
+    .expect("recipe");
+    recipes::recipes::save_draft(
+        &mut conn,
+        version.id,
+        &recipes::DraftInput {
+            lines: vec![recipes::LineInput {
+                pct: recipes::Pct::HUNDRED,
+                part: recipes::LinePart::Ingredient(sesame.id),
+            }],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("draft");
+    recipes::recipes::link_product(&mut conn, recipe.id, product)
+        .await
+        .expect("link");
+    let batch = production::batches::start_manual(
+        &mut conn,
+        paid.day,
+        product,
+        2,
+        orders::audit::Actor::System("test"),
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("batch");
+    let code = production::batches::get(&mut conn, batch)
+        .await
+        .expect("batch")
+        .code
+        .to_string();
+    drop(conn);
+
+    let page = counter.get(&list).await;
+    page.shows(&dutch_with("pickup-list-batch-differs", &[("code", &code)]));
+    page.shows(&dutch("allergen-sesame_seeds"));
+    page.shows("<strong>sesamzaad</strong>");
 }

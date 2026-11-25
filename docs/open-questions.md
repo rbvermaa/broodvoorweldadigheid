@@ -178,3 +178,7 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Niimbot import check** (ADR 0024, ADR 0047). Does the official app import the CSV
   (semicolons, UTF-8 with BOM) and print the 591-pixel-wide PNGs at their size? Needs a
   test print by the owner.
+- [ ] **Shop allergens for a drop with a differing batch** (F17, ADR 0046). The shop shows
+  the product's approved allergens. When a batch of that day adds an allergen (for example
+  sesame) and is approved for its labels, the shop does not show it; the pickup list warns.
+  Should the shop block or show the batch's allergens for that drop?

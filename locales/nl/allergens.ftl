@@ -28,3 +28,7 @@ label-check-hand = Het product heeft met de hand ingevulde ingrediënten. Keur d
 label-check-approve = Waarden van deze batch goedkeuren
 label-check-changed = De batch is net gewijzigd. Bekijk de waarden opnieuw voordat je goedkeurt.
 label-check-back = Terug naar de batch
+approve-computed-only = Dit product komt uit een recept. Je keurt alleen de berekende waarden hierboven goed.
+pickup-list-allergens = Allergenen en ingrediënten
+pickup-list-batch-differs = Batch { $code } wijkt af van wat bij het product is goedgekeurd. Volgens deze batch:
+pickup-list-batch-unweighable = Batch { $code } kan niet gewogen worden. Controleer de allergenen van deze batch met de hand.

@@ -22,7 +22,7 @@ use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
     saved, t, t_with,
 };
-use crate::components::{Cell, SelectOption, Table};
+use crate::components::{Cell, ListedIngredient as Listed, SelectOption, Table, listed};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
@@ -311,34 +311,19 @@ struct ApprovePage<'a> {
     back: String,
     allergens: Vec<&'static str>,
     ingredient_text: String,
-    current_list: Option<Vec<ListedView>>,
+    current_list: Option<Vec<Listed>>,
     revision: i64,
     changed: bool,
     computed: Option<ComputedView>,
     uncomputable: bool,
-}
-
-/// One ingredient of a list; `emphasised` ones are shown in bold.
-pub struct ListedView {
-    pub name: String,
-    pub emphasised: bool,
-}
-
-pub(super) fn listed(list: &IngredientList) -> Vec<ListedView> {
-    list.0
-        .iter()
-        .map(|i| ListedView {
-            name: i.name.clone(),
-            emphasised: i.emphasised,
-        })
-        .collect()
+    computed_only: bool,
 }
 
 /// Values computed from a recipe or batch, with what their approval form sends back.
 pub struct ComputedView {
     pub source: String,
     pub allergens: Vec<&'static str>,
-    pub ingredients: Vec<ListedView>,
+    pub ingredients: Vec<Listed>,
     pub same: bool,
     pub action: String,
 }
@@ -748,6 +733,7 @@ async fn render_approve(
             changed,
             computed,
             uncomputable,
+            computed_only: product.has_recipe,
         },
     ))
 }
@@ -836,6 +822,10 @@ pub async fn approve(
             Ok(_) => Ok(saved(&headers, &product_path(product.id))),
             Err(catalog::Error::AllergensChanged) => {
                 render_approve(&state, &session, StatusCode::CONFLICT, &product, true).await
+            }
+            Err(catalog::Error::ComputedOnly) => {
+                let product = load(&state, &id).await?;
+                render_approve(&state, &session, StatusCode::CONFLICT, &product, false).await
             }
             Err(error) => Err(catalog_error(&state, &error).into()),
         }

@@ -614,3 +614,32 @@ async fn a_batch_approval_of_old_values_is_refused(pool: PgPool) {
     );
     assert_eq!(baker.get(&elsewhere).await.status, StatusCode::NOT_FOUND);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_product_with_a_recipe_has_no_hand_approval(pool: PgPool) {
+    let app = app(pool.clone());
+    let b = bakery(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = product_path(b.bread);
+    let page = baker.get(&format!("{path}/approve")).await;
+    page.shows(&dutch("approve-computed-only"));
+    page.shows(&dutch("rollup-approve"));
+    page.lacks(&format!("action=\"{path}/approve\""));
+    page.lacks(&dutch("approve-submit"));
+
+    let hand = baker
+        .post(
+            &format!("{path}/approve"),
+            &[
+                ("ingredient_text", "BLOEM, water"),
+                ("revisie", &page.hidden("revisie")[0]),
+            ],
+        )
+        .await;
+    assert_eq!(hand.status, StatusCode::CONFLICT);
+    hand.shows(&dutch("approve-computed-only"));
+    let product = products::get(&mut pool.acquire().await.unwrap(), b.bread)
+        .await
+        .unwrap();
+    assert_eq!(product.approval, None);
+}

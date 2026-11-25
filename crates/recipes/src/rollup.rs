@@ -1,9 +1,10 @@
 //! Allergens and ingredient list computed from a recipe (F17, ADR 0046).
 //!
 //! The list holds every ingredient on a path of lines above 0%, sub-recipes merged in, by
-//! its label name. Ingredients with the same label name are one entry. Entries go in
-//! descending order of their weight in the final dough; equal weights keep the order in
-//! which the recipe first uses them. The allergens are the union of those ingredients'.
+//! its label name. Ingredients whose label names differ only in case are one entry, under
+//! the spelling the recipe uses first. Entries go in descending order of their weight in
+//! the final dough; equal weights keep the order in which the recipe first uses them.
+//! The allergens are the union of those ingredients'.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -136,7 +137,8 @@ pub fn compute(
         let ingredient = ingredients
             .get(&id)
             .ok_or_else(|| Error::Corrupt(format!("ingredient {}", id.get())))?;
-        match entries.iter_mut().find(|e| e.name == ingredient.label()) {
+        let key = ingredient.label().to_lowercase();
+        match entries.iter_mut().find(|e| e.name.to_lowercase() == key) {
             Some(entry) => {
                 entry.weight += weight;
                 entry.allergens.extend(ingredient.allergens.iter().copied());

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO product (\n            name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, packaged, sold_online, estimated_cost_cents, active\n        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            packaged, sold_online, estimated_cost_cents, active",
+  "query": "UPDATE product SET\n            name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,\n            vat_rate = $6::bigint, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,\n            unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,\n            lead_time_hours = $13, allergens = $14, ingredient_text = $15,\n            packaged = $16, sold_online = $17, estimated_cost_cents = $18, active = $19,\n            ingredient_names = CASE WHEN allergens @> $14 AND allergens <@ $14\n                AND ingredient_text = $15 THEN ingredient_names END,\n            ingredient_emphasis = CASE WHEN allergens @> $14 AND allergens <@ $14\n                AND ingredient_text = $15 THEN ingredient_emphasis END\n        WHERE id = $1\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -231,6 +231,12 @@
       },
       {
         "ordinal": 21,
+        "name": "has_recipe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 22,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -241,7 +247,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -252,7 +258,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -263,7 +269,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -276,6 +282,7 @@
     ],
     "parameters": {
       "Left": [
+        "Int8",
         "Text",
         "Text",
         "Text",
@@ -318,11 +325,12 @@
       false,
       true,
       true,
+      null,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "fd95c14694d15a17229b2b9c87201c04d8d6b5fe8a88ebc672d8e45ec5bed1cb"
+  "hash": "a82885bb8763923c6cc13b6b12c86fa685761b2aa798d81a0dade7ccbacf1d98"
 }

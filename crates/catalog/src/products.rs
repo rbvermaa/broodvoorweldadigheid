@@ -94,6 +94,8 @@ pub struct Product {
     /// The computed list the allergen data came from (F17); `None` when the ingredient
     /// text was entered by hand.
     pub ingredient_list: Option<IngredientList>,
+    /// Made from a recipe: only the values the recipe computes can be approved (F17).
+    pub has_recipe: bool,
     pub approval: Option<Approval>,
     /// Why the approval was last taken away, until the next approval.
     pub approval_cleared: Option<ApprovalCleared>,
@@ -163,6 +165,7 @@ struct Row {
     allergens_recipe_rev: i64,
     ingredient_names: Option<Vec<String>>,
     ingredient_emphasis: Option<Vec<bool>>,
+    has_recipe: bool,
     packaged: bool,
     sold_online: bool,
     estimated_cost_cents: Option<i64>,
@@ -228,6 +231,7 @@ impl TryFrom<Row> for Product {
                 row.ingredient_names,
                 row.ingredient_emphasis,
             )?,
+            has_recipe: row.has_recipe,
             approval,
             approval_cleared: row
                 .allergens_cleared_reason
@@ -306,6 +310,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         input.name_nl.trim(),
         input.description_nl,
@@ -361,6 +366,7 @@ pub async fn update(
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
         input.name_nl.trim(),
@@ -388,12 +394,14 @@ pub async fn update(
     row.try_into()
 }
 
-/// Approves the allergen data `reviewed` at recipe revision `revision`
+/// Approves hand-entered allergen data `reviewed` at recipe revision `revision`
 /// ([`Product::allergen_revision`]); both must be what the product holds now, so an edit
-/// or recipe change made while someone was reviewing is never approved unseen.
+/// or recipe change made while someone was reviewing is never approved unseen. A product
+/// made from a recipe takes only computed values ([`approve_computed`], F17).
 ///
 /// # Errors
-/// [`Error::NotFound`], or [`Error::AllergensChanged`] when `reviewed` is out of date.
+/// [`Error::NotFound`], [`Error::AllergensChanged`] when `reviewed` is out of date, or
+/// [`Error::ComputedOnly`] for a product with a recipe.
 pub async fn approve_allergens(
     conn: &mut PgConnection,
     id: ProductId,
@@ -402,6 +410,18 @@ pub async fn approve_allergens(
     by: StaffUserId,
     clock: &dyn Clock,
 ) -> Result<Product, Error> {
+    approve_stored(conn, id, reviewed, revision, by, clock, true).await
+}
+
+async fn approve_stored(
+    conn: &mut PgConnection,
+    id: ProductId,
+    reviewed: &AllergenInfo,
+    revision: i64,
+    by: StaffUserId,
+    clock: &dyn Clock,
+    hand: bool,
+) -> Result<Product, Error> {
     let row = sqlx::query_as!(
         Row,
         r#"UPDATE product SET
@@ -409,12 +429,14 @@ pub async fn approve_allergens(
             allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
         WHERE id = $1 AND allergens @> $4 AND allergens <@ $4
             AND ingredient_text = $5 AND allergens_recipe_rev = $6
+            AND NOT ($7 AND recipe_id IS NOT NULL)
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
         by.get(),
@@ -422,11 +444,13 @@ pub async fn approve_allergens(
         &allergens_to_db(&reviewed.allergens),
         reviewed.ingredient_text,
         revision,
+        hand,
     )
     .fetch_optional(&mut *conn)
     .await?;
     match row {
         Some(row) => row.try_into(),
+        None if hand && get(conn, id).await?.has_recipe => Err(Error::ComputedOnly),
         None => {
             get(conn, id).await?;
             Err(Error::AllergensChanged)
@@ -440,7 +464,8 @@ pub async fn approve_allergens(
 /// lock (`recipes::rollup::approve_product`).
 ///
 /// # Errors
-/// [`Error::NotFound`], or [`Error::AllergensChanged`] when the revision is out of date.
+/// [`Error::NotFound`], or [`Error::AllergensChanged`] when the revision is out of date or
+/// the product has no recipe.
 pub async fn approve_computed(
     conn: &mut PgConnection,
     id: ProductId,
@@ -454,7 +479,7 @@ pub async fn approve_computed(
     let stored = sqlx::query!(
         "UPDATE product SET allergens = $2, ingredient_text = $3, ingredient_names = $4,
             ingredient_emphasis = $5
-        WHERE id = $1 AND allergens_recipe_rev = $6",
+        WHERE id = $1 AND allergens_recipe_rev = $6 AND recipe_id IS NOT NULL",
         id.get(),
         &allergens_to_db(&computed.allergens),
         computed.ingredients.text(),
@@ -472,7 +497,7 @@ pub async fn approve_computed(
         allergens: computed.allergens.clone(),
         ingredient_text: computed.ingredients.text(),
     };
-    let product = approve_allergens(&mut tx, id, &reviewed, revision, by, clock).await?;
+    let product = approve_stored(&mut tx, id, &reviewed, revision, by, clock, false).await?;
     tx.commit().await?;
     Ok(product)
 }
@@ -505,6 +530,7 @@ pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Erro
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE id = $1"#,
         id.get(),
@@ -528,6 +554,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active ORDER BY name_nl, id"#,
     )
@@ -551,6 +578,7 @@ pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product ORDER BY name_nl, id"#,
     )
@@ -574,6 +602,7 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active AND sold_online ORDER BY name_nl, id"#,
     )
