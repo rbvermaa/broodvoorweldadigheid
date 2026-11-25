@@ -165,13 +165,17 @@ pub async fn check(
     batch: BatchId,
     product: ProductId,
 ) -> Result<LabelCheck, Error> {
-    let loaded = batches::get(conn, batch).await?;
+    let mut tx = conn.begin().await?;
+    // Product, then kitchen list, as checkout locks them (ADR 0038): both approvals are
+    // read as they stand together.
+    catalog::products::lock_for_order(&mut tx, &[product]).await?;
+    let kitchen = company::lock_kitchen_may_contain(&mut tx).await?;
+    let loaded = batches::get(&mut tx, batch).await?;
     if !loaded.outputs.iter().any(|o| o.product_id == product) {
         return Err(Error::NotFound);
     }
-    let computed = computed(conn, &loaded).await?;
-    let product = catalog::products::get(conn, product).await?;
-    let kitchen = company::kitchen_may_contain(conn).await?;
+    let computed = computed(&mut tx, &loaded).await?;
+    let product = catalog::products::get(&mut tx, product).await?;
     let row = sqlx::query_as!(
         BatchValues,
         r#"SELECT allergens, ingredient_names, ingredient_emphasis, allergens_approved_by,
@@ -179,7 +183,7 @@ pub async fn check(
         FROM batch WHERE id = $1"#,
         batch.get(),
     )
-    .fetch_one(&mut *conn)
+    .fetch_one(&mut *tx)
     .await?;
     let (batch_values, batch_approval) = match row {
         BatchValues {
@@ -207,6 +211,7 @@ pub async fn check(
             allergens: product.allergen_info.allergens.clone(),
             ingredients: list.clone(),
         });
+    tx.commit().await?;
     Ok(LabelCheck {
         product,
         computed,

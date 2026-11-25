@@ -20,6 +20,11 @@ BEGIN
     THEN
         NEW.ingredient_names := NULL;
         NEW.ingredient_emphasis := NULL;
+        IF NEW.recipe_id IS DISTINCT FROM OLD.recipe_id
+            AND NEW.allergens_approved_by IS NOT NULL
+        THEN
+            NEW.allergens_cleared_reason := 'recipe';
+        END IF;
     END IF;
     IF NEW.ingredient_names IS DISTINCT FROM OLD.ingredient_names
         OR NEW.ingredient_emphasis IS DISTINCT FROM OLD.ingredient_emphasis

@@ -704,3 +704,29 @@ async fn a_recipe_change_drops_the_approved_list(mut conn: PoolConnection<Postgr
         "tarwebloem, Water, zout"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn unlinking_the_recipe_keeps_the_reason_the_approval_went(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let k = kitchen(&mut conn).await;
+    let revision = products::get(&mut conn, k.bread)
+        .await
+        .unwrap()
+        .allergen_revision;
+    rollup::approve_product(&mut conn, k.bread, &expected(), revision, BAKER, &clock())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE product SET recipe_id = NULL WHERE id = $1")
+        .bind(k.bread.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let unlinked = products::get(&mut conn, k.bread).await.unwrap();
+    assert_eq!(unlinked.approval, None);
+    assert_eq!(unlinked.ingredient_list, None);
+    assert_eq!(
+        unlinked.approval_cleared,
+        Some(catalog::ApprovalCleared::Recipe)
+    );
+}
