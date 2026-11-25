@@ -13,6 +13,7 @@
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
 #   make e2e                    browser tests in a NixOS VM (x86_64-linux with kvm; LINUX_BUILDER on macOS)
+#   make e2e-local              the same flows against a server and geckodriver you run yourself (e2e/README.md)
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
 #   MOLLIE_TEST_API_KEY_FILE=path make mollie-contract   contract test against Mollie test mode
 
@@ -71,7 +72,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
 	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
-	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e
+	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e e2e-local
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -179,6 +180,9 @@ image-contents: ## Image contents check only, for ARCH on the Linux builder
 
 e2e: ## Browser tests (thirtyfour, axe-core) in a NixOS VM; x86_64-linux with kvm only
 	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.x86_64-linux.e2e
+
+e2e-local: ## Browser tests against a local server, DATABASE_URL and geckodriver (e2e/README.md); not in CI
+	$(NIX_DEV) cargo run --package e2e --
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
