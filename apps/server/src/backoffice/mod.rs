@@ -2,8 +2,26 @@
 //! (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline
 //! checks and partial updates on top (ADR 0019).
 
+pub mod bake_days;
+pub mod batches;
+pub mod business;
+pub mod charities;
+pub mod customers;
+pub mod extras;
 pub mod form;
+pub mod ingredients;
+pub mod kitchen;
+pub mod lists;
+pub mod locations;
 pub mod nav;
+pub mod orders;
+pub mod payouts;
+pub mod polls;
+pub mod products;
+pub mod recipes;
+pub mod reports;
+pub mod settings;
+pub mod sick_day;
 
 use std::fmt::Display;
 
@@ -21,37 +39,32 @@ use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
 
-/// Declares each feature module and merges its `routes()`.
-macro_rules! features {
-    ($($feature:ident,)+) => {
-        $(pub mod $feature;)+
-
-        pub fn routes() -> Router<AppState> {
-            Router::new()$(.merge($feature::routes()))+
-        }
-    };
-}
-
 // One line per feature, sorted (ADR 0044).
-features! {
-    bake_days,
-    batches,
-    business,
-    charities,
-    customers,
-    extras,
-    ingredients,
-    kitchen,
-    lists,
-    locations,
-    orders,
-    payouts,
-    polls,
-    products,
-    recipes,
-    reports,
-    settings,
-    sick_day,
+const FEATURES: &[fn() -> Router<AppState>] = &[
+    bake_days::routes,
+    batches::routes,
+    business::routes,
+    charities::routes,
+    customers::routes,
+    extras::routes,
+    ingredients::routes,
+    kitchen::routes,
+    lists::routes,
+    locations::routes,
+    orders::routes,
+    payouts::routes,
+    polls::routes,
+    products::routes,
+    recipes::routes,
+    reports::routes,
+    settings::routes,
+    sick_day::routes,
+];
+
+pub fn routes() -> Router<AppState> {
+    FEATURES
+        .iter()
+        .fold(Router::new(), |router, feature| router.merge(feature()))
 }
 
 /// A response that ends the handler early: a refusal, a 404 or a 500 page. Boxed, so

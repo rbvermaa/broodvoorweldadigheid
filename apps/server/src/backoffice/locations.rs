@@ -2,10 +2,10 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use bakedays::pickup::{
     self, PickupLocation, PickupLocationInput, PickupWindow, PickupWindowInput,
@@ -27,22 +27,13 @@ use crate::state::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/staff/locations", get(list))
-        .route(
-            "/staff/locations/new",
-            get(new_form).post(create),
-        )
-        .route(
-            "/staff/locations/{id}",
-            get(edit_form).post(update),
-        )
+        .route("/staff/locations/new", get(new_form).post(create))
+        .route("/staff/locations/{id}", get(edit_form).post(update))
         .route(
             "/staff/locations/{id}/windows/new",
             get(new_window_form).post(create_window),
         )
-        .route(
-            "/staff/locations/windows/check",
-            post(check_window),
-        )
+        .route("/staff/locations/windows/check", post(check_window))
         .route(
             "/staff/locations/{id}/windows/{window}",
             get(edit_window_form).post(update_window),

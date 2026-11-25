@@ -3,10 +3,10 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use catalog::charities;
 use domain::{CharityId, Money};
@@ -31,10 +31,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/staff/reports/payouts", get(list))
         .route("/staff/reports/payouts/{id}", get(detail))
-        .route(
-            "/staff/reports/payouts/{id}/transfers",
-            post(record),
-        )
+        .route("/staff/reports/payouts/{id}/transfers", post(record))
 }
 
 const LIST: &str = "/staff/reports/payouts";

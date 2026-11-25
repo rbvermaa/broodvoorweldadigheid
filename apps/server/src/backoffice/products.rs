@@ -4,10 +4,10 @@ use std::collections::BTreeSet;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use catalog::{AllergenInfo, Pricing, Product, ProductInput, products};
 use domain::{Allergen, Money, PayWhatYouWant, ProductId, VatRate};
@@ -27,15 +27,9 @@ use crate::state::AppState;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/staff/products", get(list))
-        .route(
-            "/staff/products/new",
-            get(new_form).post(create),
-        )
+        .route("/staff/products/new", get(new_form).post(create))
         .route("/staff/products/check", post(check))
-        .route(
-            "/staff/products/{id}",
-            get(edit_form).post(update),
-        )
+        .route("/staff/products/{id}", get(edit_form).post(update))
         .route(
             "/staff/products/{id}/approve",
             get(approve_form).post(approve),

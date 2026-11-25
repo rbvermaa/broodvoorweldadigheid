@@ -6,10 +6,10 @@ use std::collections::BTreeMap;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use bakedays::{BakeDay, days, pickup};
 use domain::{OrderId, PickupLocationId, PickupSlotId, RefundId, StaffUserId};

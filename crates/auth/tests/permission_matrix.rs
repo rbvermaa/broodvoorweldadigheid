@@ -2,9 +2,7 @@
 
 use auth::{Permission, Role};
 
-/// The answers of `Role::can` on 2026-11-25, before the table became declarative
-/// (ADR 0044). Permissions added later are not listed here; their rows are in
-/// docs/permissions.md.
+/// The answers of `Role::can` on 2026-11-25 (ADR 0044). Later permissions are not listed.
 const FROZEN: [(&str, bool, bool, bool); 15] = [
     // permission, owner, baker, counter
     ("ViewOrders", true, true, true),

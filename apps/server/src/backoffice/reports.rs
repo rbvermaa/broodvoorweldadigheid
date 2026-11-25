@@ -6,11 +6,11 @@ use std::collections::BTreeMap;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Router;
 use axum::routing::{get, post};
 use bakedays::days;
 use catalog::charities;
@@ -48,10 +48,7 @@ pub fn routes() -> Router<AppState> {
             "/staff/reports/donations/charities.csv",
             get(donation_charities_csv),
         )
-        .route(
-            "/staff/reports/contribution",
-            get(contribution_page),
-        )
+        .route("/staff/reports/contribution", get(contribution_page))
         .route("/staff/reports/contribution/costs", post(add_cost))
 }
 

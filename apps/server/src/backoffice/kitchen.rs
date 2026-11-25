@@ -4,10 +4,10 @@ use std::collections::BTreeSet;
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use catalog::KitchenMayContain;
 use catalog::company;

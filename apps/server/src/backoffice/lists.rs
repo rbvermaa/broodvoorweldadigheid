@@ -4,12 +4,12 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderValue;
 use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, HeaderName};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::Router;
 use axum::routing::{get, post};
 use bakedays::{BakeDay, Purpose};
 use domain::OrderId;
@@ -30,36 +30,18 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route(
-            "/staff/bake-days/{id}/production",
-            get(production_page),
-        )
-        .route(
-            "/staff/bake-days/{id}/production/pdf",
-            get(production_pdf),
-        )
+        .route("/staff/bake-days/{id}/production", get(production_page))
+        .route("/staff/bake-days/{id}/production/pdf", get(production_pdf))
         .route("/staff/bake-days/{id}/ingredients", get(needs_page))
-        .route(
-            "/staff/bake-days/{id}/ingredients/pdf",
-            get(needs_pdf),
-        )
-        .route(
-            "/staff/bake-days/{id}/ingredients/csv",
-            get(needs_csv),
-        )
+        .route("/staff/bake-days/{id}/ingredients/pdf", get(needs_pdf))
+        .route("/staff/bake-days/{id}/ingredients/csv", get(needs_csv))
         .route("/staff/bake-days/{id}/pickup-list", get(pickup_page))
-        .route(
-            "/staff/bake-days/{id}/pickup-list/pdf",
-            get(pickup_pdf),
-        )
+        .route("/staff/bake-days/{id}/pickup-list/pdf", get(pickup_pdf))
         .route(
             "/staff/bake-days/{id}/pickup-list/{order}/picked-up",
             post(picked_up),
         )
-        .route(
-            "/staff/bake-days/{id}/pickup-list/{order}/undo",
-            post(undo),
-        )
+        .route("/staff/bake-days/{id}/pickup-list/{order}/undo", post(undo))
 }
 
 fn production_path(day: &BakeDay) -> String {

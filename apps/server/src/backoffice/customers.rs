@@ -4,10 +4,10 @@
 use askama::Template;
 use auth::Permission;
 use axum::Form;
+use axum::Router;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use domain::CustomerId;
 use orders::audit::Actor;
@@ -23,10 +23,7 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route(
-            PATH,
-            get(page).post(search),
-        )
+        .route(PATH, get(page).post(search))
         .route("/staff/customers/{id}/export", get(export))
         .route("/staff/customers/{id}/erase", post(erase))
 }

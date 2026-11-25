@@ -3,10 +3,10 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::get;
 use bakedays::days;
 use catalog::products;

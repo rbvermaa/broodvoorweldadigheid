@@ -3,10 +3,10 @@
 
 use askama::Template;
 use auth::Permission;
+use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::Router;
 use axum::routing::{get, post};
 use bakedays::BakeDay;
 use domain::{BatchId, IngredientId, ProductId};
@@ -43,10 +43,7 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/batches/{batch}/lines",
             post(add_line),
         )
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}/mixed",
-            post(mixed),
-        )
+        .route("/staff/bake-days/{id}/batches/{batch}/mixed", post(mixed))
         .route(
             "/staff/bake-days/{id}/batches/{batch}/actuals",
             post(actuals),
