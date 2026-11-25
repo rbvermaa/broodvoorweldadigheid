@@ -76,6 +76,8 @@ let
           BIND_ADDR = "127.0.0.1:8080";
           COOKIE_SECURE = "false";
           GALLERY = "true";
+          # Staff sign in through the dev login; needs the loopback BIND_ADDR above.
+          DEV_STAFF_LOGIN = "true";
           # https so the order confirmation is queued; the browser uses BIND_ADDR.
           PUBLIC_URL = "https://broodvoorweldadigheid.test";
           MOLLIE_API_KEY_FILE = "${mollieKey}";

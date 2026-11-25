@@ -9,12 +9,17 @@ use crate::Error;
 const WAIT: Duration = Duration::from_secs(15);
 const POLL: Duration = Duration::from_millis(200);
 
-/// Headless Firefox at laptop size. `www.mollie.com` resolves to localhost, so the hosted
-/// checkout page fails to load instead of reaching the internet.
+/// A laptop window.
+pub const LAPTOP: (u32, u32) = (1280, 900);
+/// An iPhone-sized window, for the screens the spec designs for the phone first.
+pub const PHONE: (u32, u32) = (390, 844);
+
+/// Headless Firefox with a window of `size`. `www.mollie.com` resolves to localhost, so
+/// the hosted checkout page fails to load instead of reaching the internet.
 ///
 /// # Errors
 /// When the WebDriver does not answer or refuses the session.
-pub async fn firefox(webdriver: &str) -> Result<WebDriver, Error> {
+pub async fn firefox(webdriver: &str, size: (u32, u32)) -> Result<WebDriver, Error> {
     let mut caps = DesiredCapabilities::firefox();
     caps.set_headless()?;
     let mut prefs = FirefoxPreferences::new();
@@ -28,7 +33,7 @@ pub async fn firefox(webdriver: &str) -> Result<WebDriver, Error> {
             Some(Duration::ZERO),
         ))
         .await?;
-    driver.set_window_rect(0, 0, 1280, 900).await?;
+    driver.set_window_rect(0, 0, size.0, size.1).await?;
     Ok(driver)
 }
 
@@ -71,4 +76,63 @@ pub async fn wait_for_text(driver: &WebDriver, css: &str, needle: &str) -> Resul
         Ok(text.contains(&needle.to_lowercase()).then_some(()))
     })
     .await
+}
+
+/// Clicks the element at `css`.
+///
+/// # Errors
+/// When there is no such element or it cannot be clicked.
+pub async fn click(driver: &WebDriver, css: &str) -> Result<(), Error> {
+    driver
+        .find(By::Css(css))
+        .await
+        .map_err(|err| format!("{css}: {err}"))?
+        .click()
+        .await?;
+    Ok(())
+}
+
+/// Replaces the text of the field at `css`.
+///
+/// # Errors
+/// When there is no such field.
+pub async fn fill(driver: &WebDriver, css: &str, text: &str) -> Result<(), Error> {
+    let field = driver
+        .find(By::Css(css))
+        .await
+        .map_err(|err| format!("{css}: {err}"))?;
+    field.clear().await?;
+    field.send_keys(text).await?;
+    Ok(())
+}
+
+/// Picks the option with `value` in the select at `css`.
+///
+/// # Errors
+/// When the select has no such option.
+pub async fn choose(driver: &WebDriver, css: &str, value: &str) -> Result<(), Error> {
+    click(driver, &format!("{css} option[value=\"{value}\"]")).await
+}
+
+/// Sets the value of the field at `css` by script: typing into a date field depends on
+/// the browser's locale.
+///
+/// # Errors
+/// When the script fails, for example because there is no such field.
+pub async fn set_value(driver: &WebDriver, css: &str, value: &str) -> Result<(), Error> {
+    driver
+        .execute(
+            "document.querySelector(arguments[0]).value = arguments[1];",
+            vec![serde_json::json!(css), serde_json::json!(value)],
+        )
+        .await?;
+    Ok(())
+}
+
+/// The path of the current page, such as `/staff/bake-days/7`.
+///
+/// # Errors
+/// When the WebDriver does not answer.
+pub async fn path(driver: &WebDriver) -> Result<String, Error> {
+    Ok(driver.current_url().await?.path().to_owned())
 }
