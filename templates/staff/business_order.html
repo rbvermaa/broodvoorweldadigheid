@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -13,8 +14,10 @@
 <p>{{ layout.t("b2b-order-no-days")? }}</p>
 {% else %}
 <form method="get" action="{{ choose_action }}">
+{% call l::form_grid() %}
 {% call f::select("dag", layout.t("b2b-order-day")?, days, required = true) %}{% endcall %}
 {% call b::button(layout.t("b2b-order-choose-day")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 {% if let Some(form) = form %}
@@ -25,12 +28,14 @@
 <form method="post" action="{{ form.action }}">
 {% call s::csrf() %}{% endcall %}
 <input type="hidden" name="dag" value="{{ form.day }}">
+{% call l::form_grid() %}
 {% call f::select("slot", layout.t("b2b-order-slot")?, slots, required = true) %}{% endcall %}
 {%- for piece in form.pieces %}
 <input type="hidden" name="product" value="{{ piece.product }}">
 {% call f::field("number", piece.name, piece.label, value = piece.value, error = form.errors.get(piece.name)) %}{% endcall %}
 {%- endfor %}
 {% call b::button(layout.t("b2b-order-place")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 {% endif %}

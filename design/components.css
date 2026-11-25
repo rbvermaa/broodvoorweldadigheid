@@ -29,11 +29,15 @@
 .product-ingredients,
 .alert-text,
 .empty-state-title,
-.dialog-title,
-.table td,
-.table th {
+.dialog-title {
   overflow-wrap: anywhere;
   hyphens: auto;
+}
+
+.table td,
+.table th {
+  overflow-wrap: break-word;
+  hyphens: manual;
 }
 
 .button {
@@ -384,6 +388,10 @@ textarea.field-input {
   white-space: nowrap;
 }
 
+.table th.table-number {
+  white-space: normal;
+}
+
 .alert {
   display: flex;
   align-items: flex-start;
@@ -607,6 +615,7 @@ textarea.field-input {
 
 .drop-status {
   align-self: flex-start;
+  width: fit-content;
   margin: 0;
   padding: var(--space-1) var(--space-3);
   border: var(--border-thick) solid var(--color-ink);
@@ -692,6 +701,7 @@ textarea.field-input {
 
 .chart {
   margin: 0 0 var(--space-5);
+  max-width: var(--size-content);
 }
 
 .chart-svg {
@@ -714,4 +724,100 @@ textarea.field-input {
 .chart-caption {
   padding: var(--space-2) 0 0;
   font-weight: var(--font-weight-bold);
+}
+
+/* Layout wrappers (templates/components/layout.html). On a phone they add nothing. */
+@media (min-width: 48rem) {
+  .form-grid,
+  .choice-grid,
+  .card-grid {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .form-grid {
+    align-items: flex-end;
+    column-gap: var(--space-4);
+  }
+
+  .form-grid > * {
+    flex: 1 1 var(--size-tile);
+    min-width: 0;
+    max-width: var(--size-tile-max);
+  }
+
+  .form-grid > :is(fieldset, p, h2, h3, ul, .alert, .field-check, .form-grid, .choice-grid, [role="status"]) {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .form-grid > :has(textarea, .field-check, fieldset) {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .form-grid > .button {
+    flex: none;
+    margin-bottom: var(--space-5);
+  }
+
+  .choice-grid {
+    column-gap: var(--space-4);
+  }
+
+  .choice-grid > * {
+    flex: 0 1 var(--size-tile);
+    min-width: 0;
+  }
+
+  .card-grid {
+    gap: var(--space-4);
+    margin: 0 0 var(--space-5);
+  }
+
+  .card-grid > * {
+    flex: 1 1 var(--size-tile);
+    min-width: 0;
+    max-width: var(--size-tile-max);
+    padding: var(--space-4);
+    border: var(--border-stamp) solid var(--color-border);
+    border-radius: var(--radius-xl);
+  }
+
+  .drop-list {
+    flex-flow: row wrap;
+  }
+
+  .drop-list > * {
+    flex: 1 1 var(--size-tile);
+    min-width: 0;
+    max-width: var(--size-tile-max);
+  }
+
+  .drop-list .drop {
+    height: 100%;
+  }
+
+  .product-tile {
+    max-width: var(--size-tile-max);
+  }
+}
+
+@media (min-width: 64rem) {
+  .split {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-6);
+  }
+
+  .split > * {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .split:not(.split-aside-first) > :last-child,
+  .split-aside-first > :first-child {
+    flex: none;
+    width: var(--size-aside);
+  }
 }

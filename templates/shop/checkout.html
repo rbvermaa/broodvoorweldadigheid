@@ -5,12 +5,15 @@
 {% import "components/picker.html" as pick %}
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
+{% import "components/layout.html" as l %}
 {% block title %}{{ layout.t("checkout-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("checkout-title")? }}</h1>
 <h2>{{ drop.date }}</h2>
 {% call dr::drop_facts(drop) %}{% endcall %}
+{% call l::split(aside_first = true) %}
 {% call c::cart_panel(cart) %}{% endcall %}
+<div>
 <div role="status">
 {%- if let Some(message) = message %}
 {% call fb::alert(message.kind, message.text) %}{% endcall %}
@@ -31,4 +34,6 @@
 <p>{{ layout.t("checkout-hold")? }}</p>
 {% call b::button(layout.t("checkout-pay")?, kind = "submit") %}{% endcall %}
 </form>
+</div>
+{% endcall %}
 {% endblock %}

@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -19,9 +20,11 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ manual_action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::select("product_id", layout.t("batches-manual-product")?, products, error = errors.get("product_id"), required = true) %}{% endcall %}
 {% call f::field("number", "pieces", layout.t("batches-manual-pieces")?, value = manual.pieces, error = errors.get("pieces"), required = true) %}{% endcall %}
 {% call b::button(layout.t("batches-manual-start")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 {% endblock %}

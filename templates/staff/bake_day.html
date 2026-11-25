@@ -3,6 +3,7 @@
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -37,10 +38,12 @@
 {% call s::csrf() %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ slot.text }}</legend>
+{% call l::form_grid() %}
 {% call f::field("date", slot.date_field, layout.t("slot-date")?, value = slot.date, error = errors.get(slot.date_field), required = true) %}{% endcall %}
 {% call f::field("time", slot.starts_field, layout.t("window-starts")?, value = slot.starts, error = errors.get(slot.starts_field), required = true) %}{% endcall %}
 {% call f::field("time", slot.ends_field, layout.t("window-ends")?, value = slot.ends, error = errors.get(slot.ends_field), required = true) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </fieldset>
 </form>
 {%- else %}
@@ -66,11 +69,13 @@
 {% call s::csrf() %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ layout.t("slot-add")? }}</legend>
+{% call l::form_grid() %}
 {% call f::select("slot_location_new", layout.t("day-location")?, new_slot.locations, error = errors.get("slot_location_new"), required = true) %}{% endcall %}
 {% call f::field("date", "slot_date_new", layout.t("slot-date")?, value = new_slot.date, error = errors.get("slot_date_new"), required = true) %}{% endcall %}
 {% call f::field("time", "slot_starts_new", layout.t("window-starts")?, value = new_slot.starts, error = errors.get("slot_starts_new"), required = true) %}{% endcall %}
 {% call f::field("time", "slot_ends_new", layout.t("window-ends")?, value = new_slot.ends, error = errors.get("slot_ends_new"), required = true) %}{% endcall %}
 {% call b::button(layout.t("slot-add")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </fieldset>
 </form>
 {% endif %}
@@ -79,18 +84,22 @@
 <h2>{{ layout.t("day-schedule")? }}</h2>
 <form method="post" action="{{ path }}/schedule">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::field("datetime-local", "menu_publish_at", layout.t("day-menu-publish")?, value = forms.menu_publish_at, hint = layout.t("day-menu-publish-hint")?, error = errors.get("menu_publish_at")) %}{% endcall %}
 {% call f::field("datetime-local", "opens_at", layout.t("day-opens")?, value = forms.opens_at, hint = layout.t("day-opens-hint")?, error = errors.get("opens_at")) %}{% endcall %}
 {% call f::field("datetime-local", "cutoff_at", layout.t("day-cutoff")?, value = forms.cutoff_at, error = errors.get("cutoff_at")) %}{% endcall %}
 {% call f::checkbox("production_only", layout.t("day-production-only-label")?, checked = forms.production_only, error = errors.get("production_only")) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 
 <h2>{{ layout.t("day-charity")? }}</h2>
 <form method="post" action="{{ path }}/charity">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::select("charity_id", layout.t("day-charity")?, charities, hint = layout.t("day-charity-hint")?, error = errors.get("charity_id")) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 
 <h2>{{ layout.t("range-title")? }}</h2>
@@ -102,8 +111,10 @@
 {% call s::csrf() %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ row.name }}</legend>
+{% call l::form_grid() %}
 {% call f::field("number", row.max_field, layout.t("range-max-qty")?, value = row.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get(row.max_field)) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </fieldset>
 </form>
 {% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog) %}{% endcall %}
@@ -114,9 +125,11 @@
 {% endif %}
 <form method="post" action="{{ path }}/range">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::select("product_id", layout.t("range-product")?, product_options, hint = layout.t("range-product-hint")?, error = errors.get("product_id"), required = true) %}{% endcall %}
 {% call f::field("number", "max_qty", layout.t("range-max-qty")?, value = forms.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get("max_qty")) %}{% endcall %}
 {% call b::button(layout.t("range-add")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 
 {% endif %}
@@ -124,12 +137,16 @@
 <h2>{{ layout.t("day-copy-title")? }}</h2>
 <form method="post" action="{{ path }}/copy">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::field("date", "copy_date", layout.t("day-copy-date")?, value = forms.copy_date, hint = layout.t("day-copy-hint")?, error = errors.get("copy_date"), required = true) %}{% endcall %}
 {% call b::button(layout.t("day-copy")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 <form method="post" action="{{ path }}/repeat">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::field("number", "weeks", layout.t("day-repeat-weeks")?, value = forms.weeks, hint = layout.t("day-repeat-hint")?, error = errors.get("weeks"), required = true) %}{% endcall %}
 {% call b::button(layout.t("day-repeat")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endblock %}

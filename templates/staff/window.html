@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -10,6 +11,7 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::select("weekday", layout.t("window-weekday")?, weekdays, error = errors.get("weekday"), required = true) %}{% endcall %}
 {% call s::live("times", check) %}
 {% call f::field("time", "starts", layout.t("window-starts")?, value = form.starts, error = errors.get("starts"), required = true) %}{% endcall %}
@@ -19,6 +21,7 @@
 {% call s::live("deadline_time", check) %}{% call f::field("time", "deadline_time", layout.t("window-deadline-time")?, value = form.deadline_time, error = errors.get("deadline_time"), required = true) %}{% endcall %}{% endcall %}
 {% call f::checkbox("active", layout.t("product-active")?, checked = form.active) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 <p><a href="{{ back }}">{{ layout.t("window-back")? }}</a></p>
 {% endblock %}
