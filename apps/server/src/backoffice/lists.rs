@@ -23,7 +23,7 @@ use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
     require, t, t_with,
 };
-use crate::components::{Cell, Table};
+use crate::components::{ApprovedAllergens, Cell, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
@@ -423,6 +423,43 @@ struct PickupPage<'a> {
     saved: bool,
     problem: String,
     slots: Vec<SlotSection>,
+    allergens: Vec<ProductAllergens>,
+}
+
+/// A product on the list with its approved allergens and ingredients (F17), or `None`
+/// while they are not approved.
+struct ProductAllergens {
+    name: String,
+    allergens: Option<ApprovedAllergens>,
+}
+
+async fn pickup_allergens(state: &AppState, list: &PickupList) -> Step<Vec<ProductAllergens>> {
+    let mut ids = Vec::new();
+    for line in list
+        .slots
+        .iter()
+        .flat_map(|s| &s.orders)
+        .flat_map(|o| &o.lines)
+    {
+        if !ids.contains(&line.product_id) {
+            ids.push(line.product_id);
+        }
+    }
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    let kitchen = catalog::company::kitchen_may_contain(&mut conn)
+        .await
+        .map_err(|e| fail(state, &e))?;
+    let mut shown = Vec::with_capacity(ids.len());
+    for id in ids {
+        let product = catalog::products::get(&mut conn, id)
+            .await
+            .map_err(|e| fail(state, &e))?;
+        shown.push(ProductAllergens {
+            allergens: ApprovedAllergens::from_catalog(&product, &kitchen),
+            name: product.name_nl,
+        });
+    }
+    Ok(shown)
 }
 
 /// The answer to a tick, shown on that order's card.
@@ -543,6 +580,7 @@ async fn render_pickups(
             saved,
             problem,
             slots,
+            allergens: pickup_allergens(state, &list).await?,
         },
     );
     if retarget {

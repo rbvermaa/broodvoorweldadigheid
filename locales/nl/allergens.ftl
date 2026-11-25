@@ -28,3 +28,5 @@ label-check-hand = Het product heeft met de hand ingevulde ingrediënten. Keur d
 label-check-approve = Waarden van deze batch goedkeuren
 label-check-changed = De batch is net gewijzigd. Bekijk de waarden opnieuw voordat je goedkeurt.
 label-check-back = Terug naar de batch
+approve-computed-only = Dit product komt uit een recept. Je keurt alleen de berekende waarden hierboven goed.
+pickup-list-allergens = Allergenen en ingrediënten

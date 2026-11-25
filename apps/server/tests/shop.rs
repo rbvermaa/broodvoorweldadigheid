@@ -634,19 +634,12 @@ async fn a_recipe_change_blocks_checkout_until_the_baker_approves_again(pool: Pg
         .await
         .unwrap();
     let approve = async |conn: &mut PgConnection| {
-        let current = catalog::products::get(conn, bread).await.unwrap();
-        let baker = sqlx::query_scalar("SELECT id FROM staff_user LIMIT 1")
-            .fetch_one(&mut *conn)
-            .await
-            .unwrap();
-        catalog::products::approve_allergens(
-            conn,
-            bread,
-            &current.allergen_info,
-            current.allergen_revision,
-            domain::StaffUserId::new(baker),
-            &*shop.clock,
+        sqlx::query(
+            "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
+                allergens_approved_at = now() WHERE id = $1",
         )
+        .bind(bread.get())
+        .execute(conn)
         .await
         .unwrap();
     };
@@ -2043,4 +2036,29 @@ async fn a_normal_sale_asks_nothing_about_donations(pool: PgPool) {
         .checkout_with_donation(drop.day, &drop.slot, "bewaren")
         .await;
     assert_eq!(reply.status, StatusCode::SEE_OTHER, "the field is ignored");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_computed_ingredient_list_shows_allergens_in_bold(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    for change in [
+        "UPDATE product SET ingredient_names = '{tarwebloem,water,zout}',
+            ingredient_emphasis = '{t,f,f}', ingredient_text = 'tarwebloem, water, zout'",
+        "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
+            allergens_approved_at = now()",
+    ] {
+        sqlx::query(change).execute(&mut *conn).await.unwrap();
+    }
+    let (_, reply) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    assert!(
+        reply
+            .body
+            .contains("<strong>tarwebloem</strong>, water, zout"),
+        "{}",
+        reply.body
+    );
 }

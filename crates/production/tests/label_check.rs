@@ -247,15 +247,14 @@ async fn hand_entered_product_data_does_not_cover_a_batch(pool: PgPool) {
     .execute(&mut *conn)
     .await
     .unwrap();
-    let product = products::get(&mut conn, k.bread).await.unwrap();
-    products::approve_allergens(
-        &mut conn,
-        k.bread,
-        &product.allergen_info,
-        product.allergen_revision,
-        BAKER_ID,
-        &clock(),
+    // Approved by hand before the product had a recipe; the hand path now refuses it.
+    sqlx::query(
+        "UPDATE product SET allergens_approved_by = $2, allergens_approved_at = now()
+         WHERE id = $1",
     )
+    .bind(k.bread.get())
+    .bind(BAKER_ID.get())
+    .execute(&mut *conn)
     .await
     .unwrap();
     match blocked(&mut conn, id, k.bread).await {

@@ -13,7 +13,7 @@ own lines:
 |---|---|
 | Sub-recipe ingredients are merged into the dough, not listed as a compound ingredient with its components in brackets | The spec does not say. EU 1169/2011 allows both; for a levain of flour and water, listing "tarwebloem" once at its full weight is what bakeries print and reads best |
 | Order: descending weight in the final dough, sub-recipes included. Equal weights keep the order in which the recipe first uses them | EU 1169/2011 art. 18. Weights are exact fractions of the dough on one common denominator, so equal weights through a sub-recipe stay a tie. When that does not fit in 128 bits, whole units of a 10^12 g dough (ADR 0037 rounding) decide |
-| Each entry uses the ingredient's label name (its name when empty). Ingredients with the same label name are one entry with their weights added | Two mills of "tarwebloem" are one ingredient on a label |
+| Each entry uses the ingredient's label name (its name when empty). Label names that differ only in case are one entry with their weights added, under the spelling the recipe uses first | Two mills of "tarwebloem" are one ingredient on a label |
 | A line at 0% is left out, with everything below it, before anything is weighed | That is how a batch swaps an ingredient (ADR 0042) |
 | An entry is marked when its ingredients hold any of the 14 allergens; labels print marked entries in bold. The allergens are the union over every ingredient left in, at any depth | Spec compliance table. The list stores the structure (`catalog::IngredientList`: names and marks), never markup |
 | Water is listed like any other ingredient | Simplest; the 5% exemption for added water is optional |
@@ -47,8 +47,14 @@ A block is `Error::LabelBlocked(LabelBlock)`: kitchen list or product not approv
 cannot be weighed, or `Differs { computed, approved, difference }`. `Error::NotFound` when
 the batch does not make the product. Each batch approval writes an audit entry.
 
+**Follow-up (2026-11-25).**
+
+| Choice | Why |
+|---|---|
+| A product made from a recipe takes only computed values: `approve_allergens` refuses it (`Error::ComputedOnly`, checked in the same UPDATE as the approval) and the approve page hides the hand form. Products without a recipe keep the hand approval | The hand path could re-approve allergens the recipe no longer computes |
+| The shop tiles and the pickup list show the ingredient list from the stored structure, allergen entries in bold (`components/product.html` `ingredient_text`). Hand-entered text shows as it was typed | Spec compliance: allergens emphasised in the ingredient list. The pickup list shows each product on it once, with the same approved data as the shop |
+
 Open:
 
-- The shop and pickup list still show the plain ingredient text; bold from the stored list
-  comes with labels (F18).
+- The pickup list PDF does not show allergens yet.
 - Whether the order by weight should block or only warn (docs/open-questions.md).

@@ -268,6 +268,7 @@ mod tests {
             lead_time_hours: None,
             allergen_info: AllergenInfo::default(),
             ingredient_list: None,
+            has_recipe: false,
             approval: Some(Approval {
                 by: StaffUserId::new(1),
                 at: "2026-10-01T10:00:00Z".parse().unwrap(),

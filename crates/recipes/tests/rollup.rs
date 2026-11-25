@@ -730,3 +730,20 @@ async fn unlinking_the_recipe_keeps_the_reason_the_approval_went(
         Some(catalog::ApprovalCleared::Recipe)
     );
 }
+
+#[test]
+fn label_names_merge_whatever_their_case() {
+    let book = book(vec![
+        known(FLOUR, "Tarwebloem molen X", "Tarwebloem", &[GLUTEN]),
+        known(FLOUR_Y, "Tarwebloem molen Y", "tarwebloem", &[GLUTEN]),
+        known(WATER, "Water", "", &[]),
+    ]);
+    let formula = Formula {
+        lines: vec![leaf(FLOUR, 30), leaf(WATER, 50), leaf(FLOUR_Y, 30)],
+    };
+    let computed = rollup::compute(&formula, &book).unwrap();
+    assert_eq!(
+        computed.ingredients,
+        listed(&[("Tarwebloem", true), ("Water", false)])
+    );
+}

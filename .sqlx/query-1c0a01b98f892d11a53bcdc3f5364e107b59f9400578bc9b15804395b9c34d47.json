@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE id = $1",
+  "query": "UPDATE product SET\n            allergens_approved_by = $2,\n            allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        WHERE id = $1 AND allergens @> $4 AND allergens <@ $4\n            AND ingredient_text = $5 AND allergens_recipe_rev = $6\n            AND NOT ($7 AND recipe_id IS NOT NULL)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -231,6 +231,12 @@
       },
       {
         "ordinal": 21,
+        "name": "has_recipe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 22,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -241,7 +247,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -252,7 +258,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -263,7 +269,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -276,7 +282,13 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Int8",
+        "Int8",
+        "TextArray",
+        "Text",
+        "Int8",
+        "Bool"
       ]
     },
     "nullable": [
@@ -301,11 +313,12 @@
       false,
       true,
       true,
+      null,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "3f092eb8f02d4b10a583a5e8308796fdc7622b8505cd391f77eac4572958237d"
+  "hash": "1c0a01b98f892d11a53bcdc3f5364e107b59f9400578bc9b15804395b9c34d47"
 }
