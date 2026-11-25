@@ -8,6 +8,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use domain::Money;
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -26,6 +27,8 @@ pub struct Payment {
     pub webhook_url: String,
     pub metadata: Value,
     pub status: &'static str,
+    /// Refunds asked for, as Mollie decimal strings.
+    pub refunds: Vec<String>,
     idempotency_key: Option<String>,
 }
 
@@ -35,6 +38,14 @@ impl Payment {
         format!("{CHECKOUT_BASE}{}", self.id)
     }
 
+    fn cents(value: &str) -> i64 {
+        payments::parse_value(value).map_or(0, Money::cents)
+    }
+
+    fn refunded(&self) -> Money {
+        Money::from_cents(self.refunds.iter().map(|value| Self::cents(value)).sum())
+    }
+
     fn wire(&self) -> Value {
         let mut wire = json!({
             "resource": "payment",
@@ -42,7 +53,7 @@ impl Payment {
             "mode": "test",
             "status": self.status,
             "amount": { "currency": "EUR", "value": self.value },
-            "amountRefunded": { "currency": "EUR", "value": "0.00" },
+            "amountRefunded": { "currency": "EUR", "value": payments::format_value(self.refunded()) },
             "method": if self.status == "paid" { json!("ideal") } else { Value::Null },
             "metadata": self.metadata,
             "redirectUrl": self.redirect_url,
@@ -61,11 +72,14 @@ struct Inner {
     /// Differs per start, so a second run against the same database gets new payment ids.
     run: i64,
     next: u64,
+    refunds_made: u64,
+    /// Refunds made with an `Idempotency-Key`, by key, as first answered.
+    refund_keys: Vec<(String, Value)>,
     payments: Vec<Payment>,
 }
 
-/// The part of Mollie's v2 API that `payments::MollieClient` uses for checkout: create a
-/// payment and read it back. Tests move a payment with [`Self::pay`] and send Mollie's
+/// The part of Mollie's v2 API that `payments::MollieClient` uses: create a payment, read
+/// it back and refund it. Tests move a payment with [`Self::pay`] and send Mollie's
 /// webhook with [`Self::notify`].
 #[derive(Debug, Clone, Default)]
 pub struct MockMollie {
@@ -141,6 +155,7 @@ async fn create(
         webhook_url: request.webhook_url,
         metadata: request.metadata,
         status: "open",
+        refunds: Vec::new(),
         idempotency_key: key,
     };
     let wire = payment.wire();
@@ -162,6 +177,65 @@ async fn read(
     }
 }
 
+#[derive(Deserialize)]
+struct NewRefund {
+    amount: WireAmount,
+}
+
+/// Refunds at most what is left of a paid payment; the refund starts `queued`. A request
+/// with the `Idempotency-Key` of an earlier refund gets that refund again, as at Mollie.
+async fn refund(
+    State(mock): State<MockMollie>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    if !has_test_key(&headers) {
+        return error(StatusCode::UNAUTHORIZED, "Missing or invalid test API key");
+    }
+    let Some(amount) = serde_json::from_slice::<NewRefund>(&body)
+        .ok()
+        .and_then(|r| payments::parse_amount(&r.amount.currency, &r.amount.value).ok())
+    else {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, "Invalid refund body");
+    };
+    let key = headers
+        .get("idempotency-key")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let mut inner = mock.lock();
+    if let Some(key) = &key
+        && let Some((_, known)) = inner.refund_keys.iter().find(|(k, _)| k == key)
+    {
+        return (StatusCode::CREATED, Json(known.clone())).into_response();
+    }
+    let run = inner.run;
+    let number = inner.refunds_made + 1;
+    let Some(payment) = inner.payments.iter_mut().find(|p| p.id == id) else {
+        return error(StatusCode::NOT_FOUND, "No payment exists with token");
+    };
+    let left = Payment::cents(&payment.value) - payment.refunded().cents();
+    if payment.status != "paid" || amount.cents() <= 0 || amount.cents() > left {
+        return error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "The amount cannot be refunded",
+        );
+    }
+    payment.refunds.push(payments::format_value(amount));
+    inner.refunds_made = number;
+    let wire = json!({
+        "resource": "refund",
+        "id": format!("re_e2e{run}x{number}"),
+        "status": "queued",
+        "amount": { "currency": "EUR", "value": payments::format_value(amount) },
+        "paymentId": id,
+    });
+    if let Some(key) = key {
+        inner.refund_keys.push((key, wire.clone()));
+    }
+    (StatusCode::CREATED, Json(wire)).into_response()
+}
+
 impl MockMollie {
     /// Serves the mock on `listener` until the process ends. Point the server's
     /// `MOLLIE_API_URL` at `http://<addr>/v2/`.
@@ -175,6 +249,7 @@ impl MockMollie {
         let app = Router::new()
             .route("/v2/payments", post(create))
             .route("/v2/payments/{id}", get(read))
+            .route("/v2/payments/{id}/refunds", post(refund))
             .with_state(mock.clone());
         tokio::spawn(async move {
             if let Err(err) = axum::serve(listener, app).await {
@@ -239,8 +314,8 @@ pub fn on_server(public: &str, server: &str) -> Result<Url, String> {
 #[cfg(test)]
 mod tests {
     use domain::{
-        IdempotencyKey, Money, NewPayment, OrderId, PaymentError, PaymentProvider, PaymentStatus,
-        ProviderPaymentId,
+        IdempotencyKey, NewPayment, OrderId, PaymentError, PaymentProvider, PaymentStatus,
+        ProviderPaymentId, RefundRequest, RefundStatus,
     };
     use payments::{ApiKey, MollieClient, MollieOptions};
 
@@ -303,6 +378,37 @@ mod tests {
         assert_eq!(paid.method.as_deref(), Some("ideal"));
         let kept = mock.payment(id).unwrap();
         assert_eq!(kept.redirect_url, "https://shop.example.org/bestelling/abc");
+    }
+
+    #[tokio::test]
+    async fn our_mollie_client_refunds_a_paid_payment_once() {
+        let (mock, addr) = started().await;
+        let client = client(addr, KEY);
+        let created = client.create_payment(&request()).await.unwrap();
+        let refund = |cents, key| RefundRequest {
+            payment: created.id.clone(),
+            amount: Money::from_cents(cents),
+            description: "Terugbetaling bestelling 1".to_owned(),
+            idempotency_key: IdempotencyKey::new(key).unwrap(),
+        };
+        assert!(
+            client.refund(&refund(450, "refund-7-1")).await.is_err(),
+            "an open payment has nothing to refund"
+        );
+
+        assert!(mock.pay(created.id.as_str()));
+        let done = client.refund(&refund(300, "refund-7-1")).await.unwrap();
+        assert_eq!(done.status, RefundStatus::Queued);
+        assert!(done.id.as_str().starts_with("re_e2e"), "{:?}", done.id);
+        let again = client.refund(&refund(300, "refund-7-1")).await.unwrap();
+        assert_eq!(again.id, done.id, "the same key gets the same refund");
+        let paid = client.get_payment(&created.id).await.unwrap();
+        assert_eq!(paid.amount_refunded, Money::from_cents(300));
+        assert!(
+            client.refund(&refund(200, "refund-7-2")).await.is_err(),
+            "more than is left"
+        );
+        assert_eq!(mock.payment(created.id.as_str()).unwrap().refunds, ["3.00"]);
     }
 
     #[tokio::test]
