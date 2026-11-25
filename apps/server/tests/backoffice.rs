@@ -3586,3 +3586,32 @@ async fn an_order_on_account_is_placed_without_its_email_when_company_details_ar
         .expect("outbox");
     assert_eq!(queued, 0);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_product_form_sets_the_dough_per_piece(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let wrong = baker
+        .post(
+            "/staff/products/new",
+            &product_form(&[("dough_weight", "veel")]),
+        )
+        .await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch("product-error-dough-weight"));
+    let reply = baker
+        .post(
+            "/staff/products/new",
+            &product_form(&[("dough_weight", "900")]),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
+    let mut conn = pool.acquire().await.expect("conn");
+    let product = &products::list_all(&mut conn).await.expect("list")[0];
+    assert_eq!(product.dough_g_per_piece, 900);
+    drop(conn);
+    let page = baker
+        .get(&format!("/staff/products/{}", product.id.get()))
+        .await;
+    page.shows("value=\"900\"");
+}

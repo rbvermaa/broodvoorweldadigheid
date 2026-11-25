@@ -102,3 +102,8 @@ batches-unbatched = { $n ->
     [one] 1 stuk { $product } zit nog niet in een batch.
    *[other] { $n } stuks { $product } zitten nog niet in een batch.
 }
+
+# Product form: dough per piece, for batches (F14a)
+product-dough-weight = Deeg per stuk (gram)
+product-dough-weight-hint = Nodig om batches te maken. Leeg of 0 als het product geen deeg heeft.
+product-error-dough-weight = Vul het deeggewicht in gram in, van 0 tot 1.000.000.

@@ -43,6 +43,8 @@ pub struct ProductForm {
     pub min_price: String,
     pub max_price: String,
     pub unit_weight: String,
+    /// `None` when the post had no such field: the stored value stays.
+    pub dough_weight: Option<String>,
     pub sold_online: bool,
     pub active: bool,
     pub allergens: Vec<AllergenBox>,
@@ -62,6 +64,10 @@ fn boxes(prefix: &str, checked: impl Fn(Allergen) -> bool) -> Vec<AllergenBox> {
 }
 
 impl ProductForm {
+    pub fn dough_value(&self) -> &str {
+        self.dough_weight.as_deref().unwrap_or_default()
+    }
+
     fn empty() -> Self {
         Self {
             name: String::new(),
@@ -72,6 +78,7 @@ impl ProductForm {
             min_price: String::new(),
             max_price: String::new(),
             unit_weight: String::new(),
+            dough_weight: Some(String::new()),
             sold_online: true,
             active: true,
             allergens: boxes("allergen", |_| false),
@@ -98,6 +105,7 @@ impl ProductForm {
             min_price: min,
             max_price: max,
             unit_weight: product.unit_weight_g.to_string(),
+            dough_weight: Some(product.dough_g_per_piece.to_string()),
             sold_online: product.sold_online,
             active: product.active,
             allergens: boxes("allergen", |a| info.allergens.contains(&a)),
@@ -116,6 +124,10 @@ impl ProductForm {
             min_price: fields.text("min_price").to_owned(),
             max_price: fields.text("max_price").to_owned(),
             unit_weight: fields.text("unit_weight").to_owned(),
+            dough_weight: fields
+                .all("dough_weight")
+                .next()
+                .map(|v| v.trim().to_owned()),
             sold_online: fields.checked("sold_online"),
             active: fields.checked("active"),
             allergens: boxes("allergen", |a| {
@@ -208,6 +220,17 @@ impl ProductForm {
         if unit_weight.is_none() {
             errors.add("unit_weight", t(state, "product-error-weight"));
         }
+        let dough_weight = match self.dough_weight.as_deref() {
+            None => Some(existing.map_or(0, |p| p.dough_g_per_piece)),
+            Some("") => Some(0),
+            Some(raw) => raw
+                .parse::<i32>()
+                .ok()
+                .filter(|g| (0..=1_000_000).contains(g)),
+        };
+        if dough_weight.is_none() {
+            errors.add("dough_weight", t(state, "product-error-dough-weight"));
+        }
         match (price, vat_rate, unit_weight) {
             (Some(price_incl), Some(vat_rate), Some(unit_weight_g)) if errors.is_empty() => {
                 Ok(ProductInput {
@@ -218,7 +241,7 @@ impl ProductForm {
                     vat_rate,
                     pay_what_you_want: pwyw,
                     unit_weight_g,
-                    dough_g_per_piece: existing.map_or(0, |p| p.dough_g_per_piece),
+                    dough_g_per_piece: dough_weight.unwrap_or(0),
                     freezer_days: existing.and_then(|p| p.freezer_days),
                     lead_time_hours: existing.and_then(|p| p.lead_time_hours),
                     allergen_info: self.allergen_info(),

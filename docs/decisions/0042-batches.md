@@ -21,6 +21,7 @@ the deadline run in `jobs::batches`, and back-office pages under
 | Mixed locks the batch. Database triggers refuse any change to lines and planned pieces of a mixed batch, a status going back, and a change of version or code; actual pieces are refused before mixing | Same approach as ADR 0006 and 0037; holds for writers outside the crate too |
 | Actuals: pieces out of the oven and waste among them, per product, after mixing; the batch becomes baked. Recording again corrects the numbers (audited); `baked_at` keeps its first time | Spec: "actual pieces and waste are recorded after baking" |
 | Every batch screen needs the Production permission (owner and baker); counter staff get 403 | ADR 0010 |
+| The product form gets "Deeg per stuk (gram)" (`product.dough_g_per_piece`); a post without the field keeps the stored value | The split and manual batches need it, and no screen could set it before |
 | `production::batches::formulas_for_day(conn, day) -> Vec<BatchFormula>` gives per batch its recipe, version, outputs, dough weight and own formula | The seam for ingredient needs after the deadline (F15): one F15 dough per batch, grams from `DoughGrams::from_formula(&formula, dough_g)` |
 
 Open:
@@ -35,6 +36,13 @@ Open:
 - Marking a batch mixed is refused on a cancelled or done day, so actuals for an unmixed
   batch on a done day cannot be recorded.
 - An adjustment that sets every line to 0% is refused.
+- A payment still committing at the moment its hold expires can miss the deadline split.
+  The batches page then lists those pieces as in no batch, and "Maak batches" adds them.
+- A version whose sub-recipe has no lines passes the check for lines and gets batches
+  that cannot be weighed (the page says so). The split should check the whole formula.
+- A too-heavy product already covered by a manual batch is still reported on every
+  "Maak batches", and products that can never get a batch (no recipe) stay listed as in
+  no batch.
 - The batch's own allergen roll-up and label block (F17) and frozen pieces (F18a) come
   with those slices.
 - `RecipeVersion.bake_loss_pct` is still not stored; yield from actuals comes with costing
