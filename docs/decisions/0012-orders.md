@@ -7,7 +7,8 @@ ADR 0008 and adds locks at the end. Every writer that touches orders takes them 
 order:
 
 1. `bake_day` `FOR SHARE` (status, deadline and charity cannot change underneath);
-2. `bakedays::range::lock_capacity` for the order's products (product rows by id);
+2. `bakedays::range::lock_capacity` for the order's products (their
+   `bake_day_product` rows by product id);
 3. the `pickup_slot` row `FOR UPDATE`, which guards `max_orders`;
 4. checkout: the `customer` row (insert if absent) and the year's `order_number` row
    (an upsert, the last lock), then the insert. Payment (`mark_paid`): the order row
@@ -15,8 +16,8 @@ order:
 
 Ordered quantities are read after step 2 through `orders::Orders`, the real
 `bakedays::OrderSource`. A cart is checked as a whole (`range::check_order`, new in
-bakedays): `Capacity::check_all` adds each line to the usage before checking the next. Checkout checks `cutoff_at` itself and never
-relies on the stored status alone (ADR 0011).
+bakedays): `Capacity::check_all` adds each line to the usage before checking the next.
+Checkout checks `cutoff_at` itself and never relies on the stored status alone (ADR 0011).
 
 **What counts as ordered.** Lines of orders that are paid, confirmed or picked up, or
 `pending_payment` with `hold_expires_at` still in the future. A hold is 15 minutes. The
