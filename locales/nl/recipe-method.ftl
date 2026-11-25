@@ -54,7 +54,7 @@ method-temperature = { $c } °C
 method-error-kind = Kies tekst, stappen of geen werkwijze.
 # $text: the text that was not saved
 method-error-stale-text = De werkwijze is intussen veranderd. Je tekst is niet opgeslagen: { $text }
-method-edit-hint = Tik op een veld om het te wijzigen. Enter of Tab bewaart.
+method-edit-hint = Tik op een veld om het te wijzigen. Enter of Tab bewaart, Esc zet het terug.
 method-steps-caption = Stappen
 method-col-time = Tijd
 method-col-duration = Min

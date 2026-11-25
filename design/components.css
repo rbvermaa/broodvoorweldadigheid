@@ -1238,12 +1238,24 @@ textarea.field-input {
 }
 
 .method-notes-summary {
+  display: block;
   min-height: var(--size-target);
   padding: var(--space-2) 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  white-space: pre-line;
   cursor: pointer;
+}
+
+.method-notes-edit:not(:has(.method-notes-toggle:checked)) .method-notes-field {
+  display: none;
+}
+
+.method-notes-toggle:focus-visible + .method-notes-summary {
+  outline: var(--border-thick) solid var(--color-ink);
+}
+
+.method-notes-preview {
+  white-space: pre-line;
 }
 
 .method-icon-form {

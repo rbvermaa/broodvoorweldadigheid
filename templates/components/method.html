@@ -90,10 +90,10 @@
 {% endmacro %}
 
 {# A small form with one icon button: move or remove a step. #}
-{% macro icon_form(m, action, icon, label) %}
-<form class="method-icon-form" method="post" action="{{ action }}" hx-post="{{ action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+{% macro icon_form(m, action, icon, label, form, what) %}
+<form class="method-icon-form" method="post" action="{{ action }}" hx-post="{{ action }}" hx-sync="this:drop" hx-include=".method-notes-toggle" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall -%}
-<button type="submit" class="method-icon-button">{{ layout.icon_labelled(icon, label.as_str())? }}</button></form>
+<button type="submit" class="method-icon-button" id="{{ form }}-{{ what }}">{{ layout.icon_labelled(icon, label.as_str())? }}</button></form>
 {% endmacro %}
 
 {% macro method_editor(m) %}
@@ -106,7 +106,7 @@
 {%- if m.kind == "none" %}
 <p class="field-hint">{{ layout.t("method-none-hint")? }}</p>
 {%- else if m.kind == "text" %}
-<form class="method-form" method="post" action="{{ m.text_action }}" hx-post="{{ m.text_action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+<form class="method-form" method="post" action="{{ m.text_action }}" hx-post="{{ m.text_action }}" hx-sync="this:drop" hx-include=".method-notes-toggle" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall %}
 {% call f::field("textarea", "tekst", layout.t("method-text-label")?, value = m.text, hint = layout.t("method-text-hint")?, error = m.text_error) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
@@ -129,34 +129,37 @@
 <tr class="method-row-more">
 <td></td>
 <td colspan="3"><div class="method-row-tools">
-<details class="method-notes-edit"{% if row.notes_open %} open{% endif %}>
-<summary class="method-notes-summary">{% if row.fields.notes.is_empty() %}{{ layout.t("method-notes-add")? }}{% else %}{{ row.fields.notes }}{% endif %}</summary>
+<div class="method-notes-edit">
+<input class="visually-hidden method-notes-toggle" type="checkbox" id="{{ row.form }}-open" name="notities-open" value="{{ row.index }}"{% if row.notes_open %} checked{% endif %}>
+<label class="method-notes-summary" for="{{ row.form }}-open"><span class="visually-hidden">{{ row.notes_label }}: </span><span class="method-notes-preview">{% if row.fields.notes.is_empty() %}{{ layout.t("method-notes-add")? }}{% else %}{{ row.fields.notes }}{% endif %}</span></label>
+<div class="method-notes-field">
 <label class="visually-hidden" for="{{ row.fields.notes_field }}">{{ row.notes_label }}</label>
 <textarea class="field-input" id="{{ row.fields.notes_field }}" name="{{ row.fields.notes_field }}" rows="3" form="{{ row.form }}"{% call f::described(row.fields.notes_field, "", row.fields.errors.get(row.fields.notes_field.as_str()), false, false) %}{% endcall %}>{{ row.fields.notes }}</textarea>
 {% call f::help(row.fields.notes_field, "", row.fields.errors.get(row.fields.notes_field.as_str())) %}{% endcall %}
-</details>
+</div>
+</div>
 <div class="method-step-actions">
-{%- if !row.up.is_empty() %}{% call icon_form(m, row.up, "chevron-up", row.up_label) %}{% endcall %}{% endif %}
-{%- if !row.down.is_empty() %}{% call icon_form(m, row.down, "chevron-down", row.down_label) %}{% endcall %}{% endif %}
-{% call icon_form(m, row.remove, "trash-2", row.remove_label) %}{% endcall %}
+{%- if !row.up.is_empty() %}{% call icon_form(m, row.up, "chevron-up", row.up_label, row.form, "op") %}{% endcall %}{% endif %}
+{%- if !row.down.is_empty() %}{% call icon_form(m, row.down, "chevron-down", row.down_label, row.form, "neer") %}{% endcall %}{% endif %}
+{% call icon_form(m, row.remove, "trash-2", row.remove_label, row.form, "weg") %}{% endcall %}
 </div>
 </div></td>
 </tr>
 </tbody>
 {%- endfor %}
-<tfoot><tr><td class="method-col-time">{% call clock_time(m.end, m.end_later) %}{% endcall %}</td><th scope="row" colspan="3">{{ layout.t("method-end")? }}</th></tr></tfoot>
+<tfoot><tr><td class="method-col-time">{% call clock_time(m.end, m.end_later) %}{% endcall %}</td><th scope="row" colspan="3">{{ layout.t("method-end")? }}{%- if !m.untimed.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ m.untimed }}</span></span>{% endif %}</th></tr></tfoot>
 </table>
 </div>
 <div>
 {%- for row in m.steps %}
-<form id="{{ row.form }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:[form={{ row.form }}]" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+<form id="{{ row.form }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:[form={{ row.form }}]" hx-sync="this:drop" hx-include=".method-notes-toggle" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall -%}
 <button type="submit" class="visually-hidden" tabindex="-1">{{ layout.t("form-save")? }}</button></form>
 {%- endfor %}
 </div>
 {%- endif %}
 {%- if let Some(add) = m.add %}
-<form class="method-add" method="post" action="{{ m.add_action }}" hx-post="{{ m.add_action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+<form class="method-add" method="post" action="{{ m.add_action }}" hx-post="{{ m.add_action }}" hx-sync="this:drop" hx-include=".method-notes-toggle" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall %}
 <div class="method-add-name field{% if !add.errors.get(add.name_field.as_str()).is_empty() %} field-invalid{% endif %}">
 <label class="field-label" for="{{ add.name_field }}">{{ layout.t("method-step-new")? }}</label>

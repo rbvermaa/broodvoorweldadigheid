@@ -170,12 +170,13 @@ impl Client<'_> {
         .await
     }
 
-    async fn get_from(&self, path: &str, page: &str) -> Reply {
+    async fn get_from(&self, path: &str, page: &str, target: &str) -> Reply {
         self.send(
             Request::get(path)
                 .header(COOKIE, &self.cookie)
                 .header("hx-request", "true")
                 .header("hx-current-url", page)
+                .header("hx-target", target)
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -732,6 +733,7 @@ async fn a_new_start_keeps_the_scale_the_page_shows_now(pool: PgPool) {
         .get_from(
             &format!("{path}?start=21:00&gewicht=1000"),
             &format!("https://localhost{path}?gewicht=2000&start=08:00&opgeslagen=1#werkwijze"),
+            "werkwijze",
         )
         .await;
     assert_eq!(
@@ -810,4 +812,52 @@ async fn the_step_editor_is_a_compact_table_edited_cell_by_cell(pool: PgPool) {
         .await;
     wrong.shows("value=\"999\" form=\"stap-1\"");
     wrong.shows_text(&dutch("method-error-temperature"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_scale_change_is_not_overruled_by_the_page_address(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    with_steps(&pool, v1, &[step("Bulk", Some(60))]).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+    let reply = baker
+        .get_from(
+            &format!("{path}?gewicht=2000&start=08:00"),
+            &format!("https://localhost{path}?gewicht=1000&start=08:00"),
+            "receptuur-regels",
+        )
+        .await;
+    assert_eq!(reply.header("hx-replace-url"), "");
+    reply.shows_text(&dutch_with("recipe-lines-caption", &[("grams", "2.000")]));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn open_notes_stay_open_and_the_end_warns_about_untimed_steps(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    with_steps(
+        &pool,
+        v1,
+        &[step("Autolyse", Some(30)), step("Bakken", None)],
+    )
+    .await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+    let saved = baker
+        .post_htmx(
+            &format!("{path}/steps/0"),
+            &[
+                ("seen", &seen(&pool, v1).await),
+                ("stap-0-naam", "Autolyse"),
+                ("stap-0-duur", "45"),
+                ("notities-open", "1"),
+            ],
+        )
+        .await;
+    saved.shows("id=\"stap-1-open\" name=\"notities-open\" value=\"1\" checked");
+    saved.lacks("id=\"stap-0-open\" name=\"notities-open\" value=\"0\" checked");
+    saved.shows("id=\"stap-1-weg\"");
+    saved.shows("id=\"stap-0-neer\"");
+    saved.shows_text("1 stap heeft geen duur en telt niet mee.");
 }

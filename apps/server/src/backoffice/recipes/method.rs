@@ -1,6 +1,8 @@
 //! The instructions of a recipe version (F14, ADR 0049): read with clock times from a
 //! start time, and on a draft edited as a free text or one step at a time through htmx.
 
+use std::collections::BTreeSet;
+
 use askama::Template;
 use auth::Permission;
 use axum::extract::{Form, Path, State};
@@ -287,6 +289,7 @@ where
 }
 
 pub struct StepRow {
+    pub index: usize,
     /// The id of the row's form; its cells point at it with `form=`.
     pub form: String,
     pub time: String,
@@ -330,6 +333,8 @@ pub struct MethodEditor {
     pub steps: Vec<StepRow>,
     pub end: String,
     pub end_later: String,
+    /// Why the end leaves out some steps; empty when every step has a duration.
+    pub untimed: String,
     /// The form for a new step; `None` when the version has the most steps it may have.
     pub add: Option<StepFields>,
     pub add_action: String,
@@ -387,6 +392,7 @@ pub fn editor(
     method: &Method,
     view: MethodState,
     start: &Zoned,
+    open_notes: &BTreeSet<usize>,
 ) -> MethodEditor {
     let MethodState {
         notice,
@@ -438,7 +444,9 @@ pub fn editor(
                 form: format!("stap-{index}"),
                 time,
                 later,
-                notes_open: !fields.errors.get(&fields.notes_field).is_empty(),
+                notes_open: open_notes.contains(&index)
+                    || !fields.errors.get(&fields.notes_field).is_empty(),
+                index,
                 name_label: numbered("method-cell-name"),
                 duration_label: numbered("method-cell-duration"),
                 temperature_label: numbered("method-cell-temperature"),
@@ -481,6 +489,10 @@ pub fn editor(
         steps: rows,
         end,
         end_later,
+        untimed: match plan.as_ref().map(|p| u32::try_from(p.untimed)) {
+            Some(Ok(0) | Err(_)) | None => String::new(),
+            Some(Ok(n)) => t_count(state, "method-untimed", n),
+        },
         add: (steps.len() < MAX_STEPS)
             .then(|| typed_add.unwrap_or_else(|| StepFields::named(None, &RecipeStep::default()))),
         add_action: format!("{base}/steps"),
@@ -904,9 +916,13 @@ fn back_to(headers: &HeaderMap, path: &str, fields: &Fields) -> String {
     })
 }
 
-/// For a start time asked through htmx: the query of the page as the browser shows it
-/// (its scale may have changed since the start field was drawn) with the new start.
+/// For a start time asked through htmx (it targets #werkwijze; a scale change does not):
+/// the query of the page as the browser shows it, whose scale may have changed since the
+/// start field was drawn, with the new start.
 pub fn start_on_page(headers: &HeaderMap, uri: &axum::http::Uri) -> Option<String> {
+    if headers.get("hx-target").and_then(|v| v.to_str().ok()) != Some("werkwijze") {
+        return None;
+    }
     let own = uri.query()?;
     let current = headers.get("hx-current-url")?.to_str().ok()?;
     let current = current.split('#').next().unwrap_or_default();

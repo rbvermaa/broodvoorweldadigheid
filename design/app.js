@@ -29,9 +29,9 @@ document.addEventListener("htmx:afterRequest", (event) => {
 });
 
 // Escape puts a recipe cell back to its saved value, so leaving it saves nothing
-// (templates/components/recipe.html).
+// (templates/components/recipe.html, method.html).
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && event.target.matches(".recipe-input")) {
+  if (event.key === "Escape" && event.target.matches(".recipe-input, .method-table .field-input")) {
     event.target.value = event.target.defaultValue;
   }
 });

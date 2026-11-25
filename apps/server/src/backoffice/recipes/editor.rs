@@ -858,6 +858,8 @@ pub(super) struct EditView {
     lead_time_error: String,
     notes: Option<String>,
     pub(super) method: MethodState,
+    /// The steps whose notes are open, as the page posted them.
+    open_notes: BTreeSet<usize>,
 }
 
 impl EditView {
@@ -872,12 +874,19 @@ impl EditView {
             lead_time_error: String::new(),
             notes: None,
             method: MethodState::default(),
+            open_notes: BTreeSet::new(),
         }
     }
 
     /// The page at the scale in `fields`, as it is stored.
     pub(super) fn read(state: &AppState, fields: &Fields, loaded: &Loaded) -> Self {
-        Self::new(Scale::read(state, fields, &loaded.products))
+        Self {
+            open_notes: fields
+                .all("notities-open")
+                .filter_map(|v| v.parse().ok())
+                .collect(),
+            ..Self::new(Scale::read(state, fields, &loaded.products))
+        }
     }
 
     fn refused(scale: Scale, text: String, add: AddState) -> Self {
@@ -925,6 +934,7 @@ pub(super) async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditVi
         &stored,
         view.method,
         &default_start(&state.clock.now_in_bakery()),
+        &view.open_notes,
     );
     let editor = editor(
         state,
