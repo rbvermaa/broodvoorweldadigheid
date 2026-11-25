@@ -70,7 +70,11 @@ impl Values {
             if parsed.is_none() {
                 errors.add(
                     name,
-                    t_with(state, "product-labels-days-invalid", &[("max", MAX_DAYS.to_string())]),
+                    t_with(
+                        state,
+                        "product-labels-days-invalid",
+                        &[("max", MAX_DAYS.to_string())],
+                    ),
                 );
             }
             parsed
@@ -218,4 +222,3 @@ pub async fn save(
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
-

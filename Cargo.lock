@@ -3083,6 +3083,7 @@ dependencies = [
  "i18n",
  "insta",
  "jiff",
+ "labels",
  "orders",
  "proptest",
  "recipes",

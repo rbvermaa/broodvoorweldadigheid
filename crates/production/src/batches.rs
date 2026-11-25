@@ -1171,6 +1171,16 @@ pub async fn record_actuals(
         if actual.waste > actual.pieces {
             return Err(Error::Invalid("waste"));
         }
+        let frozen = sqlx::query_scalar!(
+            "SELECT frozen_pieces FROM batch_output WHERE batch_id = $1 AND product_id = $2",
+            id.get(),
+            actual.product_id.get(),
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if frozen.is_some_and(|f| i64::from(f) > i64::from(actual.pieces - actual.waste)) {
+            return Err(Error::Invalid("frozen pieces"));
+        }
     }
     let now = clock.now();
     for actual in actuals {
