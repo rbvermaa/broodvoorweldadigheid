@@ -162,3 +162,8 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Compound ingredients** (F17, ADR 0046). Sub-recipe ingredients are merged into the
   dough's list ("tarwebloem" once, levain flour included). Should a filling or topping be
   listed as a compound ingredient instead, e.g. "vulling (suiker, hazelnoot)"?
+- [ ] **Standard prices for the cost variance** (ADR 0045). F16 compares a batch with its
+  recipe version at "current ingredient prices" (spec, Cost table). The price part of an
+  old batch's variance then moves whenever a price changes. Keep today's prices as the
+  standard, or fix a standard date per product (for example when its selling price was
+  set)?

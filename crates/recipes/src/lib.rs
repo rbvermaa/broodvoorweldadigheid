@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
-//! Ingredients and versioned recipes in baker's percentages (F14), ingredient needs
-//! per bake day (F15) and the allergen roll-up (F17).
+//! Ingredients and versioned recipes in baker's percentages (F14), ingredient needs per
+//! bake day (F15), ingredient prices and standard cost (F16), and the allergen roll-up (F17).
 
+pub mod cost;
 mod error;
 pub mod formula;
 pub mod ingredients;
 pub mod needs;
+pub mod prices;
 pub mod recipes;
 pub mod rollup;
 

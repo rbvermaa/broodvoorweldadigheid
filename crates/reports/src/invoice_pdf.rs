@@ -154,7 +154,7 @@ pub fn paper(overview: &InvoiceOverview, seller: &Seller, t: &Translator) -> Res
 /// The overview as an A4 PDF; the same overview gives the same bytes.
 ///
 /// # Errors
-/// See [`paper`]; [`Error::Pdf`] when Typst fails.
+/// See [`paper`]; [`Error::Production`] when Typst fails.
 pub fn pdf(overview: &InvoiceOverview, seller: &Seller, t: &Translator) -> Result<Vec<u8>, Error> {
     let data = paper(overview, seller, t)?;
     let ident = format!(

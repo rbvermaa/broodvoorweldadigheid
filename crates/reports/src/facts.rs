@@ -33,7 +33,9 @@ pub(crate) struct FactLine {
     pub unit_price: Money,
     pub suggested_price: Option<Money>,
     pub vat_rate: VatRate,
-    pub estimated_cost: Option<Money>,
+    /// Ingredient cost of one piece: the product's `estimated_cost_cents` as read; the
+    /// contribution report replaces it with the costing (F16) where there is one.
+    pub unit_cost: Option<Money>,
 }
 
 impl FactLine {
@@ -181,7 +183,7 @@ async fn order_lines(
             unit_price: Money::from_cents(row.unit_price_cents),
             suggested_price: row.suggested_price_cents.map(Money::from_cents),
             vat_rate: VatRate::try_from(row.vat_rate)?,
-            estimated_cost: row.estimated_cost_cents.map(Money::from_cents),
+            unit_cost: row.estimated_cost_cents.map(Money::from_cents),
         });
     }
     Ok(out)

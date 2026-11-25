@@ -6,6 +6,7 @@ Roles, sign-in and how routes check a permission: ADR 0010.
 | Permission | What it covers | owner | baker | counter |
 |---|---|---|---|---|
 | CloseBakeDay | Sick-day cancel (F2), including that day's refunds (ADR 0028). | ✓ | | |
+| Costing | Ingredient prices, standard and batch cost, cost variance (F16). | ✓ | | |
 | EditAllergens | Allergens, ingredient text, nutrition approval. | ✓ | ✓ | |
 | EditOrders | Moving an order to another pickup slot, cancelling an unpaid order (F6), placing an order on account (F11a). | ✓ | ✓ | |
 | Invoicing | Business accounts, the invoice overview, marking orders invoiced (F11a). | ✓ | | |
