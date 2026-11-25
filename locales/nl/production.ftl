@@ -25,3 +25,33 @@ pickup-list-status-paid = Betaald
 pickup-list-status-confirmed = Bevestigd
 pickup-list-status-on-account = Op rekening
 pickup-list-status-picked-up = Opgehaald
+
+# Ingredient needs (F15), on screen, on paper and as CSV
+needs-title = Boodschappenlijst
+needs-basis-recipes = Berekend uit de receptversies die in gebruik zijn, voor bestellingen en extra productie.
+needs-ingredient = Ingrediënt
+needs-amount = Hoeveelheid
+needs-sum = Totaal
+needs-empty = Nog niets nodig.
+needs-doughs = Degen
+needs-recipe = Recept
+needs-products = Producten
+# $recipe: Desem, $version: 3
+needs-dough-name = { $recipe } (versie { $version })
+# $pieces is preformatted: 12
+needs-dough-product = { $pieces }× { $product }
+needs-missing = Geen recept
+needs-missing-intro = Deze producten tellen niet mee in de boodschappenlijst.
+needs-product = Product
+needs-pieces = Stuks
+needs-reason = Waarom
+needs-reason-no-recipe = geen recept
+needs-reason-no-version = geen versie in gebruik
+needs-reason-empty = recept zonder regels
+needs-reason-no-dough-weight = geen deeggewicht per stuk
+# $amount is preformatted: 850 or 12,345
+needs-grams = { $amount } g
+needs-kilograms = { $amount } kg
+needs-csv-grams = Gram
+# $product: Granola, $pieces: 12, $reason: geen recept
+needs-csv-missing = Niet meegeteld ({ $reason }): { $product }, { $pieces } stuks

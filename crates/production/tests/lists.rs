@@ -5,10 +5,19 @@ use std::fmt::Write as _;
 use bakedays::{
     BakeDayProduct, ExtraInput, NewBakeDay, PickupSlotInput, Purpose, Schedule, days, extras, range,
 };
-use domain::{BakeDayId, CapacityPoolId, PickupLocationId, PickupSlotId, ProductId, StaffUserId};
+use domain::{
+    BakeDayId, CapacityPoolId, IngredientId, PickupLocationId, PickupSlotId, ProductId, RecipeId,
+    RecipeVersionId, StaffUserId,
+};
 use jiff::Timestamp;
 use orders::{Cart, CustomerInput, Order, OrderedBy, Orders, PaymentReceived};
-use production::{PickupList, ProductionList, pickup_list, production_list};
+use production::{
+    IngredientNeeds, PickupList, ProductionList, ingredient_needs, pickup_list, production_list,
+};
+use recipes::{
+    DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, RecipeInput, RecipeKind,
+    ingredients, recipes as store,
+};
 use sqlx::PgConnection;
 use sqlx::Postgres;
 use sqlx::pool::PoolConnection;
@@ -437,4 +446,296 @@ async fn a_day_without_orders_still_lists_its_slots(mut conn: PoolConnection<Pos
         pickup_list(&mut conn, BakeDayId::new(999_999)).await,
         Err(production::Error::BakeDays(bakedays::Error::NotFound))
     ));
+}
+
+fn pct(percent: u32) -> recipes::Pct {
+    recipes::Pct::from_thousandths(percent * 1000)
+}
+
+async fn ingredient(conn: &mut PgConnection, name: &str, role: IngredientRole) -> IngredientId {
+    ingredients::create(
+        conn,
+        &IngredientInput {
+            name: name.to_owned(),
+            label_name: String::new(),
+            role,
+            supplier_name: String::new(),
+            allergens: std::collections::BTreeSet::new(),
+        },
+    )
+    .await
+    .unwrap()
+    .id
+}
+
+/// A recipe whose version 1 has these lines and is in use.
+async fn recipe(
+    conn: &mut PgConnection,
+    name: &str,
+    kind: RecipeKind,
+    lines: &[(LinePart, u32)],
+) -> (RecipeId, RecipeVersionId) {
+    let (recipe, version) = store::create(
+        conn,
+        &RecipeInput {
+            name: name.to_owned(),
+            kind,
+        },
+    )
+    .await
+    .unwrap();
+    store::save_draft(
+        conn,
+        version.id,
+        &DraftInput {
+            lines: lines
+                .iter()
+                .map(|&(part, percent)| LineInput {
+                    pct: pct(percent),
+                    part,
+                })
+                .collect(),
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    (recipe.id, version.id)
+}
+
+async fn dough_weight(conn: &mut PgConnection, product: ProductId, grams: i32) {
+    sqlx::query("UPDATE product SET dough_g_per_piece = $2 WHERE id = $1")
+        .bind(product.get())
+        .bind(grams)
+        .execute(conn)
+        .await
+        .unwrap();
+}
+
+fn needs_table(needs: &IngredientNeeds) -> String {
+    let mut out = format!("{}\n", needs.day.date);
+    for need in &needs.ingredients {
+        writeln!(
+            out,
+            "{}: {} g {:?}",
+            need.ingredient.name, need.grams, need.parts
+        )
+        .unwrap();
+    }
+    for dough in &needs.doughs {
+        let products: Vec<String> = dough
+            .products
+            .iter()
+            .map(|p| format!("{}x {} à {} g", p.pieces, p.name, p.dough_g_per_piece))
+            .collect();
+        writeln!(
+            out,
+            "dough {} v{} {} g: {}",
+            dough.recipe,
+            dough.version,
+            dough.grams.total(),
+            products.join(", ")
+        )
+        .unwrap();
+    }
+    for missing in &needs.missing {
+        writeln!(
+            out,
+            "missing {} {}x {:?}",
+            missing.name, missing.pieces, missing.reason
+        )
+        .unwrap();
+    }
+    out
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn ingredient_needs_scale_the_recipe_in_use_for_orders_and_extras(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let shop = shop(&mut conn, &clock, "2026-10-31").await;
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let rye = ingredient(&mut conn, "Roggemeel", IngredientRole::Flour).await;
+    let water = ingredient(&mut conn, "Water", IngredientRole::Water).await;
+    let salt = ingredient(&mut conn, "Zeezout", IngredientRole::Other).await;
+    let (_, levain) = recipe(
+        &mut conn,
+        "Levain",
+        RecipeKind::Preferment,
+        &[
+            (LinePart::Ingredient(rye), 100),
+            (LinePart::Ingredient(water), 100),
+        ],
+    )
+    .await;
+    let (desem_recipe, _) = recipe(
+        &mut conn,
+        "Desem",
+        RecipeKind::Dough,
+        &[
+            (LinePart::Ingredient(flour), 90),
+            (LinePart::Ingredient(water), 65),
+            (LinePart::Ingredient(salt), 2),
+            (LinePart::Sub(levain), 20),
+        ],
+    )
+    .await;
+    let (empty_recipe, _) = store::create(
+        &mut conn,
+        &RecipeInput {
+            name: "Leeg".to_owned(),
+            kind: RecipeKind::Dough,
+        },
+    )
+    .await
+    .map(|(recipe, version)| (recipe.id, version.id))
+    .unwrap();
+    let (unused_recipe, _) = recipe(
+        &mut conn,
+        "Zonder versie",
+        RecipeKind::Dough,
+        &[(LinePart::Ingredient(flour), 100)],
+    )
+    .await;
+    sqlx::query("UPDATE recipe SET current_version_id = NULL WHERE id = $1")
+        .bind(unused_recipe.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    let desem = product(&mut conn, "Desem", true).await;
+    let klein = product(&mut conn, "Desem klein", true).await;
+    let granola = product(&mut conn, "Granola", false).await;
+    let spelt = product(&mut conn, "Spelt", true).await;
+    let rogge = product(&mut conn, "Rogge", true).await;
+    let koekjes = product(&mut conn, "Koekjes", true).await;
+    dough_weight(&mut conn, klein, 450).await;
+    dough_weight(&mut conn, koekjes, 0).await;
+    for (product, recipe_id) in [
+        (desem, desem_recipe),
+        (klein, desem_recipe),
+        (koekjes, desem_recipe),
+        (spelt, empty_recipe),
+        (rogge, unused_recipe),
+    ] {
+        store::link_product(&mut conn, recipe_id, product)
+            .await
+            .unwrap();
+    }
+    for product in [desem, spelt, rogge, koekjes] {
+        on_range(&mut conn, shop.day, product, None, 1).await;
+    }
+
+    paid(
+        &mut conn,
+        &clock,
+        &shop,
+        shop.first,
+        "Anna Test",
+        None,
+        &[(desem, 2), (spelt, 1), (koekjes, 3)],
+    )
+    .await;
+    order(
+        &mut conn,
+        &clock,
+        &shop,
+        shop.first,
+        "Held Test",
+        None,
+        &[(desem, 5), (rogge, 1)],
+    )
+    .await;
+    extra(&mut conn, &clock, &shop, desem, 4, Purpose::Freezer).await;
+    extra(&mut conn, &clock, &shop, klein, 2, Purpose::Samples).await;
+    extra(&mut conn, &clock, &shop, granola, 12, Purpose::SumUp).await;
+    extra(&mut conn, &clock, &shop, rogge, 1, Purpose::Other).await;
+
+    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    // Desem: 6 × 900 g + 2 × 450 g = 6300 g at 177%; the levain line gets 712 g.
+    insta::assert_snapshot!(needs_table(&needs), @r"
+    2026-10-31
+    Roggemeel: 356 g [(0, 356)]
+    Tarwebloem: 3203 g [(0, 3203)]
+    Water: 2670 g [(0, 2670)]
+    Zeezout: 71 g [(0, 71)]
+    dough Desem v1 6300 g: 6x Desem à 900 g, 2x Desem klein à 450 g
+    missing Granola 12x NoRecipe
+    missing Koekjes 3x NoDoughWeight
+    missing Rogge 1x NoVersion
+    missing Spelt 1x EmptyRecipe
+    ");
+    let total: u64 = needs.ingredients.iter().map(|n| n.grams).sum();
+    assert_eq!(total, 6300);
+    assert!(matches!(
+        ingredient_needs(&mut conn, BakeDayId::new(999_999)).await,
+        Err(production::Error::BakeDays(bakedays::Error::NotFound))
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn ingredient_needs_follow_the_version_in_use(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let shop = shop(&mut conn, &clock, "2026-10-31").await;
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let water = ingredient(&mut conn, "Water", IngredientRole::Water).await;
+    let (recipe_id, first) = recipe(
+        &mut conn,
+        "Wit",
+        RecipeKind::Dough,
+        &[
+            (LinePart::Ingredient(flour), 100),
+            (LinePart::Ingredient(water), 80),
+        ],
+    )
+    .await;
+    store::freeze(&mut conn, recipe_id, first, &clock)
+        .await
+        .unwrap();
+    let second = store::new_version(&mut conn, recipe_id).await.unwrap();
+    store::save_draft(
+        &mut conn,
+        second.id,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: pct(100),
+                    part: LinePart::Ingredient(flour),
+                },
+                LineInput {
+                    pct: pct(50),
+                    part: LinePart::Ingredient(water),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    let wit = product(&mut conn, "Wit", true).await;
+    store::link_product(&mut conn, recipe_id, wit)
+        .await
+        .unwrap();
+    extra(&mut conn, &clock, &shop, wit, 2, Purpose::Freezer).await;
+
+    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    assert_eq!(needs.doughs[0].version, 1);
+    assert_eq!(needs.ingredients[1].grams, 800);
+
+    store::set_current(&mut conn, recipe_id, second.id)
+        .await
+        .unwrap();
+    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    assert_eq!(needs.doughs[0].version, 2);
+    assert_eq!(
+        needs
+            .ingredients
+            .iter()
+            .map(|n| (n.ingredient.name.as_str(), n.grams))
+            .collect::<Vec<_>>(),
+        vec![("Tarwebloem", 1200), ("Water", 600)]
+    );
 }

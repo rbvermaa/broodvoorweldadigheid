@@ -38,6 +38,11 @@ pub(crate) const PICKUP: Template = Template {
     source: include_str!("../../../typst/pickup.typ"),
 };
 
+pub(crate) const NEEDS: Template = Template {
+    path: "/ingredient_needs.typ",
+    source: include_str!("../../../typst/ingredient_needs.typ"),
+};
+
 macro_rules! font_file {
     ($name:literal) => {
         include_bytes!(concat!(
