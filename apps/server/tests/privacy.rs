@@ -665,3 +665,49 @@ async fn votes_are_in_the_export_and_lose_address_and_wish_on_delete(pool: PgPoo
         "the vote in the closed poll still counts, anonymously"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn staff_see_an_erased_customer_as_deleted(pool: PgPool) {
+    let clock = FakeClock::new(ts(NOW));
+    let order = order_for(&pool, &clock, KNOWN).await;
+    sqlx::query(
+        r#"UPDATE "order" SET status = 'picked_up', paid_at = now(), hold_expires_at = NULL
+        WHERE id = $1"#,
+    )
+    .bind(order.id.get())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut conn = pool.acquire().await.unwrap();
+    let erased = orders::privacy::erase(
+        &mut conn,
+        order.customer_id,
+        orders::audit::Actor::System("test"),
+        ts(NOW),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(erased, orders::privacy::Erase::Erased { .. }));
+    drop(conn);
+
+    let app = app(&pool).await;
+    let owner = staff_user(&pool, Role::Owner).await;
+    let (cookie, _) = signed_in_at(&pool, &owner, ts(NOW)).await;
+    let label = format!(
+        "<span class=\"field-hint\">{}</span>",
+        dutch("customer-erased")
+    );
+    let day = order.bake_day_id.get();
+    for path in [
+        format!("/staff/bake-days/{day}/orders"),
+        format!("/staff/orders/{}", order.id.get()),
+        format!("/staff/bake-days/{day}/pickup-list"),
+    ] {
+        let page = get(&app, &path, Some(&cookie)).await;
+        assert_eq!(page.status, StatusCode::OK, "{path}");
+        assert!(page.body.contains(&label), "{path}: {}", page.body);
+        for blank in ["<td>-</td>", "<dd>-</dd>", "<h3>-</h3>", "erased.invalid"] {
+            assert!(!page.body.contains(blank), "{path} shows {blank}");
+        }
+    }
+}

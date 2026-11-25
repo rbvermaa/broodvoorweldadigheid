@@ -63,6 +63,7 @@ fn order(
         order_id: OrderId::new(i64::from(seq)),
         number: OrderNumber { year: 2026, seq },
         customer_name: name.to_owned(),
+        customer_erased: false,
         customer_phone: phone.map(str::to_owned),
         status,
         payment_mode: PaymentMode::Online,
@@ -226,4 +227,34 @@ fn names_are_printed_as_text_never_as_markup() {
     for literal in ["*Bo*", "#read(\"/a\")", "$x$ ]"] {
         assert!(text.contains(literal), "{text}");
     }
+}
+
+#[test]
+fn an_erased_customer_is_printed_as_deleted() {
+    let mut list = pickup_list();
+    let order = &mut list.slots[0].orders[0];
+    order.customer_name = "-".to_owned();
+    order.customer_phone = None;
+    order.customer_erased = true;
+    let data = paper::pickup(&list, &dutch()).unwrap();
+    let printed = &data["slots"][0]["orders"][0];
+    assert_eq!(printed["name"], "verwijderd");
+    assert_eq!(printed["erased"], true);
+    let (document, warnings) = pdf::layout(&pdf::PICKUP, &data).unwrap();
+    assert_eq!(warnings, Vec::<String>::new());
+    assert!(pdf::text(&document).contains("verwijderd"));
+}
+
+#[test]
+fn erased_customers_come_last_in_a_slot() {
+    let mut erased = order(1, "-", None, OrderStatus::Paid, &[("Desem", 1)]);
+    erased.customer_erased = true;
+    let mut orders = vec![
+        erased,
+        order(2, "Zoë Test", None, OrderStatus::Paid, &[("Desem", 1)]),
+        order(3, "anna Test", None, OrderStatus::Paid, &[("Desem", 1)]),
+    ];
+    crate::pickup::sort_orders(&mut orders);
+    let seqs: Vec<i32> = orders.iter().map(|o| o.number.seq).collect();
+    assert_eq!(seqs, [3, 2, 1]);
 }
