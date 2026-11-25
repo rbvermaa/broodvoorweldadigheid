@@ -258,10 +258,24 @@ mod tests {
         Translator::dutch().unwrap()
     }
 
+    /// Keys sorted, so the snapshot does not depend on whether another crate in the build
+    /// turns on serde_json's `preserve_order`.
+    fn sorted(value: Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let mut entries: Vec<_> = map.into_iter().collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                Value::Object(entries.into_iter().map(|(k, v)| (k, sorted(v))).collect())
+            }
+            Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
+            other => other,
+        }
+    }
+
     #[test]
     fn invoice_overview_input() {
         let data = paper(&overview(), &seller(), &dutch()).unwrap();
-        insta::assert_snapshot!(serde_json::to_string_pretty(&data).unwrap());
+        insta::assert_snapshot!(serde_json::to_string_pretty(&sorted(data)).unwrap());
     }
 
     #[test]
