@@ -8,7 +8,7 @@ use auth::Permission;
 use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bakedays::capacity::Remaining;
 use bakedays::status::TransitionRefused;
@@ -1122,6 +1122,18 @@ pub async fn charity(
 }
 
 /// A product's maximum as posted; empty means none.
+/// Sends htmx to `path` as a full page load.
+fn reload(path: &str) -> Response {
+    match HeaderValue::try_from(path) {
+        Ok(value) => (
+            StatusCode::OK,
+            [(HeaderName::from_static("hx-redirect"), value)],
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 fn parse_max(state: &AppState, max_qty: &str) -> Result<Option<u32>, String> {
     if max_qty.is_empty() {
         return Ok(None);
@@ -1257,9 +1269,13 @@ pub async fn update_product(
             "max_qty" => max_field,
             _ => String::new(),
         };
-        let whole_page = field.is_empty() && is_htmx(&headers);
+        if field.is_empty() && is_htmx(&headers) {
+            // The answer may lack the row, for instance on a day that became final; the
+            // reloaded page says why.
+            return Ok(reload(&day_path(day.id)));
+        }
         let answer = Answer::row(forms, &field, problem.text);
-        let mut page = render_day(
+        render_day(
             &state,
             &staff,
             &session,
@@ -1267,22 +1283,7 @@ pub async fn update_product(
             &day,
             answer,
         )
-        .await?;
-        if whole_page {
-            // The row may be gone from the answer, for instance on a day that became final.
-            let page_headers = page.headers_mut();
-            for (name, value) in [
-                ("hx-retarget", "#inhoud"),
-                ("hx-reselect", "#inhoud"),
-                ("hx-reswap", "outerHTML"),
-            ] {
-                page_headers.insert(
-                    HeaderName::from_static(name),
-                    HeaderValue::from_static(value),
-                );
-            }
-        }
-        Ok(page)
+        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

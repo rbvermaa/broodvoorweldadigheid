@@ -4331,7 +4331,7 @@ async fn the_range_is_a_table_whose_limits_save_in_place(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_refused_limit_on_a_final_day_replaces_the_whole_page(pool: PgPool) {
+async fn a_refused_limit_on_a_final_day_reloads_the_page(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;
@@ -4363,8 +4363,6 @@ async fn a_refused_limit_on_a_final_day_replaces_the_whole_page(pool: PgPool) {
         )
         .await;
     assert_eq!(refused.status, StatusCode::OK, "{}", refused.text);
-    assert_eq!(refused.header("hx-retarget"), "#inhoud");
-    assert_eq!(refused.header("hx-reselect"), "#inhoud");
-    assert_eq!(refused.header("hx-reswap"), "outerHTML");
-    refused.shows(&dutch("day-error-final"));
+    assert_eq!(refused.header("hx-redirect"), path);
+    baker.get(&path).await.shows(&dutch("day-final"));
 }
