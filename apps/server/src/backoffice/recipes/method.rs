@@ -287,9 +287,16 @@ where
 }
 
 pub struct StepRow {
-    pub index: usize,
-    pub title: String,
+    /// The id of the row's form; its cells point at it with `form=`.
+    pub form: String,
+    pub time: String,
+    pub later: String,
     pub fields: StepFields,
+    pub notes_open: bool,
+    pub name_label: String,
+    pub duration_label: String,
+    pub temperature_label: String,
+    pub notes_label: String,
     pub action: String,
     pub remove: String,
     /// Empty for the first step.
@@ -321,6 +328,8 @@ pub struct MethodEditor {
     pub text: String,
     pub text_error: String,
     pub steps: Vec<StepRow>,
+    pub end: String,
+    pub end_later: String,
     /// The form for a new step; `None` when the version has the most steps it may have.
     pub add: Option<StepFields>,
     pub add_action: String,
@@ -377,6 +386,7 @@ pub fn editor(
     grams: String,
     method: &Method,
     view: MethodState,
+    start: &Zoned,
 ) -> MethodEditor {
     let MethodState {
         notice,
@@ -397,6 +407,18 @@ pub fn editor(
         _ => &[],
     };
     let last = steps.len().saturating_sub(1);
+    let durations: Vec<Option<u32>> = steps.iter().map(|s| s.duration_min).collect();
+    let plan = schedule(start, &durations);
+    let at = |index: usize| {
+        plan.as_ref()
+            .and_then(|p| p.starts.get(index))
+            .map_or((String::new(), String::new()), |z| {
+                (i18n::time(z.time()), later(state, start, z))
+            })
+    };
+    let (end, end_later) = plan.as_ref().map_or((String::new(), String::new()), |p| {
+        (i18n::time(p.end.time()), later(state, start, &p.end))
+    });
     let rows = steps
         .iter()
         .enumerate()
@@ -409,14 +431,18 @@ pub fn editor(
                 }
             };
             let named = |id: &str| t_with(state, id, &[("name", step.name.clone())]);
+            let numbered = |id: &str| t_with(state, id, &[("n", (index + 1).to_string())]);
             let action = format!("{base}/steps/{index}");
+            let (time, later) = at(index);
             StepRow {
-                index,
-                title: t_with(
-                    state,
-                    "method-step-number",
-                    &[("n", (index + 1).to_string())],
-                ),
+                form: format!("stap-{index}"),
+                time,
+                later,
+                notes_open: !fields.errors.get(&fields.notes_field).is_empty(),
+                name_label: numbered("method-cell-name"),
+                duration_label: numbered("method-cell-duration"),
+                temperature_label: numbered("method-cell-temperature"),
+                notes_label: numbered("method-cell-notes"),
                 fields,
                 remove: format!("{action}/remove"),
                 up: if index > 0 {
@@ -453,6 +479,8 @@ pub fn editor(
         text,
         text_error,
         steps: rows,
+        end,
+        end_later,
         add: (steps.len() < MAX_STEPS)
             .then(|| typed_add.unwrap_or_else(|| StepFields::named(None, &RecipeStep::default()))),
         add_action: format!("{base}/steps"),

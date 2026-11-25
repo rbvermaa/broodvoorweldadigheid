@@ -12,15 +12,10 @@ method-remove-confirm = Ja, weghalen
 method-text-label = Tekst
 method-text-hint = Gewone tekst. Een lege regel begint een nieuwe alinea.
 method-steps-empty = Nog geen stappen. Voeg hieronder je eerste stap toe.
-# $n: 1
-method-step-number = Stap { $n }
 method-step-new = Nieuwe stap
 method-step-add = Stap toevoegen
 method-step-name = Naam
-method-step-name-hint = Zoals Autolyse, Bulk, Vormen, Rijzen of Bakken.
 method-step-duration = Duur (minuten)
-method-step-temperature = Temperatuur (°C)
-method-step-notes = Notities
 method-step-duration-label = Duur
 method-step-temperature-label = Temperatuur
 # $name: Bulk
@@ -60,3 +55,15 @@ method-temperature = { $c } °C
 method-error-kind = Kies tekst, stappen of geen werkwijze.
 # $text: the text that was not saved
 method-error-stale-text = De werkwijze is intussen veranderd. Je tekst is niet opgeslagen: { $text }
+method-edit-hint = Tik op een veld om het te wijzigen. Enter of Tab bewaart.
+method-steps-caption = Stappen
+method-col-time = Tijd
+method-col-duration = Min
+method-col-temperature = °C
+# $n: 1
+method-cell-name = Naam van stap { $n }
+method-cell-duration = Duur van stap { $n } in minuten
+method-cell-temperature = Temperatuur van stap { $n } in °C
+method-cell-notes = Notities bij stap { $n }
+method-notes-add = + Notitie
+method-add-hint = Temperatuur en notities vul je daarna in de tabel in.

@@ -924,6 +924,7 @@ pub(super) async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditVi
         view.scale.grams.to_string(),
         &stored,
         view.method,
+        &default_start(&state.clock.now_in_bakery()),
     );
     let editor = editor(
         state,

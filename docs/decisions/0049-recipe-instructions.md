@@ -19,10 +19,8 @@ Owner request (F14): instructions on a recipe like the baking app, with steps su
 | A step on a later date than the start shows "+1 dag" (or more) next to its time | A cold retard overnight stays readable |
 | The start time is `start=HH:MM` in the URL, on the date of today, rounded to the nearest five minutes when absent; nothing is stored. On the recipe page the field belongs to the scale form; a change through htmx merges the start into the URL the page shows now, so a scale changed live is kept | Like the scale setting (ADR 0037) |
 | The batch page shows the instructions of the batch's version, read-only, with the same schedule; the start is when the batch was mixed, or now when it is not mixed yet | The batch's version is frozen, so it needs no copy of its own |
-| The instructions sit under the recipe table, in the wide column of the split layout | Room for the step forms on desktop; one column on a phone |
+| The instructions sit under the recipe table, in the wide column of the split layout | One column on a phone |
+| On a draft the steps are a compact table like the recipe table: time, name, minutes and °C per row, with notes and the move and remove buttons on a second line. Each cell belongs to its row's form; Enter or leaving a changed cell saves the row through htmx, and htmx keeps the focus on the cell by its id. A new step is one row with name and duration; temperature and notes go in the table after | Owner: compact and easy, like the ingredient table. Saving the whole row keeps one endpoint and one validation |
 
-Open:
-
-- No ranges for durations, and no "start at" per step (a step that must begin at a clock
-  time); add when the baker asks.
-- The schedule does not use the bake day or the pickup time to suggest a start.
+Decided 2026-11-25: no ranges for durations and no steps fixed to a clock time; the start
+defaults to now, not to the bake day or pickup time.

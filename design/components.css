@@ -1093,8 +1093,7 @@ textarea.field-input {
   margin: 0 0 var(--space-1);
 }
 
-.method-steps,
-.method-edit-steps {
+.method-steps {
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1162,27 +1161,19 @@ textarea.field-input {
   font-size: var(--font-size-sm);
 }
 
-.method-edit-steps {
-  gap: var(--space-4);
-}
-
-.method-edit-step,
 .method-form {
   padding: var(--space-3);
   border: var(--border-thin) solid var(--color-grey-400);
   border-radius: var(--radius-lg);
 }
 
-.method-edit-title {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-size-md);
-}
-
 .method-form textarea {
   min-height: calc(var(--space-8) + var(--space-8));
 }
 
-.method-step-actions {
+.method-step-actions,
+.method-row-tools,
+.method-add {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1205,6 +1196,64 @@ textarea.field-input {
 
 .method-icon-button:hover {
   background: var(--color-surface-muted);
+}
+
+.method-table .method-col-time {
+  width: 0;
+  white-space: nowrap;
+}
+
+.method-table .method-col-number {
+  width: 0;
+}
+
+.method-table .method-col-number .field-input {
+  width: calc(var(--size-target) + var(--space-6));
+}
+
+.method-table .field-inline,
+.method-add .field-inline {
+  margin: 0;
+}
+
+.method-row tr:first-child td {
+  border-bottom: 0;
+}
+
+.method-row-more td {
+  padding-top: 0;
+}
+
+.method-row-tools {
+  justify-content: space-between;
+}
+
+.method-notes-edit {
+  flex: 1 1 var(--size-tile);
+  min-width: 0;
+}
+
+.method-notes-summary {
+  min-height: var(--size-target);
+  padding: var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  white-space: pre-line;
+  cursor: pointer;
+}
+
+.method-icon-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.method-add {
+  align-items: flex-start;
+}
+
+.method-add-name {
+  flex: 1 1 var(--size-tile);
+  min-width: 0;
 }
 /* Layout wrappers (templates/components/layout.html). On a phone they add nothing. */
 @media (min-width: 48rem) {

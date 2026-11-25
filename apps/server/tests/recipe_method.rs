@@ -376,15 +376,13 @@ async fn baker_writes_steps_one_at_a_time(pool: PgPool) {
                 ("seen", &s),
                 ("stap-nieuw-naam", ""),
                 ("stap-nieuw-duur", "0"),
-                ("stap-nieuw-temperatuur", "400"),
             ],
         )
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     refused.shows_text(&dutch("method-error-step-name"));
     refused.shows_text(&dutch("method-error-duration"));
-    refused.shows_text(&dutch("method-error-temperature"));
-    refused.shows("value=\"400\"");
+    refused.shows("id=\"stap-nieuw-duur\" name=\"stap-nieuw-duur\" value=\"0\"");
     assert_eq!(names(&stored(&pool, v1).await), ["Autolyse", "Bulk"]);
 
     let s = seen(&pool, v1).await;
@@ -742,4 +740,74 @@ async fn a_new_start_keeps_the_scale_the_page_shows_now(pool: PgPool) {
     );
     reply.shows(&time("22:00"));
     reply.shows_text(&dutch_with("recipe-lines-caption", &[("grams", "2.000")]));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_step_editor_is_a_compact_table_edited_cell_by_cell(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    let bulk = Step {
+        temperature_c: Some(24),
+        notes: "Vouwen.".to_owned(),
+        ..step("Bulk", Some(240))
+    };
+    with_steps(&pool, v1, &[step("Autolyse", Some(30)), bulk]).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+
+    let edit = baker.get(&format!("{path}/edit")).await;
+    edit.shows("<table class=\"recipe-table method-table\"");
+    edit.shows(&time("10:00"));
+    edit.shows(&time("10:30"));
+    edit.shows(&time("14:30"));
+    for (field, value) in [
+        ("stap-0-naam", "Autolyse"),
+        ("stap-0-duur", "30"),
+        ("stap-1-temperatuur", "24"),
+    ] {
+        edit.shows(&format!(
+            "id=\"{field}\" name=\"{field}\" value=\"{value}\" form=\"stap-{}\"",
+            &field[5..6]
+        ));
+    }
+    edit.shows("change from:[form=stap-1]");
+    edit.shows(">Vouwen.</textarea>");
+    edit.shows_text(&dutch("method-notes-add"));
+    edit.shows("id=\"stap-nieuw-naam\"");
+    edit.shows("id=\"stap-nieuw-duur\"");
+    edit.lacks("id=\"stap-nieuw-temperatuur\"");
+    edit.lacks("id=\"stap-nieuw-notities\"");
+
+    let s = seen(&pool, v1).await;
+    let one_field = baker
+        .post_htmx(
+            &format!("{path}/steps/1"),
+            &[
+                ("seen", &s),
+                ("stap-1-naam", "Bulk"),
+                ("stap-1-duur", "180"),
+                ("stap-1-temperatuur", "24"),
+                ("stap-1-notities", "Vouwen."),
+            ],
+        )
+        .await;
+    one_field.shows(&time("13:30"));
+    let Method::Steps(steps) = stored(&pool, v1).await else {
+        panic!("steps")
+    };
+    assert_eq!(steps[1].duration_min, Some(180));
+    assert_eq!(steps[1].notes, "Vouwen.");
+
+    let wrong = baker
+        .post_htmx(
+            &format!("{path}/steps/1"),
+            &[
+                ("seen", &seen(&pool, v1).await),
+                ("stap-1-naam", "Bulk"),
+                ("stap-1-temperatuur", "999"),
+            ],
+        )
+        .await;
+    wrong.shows("value=\"999\" form=\"stap-1\"");
+    wrong.shows_text(&dutch("method-error-temperature"));
 }

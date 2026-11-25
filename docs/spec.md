@@ -297,8 +297,10 @@ Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 |
 Ingredient       name, supplier_name, allergens[], may_contain[], spec_sheet_document_id?
 IngredientPrice  ingredient_id, price_per_kg_cents, valid_from
 Recipe           name, kind (dough | filling | topping), current_version_id
-RecipeVersion    recipe_id, version, frozen_at?, promoted_from_batch_id?, bake_loss_pct, lead_time_hours, notes
+RecipeVersion    recipe_id, version, frozen_at?, promoted_from_batch_id?, bake_loss_pct, lead_time_hours, notes,
+                 method_kind (none | text | steps), method_text
 RecipeLine       recipe_version_id, ingredient_id | sub_recipe_id, bakers_pct
+RecipeStep       recipe_version_id, position, name, duration_min?, temperature_c?, notes
 
 BakeDay          date, online_ordering, charity_id?, menu_publish_at?, opens_at?,
                  cutoff_at?, bake_starts_at (05:00 on date, set by the system),
