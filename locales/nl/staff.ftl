@@ -75,6 +75,15 @@ approve-no-ingredients = Nog geen ingrediënten ingevuld.
 approve-submit = Ja, dit klopt
 approve-changed = De allergenen zijn net gewijzigd. Bekijk ze hieronder opnieuw voordat je goedkeurt.
 approve-back = Terug naar het product
+product-may-contain-kitchen = Sporen van allergenen gelden voor de hele keuken, niet per product.
+kitchen-may-contain-link = Sporen van allergenen in de keuken
+kitchen-may-contain-title = Sporen van allergenen in de keuken
+kitchen-may-contain-intro = Allergenen die we in de keuken gebruiken, maar niet in elk product. Elk product toont deze lijst als "kan sporen bevatten van", behalve wat er al in zit.
+kitchen-may-contain-hint = Na elke wijziging moet iemand de lijst opnieuw goedkeuren.
+kitchen-may-contain-unapproved = De sporen van allergenen voor de keuken zijn nog niet goedgekeurd. Tot dan kan niemand in de webshop bestellen.
+kitchen-may-contain-approve-intro = Je keurt precies deze lijst goed. Daarna ziet de klant hem bij elk product.
+kitchen-may-contain-changed = De lijst is net gewijzigd. Bekijk hem opnieuw voordat je goedkeurt.
+kitchen-may-contain-back = Terug naar de producten
 
 # Back office: charities (F4g)
 charities-caption = Alle goede doelen

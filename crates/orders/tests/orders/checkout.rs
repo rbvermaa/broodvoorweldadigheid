@@ -450,6 +450,25 @@ impl With for Cart {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn checkout_waits_for_the_kitchen_may_contain_approval(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    sqlx::query("UPDATE company SET may_contain = '{nuts}'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+            .await
+            .unwrap_err(),
+        Error::Cart(CartError::KitchenAllergensNotApproved)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn sold_out_products_and_shared_pools_are_refused(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;

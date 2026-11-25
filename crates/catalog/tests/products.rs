@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 
-use catalog::{AllergenInfo, Error, Pricing, ProductInput, products};
+use catalog::company::KitchenMayContain;
+use catalog::{AllergenInfo, Approval, Error, Pricing, ProductInput, PublishedAllergens, products};
 use domain::{Allergen, InvalidPriceRange, Money, ProductId, StaffUserId, VatRate};
 use jiff::{SignedDuration, Timestamp};
 use sqlx::pool::PoolConnection;
@@ -22,8 +23,17 @@ fn ts(s: &str) -> Timestamp {
 fn allergen_info() -> AllergenInfo {
     AllergenInfo {
         allergens: BTreeSet::from([Allergen::CerealsContainingGluten]),
-        may_contain: BTreeSet::from([Allergen::SesameSeeds, Allergen::Nuts]),
         ingredient_text: "TARWEbloem, water, zout".to_owned(),
+    }
+}
+
+fn kitchen(approved: bool) -> KitchenMayContain {
+    KitchenMayContain {
+        allergens: BTreeSet::from([Allergen::SesameSeeds, Allergen::CerealsContainingGluten]),
+        approval: approved.then(|| Approval {
+            by: BAKER,
+            at: ts("2026-11-01T10:00:00Z"),
+        }),
     }
 }
 
@@ -87,7 +97,7 @@ async fn create_then_get_round_trips(mut conn: PoolConnection<Postgres>) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn new_products_publish_no_allergen_data(mut conn: PoolConnection<Postgres>) {
     let product = products::create(&mut conn, &sourdough()).await.unwrap();
-    assert_eq!(product.published_allergen_info(), None);
+    assert_eq!(product.published_allergens(&kitchen(true)), None);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -259,7 +269,15 @@ async fn approval_records_who_and_when_and_publishes(mut conn: PoolConnection<Po
     let approval = product.approval.expect("approved");
     assert_eq!(approval.by, BAKER);
     assert_eq!(approval.at, ts("2026-03-29T01:30:00.250Z"));
-    assert_eq!(product.published_allergen_info(), Some(&allergen_info()));
+    assert_eq!(
+        product.published_allergens(&kitchen(true)),
+        Some(PublishedAllergens {
+            contains: BTreeSet::from([Allergen::CerealsContainingGluten]),
+            may_contain: BTreeSet::from([Allergen::SesameSeeds]),
+            ingredient_text: "TARWEbloem, water, zout".to_owned(),
+        })
+    );
+    assert_eq!(product.published_allergens(&kitchen(false)), None);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -284,12 +302,10 @@ async fn changing_allergen_data_clears_approval(mut conn: PoolConnection<Postgre
     let clock = FakeClock::new(ts("2026-11-24T10:00:00Z"));
     let mut milk = allergen_info();
     milk.allergens.insert(Allergen::Milk);
-    let mut no_sesame = allergen_info();
-    no_sesame.may_contain.remove(&Allergen::SesameSeeds);
     let mut new_text = allergen_info();
     new_text.ingredient_text = "TARWEbloem, water, zout, MELK".to_owned();
 
-    for changed in [milk, no_sesame, new_text] {
+    for changed in [milk, new_text] {
         let id = approved(&mut conn, &clock).await;
         let input = ProductInput {
             allergen_info: changed.clone(),
@@ -297,7 +313,7 @@ async fn changing_allergen_data_clears_approval(mut conn: PoolConnection<Postgre
         };
         let updated = products::update(&mut conn, id, &input).await.unwrap();
         assert_eq!(updated.approval, None, "{changed:?}");
-        assert_eq!(updated.published_allergen_info(), None);
+        assert_eq!(updated.published_allergens(&kitchen(true)), None);
         assert_eq!(updated.allergen_info, changed);
     }
 }
@@ -509,11 +525,7 @@ async fn database_refuses_inconsistent_prices_and_approvals(mut conn: PoolConnec
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn any_writer_changing_allergen_data_clears_approval(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new(ts("2026-11-24T10:00:00Z"));
-    for change in [
-        "allergens = '{milk}'",
-        "may_contain = '{}'",
-        "ingredient_text = 'iets anders'",
-    ] {
+    for change in ["allergens = '{milk}'", "ingredient_text = 'iets anders'"] {
         let id = approved(&mut conn, &clock).await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "UPDATE product SET {change} WHERE id = $1"
@@ -537,7 +549,6 @@ async fn every_allergen_code_is_accepted_and_approvable(mut conn: PoolConnection
     for info in [
         AllergenInfo {
             allergens: all.clone(),
-            may_contain: all.clone(),
             ingredient_text: "alles".to_owned(),
         },
         AllergenInfo::default(),
@@ -567,7 +578,29 @@ async fn every_allergen_code_is_accepted_and_approvable(mut conn: PoolConnection
 async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new(ts("2026-11-24T10:00:00Z"));
     let product = products::create(&mut conn, &sourdough()).await.unwrap();
-    sqlx::query("UPDATE product SET may_contain = '{sesame_seeds,nuts}' WHERE id = $1")
+    sqlx::query(
+        "UPDATE product SET allergens = '{sesame_seeds,cereals_containing_gluten}' WHERE id = $1",
+    )
+    .bind(product.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    add_baker(&mut conn).await;
+    let mut reviewed = allergen_info();
+    reviewed.allergens.insert(Allergen::SesameSeeds);
+    let approved = products::approve_allergens(&mut conn, product.id, &reviewed, BAKER, &clock)
+        .await
+        .unwrap();
+    assert!(approved.approval.is_some());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn product_approval_ignores_the_unused_may_contain_column(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-11-25T10:00:00Z"));
+    let product = products::create(&mut conn, &sourdough()).await.unwrap();
+    sqlx::query("UPDATE product SET may_contain = '{milk}' WHERE id = $1")
         .bind(product.id.get())
         .execute(&mut *conn)
         .await
@@ -578,4 +611,23 @@ async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection
             .await
             .unwrap();
     assert!(approved.approval.is_some());
+
+    let renamed = ProductInput {
+        name_nl: "Hernoemd".to_owned(),
+        ..sourdough()
+    };
+    let updated = products::update(&mut conn, product.id, &renamed)
+        .await
+        .unwrap();
+    assert!(updated.approval.is_some());
+    let stored: Vec<String> = sqlx::query_scalar("SELECT may_contain FROM product WHERE id = $1")
+        .bind(product.id.get())
+        .fetch_one(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        stored,
+        ["milk"],
+        "the catalogue no longer writes the column"
+    );
 }

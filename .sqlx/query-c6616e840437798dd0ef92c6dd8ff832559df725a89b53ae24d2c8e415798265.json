@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT may_contain, may_contain_approved_by AS approved_by,\n            (extract(epoch FROM may_contain_approved_at) * 1000000)::bigint AS approved_at_us\n        FROM company",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "may_contain",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "may_contain"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "approved_by",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "may_contain_approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "approved_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "c6616e840437798dd0ef92c6dd8ff832559df725a89b53ae24d2c8e415798265"
+}

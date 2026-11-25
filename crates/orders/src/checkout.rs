@@ -346,7 +346,8 @@ async fn place(
         }
     }
     let on_range = range::list_products(&mut tx, day).await?;
-    let lines = cart.price(&catalog, &on_range)?;
+    let kitchen = catalog::company::kitchen_may_contain(&mut tx).await?;
+    let lines = cart.price(&catalog, &on_range, &kitchen)?;
     let total = cart::totals(&lines)?.gross()?;
     if total <= domain::Money::ZERO {
         return Err(Error::FreeOrder);
@@ -476,7 +477,8 @@ pub async fn same_as_order(
         }
     }
     let on_range = range::list_products(&mut *conn, cart.bake_day()).await?;
-    let Ok(lines) = cart.price(&catalog, &on_range) else {
+    let kitchen = catalog::company::kitchen_may_contain(&mut *conn).await?;
+    let Ok(lines) = cart.price(&catalog, &on_range, &kitchen) else {
         return Ok(false);
     };
     Ok(lines.len() == order.lines.len()

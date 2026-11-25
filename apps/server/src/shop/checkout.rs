@@ -216,8 +216,8 @@ async fn render_page(
         Ok(token) => token,
         Err(err) => return server_error(state, "cannot read the session", &err),
     };
-    let products = match cart::load_products(conn, cart.products()).await {
-        Ok(products) => products,
+    let shelf = match cart::load_products(conn, cart.products()).await {
+        Ok(shelf) => shelf,
         Err(err) => return server_error(state, "cannot load products", &err),
     };
     let windows = match windows(conn, state, drop, &form.slot).await {
@@ -237,7 +237,7 @@ async fn render_page(
                 state,
                 drop.bake_day_id,
                 Some(cart),
-                &products,
+                &shelf,
                 &cart::menu_ids(drop),
                 false,
                 None,

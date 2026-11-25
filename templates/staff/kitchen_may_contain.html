@@ -1,0 +1,38 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/product.html" as p %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("kitchen-may-contain-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("kitchen-may-contain-title")? }}</h1>
+{% call s::status(saved) %}{% endcall %}
+{% if changed %}{% call fb::alert("error", layout.t("kitchen-may-contain-changed")?) %}{% endcall %}{% endif %}
+{% if approval.approved %}{% call fb::alert("success", approval.text) %}{% endcall %}{% else %}{% call fb::alert("warning", approval.text) %}{% endcall %}{% endif %}
+<p>{{ layout.t("kitchen-may-contain-intro")? }}</p>
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("allergen-may-contain")? }}</legend>
+<p class="field-hint">{{ layout.t("kitchen-may-contain-hint")? }}</p>
+{%- for allergen in boxes %}
+{% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
+{%- endfor %}
+</fieldset>
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% if !approval.approved %}
+<h2>{{ layout.t("approve-title")? }}</h2>
+<p>{{ layout.t("kitchen-may-contain-approve-intro")? }}</p>
+{% if stored.is_empty() %}<p>{{ layout.t("approve-no-may-contain")? }}</p>{% else %}{% call p::allergen_list(stored, true) %}{% endcall %}{% endif %}
+<form method="post" action="{{ approve_action }}">
+{% call s::csrf() %}{% endcall %}
+{%- for code in stored %}
+<input type="hidden" name="may_contain" value="{{ code }}">
+{%- endfor %}
+{% call b::button(layout.t("approve-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+<p><a href="/staff/products">{{ layout.t("kitchen-may-contain-back")? }}</a></p>
+{% endblock %}

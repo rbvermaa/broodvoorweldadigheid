@@ -276,7 +276,6 @@ fn sourdough() -> ProductInput {
         lead_time_hours: None,
         allergen_info: AllergenInfo {
             allergens: [Allergen::CerealsContainingGluten].into(),
-            may_contain: [Allergen::SesameSeeds].into(),
             ingredient_text: "TARWEbloem, water, zout".to_owned(),
         },
         packaged: false,
@@ -326,7 +325,6 @@ fn product_form<'a>(extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
         ("sold_online", "ja"),
         ("active", "ja"),
         ("allergen_cereals_containing_gluten", "ja"),
-        ("may_nuts", "ja"),
         ("ingredient_text", "SPELTbloem, water, zout"),
     ];
     fields.retain(|(name, _)| !extra.iter().any(|(other, _)| other == name));
@@ -422,7 +420,8 @@ async fn a_new_product_is_saved_but_not_approved(pool: PgPool) {
     let page = baker.get("/staff/products/new").await;
     assert_eq!(page.status, StatusCode::OK);
     page.shows(&dutch("allergen-cereals_containing_gluten"));
-    page.shows("name=\"may_molluscs\"");
+    page.lacks("name=\"may_molluscs\"");
+    page.shows(&dutch("product-may-contain-kitchen"));
     page.lacks("name=\"lead_time\"");
 
     let reply = baker.post("/staff/products/new", &product_form(&[])).await;
@@ -450,9 +449,7 @@ async fn a_new_product_is_saved_but_not_approved(pool: PgPool) {
         spelt.allergen_info.allergens,
         [Allergen::CerealsContainingGluten].into()
     );
-    assert_eq!(spelt.allergen_info.may_contain, [Allergen::Nuts].into());
     assert_eq!(spelt.approval, None);
-    assert_eq!(spelt.published_allergen_info(), None);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -557,17 +554,15 @@ async fn approving_allergens_approves_exactly_what_was_shown(pool: PgPool) {
     let page = baker.get(&format!("{path}/approve")).await;
     assert_eq!(page.status, StatusCode::OK);
     page.shows(&dutch("allergen-cereals_containing_gluten"));
-    page.shows(&dutch("allergen-sesame_seeds"));
     page.shows("TARWEbloem, water, zout");
     page.shows("name=\"allergens\" value=\"cereals_containing_gluten\"");
-    page.shows("name=\"may_contain\" value=\"sesame_seeds\"");
+    page.lacks("may_contain");
 
     let reply = baker
         .post(
             &format!("{path}/approve"),
             &[
                 ("allergens", "cereals_containing_gluten"),
-                ("may_contain", "sesame_seeds"),
                 ("ingredient_text", "TARWEbloem, water, zout"),
             ],
         )
@@ -594,7 +589,6 @@ async fn approving_allergens_approves_exactly_what_was_shown(pool: PgPool) {
                 ("active", "ja"),
                 ("allergen_cereals_containing_gluten", "ja"),
                 ("allergen_milk", "ja"),
-                ("may_sesame_seeds", "ja"),
                 ("ingredient_text", "TARWEbloem, water, MELK, zout"),
             ],
         )
@@ -622,13 +616,13 @@ async fn approving_data_that_changed_meanwhile_is_refused(pool: PgPool) {
             &format!("/staff/products/{}/approve", id.get()),
             &[
                 ("allergens", "cereals_containing_gluten"),
-                ("ingredient_text", "TARWEbloem, water, zout"),
+                ("ingredient_text", "TARWEbloem, water"),
             ],
         )
         .await;
     assert_eq!(reply.status, StatusCode::CONFLICT);
     reply.shows(&dutch("approve-changed"));
-    reply.shows("name=\"may_contain\" value=\"sesame_seeds\"");
+    reply.shows("TARWEbloem, water, zout");
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(
         products::get(&mut conn, id)
@@ -658,7 +652,6 @@ async fn ingredient_text_with_line_breaks_can_be_approved(pool: PgPool) {
             &format!("{path}/approve"),
             &[
                 ("allergens", "cereals_containing_gluten"),
-                ("may_contain", "nuts"),
                 ("ingredient_text", "SPELTbloem\r\nwater"),
             ],
         )
@@ -1644,6 +1637,14 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
     )
     .await
     .expect("approve");
+    catalog::company::approve_kitchen_may_contain(
+        &mut conn,
+        &std::collections::BTreeSet::new(),
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve the kitchen list");
     range::set_product(
         &mut conn,
         day,
@@ -1761,6 +1762,14 @@ async fn paid_order_for(app: &App, charity: Option<CharityId>) -> PaidOrder {
     )
     .await
     .expect("approve");
+    catalog::company::approve_kitchen_may_contain(
+        &mut conn,
+        &std::collections::BTreeSet::new(),
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve the kitchen list");
     range::set_product(
         &mut conn,
         day,
@@ -3209,6 +3218,14 @@ async fn open_drop(app: &App) -> (BakeDayId, ProductId) {
     )
     .await
     .expect("approve");
+    catalog::company::approve_kitchen_may_contain(
+        &mut conn,
+        &std::collections::BTreeSet::new(),
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve the kitchen list");
     range::set_product(
         &mut conn,
         day,
@@ -3535,4 +3552,121 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     refused.shows(&dutch("b2b-error-not-on-account"));
+}
+
+const KITCHEN: &str = "/staff/products/may-contain";
+
+async fn kitchen_list(pool: &PgPool) -> catalog::KitchenMayContain {
+    let mut conn = pool.acquire().await.expect("conn");
+    catalog::company::kitchen_may_contain(&mut conn)
+        .await
+        .expect("kitchen list")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn baker_edits_and_approves_the_kitchen_may_contain_list(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let unapproved = dutch("kitchen-may-contain-unapproved");
+    baker.get("/staff").await.shows(&unapproved);
+    baker.get("/staff/products").await.shows(&unapproved);
+
+    let page = baker.get(KITCHEN).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows(&unapproved);
+    page.shows("name=\"may_molluscs\"");
+    page.shows(&dutch("approve-no-may-contain"));
+
+    let reply = baker
+        .post(KITCHEN, &[("may_nuts", "ja"), ("may_sesame_seeds", "ja")])
+        .await;
+    reply.redirects_to(&format!("{KITCHEN}?opgeslagen=1"));
+    let saved = baker.get(reply.header("location")).await;
+    saved.shows(&dutch("saved"));
+    saved.shows("name=\"may_contain\" value=\"nuts\"");
+    saved.shows("name=\"may_contain\" value=\"sesame_seeds\"");
+    assert_eq!(
+        kitchen_list(&pool).await.allergens,
+        [Allergen::Nuts, Allergen::SesameSeeds].into()
+    );
+
+    let approve = baker
+        .post(
+            &format!("{KITCHEN}/approve"),
+            &[("may_contain", "nuts"), ("may_contain", "sesame_seeds")],
+        )
+        .await;
+    approve.redirects_to(&format!("{KITCHEN}?opgeslagen=1"));
+    let approved = baker.get(KITCHEN).await;
+    approved.shows("Goedgekeurd door Bakker Bas op dinsdag 24 november 2026 om 11:00.");
+    approved.lacks(&unapproved);
+    baker.get("/staff").await.lacks(&unapproved);
+    baker.get("/staff/products").await.lacks(&unapproved);
+    assert_eq!(
+        kitchen_list(&pool).await.approval.map(|a| a.at),
+        Some(app.clock.now())
+    );
+
+    baker.post(KITCHEN, &[("may_nuts", "ja")]).await;
+    assert_eq!(kitchen_list(&pool).await.approval, None);
+    baker.get("/staff/products").await.shows(&unapproved);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn approving_a_kitchen_list_that_changed_meanwhile_is_refused(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner.post(KITCHEN, &[("may_milk", "ja")]).await;
+    let reply = owner.post(&format!("{KITCHEN}/approve"), &[]).await;
+    assert_eq!(reply.status, StatusCode::CONFLICT);
+    reply.shows(&dutch("kitchen-may-contain-changed"));
+    reply.shows("name=\"may_contain\" value=\"milk\"");
+    assert_eq!(kitchen_list(&pool).await.approval, None);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn counter_cannot_see_or_change_the_kitchen_list(pool: PgPool) {
+    let app = app(pool.clone());
+    let counter = client(&app, "Balie Bo", Role::Counter).await;
+    assert_eq!(counter.get(KITCHEN).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        counter.post(KITCHEN, &[("may_nuts", "ja")]).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        counter
+            .post(&format!("{KITCHEN}/approve"), &[])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        kitchen_list(&pool).await,
+        catalog::KitchenMayContain::default()
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_kitchen_list_needs_the_csrf_token(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    for (path, body) in [
+        (KITCHEN.to_owned(), "may_nuts=ja"),
+        (format!("{KITCHEN}/approve"), ""),
+    ] {
+        let reply = owner
+            .send(
+                Request::post(&path)
+                    .header(COOKIE, &owner.cookie)
+                    .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .expect("request"),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{path}");
+    }
+    assert_eq!(
+        kitchen_list(&pool).await,
+        catalog::KitchenMayContain::default()
+    );
 }

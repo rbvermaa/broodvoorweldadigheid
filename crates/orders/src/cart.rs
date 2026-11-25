@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use bakedays::BakeDayProduct;
-use catalog::{Pricing, Product};
+use catalog::{KitchenMayContain, Pricing, Product};
 use domain::{BakeDayId, Line, Money, MoneyError, PriceRefused, ProductId, VatRate, VatTotals};
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,8 @@ pub enum CartError {
     Unavailable(ProductId),
     #[error("the allergen data of product {0:?} is not approved")]
     AllergensNotApproved(ProductId),
+    #[error("the kitchen-wide may-contain list is not approved")]
+    KitchenAllergensNotApproved,
     #[error("product {0:?} has a fixed price")]
     PriceNotChoosable(ProductId),
     #[error("product {product_id:?}: {refused}")]
@@ -180,7 +182,7 @@ impl Cart {
 
     /// Prices every line from `products` (the catalog) and checks it against the bake
     /// day's `range`: each product must be active, sold online, on the range and have
-    /// approved allergen data. A pay-what-you-want price must lie within the product's
+    /// approved allergen data, and the kitchen-wide may-contain list must be approved. A pay-what-you-want price must lie within the product's
     /// minimum and maximum; without a choice it is the suggested price (F4b).
     ///
     /// # Errors
@@ -189,6 +191,7 @@ impl Cart {
         &self,
         products: &[Product],
         range: &[BakeDayProduct],
+        kitchen: &KitchenMayContain,
     ) -> Result<Vec<PricedLine>, CartError> {
         if self.is_empty() {
             return Err(CartError::Empty);
@@ -203,6 +206,9 @@ impl Cart {
                     .ok_or(CartError::Unavailable(product_id))?;
                 if product.approval.is_none() {
                     return Err(CartError::AllergensNotApproved(product_id));
+                }
+                if kitchen.approval.is_none() {
+                    return Err(CartError::KitchenAllergensNotApproved);
                 }
                 let (unit_price, suggested_price) = match (product.pricing, line.chosen_price) {
                     (Pricing::Fixed(price), None) => (price, None),
@@ -234,8 +240,8 @@ impl Cart {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use catalog::{AllergenInfo, Approval};
-    use domain::{PayWhatYouWant, StaffUserId};
+    use catalog::{AllergenInfo, Approval, KitchenMayContain};
+    use domain::{Allergen, PayWhatYouWant, StaffUserId};
     use proptest::prelude::*;
 
     const DAY: BakeDayId = BakeDayId::new(7);
@@ -268,6 +274,16 @@ mod tests {
             sold_online: true,
             estimated_cost: None,
             active: true,
+        }
+    }
+
+    fn kitchen() -> KitchenMayContain {
+        KitchenMayContain {
+            allergens: [Allergen::Nuts].into(),
+            approval: Some(Approval {
+                by: StaffUserId::new(1),
+                at: "2026-10-01T10:00:00Z".parse().unwrap(),
+            }),
         }
     }
 
@@ -311,7 +327,7 @@ mod tests {
             (BREAD, 2, None),
             (DONATION_LOAF, 1, Some(1000)),
         ])
-        .price(&catalog(), &range())
+        .price(&catalog(), &range(), &kitchen())
         .unwrap();
         assert_eq!(
             priced,
@@ -348,7 +364,7 @@ mod tests {
     #[test]
     fn a_pay_what_you_want_line_without_a_choice_pays_the_suggestion() {
         let priced = cart(&[(DONATION_LOAF, 1, None)])
-            .price(&catalog(), &range())
+            .price(&catalog(), &range(), &kitchen())
             .unwrap();
         assert_eq!(priced[0].unit_price, eur(600));
         assert_eq!(priced[0].suggested_price, Some(eur(600)));
@@ -357,7 +373,7 @@ mod tests {
     #[test]
     fn refusals() {
         let refused = |cart: Cart, catalog: &[Product], range: &[BakeDayProduct]| {
-            cart.price(catalog, range).unwrap_err()
+            cart.price(catalog, range, &kitchen()).unwrap_err()
         };
         assert_eq!(
             refused(Cart::new(DAY), &catalog(), &range()),
@@ -388,6 +404,12 @@ mod tests {
         assert_eq!(
             refused(cart(&[(BREAD, 1, None)]), &unapproved, &range()),
             CartError::AllergensNotApproved(BREAD)
+        );
+        assert_eq!(
+            cart(&[(BREAD, 1, None)])
+                .price(&catalog(), &range(), &KitchenMayContain::default())
+                .unwrap_err(),
+            CartError::KitchenAllergensNotApproved
         );
         assert_eq!(
             refused(cart(&[(BREAD, 1, Some(450))]), &catalog(), &range()),
@@ -466,7 +488,7 @@ mod tests {
                 let price = if product == DONATION_LOAF { price.map(eur) } else { None };
                 cart.set(product, qty, price).unwrap();
             }
-            if let Ok(priced) = cart.price(&catalog(), &range()) {
+            if let Ok(priced) = cart.price(&catalog(), &range(), &kitchen()) {
                 let totals = totals(&priced).unwrap();
                 for rate in VatRate::ALL {
                     let gross: i64 = priced.iter()
@@ -481,7 +503,7 @@ mod tests {
 
         #[test]
         fn a_chosen_price_outside_the_bounds_is_always_refused(chosen in any::<i64>()) {
-            let result = cart(&[(DONATION_LOAF, 1, Some(chosen))]).price(&catalog(), &range());
+            let result = cart(&[(DONATION_LOAF, 1, Some(chosen))]).price(&catalog(), &range(), &kitchen());
             if (300..=1500).contains(&chosen) {
                 prop_assert_eq!(result.unwrap()[0].unit_price, eur(chosen));
             } else {

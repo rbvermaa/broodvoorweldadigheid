@@ -46,11 +46,10 @@ pub struct ProductForm {
     pub sold_online: bool,
     pub active: bool,
     pub allergens: Vec<AllergenBox>,
-    pub may_contain: Vec<AllergenBox>,
     pub ingredient_text: String,
 }
 
-fn boxes(prefix: &str, checked: impl Fn(Allergen) -> bool) -> Vec<AllergenBox> {
+pub(super) fn boxes(prefix: &str, checked: impl Fn(Allergen) -> bool) -> Vec<AllergenBox> {
     Allergen::ALL
         .into_iter()
         .map(|allergen| AllergenBox {
@@ -75,7 +74,6 @@ impl ProductForm {
             sold_online: true,
             active: true,
             allergens: boxes("allergen", |_| false),
-            may_contain: boxes("may", |_| false),
             ingredient_text: String::new(),
         }
     }
@@ -101,7 +99,6 @@ impl ProductForm {
             sold_online: product.sold_online,
             active: product.active,
             allergens: boxes("allergen", |a| info.allergens.contains(&a)),
-            may_contain: boxes("may", |a| info.may_contain.contains(&a)),
             ingredient_text: info.ingredient_text.clone(),
         }
     }
@@ -121,7 +118,6 @@ impl ProductForm {
             allergens: boxes("allergen", |a| {
                 fields.checked(&format!("allergen_{}", a.code()))
             }),
-            may_contain: boxes("may", |a| fields.checked(&format!("may_{}", a.code()))),
             ingredient_text: one_newline(fields.raw("ingredient_text").trim()),
         }
     }
@@ -150,7 +146,6 @@ impl ProductForm {
         };
         AllergenInfo {
             allergens: set(&self.allergens),
-            may_contain: set(&self.may_contain),
             ingredient_text: self.ingredient_text.clone(),
         }
     }
@@ -260,6 +255,7 @@ struct ProductPage<'a> {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
+    kitchen_unapproved: bool,
 }
 
 #[derive(Template)]
@@ -270,7 +266,6 @@ struct ApprovePage<'a> {
     action: String,
     back: String,
     allergens: Vec<&'static str>,
-    may_contain: Vec<&'static str>,
     ingredient_text: String,
     changed: bool,
 }
@@ -286,10 +281,19 @@ fn product_path(id: ProductId) -> String {
 }
 
 async fn approval_view(state: &AppState, product: &Product) -> Step<ApprovalView> {
-    let Some(approval) = product.approval else {
+    approval_text(state, product.approval, "product-not-approved").await
+}
+
+/// Who approved and when, or `missing` when nobody has.
+pub(super) async fn approval_text(
+    state: &AppState,
+    approval: Option<catalog::Approval>,
+    missing: &str,
+) -> Step<ApprovalView> {
+    let Some(approval) = approval else {
         return Ok(ApprovalView {
             approved: false,
-            text: t(state, "product-not-approved"),
+            text: t(state, missing),
         });
     };
     let by = auth::staff::find(&state.pool, approval.by)
@@ -338,6 +342,9 @@ async fn run_list(state: &AppState, staff: &Staff, session: &Session) -> Outcome
     let all = products::list_all(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
+    let kitchen = catalog::company::kitchen_may_contain(&mut conn)
+        .await
+        .map_err(|e| fail(state, &e))?;
     let yes_no = |b: bool| t(state, if b { "form-yes" } else { "form-no" });
     let table = Table {
         id: "producten".to_owned(),
@@ -377,6 +384,7 @@ async fn run_list(state: &AppState, staff: &Staff, session: &Session) -> Outcome
         &ListPage {
             layout: layout(state, session).await?,
             table,
+            kitchen_unapproved: kitchen.approval.is_none(),
         },
     ))
 }
@@ -570,7 +578,7 @@ pub async fn update(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-fn codes(set: &BTreeSet<Allergen>) -> Vec<&'static str> {
+pub(super) fn codes(set: &BTreeSet<Allergen>) -> Vec<&'static str> {
     set.iter().map(|a| a.code()).collect()
 }
 
@@ -591,7 +599,6 @@ async fn render_approve(
             action: format!("{}/approve", product_path(product.id)),
             back: product_path(product.id),
             allergens: codes(&info.allergens),
-            may_contain: codes(&info.may_contain),
             ingredient_text: info.ingredient_text.clone(),
             changed,
         },
@@ -656,7 +663,6 @@ fn reviewed(fields: &Fields) -> AllergenInfo {
     };
     AllergenInfo {
         allergens: set("allergens"),
-        may_contain: set("may_contain"),
         ingredient_text: one_newline(fields.raw("ingredient_text")),
     }
 }

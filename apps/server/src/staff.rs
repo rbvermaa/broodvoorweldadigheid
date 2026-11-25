@@ -237,6 +237,7 @@ struct Home<'a> {
     layout: Layout<'a>,
     name: &'a str,
     role: &'static str,
+    kitchen_unapproved: bool,
 }
 
 fn role_message(role: Role) -> &'static str {
@@ -252,6 +253,14 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
         Ok(token) => token,
         Err(error) => return server_error(&state, &error),
     };
+    let kitchen = match state.pool.acquire().await {
+        Ok(mut conn) => catalog::company::kitchen_may_contain(&mut conn).await,
+        Err(error) => return server_error(&state, &error),
+    };
+    let kitchen = match kitchen {
+        Ok(kitchen) => kitchen,
+        Err(error) => return server_error(&state, &error),
+    };
     pages::render(
         &state,
         StatusCode::OK,
@@ -259,6 +268,7 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
             layout: Layout::new(&state).with_csrf_token(token),
             name: &staff.0.name,
             role: role_message(staff.0.role),
+            kitchen_unapproved: kitchen.approval.is_none(),
         },
     )
 }

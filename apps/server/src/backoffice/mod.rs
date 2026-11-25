@@ -10,6 +10,7 @@ pub mod charities;
 pub mod customers;
 pub mod extras;
 pub mod form;
+pub mod kitchen;
 pub mod lists;
 pub mod locations;
 pub mod orders;
@@ -68,6 +69,8 @@ pub fn routes() -> Router<AppState> {
             get(products::new_form).post(products::create),
         )
         .route("/staff/products/check", post(products::check))
+        .route(kitchen::PATH, get(kitchen::page).post(kitchen::save))
+        .route(kitchen::APPROVE_PATH, post(kitchen::approve))
         .route(
             "/staff/products/{id}",
             get(products::edit_form).post(products::update),
