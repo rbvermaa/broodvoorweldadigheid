@@ -15,10 +15,10 @@ use tower_sessions::Session;
 
 use super::bake_days::{self, day_path};
 use super::form::{Errors, Fields, parse_count, parse_pct, pct_value};
-use super::recipes::Message;
+use super::recipes::{Message, version_path};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
+    require, saved, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -344,6 +344,9 @@ struct BatchPage<'a> {
     actual_fields: Vec<ActualField>,
     actuals_error: String,
     actuals_action: String,
+    promotable: bool,
+    promoted: Option<(String, String)>,
+    promote_action: String,
 }
 
 /// What the baker posted, applied to the batch as far as it reads; with the errors of the
@@ -660,6 +663,13 @@ async fn render_batch(
     let all_ingredients = ingredients::list(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
+    let promoted = batches::promoted_version(&mut conn, stored.id)
+        .await
+        .map_err(|e| fail(state, &e))?
+        .map(|v| {
+            let text = t_with(state, "batch-promoted", &[("n", v.version.to_string())]);
+            (text, version_path(v.recipe_id, v.id))
+        });
     drop(conn);
     let path = batch_path(day, stored.id);
     let mut saved = false;
@@ -739,6 +749,12 @@ async fn render_batch(
             actual_fields: actual_fields(state, &stored, &actuals.0),
             actuals_error: actuals.1,
             actuals_action: format!("{path}/actuals"),
+            promotable: promoted.is_none()
+                && stored.lines.iter().any(|l| {
+                    l.is_changed() && (l.base_pct.is_some() || l.actual_pct.thousandths() > 0)
+                }),
+            promoted,
+            promote_action: format!("{path}/promote"),
         },
     ))
 }
@@ -1072,6 +1088,68 @@ pub async fn actuals(
             Ok(()) => Ok(saved(&headers, &batch_path(&day, batch.id))),
             Err(error) => Err(production_error(&state, &error)),
         }
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Saves the batch's formula as the next version of its recipe (F14b) and opens it.
+pub async fn promote(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path((id, batch)): Path<(String, String)>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Production)?;
+        let (day, batch) = load_batch(&state, &id, &batch).await?;
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let result = batches::promote(
+            &mut conn,
+            batch.id,
+            &state.i18n,
+            actor(&staff),
+            state.clock.as_ref(),
+        )
+        .await;
+        let (status, text) = match result {
+            Ok(version) => {
+                return Ok(saved(
+                    &headers,
+                    &version_path(version.recipe_id, version.id),
+                ));
+            }
+            Err(production::Error::Invalid("unchanged")) => (
+                invalid_status(&headers),
+                t(&state, "batch-promote-unchanged"),
+            ),
+            Err(production::Error::Recipes(recipes::Error::DraftExists(draft))) => {
+                let draft = recipes::recipes::version(&mut conn, batch.recipe_id, draft)
+                    .await
+                    .map_err(|e| fail(&state, &e))?;
+                let status = if is_htmx(&headers) {
+                    StatusCode::OK
+                } else {
+                    StatusCode::CONFLICT
+                };
+                let n = draft.version.to_string();
+                (
+                    status,
+                    t_with(&state, "batch-promote-draft-exists", &[("n", n)]),
+                )
+            }
+            Err(error) => return Err(production_error(&state, &error)),
+        };
+        drop(conn);
+        render_batch(
+            &state,
+            &session,
+            status,
+            &day,
+            batch,
+            BatchAnswer::Refused(text),
+        )
+        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

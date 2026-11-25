@@ -73,3 +73,15 @@ Open:
   for yield, which batches (F14a) can add.
 - No delete or archive for ingredients and recipes yet.
 - The weight field on a version starts at 1000 g, not at a linked product's dough weight.
+
+**Promoting a batch (F14b, amended 2026-11-25).** "Opslaan als nieuwe receptversie" on a
+batch page saves the batch's formula as the next version of its recipe, through
+`recipes::recipes::promote`, with `promoted_from_batch_id` set.
+
+| Choice | Why |
+|---|---|
+| The new version is a draft and does not become the version in use; the baker takes it into use | Same rule as any new version above. Taking it into use is where a recipe change reaches products (and their allergen approval) |
+| Refused when the recipe already has a draft, with its number | Same rule as saving a frozen version: one draft per recipe |
+| Promoting the same batch again returns the version made the first time, also after the batch changed since | One action, no pile of versions. The batch lock (`FOR UPDATE`) and the recipe lock serialise two clicks |
+| A batch whose lines equal its version's lines is refused ("unchanged") | Nothing to save |
+| Lead time comes from the version the batch was made from. Notes are that version's notes, then the batch code and base version, then the reasons for the line changes from the audit log, each once | The audit log keeps reasons a later save cleared from the lines (ADR 0042) |

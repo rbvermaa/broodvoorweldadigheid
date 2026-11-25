@@ -222,6 +222,10 @@ pub fn routes() -> Router<AppState> {
             post(batches::actuals),
         )
         .route(
+            "/staff/bake-days/{id}/batches/{batch}/promote",
+            post(batches::promote),
+        )
+        .route(
             "/staff/bake-days/{id}/production",
             get(lists::production_page),
         )
