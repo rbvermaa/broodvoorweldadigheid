@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.poll_id, o.name, v.wish,\n            p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond' AS \"open!\"\n        FROM vote v JOIN poll p ON p.id = v.poll_id JOIN poll_option o ON o.id = v.poll_option_id\n        WHERE v.confirm_token_hash = $1\n            AND v.confirm_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "poll_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "vote",
+            "name": "poll_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "poll_option",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "wish",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vote",
+            "name": "wish"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "open!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "a39d147ddae8cac762b16f5342218ea214b2e6ee01be572b5bacdf36f435f547"
+}

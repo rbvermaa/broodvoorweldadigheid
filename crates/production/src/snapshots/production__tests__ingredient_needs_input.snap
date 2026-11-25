@@ -1,0 +1,57 @@
+---
+source: crates/production/src/tests.rs
+expression: "serde_json::to_string_pretty(&data).unwrap()"
+---
+{
+  "basis": "Berekend uit de receptversies die in gebruik zijn, voor bestellingen en extra productie.",
+  "date": "zaterdag 31 oktober 2026",
+  "doughs": [
+    {
+      "amount": "11,700 kg",
+      "name": "Desem (versie 3)",
+      "products": "12× Desem, 2× Desem klein"
+    },
+    {
+      "amount": "500 g",
+      "name": "Spelt (versie 1)",
+      "products": "1× Spelt"
+    }
+  ],
+  "ingredients": [
+    {
+      "amount": "6,957 kg",
+      "name": "Tarwebloem"
+    },
+    {
+      "amount": "5,077 kg",
+      "name": "Water"
+    },
+    {
+      "amount": "166 g",
+      "name": "Zeezout"
+    }
+  ],
+  "labels": {
+    "amount": "Hoeveelheid",
+    "doughs": "Degen",
+    "empty": "Nog niets nodig.",
+    "ingredient": "Ingrediënt",
+    "missing": "Geen recept",
+    "missing_intro": "Deze producten tellen niet mee in de boodschappenlijst.",
+    "pieces": "Stuks",
+    "product": "Product",
+    "products": "Producten",
+    "reason": "Waarom",
+    "recipe": "Recept",
+    "sum": "Totaal"
+  },
+  "missing": [
+    {
+      "name": "Granola",
+      "pieces": "13",
+      "reason": "geen recept"
+    }
+  ],
+  "sum": "12,200 kg",
+  "title": "Boodschappenlijst"
+}

@@ -1,8 +1,9 @@
 //! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
 //! charities, bake days, extra production, orders, the production and pickup lists, the
-//! reports, business customers and customer data requests (F12). Every handler takes
-//! [`Staff`] and checks a permission (ADR 0010). Forms post normally and redirect with
-//! `?opgeslagen=1`; htmx only adds inline checks and partial updates on top (ADR 0019).
+//! reports, business customers, customer data requests (F12), bread votes (F9b) and the
+//! company settings. Every handler takes [`Staff`] and checks a permission (ADR 0010).
+//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
+//! partial updates on top (ADR 0019).
 
 pub mod bake_days;
 pub mod business;
@@ -16,9 +17,11 @@ pub mod lists;
 pub mod locations;
 pub mod orders;
 pub mod payouts;
+pub mod polls;
 pub mod products;
 pub mod recipes;
 pub mod reports;
+pub mod settings;
 pub mod sick_day;
 
 use std::fmt::Display;
@@ -65,6 +68,9 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/staff/customers/{id}/export", get(customers::export))
         .route("/staff/customers/{id}/erase", post(customers::erase))
+        .route(polls::PATH, get(polls::list))
+        .route("/staff/polls/new", get(polls::new_form).post(polls::create))
+        .route("/staff/polls/{id}", get(polls::show).post(polls::update))
         .route("/staff/products", get(products::list))
         .route(
             "/staff/products/new",
@@ -200,6 +206,15 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/production/pdf",
             get(lists::production_pdf),
         )
+        .route("/staff/bake-days/{id}/ingredients", get(lists::needs_page))
+        .route(
+            "/staff/bake-days/{id}/ingredients/pdf",
+            get(lists::needs_pdf),
+        )
+        .route(
+            "/staff/bake-days/{id}/ingredients/csv",
+            get(lists::needs_csv),
+        )
         .route("/staff/bake-days/{id}/pickup-list", get(lists::pickup_page))
         .route(
             "/staff/bake-days/{id}/pickup-list/pdf",
@@ -213,6 +228,7 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/pickup-list/{order}/undo",
             post(lists::undo),
         )
+        .route(settings::PATH, get(settings::page).post(settings::save))
         .route("/staff/reports", get(reports::index))
         .route("/staff/reports/sales", get(reports::sales_page))
         .route("/staff/reports/sales.csv", get(reports::sales_csv))
@@ -256,6 +272,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/business-accounts/{id}/invoice.csv",
             get(business::invoice_csv),
+        )
+        .route(
+            "/staff/business-accounts/{id}/invoice.pdf",
+            get(business::invoice_pdf),
         )
         .route(
             "/staff/business-accounts/{id}/invoices",

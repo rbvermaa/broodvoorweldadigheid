@@ -175,3 +175,26 @@ pub async fn approve_kitchen_may_contain(
     .ok_or(Error::AllergensChanged)?
     .try_into()
 }
+
+/// Whether the public donation page is on (F11d). Off until the owner switches it on.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn public_donations(conn: &mut PgConnection) -> Result<bool, Error> {
+    sqlx::query_scalar!("SELECT public_donations FROM company")
+        .fetch_optional(conn)
+        .await?
+        .ok_or_else(|| Error::Corrupt("no company row".to_owned()))
+}
+
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn set_public_donations(conn: &mut PgConnection, on: bool) -> Result<(), Error> {
+    let updated = sqlx::query!("UPDATE company SET public_donations = $1", on)
+        .execute(conn)
+        .await?;
+    if updated.rows_affected() == 0 {
+        return Err(Error::Corrupt("no company row".to_owned()));
+    }
+    Ok(())
+}

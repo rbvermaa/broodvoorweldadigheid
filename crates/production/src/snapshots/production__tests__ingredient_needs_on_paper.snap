@@ -1,0 +1,20 @@
+---
+source: crates/production/src/tests.rs
+expression: "pdf::text(&document)"
+---
+Boodschappenlijst
+zaterdag 31 oktober 2026
+Berekend uit de receptversies die in gebruik zijn, voor bestellingen en extra productie.
+Ingrediënt | Hoeveelheid
+Tarwebloem | 6,957 kg
+Water | 5,077 kg
+Zeezout | 166 g
+Totaal | 12,200 kg
+Degen
+Recept | Producten | Hoeveelheid
+Desem (versie 3) | 12× Desem, 2× Desem klein | 11,700 kg
+Spelt (versie 1) | 1× Spelt | 500 g
+Geen recept
+Deze producten tellen niet mee in de boodschappenlijst.
+Product | Stuks | Waarom
+Granola | 13 | geen recept

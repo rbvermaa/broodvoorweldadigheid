@@ -51,6 +51,7 @@ async fn the_cleanup_deletes_expired_logins_and_sent_account_deleted_emails(pool
             logins: 1,
             emails: 1,
             old_emails: 0,
+            votes: 0,
         }
     );
     assert_eq!(
@@ -104,4 +105,44 @@ async fn the_cleanup_deletes_emails_90_days_after_they_were_sent_or_failed(pool:
             "sent-89@example.nl"
         ]
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_cleanup_deletes_unconfirmed_votes_once_their_link_ran_out(pool: PgPool) {
+    let clock = FakeClock::new("2026-11-24T10:00:00Z".parse().unwrap());
+    sqlx::query(
+        "WITH p AS (
+            INSERT INTO poll (title, closes_at, created_at) VALUES ('Stemming', $1::timestamptz, now())
+            RETURNING id
+        ), o AS (
+            INSERT INTO poll_option (poll_id, name, position) SELECT id, 'Spelt', 0 FROM p
+            RETURNING poll_id, id
+        )
+        INSERT INTO vote (poll_id, poll_option_id, email, confirmed_at, confirm_token_hash,
+            confirm_expires_at, created_at)
+        SELECT o.poll_id, o.id, e.email, e.confirmed, e.hash, e.expires, now()
+        FROM o, (VALUES
+            ('verlopen@example.nl', NULL::timestamptz, sha256('a'), $1::timestamptz - interval '1 second'),
+            ('wacht@example.nl', NULL, sha256('b'), $1::timestamptz + interval '1 hour'),
+            ('telt@example.nl', $1::timestamptz, NULL, NULL)
+        ) e(email, confirmed, hash, expires)",
+    )
+    .bind(clock.now().to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(
+        tick(&mut conn, &clock).await.unwrap(),
+        CleanupReport {
+            votes: 1,
+            ..CleanupReport::default()
+        }
+    );
+    let left: Vec<String> = sqlx::query_scalar("SELECT email FROM vote ORDER BY email")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, ["telt@example.nl", "wacht@example.nl"]);
 }

@@ -309,6 +309,7 @@ pub async fn handle_tick(
             logins = cleaned.logins,
             emails = cleaned.emails,
             old_emails = cleaned.old_emails,
+            votes = cleaned.votes,
             "cleanup"
         );
     }

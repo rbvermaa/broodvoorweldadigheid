@@ -14,7 +14,7 @@
 {% if slot.orders.is_empty() %}<p>{{ layout.t("pickup-list-empty")? }}</p>{% endif %}
 {%- for order in slot.orders %}
 <article id="{{ order.anchor }}">
-<h3>{{ order.name }}</h3>
+<h3>{% if order.erased %}<span class="field-hint">{{ order.name }}</span>{% else %}{{ order.name }}{% endif %}</h3>
 <p>{{ layout.t("pickup-list-number")? }} <a href="{{ order.link }}">{{ order.number }}</a>
 {%- if !order.phone.is_empty() %} · <a href="tel:{{ order.phone_href }}">{{ order.phone }}</a>{% endif %}</p>
 <ul>

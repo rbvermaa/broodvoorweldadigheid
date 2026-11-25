@@ -24,6 +24,7 @@ staff-nav-products = Producten
 staff-nav-locations = Ophaallocaties
 staff-nav-charities = Goede doelen
 staff-nav-customers = Klanten
+staff-nav-settings = Instellingen
 form-save = Opslaan
 form-yes = Ja
 form-no = Nee
@@ -376,6 +377,7 @@ staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staa
 # $date: zaterdag 5 december 2026
 lists-production-heading = Productielijst voor { $date }
 lists-pickup-heading = Ophaallijst voor { $date }
+lists-needs-heading = Boodschappenlijst voor { $date }
 lists-pdf = Pdf openen
 lists-back-day = Terug naar de bakdag
 lists-back-orders = Terug naar de bestellingen
@@ -470,3 +472,10 @@ staff-customers-erase-confirm = Ja, verwijder deze klant
 staff-customers-erased = De klant is verwijderd.
 staff-customers-refused-open = Deze klant heeft nog een bestelling die betaald of opgehaald moet worden. Verwijder de klant na het ophalen.
 staff-customers-refused-business = Dit is een zakelijke klant. Die gegevens staan op facturen en worden hier niet verwijderd.
+
+# Back office: company settings
+settings-title = Instellingen
+settings-public-donations-title = Giftenpagina
+settings-public-donations-intro = Op de giftenpagina ziet iedereen hoeveel er per drop en per goed doel is opgehaald, zonder namen of losse bedragen. Zet hem aan als je er klaar voor bent; dan komt er ook een link onderaan de site.
+settings-public-donations = Giftenpagina op de site tonen
+settings-public-donations-view = Bekijk de giftenpagina

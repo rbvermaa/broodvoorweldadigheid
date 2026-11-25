@@ -8,7 +8,7 @@ use notify::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
     DropAlertKind, Email, EmailKind, Item, LoginLink, OnAccountConfirmation, OrderCancelled,
     OrderConfirmation, OrderLine, OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient,
-    SendError, SickDayCancelled, SubscriptionConfirmation,
+    SendError, SickDayCancelled, SubscriptionConfirmation, VoteConfirmation,
 };
 
 const NBSP: char = '\u{a0}';
@@ -468,6 +468,22 @@ fn subscription_confirmation() {
 }
 
 #[test]
+fn vote_confirmation() {
+    let email = compose(|c| {
+        c.vote_confirmation(&VoteConfirmation {
+            to: "stemmer@example.org".to_owned(),
+            poll: "Welk brood bakken we in december?".to_owned(),
+            choice: "Spelt-walnoot".to_owned(),
+            confirm_url: "https://broodvoorweldadigheid.nl/stemmen/bevestig/tok3n".to_owned(),
+        })
+    });
+    assert_eq!(email.kind, EmailKind::VoteConfirmation);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("Spelt-walnoot"), "{}", email.text);
+    snapshot("vote-confirmation", &email);
+}
+
+#[test]
 fn login_link() {
     let email = compose(|c| {
         c.login_link(&LoginLink {
@@ -530,6 +546,12 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
             to: "klant@example.org".to_owned(),
             login_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
             valid_minutes: 30,
+        }),
+        composer.vote_confirmation(&VoteConfirmation {
+            to: "stemmer@example.org".to_owned(),
+            poll: "Stemming".to_owned(),
+            choice: "Spelt".to_owned(),
+            confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
         }),
         composer.account_deleted("klant@example.org"),
     ];

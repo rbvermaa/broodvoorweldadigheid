@@ -10,9 +10,11 @@ workspace = true
 [dependencies]
 bakedays = { path = "../bakedays" }
 catalog = { path = "../catalog" }
+csv.workspace = true
 domain = { path = "../domain" }
 i18n = { path = "../i18n" }
 orders = { path = "../orders" }
+recipes = { path = "../recipes" }
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
@@ -24,5 +26,6 @@ typst-pdf = "0.15.1"
 db = { path = "../db" }
 insta.workspace = true
 jiff.workspace = true
+proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true

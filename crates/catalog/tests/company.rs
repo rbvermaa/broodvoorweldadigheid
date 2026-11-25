@@ -261,3 +261,16 @@ async fn database_refuses_a_bad_kitchen_list(mut conn: PoolConnection<Postgres>)
         Some("company_may_contain_approved_by_fkey")
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_public_donation_page_is_off_until_switched_on(mut conn: PoolConnection<Postgres>) {
+    assert!(!company::public_donations(&mut conn).await.unwrap());
+    company::set_public_donations(&mut conn, true)
+        .await
+        .unwrap();
+    assert!(company::public_donations(&mut conn).await.unwrap());
+    company::set_public_donations(&mut conn, false)
+        .await
+        .unwrap();
+    assert!(!company::public_donations(&mut conn).await.unwrap());
+}

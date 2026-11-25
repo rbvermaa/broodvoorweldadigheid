@@ -114,6 +114,8 @@ pub struct Cell {
     pub numeric: bool,
     /// Makes the text a link to this path.
     pub href: Option<String>,
+    /// Shown in the muted style: a placeholder, not data.
+    pub muted: bool,
 }
 
 impl Cell {
@@ -122,6 +124,7 @@ impl Cell {
             text: text.into(),
             numeric: false,
             href: None,
+            muted: false,
         }
     }
 
@@ -130,6 +133,7 @@ impl Cell {
             text: text.into(),
             numeric: true,
             href: None,
+            muted: false,
         }
     }
 
@@ -138,6 +142,14 @@ impl Cell {
             text: text.into(),
             numeric: false,
             href: Some(href.into()),
+            muted: false,
+        }
+    }
+
+    pub fn muted(text: impl Into<String>) -> Self {
+        Self {
+            muted: true,
+            ..Self::text(text)
         }
     }
 }

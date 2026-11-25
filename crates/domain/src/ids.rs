@@ -34,6 +34,8 @@ id_type!(
     CharityId,
     DonationAllocationId,
     RefundId,
+    PollId,
+    PollOptionId,
     IngredientId,
     RecipeId,
     RecipeVersionId,

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("votes-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("votes-title")? }}</h1>
+<p>{{ layout.t("votes-intro")? }}</p>
+{%- if polls.is_empty() %}
+{% call fb::empty_state(layout.t("votes-empty-title")?, layout.t("votes-empty-text")?) %}{% endcall %}
+<p><a href="/meldingen">{{ layout.t("alerts-title")? }}</a></p>
+{%- else %}
+<ul>
+{%- for poll in polls %}
+<li><a href="{{ poll.href }}">{{ poll.title }}</a> {{ poll.when }}</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+{% endblock %}
