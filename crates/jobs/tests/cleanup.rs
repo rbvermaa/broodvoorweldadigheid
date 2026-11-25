@@ -52,6 +52,7 @@ async fn the_cleanup_deletes_expired_logins_and_sent_account_deleted_emails(pool
             emails: 1,
             old_emails: 0,
             votes: 0,
+            old_votes: 0,
         }
     );
     assert_eq!(
@@ -145,4 +146,64 @@ async fn the_cleanup_deletes_unconfirmed_votes_once_their_link_ran_out(pool: PgP
         .await
         .unwrap();
     assert_eq!(left, ["telt@example.nl", "wacht@example.nl"]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_cleanup_blanks_voters_30_days_after_their_poll_closed(pool: PgPool) {
+    let clock = FakeClock::new("2026-11-24T10:00:00Z".parse().unwrap());
+    sqlx::query(
+        "WITH p AS (
+            INSERT INTO poll (title, closes_at, created_at)
+            SELECT t, $1::timestamptz - d, now()
+            FROM (VALUES ('31', interval '31 days'), ('29', interval '29 days'),
+                ('open', interval '-1 day')) x(t, d)
+            RETURNING id, title
+        ), o AS (
+            INSERT INTO poll_option (poll_id, name, position) SELECT id, title, 0 FROM p
+            RETURNING poll_id, id, name
+        )
+        INSERT INTO vote (poll_id, poll_option_id, email, wish, confirmed_at, created_at)
+        SELECT o.poll_id, o.id, o.name || '-' || n || '@example.nl', 'wens', now(), now()
+        FROM o, generate_series(1, 2) n",
+    )
+    .bind(clock.now().to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let counts = "SELECT string_agg(o.name || ':' || (SELECT count(*) FROM vote v
+            WHERE v.poll_option_id = o.id), ',' ORDER BY o.name) FROM poll_option o";
+    let before: String = sqlx::query_scalar(counts).fetch_one(&pool).await.unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(
+        tick(&mut conn, &clock).await.unwrap(),
+        CleanupReport {
+            old_votes: 2,
+            ..CleanupReport::default()
+        }
+    );
+    let kept: Vec<String> = sqlx::query_scalar(
+        "SELECT email FROM vote WHERE email IS NOT NULL AND wish IS NOT NULL ORDER BY email",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        kept,
+        [
+            "29-1@example.nl",
+            "29-2@example.nl",
+            "open-1@example.nl",
+            "open-2@example.nl"
+        ]
+    );
+    let after: String = sqlx::query_scalar(counts).fetch_one(&pool).await.unwrap();
+    assert_eq!(after, before);
+    assert_eq!(after, "29:2,31:2,open:2");
+
+    assert_eq!(
+        tick(&mut conn, &clock).await.unwrap(),
+        CleanupReport::default(),
+        "a second run changes nothing"
+    );
 }

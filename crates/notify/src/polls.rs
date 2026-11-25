@@ -17,6 +17,8 @@ use crate::token::{new_token, token_hash};
 pub const CONFIRM_VALID: SignedDuration = SignedDuration::from_hours(7 * 24);
 /// A new confirmation email for the same address and poll goes out at most this often.
 pub const RESEND_AFTER: SignedDuration = SignedDuration::from_mins(5);
+/// How long a confirmed vote keeps its address and wish after its poll closed.
+pub const KEEP_ADDRESS: SignedDuration = SignedDuration::from_hours(30 * 24);
 pub const MAX_TITLE_CHARS: usize = 200;
 pub const MAX_OPTION_CHARS: usize = 100;
 pub const MAX_WISH_CHARS: usize = 500;
@@ -740,7 +742,7 @@ pub async fn forget(
     clock: &dyn Clock,
     email: &str,
 ) -> Result<(), PollError> {
-    let now = micros(clock.now());
+    let now = clock.now();
     let mut tx = conn.begin().await?;
     sqlx::query!(
         "DELETE FROM vote v USING poll p
@@ -748,25 +750,50 @@ pub async fn forget(
             AND (v.confirmed_at IS NULL
                 OR p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')",
         email,
-        now,
+        micros(now),
     )
     .execute(&mut *tx)
     .await?;
     // Only what the DELETE left: a vote cast while this runs keeps its address, like one
     // cast just after the erase.
-    sqlx::query!(
+    blank(&mut tx, Some(email), now).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Blanks the address and wish of confirmed votes in polls that closed [`KEEP_ADDRESS`]
+/// or longer ago (F12). They keep counting. Returns how many.
+///
+/// # Errors
+/// [`PollError::Db`].
+pub async fn blank_old(conn: &mut PgConnection, clock: &dyn Clock) -> Result<u64, PollError> {
+    let cutoff = clock
+        .now()
+        .checked_sub(KEEP_ADDRESS)
+        .unwrap_or(Timestamp::MIN);
+    blank(conn, None, cutoff).await
+}
+
+/// Blanks the confirmed votes of `email`, or of every address, in polls closed at or
+/// before `closed_by`.
+async fn blank(
+    conn: &mut PgConnection,
+    email: Option<&str>,
+    closed_by: Timestamp,
+) -> Result<u64, PollError> {
+    Ok(sqlx::query!(
         "UPDATE vote v SET email = NULL, wish = NULL, confirm_token_hash = NULL,
             confirm_expires_at = NULL, confirm_sent_at = NULL
         FROM poll p
-        WHERE p.id = v.poll_id AND lower(v.email) = lower($1) AND v.confirmed_at IS NOT NULL
+        WHERE p.id = v.poll_id AND v.email IS NOT NULL AND v.confirmed_at IS NOT NULL
+            AND ($1::text IS NULL OR lower(v.email) = lower($1))
             AND p.closes_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
         email,
-        now,
+        micros(closed_by),
     )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(())
+    .execute(conn)
+    .await?
+    .rows_affected())
 }
 
 /// Deletes the votes whose confirmation link ran out unused; their address and wish go

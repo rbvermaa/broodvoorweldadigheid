@@ -21,6 +21,7 @@ site; the vote closes at a set time.
 | Results count confirmed votes only. The site shows counts per candidate when the poll's switch is on; wishes and addresses are never on the site. The back office shows counts and wishes, without addresses | Wishes are free text from visitors and may hold personal details; addresses are not needed to read a vote |
 | `/stemmen` lists open polls and closed polls with public results | Closed polls without public results have nothing to show |
 | Privacy (F12): the export lists the votes of the address (poll, choice, wish, times). Erasing deletes unconfirmed votes and votes in open polls, and blanks address and wish of confirmed votes in closed polls, which keep counting. `jobs::cleanup` deletes unconfirmed votes whose link ran out. The confirmation email is queued with `enqueue_expiring`, so its body is blanked once sent and the 90-day outbox retention deletes it | Results of a closed vote stay the same after an erase; nothing identifies the voter any more. In an open poll the address could vote again, but never count twice |
+| Vote retention (owner, 2026-11-25): `jobs::cleanup` blanks address and wish of confirmed votes 30 days (`notify::polls::KEEP_ADDRESS`) after their poll closed, the same way an erase does. Counts stay the same | Voters without a customer account cannot be erased from `/staff/customers`; after 30 days nothing identifies them anyway. Closed polls never reopen, so a blanked vote cannot let an address vote twice |
 
 Open:
 
@@ -28,5 +29,4 @@ Open:
   the header design.
 - A voter without a customer account cannot be found in `/staff/customers`, so the owner
   cannot export or erase their votes from there. Their unconfirmed votes are deleted when
-  the link runs out; confirmed ones keep the address until a cleanup rule for old polls
-  exists.
+  the link runs out; confirmed ones keep the address until 30 days after the poll closed.

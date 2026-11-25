@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vote v SET email = NULL, wish = NULL, confirm_token_hash = NULL,\n            confirm_expires_at = NULL, confirm_sent_at = NULL\n        FROM poll p\n        WHERE p.id = v.poll_id AND v.email IS NOT NULL AND v.confirmed_at IS NOT NULL\n            AND ($1::text IS NULL OR lower(v.email) = lower($1))\n            AND p.closes_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b14eeda1b496114831ccc08d3e451e2cbb29a7dab1f9aff559342884902641b1"
+}

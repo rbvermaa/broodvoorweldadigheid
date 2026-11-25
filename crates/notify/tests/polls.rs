@@ -5,8 +5,8 @@ use domain::{BakeDayId, Clock, PollId, PollOptionId};
 use i18n::Translator;
 use jiff::{SignedDuration, Timestamp};
 use notify::polls::{
-    self, Ballot, CONFIRM_VALID, Confirmed, Invalid, Link, NewOption, PollError, PollInput,
-    RESEND_AFTER, Voted,
+    self, Ballot, CONFIRM_VALID, Confirmed, Invalid, KEEP_ADDRESS, Link, NewOption, PollError,
+    PollInput, RESEND_AFTER, Voted,
 };
 use notify::subscribers::Links;
 use notify::{Company, Composer};
@@ -595,4 +595,76 @@ async fn unconfirmed_votes_are_deleted_once_their_link_expires(mut conn: PoolCon
     clock.advance(SignedDuration::from_hours(48));
     assert_eq!(polls::delete_expired(&mut conn, &clock).await.unwrap(), 1);
     assert_eq!(counts(&mut conn, id).await, [1, 0]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn confirmed_votes_lose_their_address_30_days_after_the_poll_closed(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = now();
+    let (id, spelt, rogge) = poll(&mut conn, &clock).await;
+    for (option, email, wish) in [
+        (spelt, "een@example.nl", "Spelt!"),
+        (rogge, "twee@example.nl", ""),
+    ] {
+        let ballot = Ballot { option, wish };
+        polls::vote_verified(&mut conn, &clock, id, ballot, email)
+            .await
+            .unwrap();
+    }
+    let closes_at = polls::get(&mut conn, id).await.unwrap().closes_at;
+    assert_eq!(KEEP_ADDRESS, SignedDuration::from_hours(30 * 24));
+
+    clock.set(closes_at + SignedDuration::from_hours(29 * 24));
+    let mut open = input(SignedDuration::ZERO);
+    open.closes_at = clock.now() + SignedDuration::from_hours(48);
+    let still_open = polls::create(
+        &mut conn,
+        &clock,
+        &open,
+        &[option("Spelt"), option("Rogge")],
+    )
+    .await
+    .unwrap();
+    let open_option = polls::get(&mut conn, still_open).await.unwrap().options[0].id;
+    let ballot = Ballot {
+        option: open_option,
+        wish: "Meer zuur",
+    };
+    polls::vote_verified(&mut conn, &clock, still_open, ballot, "een@example.nl")
+        .await
+        .unwrap();
+
+    assert_eq!(polls::blank_old(&mut conn, &clock).await.unwrap(), 0);
+    assert_eq!(
+        polls::of_address(&mut conn, "een@example.nl")
+            .await
+            .unwrap()
+            .len(),
+        2,
+        "29 days after closing the address stays"
+    );
+
+    clock.set(closes_at + SignedDuration::from_hours(31 * 24));
+    assert_eq!(polls::blank_old(&mut conn, &clock).await.unwrap(), 2);
+    assert_eq!(counts(&mut conn, id).await, [1, 1], "the counts stay");
+    assert!(polls::wishes(&mut conn, id).await.unwrap().is_empty());
+    assert!(
+        polls::of_address(&mut conn, "twee@example.nl")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mine = polls::of_address(&mut conn, "een@example.nl")
+        .await
+        .unwrap();
+    assert_eq!(mine.len(), 1, "the vote in the open poll keeps its address");
+    assert_eq!(mine[0].wish.as_deref(), Some("Meer zuur"));
+
+    assert_eq!(
+        polls::blank_old(&mut conn, &clock).await.unwrap(),
+        0,
+        "a second run changes nothing"
+    );
+    assert_eq!(counts(&mut conn, id).await, [1, 1]);
 }
