@@ -347,6 +347,7 @@ async fn a_sick_day_cancels_every_order_and_is_safe_to_run_again(
         .await
         .unwrap();
     assert_eq!(result.message, "Ik ben ziek.");
+    assert!(!result.repeated);
     assert_eq!(
         result.orders,
         [
@@ -384,6 +385,7 @@ async fn a_sick_day_cancels_every_order_and_is_safe_to_run_again(
         .await
         .unwrap();
     assert_eq!(again.message, "Ik ben ziek.");
+    assert!(again.repeated, "a run on a cancelled day");
     assert_eq!(again.orders, result.orders);
     assert_eq!(again.open_refunds.len(), 1);
     assert_eq!(again.open_refunds[0].id, failed.id);
