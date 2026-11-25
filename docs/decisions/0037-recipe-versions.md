@@ -34,7 +34,9 @@ the same split on a reference weight of 10^12 g and are rounded half up to 0.001
 
 **Allergens.** Changing an ingredient's allergens or a product's recipe does not clear a
 product's allergen approval yet: product allergens are still entered by hand (F10) and
-nothing is computed from recipes. The roll-up with approval (F17) adds that rule.
+nothing is computed from recipes. The roll-up with approval (F17) adds that rule. Whether
+to clear the approval already is an open question for the owner (block and ask).
+Linking a product to a recipe needs the EditAllergens permission as well as Production.
 
 Open:
 
