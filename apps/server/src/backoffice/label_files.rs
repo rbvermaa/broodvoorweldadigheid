@@ -103,6 +103,7 @@ fn refusal(error: &production::Error) -> Option<&'static str> {
         },
         production::Error::Label(labels::Error::TooLong) => "batch-labels-too-long",
         production::Error::Label(labels::Error::TooWide) => "batch-labels-too-wide",
+        production::Error::Label(labels::Error::Typst(_)) => "batch-labels-unprintable",
         _ => return None,
     })
 }

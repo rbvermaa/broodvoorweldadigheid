@@ -683,3 +683,31 @@ async fn the_owner_sets_the_address_for_labels(pool: PgPool) {
         .await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unprintable_character_refuses_only_that_label(pool: PgPool) {
+    let app = app(pool);
+    let b = bakery(&app).await;
+    let batch = baked_batch(&app, &b, false).await;
+    let mut conn = app.pool.acquire().await.expect("conn");
+    label_settings::set(
+        &mut conn,
+        b.bread,
+        &LabelSettings {
+            packaged: true,
+            shelf_life_days: Some(4),
+            freezer_days: Some(90),
+            storage: "Koel bewaren \u{1F35E}".to_owned(),
+        },
+    )
+    .await
+    .expect("settings");
+    drop(conn);
+    let baker = client(&app, "Bakker", Role::Baker).await;
+    let page = baker.get(&labels_path(&b, batch)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows(&dutch("batch-labels-unprintable"));
+    page.shows("name=\"frozen\"");
+    let png = baker.get(&file_path(&b, batch, "product", "1.png")).await;
+    assert_eq!(png.status, StatusCode::CONFLICT);
+}

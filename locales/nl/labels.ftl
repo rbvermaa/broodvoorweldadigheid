@@ -80,3 +80,4 @@ batch-labels-gap-no-pieces = Deze batch heeft geen goede stuks.
 batch-labels-gap-no-frozen = Vul hieronder in hoeveel stuks de vriezer in gaan.
 batch-labels-too-long = De tekst past niet op het langste etiket, ook niet verdeeld over voor- en achterkant.
 batch-labels-too-wide = Een woord op het etiket is te lang voor de breedte. Maak de productnaam of de etiketnaam van het ingrediënt korter.
+batch-labels-unprintable = Er staat een teken op het etiket dat niet geprint kan worden, zoals een emoji. Pas de productnaam, de ingrediënten of het bewaaradvies aan.
