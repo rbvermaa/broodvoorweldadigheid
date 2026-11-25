@@ -88,11 +88,11 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F15 | Ingredient needs | Ingredient totals per bake day as a shopping list, including extra production: from recipe versions before cutoff, from batch lines after | Phase 2 |
 | F16 | Costing | Standard cost per product, actual cost per batch, and the variance split into recipe, price and yield; ingredient prices with a valid-from date | Phase 2 |
 | F17 | Allergen roll-up | Allergens and ingredient text computed from the recipe and approved by the baker; a batch that swaps or adds an ingredient is re-checked and cannot be labelled until any difference is approved | Phase 2 |
-| F17a | Nutrition values | Energy, fat, saturates, carbohydrate, sugars, protein and salt per 100 g, computed from ingredient values (NEVO, the Dutch food composition table, or supplier specs) and corrected for weight lost in baking; the baker approves before it is printed | Phase 2 |
-| F18 | Product labels | Full labels for packaged products such as cookies and granola, printed on the Niimbot through the official Niimbot app: name, ingredients with allergens in bold, net weight, best-before date, storage instruction, batch code, business name and address, and the nutrition table unless the small-producer exemption applies; a longer label, or a front and back label, when it does not fit; warning when a batch changes the ingredient order by weight | Phase 2 |
+| F17a | Nutrition values | Dropped (owner, 2026-11-25): labels carry no nutrition table, because the bakery uses the small-producer exemption | — |
+| F18 | Product labels | Full labels for packaged products such as cookies and granola, printed on the Niimbot through the official Niimbot app: name, ingredients with allergens in bold, net weight, best-before date, storage instruction, batch code, business name and address (no nutrition table: small-producer exemption); a longer label, or a front and back label, when it does not fit; warning when a batch changes the ingredient order by weight | Phase 2 |
 | F18a | Freezer labels | After baking, enter how many pieces of a batch go into the freezer and print one label each through the Niimbot app. The label goes to the customer, so it carries product name, ingredients with allergens in bold, net weight, best-before date from a per-product freezer period, storage instruction, and business name and address; plus freeze date, batch code and a small QR code for staff. Default label size 50 × 30 mm; a long ingredient list moves to a longer label (the B21 Pro takes up to 170 mm) | Phase 2 |
 | F20 | Recipe import | Photo or Excel to a draft recipe the baker checks | Phase 3 |
-| F21 | Spec-sheet reading | Supplier spec sheet to draft allergens, ingredients and nutrition values for approval | Phase 3 |
+| F21 | Spec-sheet reading | Supplier spec sheet to draft allergens and ingredients for approval | Phase 3 |
 | F22 | Product texts | Draft shop descriptions in the bakery's tone | Phase 3 |
 | F23 | Customer assistant | Dutch chat in the shop about products, allergens, pickup, charities and order status | Phase 3 |
 
@@ -107,7 +107,7 @@ Removing modules does not remove the legal duties behind them. Bookkeeping, B2B 
 | BTW: 9% for bread and pastry, 21% for non-food and alcohol | BTW rate per product; rate and BTW amount on order confirmations and receipts; totals per rate per period |
 | Retention: business records 7 years | Keep orders and payments for 7 years, in the database and in backups |
 | Allergens (EU 1169/2011): 14 allergens | Allergen information for every product in the shop and on shelf cards; allergens in bold in ingredient lists on labels |
-| Prepacked products (cookies, granola) | Full label: name, ingredients with allergens in bold, net quantity, best-before date, storage instruction, batch code, business name and address, and a nutrition table. Small producers selling directly to consumers or local shops may be exempt from the nutrition table; confirm with NBC or NVWA. Fresh bread sold unpacked only needs allergen information on hand |
+| Prepacked products (cookies, granola) | Full label: name, ingredients with allergens in bold, net quantity, best-before date, storage instruction, batch code, business name and address. No nutrition table: the bakery sells directly to consumers and local shops and uses the small-producer exemption (owner, 2026-11-25). Fresh bread sold unpacked only needs allergen information on hand |
 | GDPR (AVG) | Marketing consent, export and deletion of customer data, a processing register, processor agreements with Mollie and the email relay |
 | KvK and contact details | KvK number, trade name and address on the website, in emails and on receipts |
 | Payments: iDEAL moves to Wero, completion planned by 31 Dec 2027 | Take payment methods from Mollie's method list; never hard-code iDEAL |
@@ -225,7 +225,7 @@ bakflow/
 │   ├── reports/          sales per BTW rate, B2B invoice overview, CSV export
 │   ├── notify/           email templates and sending
 │   ├── jobs/             scheduled work: open and close bake days, reminders, cleanup
-│   ├── recipes/          versioned recipes, sub-recipes, scaling, ingredient needs, standard cost, allergen and nutrition roll-up   (Phase 2)
+│   ├── recipes/          versioned recipes, sub-recipes, scaling, ingredient needs, standard cost, allergen roll-up                 (Phase 2)
 │   ├── labels/           Typst label templates, freezer labels, PNG and CSV files for the Niimbot app                       (Phase 2)
 │   ├── pos-core/         reserved for a later till; not built in v2
 │   ├── testkit/          fixtures, fake Mollie, fake clock (tests only)
@@ -293,9 +293,8 @@ Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 |
                  pay_what_you_want, min_price_cents?, max_price_cents?,
                  unit_weight_g, dough_g_per_piece, freezer_days?, recipe_id?, allergens[], may_contain[],
                  ingredient_text, allergens_approved_by?, allergens_approved_at?, packaged,
-                 nutrition_per_100g?, nutrition_approved_at?, sold_online, estimated_cost_cents?, active
-Ingredient       name, supplier_name, allergens[], may_contain[], nutrition_per_100g?,
-                 nevo_code?, spec_sheet_document_id?
+                 sold_online, estimated_cost_cents?, active
+Ingredient       name, supplier_name, allergens[], may_contain[], spec_sheet_document_id?
 IngredientPrice  ingredient_id, price_per_kg_cents, valid_from
 Recipe           name, kind (dough | filling | topping), current_version_id
 RecipeVersion    recipe_id, version, frozen_at?, promoted_from_batch_id?, bake_loss_pct, lead_time_hours, notes
@@ -445,7 +444,7 @@ AI only drafts; a person confirms every result before it reaches a product, a la
 | Use | How it works | Who confirms |
 |----|----|----|
 | Recipe import | Photo or Excel to a draft recipe; baker's percentages and scaling are computed in Rust, never by the model | Baker |
-| Spec-sheet reading | Supplier PDF or photo to draft allergens, may-contain, ingredients and nutrition values per 100 g, shown as a diff against the current ingredient | Baker; never published automatically |
+| Spec-sheet reading | Supplier PDF or photo to draft allergens, may-contain and ingredients, shown as a diff against the current ingredient | Baker; never published automatically |
 | Product texts | Draft shop descriptions in the bakery's tone | Owner |
 | Customer assistant | Answers in Dutch about products, allergens and pickup from catalogue data; looks up order status; can fill a cart but never pays | Customer, at checkout |
 
@@ -578,7 +577,7 @@ Testing runs itself: every change is tested, deployed and checked automatically,
 
 | Layer | Tool | What it covers |
 |----|----|----|
-| Unit tests | cargo test, run with cargo-nextest | Domain rules: money and BTW rounding, baker's percentage scaling, allergen and nutrition roll-up, best-before dates, cutoff times |
+| Unit tests | cargo test, run with cargo-nextest | Domain rules: money and BTW rounding, baker's percentage scaling, allergen roll-up, best-before dates, cutoff times |
 | Property tests | proptest | Rules that must always hold: totals per BTW rate equal the sum of the lines; capacity never goes below zero; a pay-what-you-want price outside its minimum and maximum is always refused; scaling a recipe up and down keeps the same grams within rounding |
 | Database tests | \#\[sqlx::test\], a fresh PostgreSQL database per test | Queries, migrations, constraints, and two checkouts racing for the last loaf |
 | HTTP tests | Axum routers called in-process with tower::ServiceExt | Checkout, Mollie webhooks, login and roles, invoice overview, extra production |
@@ -655,7 +654,7 @@ Each phase ends at a gate; the next phase starts only when its criterion is met.
 |----|----|----|----|----|
 | 0 Foundations | Server, router and DNS set-up; workspace; Nix flake, image builds and build cache; CI with automatic tests, deploys and rollback; Compose, Caddy, Kanidm, PostgreSQL, backups, monitoring, Dutch translations | 3–4 | 110–190 | Small server with mirrored SSDs and a UPS, about €950–1,750 |
 | 1 MVP | F1–F13 (with drop calendar, charity management and reports, FAQ, contact and drop alerts), design system, component gallery, and the move from Payhip | 11–15 | 475–755 | Mollie transaction fees |
-| 2 Back office | F9b, F11d and F14–F18a, including batches, nutrition values, product and freezer labels as files for the Niimbot app | 9–13 | 325–525 | Niimbot label rolls (printer already owned) |
+| 2 Back office | F9b, F11d and F14–F18a (without F17a), including batches, product and freezer labels as files for the Niimbot app | 9–13 | 325–525 | Niimbot label rolls (printer already owned) |
 | 3 AI drafting | F20–F23 and the mistral.rs setup | 4–8 | 120–220 | AI box with a 24 GB GPU, about €2,000–4,000 |
 
 All figures are estimates, not quotes. Rust costs more per feature than v1's ERPNext plan because every screen is hand-built, but the removed modules roughly balance that out. Outsourced at €75–100 an hour, development would cost about €77,000–169,000.
@@ -691,7 +690,7 @@ Till skipped for now; counter, market and frozen sales go through the bakery's S
 
 - [x] Do you sell prepacked products that need a full label, or only fresh pre-orders and counter sales?
 
-Mostly fresh pre-orders and counter sales; possibly packaged cookies and granola, which need full labels (F17a, F18).
+Mostly fresh pre-orders and counter sales; possibly packaged cookies and granola, which need full labels (F18).
 
 - [ ] Does the bakery have a fixed IP address from its internet provider?
 

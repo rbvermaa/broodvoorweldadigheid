@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT c.email, d.date - date 'epoch' AS \"date_days!\",\n            (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\",\n            (extract(epoch FROM s.ends_at) * 1000000)::bigint AS \"ends_us!\",\n            l.name AS location, l.address, o.status_token::text AS \"status_token!\"\n        FROM \"order\" o\n        JOIN customer c ON c.id = o.customer_id\n        JOIN bake_day d ON d.id = o.bake_day_id\n        JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        JOIN pickup_location l ON l.id = s.location_id\n        WHERE o.id = $1",
+  "query": "SELECT c.email, d.date - date 'epoch' AS \"date_days!\",\n            (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\",\n            (extract(epoch FROM s.ends_at) * 1000000)::bigint AS \"ends_us!\",\n            l.name AS location, l.address, o.status_token::text AS \"status_token!\",\n            b.invoice_email AS \"invoice_email?\"\n        FROM \"order\" o\n        JOIN customer c ON c.id = o.customer_id\n        LEFT JOIN business_account b ON b.customer_id = o.customer_id\n        JOIN bake_day d ON d.id = o.bake_day_id\n        JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        JOIN pickup_location l ON l.id = s.location_id\n        WHERE o.id = $1",
   "describe": {
     "columns": [
       {
@@ -59,6 +59,17 @@
         "name": "status_token!",
         "type_info": "Text",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "invoice_email?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "invoice_email"
+          }
+        }
       }
     ],
     "parameters": {
@@ -73,8 +84,9 @@
       null,
       false,
       false,
-      null
+      null,
+      false
     ]
   },
-  "hash": "8451cd7b4bdce82398cdae0082c99ea54ea46d5f8b9895942b005f26fb50da5d"
+  "hash": "5d3507329ff9367223f3fe1153a31fe7a7a8ee473bfc6be84cdeebc8a3b09a31"
 }

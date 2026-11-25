@@ -11,6 +11,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bakedays::{days, pickup, range};
 use domain::{BakeDayId, BusinessAccountId, OrderId, PickupSlotId, ProductId, VatRate};
+use jobs::order_emails;
 use orders::audit::Actor;
 use orders::{Cart, CartError, CustomerInput};
 use reports::invoice_pdf;
@@ -22,7 +23,7 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, parse_count, parse_date};
 use super::lists::pdf_response;
-use super::orders::order_path;
+use super::orders::{order_path, queue_email};
 use super::reports::{Chosen, PeriodForm, PeriodQuery, choose, csv_response, money, report_error};
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
@@ -1198,10 +1199,11 @@ pub async fn place_order(
         let Ok(slot) = fields.text("slot").parse::<i64>().map(PickupSlotId::new) else {
             return refuse(t(&state, "b2b-error-slot"), errors).await;
         };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let clock = state.clock.as_ref();
+        let mut tx = state.pool.begin().await.map_err(|e| fail(&state, &e))?;
         let result = orders::checkout_on_account(
-            &mut conn,
-            state.clock.as_ref(),
+            &mut tx,
+            clock,
             &cart,
             &CustomerInput {
                 email: account.contact_email.clone(),
@@ -1213,15 +1215,31 @@ pub async fn place_order(
             staff.0.id,
         )
         .await;
-        drop(conn);
-        match result {
-            Ok(order) => Ok(saved(&headers, &order_path(order.id))),
-            Err(orders::Error::NotFound) => Err(not_found(&state).into()),
-            Err(error) => match order_problem(&state, &error, &products) {
-                Some(problem) => refuse(problem, errors).await,
-                None => Err(fail(&state, &error).into()),
-            },
-        }
+        let order = match result {
+            Ok(order) => order,
+            Err(error) => {
+                drop(tx);
+                return match error {
+                    orders::Error::NotFound => Err(not_found(&state).into()),
+                    error => match order_problem(&state, &error, &products) {
+                        Some(problem) => refuse(problem, errors).await,
+                        None => Err(fail(&state, &error).into()),
+                    },
+                };
+            }
+        };
+        queue_email(&state, &mut tx, order.id, async |conn| {
+            order_emails::enqueue_on_account_confirmation(
+                conn,
+                clock,
+                &state.order_emails,
+                order.id,
+            )
+            .await
+        })
+        .await?;
+        tx.commit().await.map_err(|e| fail(&state, &e))?;
+        Ok(saved(&headers, &order_path(order.id)))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

@@ -101,11 +101,13 @@ pub enum PaidOutcome {
     /// This payment was reported before and accepted; nothing changed.
     AlreadyPaid(Order),
     /// The payment is recorded but the order cannot take it; the money must go back
-    /// ([`refunds_due`]). A repeated report returns the same reason and changes nothing.
+    /// ([`refunds_due`]). A repeated report returns the same reason with `repeated` set and
+    /// changes nothing.
     RefundDue {
         order: Order,
         payment: Payment,
         reason: RefundReason,
+        repeated: bool,
     },
 }
 
@@ -242,6 +244,7 @@ pub async fn mark_paid(
                     order: before,
                     payment: known,
                     reason,
+                    repeated: true,
                 },
             });
         }
@@ -304,6 +307,7 @@ pub async fn mark_paid(
             order: after,
             payment: recorded,
             reason,
+            repeated: false,
         }
     } else {
         sqlx::query!(

@@ -116,7 +116,29 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
     let again = mark_paid(&mut conn, &clock, order.id, &paid("tr_2", &order))
         .await
         .unwrap();
-    assert_eq!(again, twice);
+    let (
+        PaidOutcome::RefundDue {
+            repeated: false, ..
+        },
+        PaidOutcome::RefundDue {
+            repeated: true,
+            payment,
+            reason,
+            order,
+        },
+    ) = (&twice, &again)
+    else {
+        panic!("{twice:?} then {again:?}");
+    };
+    assert_eq!(
+        twice,
+        PaidOutcome::RefundDue {
+            order: order.clone(),
+            payment: payment.clone(),
+            reason: *reason,
+            repeated: false,
+        }
+    );
     assert_eq!(allocations(&mut conn, order.id).await.unwrap().len(), 1);
     assert_eq!(get(&mut conn, order.id).await, paid_order);
 

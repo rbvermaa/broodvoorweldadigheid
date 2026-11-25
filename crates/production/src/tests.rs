@@ -140,7 +140,9 @@ fn dutch() -> Translator {
 
 #[test]
 fn production_list_input() {
-    let data = paper::production(&production_list(), &dutch()).unwrap();
+    let mut data = paper::production(&production_list(), &dutch()).unwrap();
+    // Workspace builds enable serde_json's preserve_order (thirtyfour, in e2e).
+    data.sort_all_objects();
     insta::assert_snapshot!(serde_json::to_string_pretty(&data).unwrap());
 }
 
@@ -165,7 +167,8 @@ fn an_empty_production_list_says_so() {
 
 #[test]
 fn pickup_list_input() {
-    let data = paper::pickup(&pickup_list(), &dutch()).unwrap();
+    let mut data = paper::pickup(&pickup_list(), &dutch()).unwrap();
+    data.sort_all_objects();
     insta::assert_snapshot!(serde_json::to_string_pretty(&data).unwrap());
 }
 

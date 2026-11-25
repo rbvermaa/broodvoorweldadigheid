@@ -37,6 +37,11 @@ email-order-confirmation-saved = Je bewaart je donatie voor later. Kies vóór {
 email-order-confirmation-choose = Kies een goed doel
 email-order-confirmation-status = Bekijk je bestelling
 
+email-on-account-subject = Je bestelling { $number } op rekening is bevestigd
+email-on-account-heading = Bedankt voor je bestelling!
+email-on-account-intro = We gaan voor je bakken. Hieronder zie je wat je op rekening hebt besteld en wanneer je het kunt ophalen.
+email-on-account-invoice = Je hoeft nu niets te betalen. Deze bestelling komt op je volgende factuur.
+
 email-donation-moved-subject = Je bewaarde donatie gaat naar { $charity }
 email-donation-moved-heading = Je donatie heeft een bestemming
 email-donation-moved-intro = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor later. Je hebt geen goed doel gekozen, dus gaat je donatie nu naar { $charity }, het goede doel van de drop van { $date }.

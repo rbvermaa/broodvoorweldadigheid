@@ -3374,6 +3374,7 @@ async fn wrong_business_account_input_gets_dutch_messages(pool: PgPool) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     let app = app(pool.clone());
+    company_details(&pool).await;
     let (day, bread) = open_drop(&app).await;
     let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
@@ -3457,6 +3458,18 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     .await
     .expect("order on account");
     placed.redirects_to(&format!("/staff/orders/{order_id}?opgeslagen=1"));
+    let queued: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
+        "SELECT kind, to_address, cc_address, text_body FROM email_outbox ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("outbox");
+    assert_eq!(queued.len(), 1, "{queued:?}");
+    let (kind, to, cc, text) = &queued[0];
+    assert_eq!(kind, "order_confirmation");
+    assert_eq!(to, "inkoop@dehoek.example");
+    assert_eq!(cc.as_deref(), Some("factuur@dehoek.example"));
+    assert!(text.contains("op rekening"), "{text}");
     let order = stored_order(&pool, domain::OrderId::new(order_id)).await;
     assert_eq!(order.total, Money::from_cents(1300));
 
@@ -3552,4 +3565,41 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
     refused.shows(&dutch("b2b-error-not-on-account"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_order_on_account_is_placed_without_its_email_when_company_details_are_missing(
+    pool: PgPool,
+) {
+    let app = app(pool.clone());
+    let (day, bread) = open_drop(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let account = business_account(&owner).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    drop(conn);
+    let pieces = format!("qty_{}", bread.get());
+    let placed = owner
+        .post(
+            &format!("{account}/order"),
+            &[
+                ("dag", day.get().to_string().as_str()),
+                ("slot", slot.get().to_string().as_str()),
+                ("product", bread.get().to_string().as_str()),
+                (pieces.as_str(), "1"),
+            ],
+        )
+        .await;
+    assert_eq!(placed.status, StatusCode::SEE_OTHER, "{}", placed.text);
+    let orders: i64 =
+        sqlx::query_scalar(r#"SELECT count(*) FROM "order" WHERE payment_mode = 'on_account'"#)
+            .fetch_one(&pool)
+            .await
+            .expect("orders");
+    assert_eq!(orders, 1);
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM email_outbox")
+        .fetch_one(&pool)
+        .await
+        .expect("outbox");
+    assert_eq!(queued, 0);
 }

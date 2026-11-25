@@ -132,6 +132,7 @@ async fn paid(
             order: refused,
             payment,
             reason,
+            repeated,
         } => {
             tracing::warn!(
                 payment = %id,
@@ -143,7 +144,7 @@ async fn paid(
                 refused.status,
                 OrderStatus::Cancelled | OrderStatus::Refunded
             );
-            let email = if cancelled {
+            let email = if cancelled && !repeated {
                 Some(
                     order_emails::enqueue_refund_notice(&mut email_tx, clock, emails, &payment)
                         .await,

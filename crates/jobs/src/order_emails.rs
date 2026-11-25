@@ -8,9 +8,9 @@ use i18n::Translator;
 use jiff::civil::{Time, time};
 use jiff::{SignedDuration, Timestamp};
 use notify::{
-    Company, ComposeError, Composer, Donation, DonationMoved, Email, Item, OrderCancelled,
-    OrderConfirmation, OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder, Recipient,
-    SickDayCancelled,
+    Company, ComposeError, Composer, Donation, DonationMoved, Email, Item, OnAccountConfirmation,
+    OrderCancelled, OrderConfirmation, OutboxError, OutboxId, Pickup, PickupMoved, PickupReminder,
+    Recipient, SickDayCancelled,
 };
 use orders::donations::{Moved, SavedDonation};
 use orders::{OrderDetails, Payment};
@@ -177,19 +177,7 @@ pub async fn enqueue_confirmation(
             order_number: details.order.number.to_string(),
             drop_date: details.drop_date,
             pickup: pickup(details),
-            lines: details
-                .order
-                .lines
-                .iter()
-                .zip(&details.products)
-                .map(|(line, product)| notify::OrderLine {
-                    product: product.clone(),
-                    qty: line.qty,
-                    unit_price: line.unit_price,
-                    vat_rate: line.vat_rate,
-                    pay_what_you_want: line.suggested_price.is_some(),
-                })
-                .collect(),
+            lines: order_lines(details),
             donation: match (saved, details.charity.clone()) {
                 (Some(saved), _) => Donation::Saved {
                     choose_url: format!(
@@ -213,6 +201,58 @@ pub async fn enqueue_confirmation(
         }
         None => notify::enqueue(conn, clock, &email, Some(&key)).await?,
     })
+}
+
+/// Queues the confirmation of an order staff placed on account (F11a): to the business
+/// account's contact email, with a copy to its invoice email when that differs. Call it in the
+/// transaction that places the order. Queued at most once per order.
+///
+/// # Errors
+/// [`EmailError`].
+pub async fn enqueue_on_account_confirmation(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    emails: &OrderEmails,
+    order: OrderId,
+) -> Result<Option<OutboxId>, EmailError> {
+    let email = compose(conn, emails, order, |composer, details| {
+        composer.order_on_account(&OnAccountConfirmation {
+            to: recipient(details),
+            cc: details
+                .invoice_email
+                .clone()
+                .filter(|cc| !cc.trim().eq_ignore_ascii_case(details.email.trim())),
+            order_number: details.order.number.to_string(),
+            drop_date: details.drop_date,
+            pickup: pickup(details),
+            lines: order_lines(details)
+                .into_iter()
+                .map(|line| notify::OrderLine {
+                    pay_what_you_want: false,
+                    ..line
+                })
+                .collect(),
+        })
+    })
+    .await?;
+    let key = confirmation_key(order);
+    Ok(notify::enqueue(conn, clock, &email, Some(&key)).await?)
+}
+
+fn order_lines(details: &OrderDetails) -> Vec<notify::OrderLine> {
+    details
+        .order
+        .lines
+        .iter()
+        .zip(&details.products)
+        .map(|(line, product)| notify::OrderLine {
+            product: product.clone(),
+            qty: line.qty,
+            unit_price: line.unit_price,
+            vat_rate: line.vat_rate,
+            pay_what_you_want: line.suggested_price.is_some(),
+        })
+        .collect()
 }
 
 /// Tells the customer where their saved donation went (F4d). Call it in the transaction
@@ -281,7 +321,8 @@ pub async fn enqueue_cancellation(
 /// Queues the sick-day email (F2) for an order cancelled with its bake day: the baker's
 /// message and what goes back, `None` when nothing was paid. Call it in the transaction
 /// that cancels the day. Queued at most once per order, so a second run of the cancel adds
-/// nothing.
+/// nothing. The server queues it only on the first cancel, since
+/// the outbox forgets dedupe keys after [`notify::outbox::RETENTION`].
 ///
 /// # Errors
 /// [`EmailError`].
