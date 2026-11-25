@@ -1,6 +1,7 @@
 {% extends "staff/layout.html" %}
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -36,4 +37,28 @@
 {%- endfor %}
 </section>
 {%- endfor %}
+{% if !allergens.is_empty() %}
+<section>
+<h2>{{ layout.t("pickup-list-allergens")? }}</h2>
+{%- for product in allergens %}
+<h3>{{ product.name }}</h3>
+{%- if let Some(info) = product.allergens %}
+{% call p::allergen_list(info.contains()) %}{% endcall %}
+{% call p::allergen_list(info.may_contain(), true) %}{% endcall %}
+{%- if !info.ingredients().is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(info.ingredients()) %}{% endcall %}</p>
+{%- endif %}
+{%- else %}
+<p class="product-status">{{ layout.t("product-allergens-pending")? }}</p>
+{%- endif %}
+{%- for notice in product.batches %}
+{% call fb::alert("warning", notice.text) %}{% endcall %}
+{% call p::allergen_list(notice.allergens) %}{% endcall %}
+{%- if !notice.ingredients.is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(notice.ingredients) %}{% endcall %}</p>
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+</section>
+{% endif %}
 {% endblock %}

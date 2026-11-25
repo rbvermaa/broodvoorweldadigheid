@@ -673,10 +673,17 @@ async fn a_recipe_change_says_why_until_the_next_approval(mut conn: PoolConnecti
     assert_eq!(cleared.approval, None);
     assert_eq!(cleared.approval_cleared, Some(ApprovalCleared::Recipe));
 
-    let again = products::approve_allergens(
+    let computed = catalog::ComputedAllergens {
+        allergens: cleared.allergen_info.allergens.clone(),
+        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient {
+            name: "tarwebloem".to_owned(),
+            emphasised: true,
+        }]),
+    };
+    let again = products::approve_computed(
         &mut conn,
         id,
-        &cleared.allergen_info,
+        &computed,
         cleared.allergen_revision,
         BAKER,
         &clock,
@@ -686,4 +693,62 @@ async fn a_recipe_change_says_why_until_the_next_approval(mut conn: PoolConnecti
     assert!(again.approval.is_some());
     assert_eq!(again.approval_cleared, None);
     assert_eq!(products::get(&mut conn, id).await.unwrap(), again);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_product_with_a_recipe_takes_only_computed_values(mut conn: PoolConnection<Postgres>) {
+    add_baker(&mut conn).await;
+    let clock = FakeClock::new(ts("2026-11-01T10:00:00Z"));
+    let product = products::create(&mut conn, &sourdough()).await.unwrap();
+    assert!(!product.has_recipe);
+    sqlx::query(
+        "WITH r AS (INSERT INTO recipe (name, kind) VALUES ('Desem', 'dough') RETURNING id)
+         UPDATE product SET recipe_id = (SELECT id FROM r) WHERE id = $1",
+    )
+    .bind(product.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let linked = products::get(&mut conn, product.id).await.unwrap();
+    assert!(linked.has_recipe);
+
+    let hand = products::approve_allergens(
+        &mut conn,
+        product.id,
+        &linked.allergen_info,
+        linked.allergen_revision,
+        BAKER,
+        &clock,
+    )
+    .await;
+    assert!(matches!(hand, Err(Error::ComputedOnly)), "{hand:?}");
+    let stale = products::approve_allergens(
+        &mut conn,
+        product.id,
+        &linked.allergen_info,
+        linked.allergen_revision - 1,
+        BAKER,
+        &clock,
+    )
+    .await;
+    assert!(matches!(stale, Err(Error::ComputedOnly)), "{stale:?}");
+
+    let computed = catalog::ComputedAllergens {
+        allergens: BTreeSet::from([Allergen::CerealsContainingGluten]),
+        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient {
+            name: "tarwebloem".to_owned(),
+            emphasised: true,
+        }]),
+    };
+    let approved = products::approve_computed(
+        &mut conn,
+        product.id,
+        &computed,
+        linked.allergen_revision,
+        BAKER,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert!(approved.approval.is_some());
 }

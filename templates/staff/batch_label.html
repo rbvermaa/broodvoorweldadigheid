@@ -16,7 +16,7 @@
 <p>{{ computed.source }}</p>
 {% if computed.allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(computed.allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
-{% call s::ingredient_list(computed.ingredients) %}{% endcall %}
+<p>{% call p::ingredient_text(computed.ingredients) %}{% endcall %}</p>
 {% if approvable %}
 <form method="post" action="{{ computed.action }}">
 {% call s::csrf() %}{% endcall %}
@@ -35,6 +35,6 @@
 <h2>{{ layout.t("label-check-product-values")? }}</h2>
 {% if product_allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(product_allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
-{% call s::ingredient_list(items) %}{% endcall %}
+<p>{% call p::ingredient_text(items) %}{% endcall %}</p>
 {% endif %}
 {% endblock %}

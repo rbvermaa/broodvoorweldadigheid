@@ -26,7 +26,34 @@ pub struct Product {
 pub struct ApprovedAllergens {
     contains: Vec<&'static str>,
     may_contain: Vec<&'static str>,
-    ingredients: String,
+    ingredients: Vec<ListedIngredient>,
+}
+
+/// One entry of an ingredient list; an `emphasised` one holds an allergen and is bold.
+pub struct ListedIngredient {
+    pub name: String,
+    pub emphasised: bool,
+}
+
+pub fn listed(list: &catalog::IngredientList) -> Vec<ListedIngredient> {
+    list.0
+        .iter()
+        .map(|i| ListedIngredient {
+            name: i.name.clone(),
+            emphasised: i.emphasised,
+        })
+        .collect()
+}
+
+/// Hand-entered text as one plain entry; nothing when it is empty.
+fn plain(text: String) -> Vec<ListedIngredient> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    vec![ListedIngredient {
+        name: text,
+        emphasised: false,
+    }]
 }
 
 impl ApprovedAllergens {
@@ -37,7 +64,10 @@ impl ApprovedAllergens {
         product.published_allergens(kitchen).map(|shown| Self {
             contains: shown.contains.iter().map(|a| a.code()).collect(),
             may_contain: shown.may_contain.iter().map(|a| a.code()).collect(),
-            ingredients: shown.ingredient_text,
+            ingredients: product
+                .ingredient_list
+                .as_ref()
+                .map_or_else(|| plain(shown.ingredient_text), listed),
         })
     }
 
@@ -50,7 +80,7 @@ impl ApprovedAllergens {
         Self {
             contains,
             may_contain,
-            ingredients,
+            ingredients: plain(ingredients),
         }
     }
 
@@ -62,7 +92,7 @@ impl ApprovedAllergens {
         &self.may_contain
     }
 
-    pub fn ingredients(&self) -> &str {
+    pub fn ingredients(&self) -> &[ListedIngredient] {
         &self.ingredients
     }
 }

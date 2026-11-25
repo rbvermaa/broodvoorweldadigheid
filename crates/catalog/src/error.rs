@@ -10,6 +10,9 @@ pub enum Error {
     Price(#[from] InvalidPriceRange),
     #[error("allergen data changed since it was reviewed")]
     AllergensChanged,
+    /// The product is made from a recipe; only the values it computes can be approved.
+    #[error("only computed allergen data can be approved for this product")]
+    ComputedOnly,
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
     #[error("database error: {0}")]

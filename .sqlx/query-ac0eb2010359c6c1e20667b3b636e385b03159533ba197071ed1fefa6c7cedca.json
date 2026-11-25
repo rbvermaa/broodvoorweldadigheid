@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product ORDER BY name_nl, id",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active AND sold_online ORDER BY name_nl, id",
   "describe": {
     "columns": [
       {
@@ -231,6 +231,12 @@
       },
       {
         "ordinal": 21,
+        "name": "has_recipe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 22,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -241,7 +247,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -252,7 +258,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -263,7 +269,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -299,11 +305,12 @@
       false,
       true,
       true,
+      null,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "04b82b0e9440a3079a1f4930717293cd25c2cfabdfb048a80d151b838ec60ce1"
+  "hash": "ac0eb2010359c6c1e20667b3b636e385b03159533ba197071ed1fefa6c7cedca"
 }

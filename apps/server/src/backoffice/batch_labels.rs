@@ -13,10 +13,11 @@ use production::label_check::{self, LabelBlock, LabelCheck, LabelSource};
 use tower_sessions::Session;
 
 use super::form::Fields;
-use super::products::{ComputedView, ListedView, codes, listed, reviewed_computed};
+use super::products::{ComputedView, codes, reviewed_computed};
 use super::{
     Flash, Outcome, Rejection, Step, fail, layout, not_found, path_id, require, saved, t, t_with,
 };
+use crate::components::{ListedIngredient, listed};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
@@ -54,7 +55,7 @@ struct Page<'a> {
     notices: Vec<Notice>,
     computed: Option<ComputedView>,
     product_allergens: Vec<&'static str>,
-    product_list: Option<Vec<ListedView>>,
+    product_list: Option<Vec<ListedIngredient>>,
     approvable: bool,
 }
 

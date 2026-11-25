@@ -12,7 +12,7 @@
 <p>{{ computed.source }} {{ layout.t("rollup-intro")? }}</p>
 {% if computed.allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(computed.allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
-{% call s::ingredient_list(computed.ingredients) %}{% endcall %}
+<p>{% call p::ingredient_text(computed.ingredients) %}{% endcall %}</p>
 {% if computed.same %}{% call fb::alert("success", layout.t("rollup-same")?) %}{% endcall %}{% else %}{% call fb::alert("warning", layout.t("rollup-differs")?) %}{% endcall %}{% endif %}
 <p class="field-hint">{{ layout.t("rollup-approve-hint")? }}</p>
 <form method="post" action="{{ computed.action }}">
@@ -31,10 +31,11 @@
 {% else if uncomputable %}
 {% call fb::alert("warning", layout.t("rollup-unweighable")?) %}{% endcall %}
 {% endif %}
-<p>{{ layout.t("approve-intro")? }}</p>
+{% if computed_only %}{% if !uncomputable %}{% call fb::alert("info", layout.t("approve-computed-only")?) %}{% endcall %}{% endif %}{% else %}<p>{{ layout.t("approve-intro")? }}</p>{% endif %}
 {% if allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
-{% if let Some(items) = current_list %}{% call s::ingredient_list(items) %}{% endcall %}{% else if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
+{% if let Some(items) = current_list %}<p>{% call p::ingredient_text(items) %}{% endcall %}</p>{% else if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
+{% if !computed_only %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
 {%- for code in allergens %}
@@ -44,5 +45,6 @@
 <input type="hidden" name="revisie" value="{{ revision }}">
 {% call b::button(layout.t("approve-submit")?, kind = "submit") %}{% endcall %}
 </form>
+{% endif %}
 <p><a href="{{ back }}">{{ layout.t("approve-back")? }}</a></p>
 {% endblock %}
