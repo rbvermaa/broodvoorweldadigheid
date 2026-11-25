@@ -241,3 +241,17 @@ fn an_erased_customer_is_printed_as_deleted() {
     assert_eq!(warnings, Vec::<String>::new());
     assert!(pdf::text(&document).contains("verwijderd"));
 }
+
+#[test]
+fn erased_customers_come_last_in_a_slot() {
+    let mut erased = order(1, "-", None, OrderStatus::Paid, &[("Desem", 1)]);
+    erased.customer_erased = true;
+    let mut orders = vec![
+        erased,
+        order(2, "Zoë Test", None, OrderStatus::Paid, &[("Desem", 1)]),
+        order(3, "anna Test", None, OrderStatus::Paid, &[("Desem", 1)]),
+    ];
+    crate::pickup::sort_orders(&mut orders);
+    let seqs: Vec<i32> = orders.iter().map(|o| o.number.seq).collect();
+    assert_eq!(seqs, [3, 2, 1]);
+}

@@ -112,18 +112,22 @@ pub async fn pickup_list(conn: &mut PgConnection, day: BakeDayId) -> Result<Pick
     }
     tx.commit().await?;
     for slot in &mut slots {
-        slot.orders.sort_by(|a, b| {
-            a.customer_erased
-                .cmp(&b.customer_erased)
-                .then_with(|| {
-                    a.customer_name
-                        .to_lowercase()
-                        .cmp(&b.customer_name.to_lowercase())
-                })
-                .then(a.number.cmp(&b.number))
-        });
+        sort_orders(&mut slot.orders);
     }
     Ok(PickupList { day, slots })
+}
+
+pub(crate) fn sort_orders(orders: &mut [PickupOrder]) {
+    orders.sort_by(|a, b| {
+        a.customer_erased
+            .cmp(&b.customer_erased)
+            .then_with(|| {
+                a.customer_name
+                    .to_lowercase()
+                    .cmp(&b.customer_name.to_lowercase())
+            })
+            .then(a.number.cmp(&b.number))
+    });
 }
 
 /// The pickup list as an A4 PDF, with a box to tick per order.
