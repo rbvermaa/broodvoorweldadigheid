@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE reach (version_id) AS (\n            SELECT $1::bigint\n            UNION\n            SELECT l.sub_recipe_version_id\n            FROM recipe_line l JOIN reach r ON l.recipe_version_id = r.version_id\n            WHERE l.sub_recipe_version_id IS NOT NULL\n        )\n        UPDATE recipe_version\n        SET frozen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        WHERE id IN (SELECT version_id FROM reach) AND frozen_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01f4d8009a5c068c8d97b361d9dcbf6bffbc063c9f17f078cb72b95c06d4d0d4"
+}
