@@ -315,3 +315,83 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn grams_become_a_percentage_at_the_current_scale() {
+    let dough = Formula {
+        lines: vec![flour(100), water(75), salt(2)],
+    };
+    assert_eq!(dough.line_sum(), 177_000);
+    assert_eq!(
+        recipes::pct_for_grams(22, 1770, dough.line_sum()),
+        Some(Pct::from_thousandths(2200))
+    );
+    assert_eq!(
+        recipes::pct_for_grams(1, 3, 1),
+        Some(Pct::from_thousandths(0))
+    );
+    assert_eq!(
+        recipes::pct_for_grams(2, 3, 1),
+        Some(Pct::from_thousandths(1))
+    );
+    assert_eq!(recipes::pct_for_grams(5, 0, 177_000), None);
+    assert_eq!(recipes::pct_for_grams(5, 1770, 0), None);
+    assert_eq!(recipes::dough_for_sum(1770, 177_000, 177_200), 1772);
+    assert_eq!(recipes::dough_for_sum(1770, 0, 177_200), 1770);
+
+    let scaled = dough.scale(1770).unwrap();
+    let leaves = recipes::leaf_grams(&scaled);
+    assert_eq!(
+        (leaves.flour, leaves.water, leaves.prefermented_flour),
+        (1000, 750, 0)
+    );
+    let with_levain = Formula {
+        lines: vec![flour(90), water(65), levain(20)],
+    };
+    let leaves = recipes::leaf_grams(&with_levain.scale(1750).unwrap());
+    assert_eq!(
+        (leaves.flour, leaves.water, leaves.prefermented_flour),
+        (1000, 750, 100)
+    );
+}
+
+proptest! {
+    /// Typing grams on a line stores a percentage; scaled back at the dough weight that
+    /// keeps the other lines' grams, the line weighs what was typed, within half the
+    /// grams of 0.001% (the percentage's rounding) plus 1.5 g (whole grams, ADR 0037).
+    #[test]
+    fn grams_to_percentage_to_grams_stays_within_the_rounding_bound(
+        pcts in prop::collection::vec(1u32..=300_000, 1..12),
+        index in 0usize..12,
+        dough in 1u64..=1_000_000,
+        typed in 0u64..=200_000,
+    ) {
+        let index = index % pcts.len();
+        let lines: Vec<Line> = pcts
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| Line {
+                pct: Pct::from_thousandths(p),
+                part: Part::Ingredient(IngredientRef {
+                    id: IngredientId::new(i64::try_from(i).unwrap()),
+                    name: format!("Ingrediënt {i}"),
+                    role: IngredientRole::Other,
+                }),
+            })
+            .collect();
+        let before = Formula { lines };
+        let sum = before.line_sum();
+        let pct = recipes::pct_for_grams(typed, dough, sum).unwrap();
+        prop_assume!(pct.thousandths() > 0);
+        let mut after = before.clone();
+        after.lines[index].pct = pct;
+        let new_sum = after.line_sum();
+        let new_dough = recipes::dough_for_sum(dough, sum, new_sum);
+        let scaled = after.scale(new_dough).unwrap();
+        let got = scaled[index].grams;
+        // |got - typed| <= dough / (2 sum) + 1.5, in integers.
+        let lhs = 2 * u128::from(sum) * u128::from(got.abs_diff(typed));
+        let rhs = u128::from(dough) + 3 * u128::from(sum);
+        prop_assert!(lhs <= rhs, "typed {typed} g, got {got} g at {new_dough} g");
+    }
+}

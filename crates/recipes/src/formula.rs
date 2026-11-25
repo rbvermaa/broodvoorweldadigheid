@@ -226,16 +226,11 @@ impl Formula {
     /// [`ScaleError::Empty`] as for [`Formula::scale`].
     pub fn analysis(&self) -> Result<Analysis, ScaleError> {
         let scaled = self.scale(REFERENCE_GRAMS)?;
-        let mut sums = Sums::default();
-        add_up(&scaled, false, &mut sums);
-        let line_sum: u64 = self
-            .lines
-            .iter()
-            .map(|line| u64::from(line.pct.thousandths()))
-            .sum();
+        let sums = leaf_grams(&scaled);
+        let line_sum = self.line_sum();
         Ok(Analysis {
             hydration: percent_of(sums.water, sums.flour),
-            prefermented_flour: percent_of(sums.preferment_flour, sums.flour),
+            prefermented_flour: percent_of(sums.prefermented_flour, sums.flour),
             total_flour: rounded(
                 u128::from(sums.flour) * u128::from(line_sum),
                 u128::from(REFERENCE_GRAMS),
@@ -243,27 +238,71 @@ impl Formula {
             .unwrap_or_default(),
         })
     }
+
+    /// The percentages of the recipe's own lines added up, in thousandths.
+    #[must_use]
+    pub fn line_sum(&self) -> u64 {
+        self.lines
+            .iter()
+            .map(|line| u64::from(line.pct.thousandths()))
+            .sum()
+    }
+}
+
+/// The percentage that makes a line weigh `grams` in a dough of `dough_grams` whose
+/// lines add up to `line_sum` thousandths, rounded half up to 0.001%. `None` without a
+/// dough weight or lines.
+#[must_use]
+pub fn pct_for_grams(grams: u64, dough_grams: u64, line_sum: u64) -> Option<Pct> {
+    if line_sum == 0 {
+        return None;
+    }
+    rounded(
+        u128::from(grams) * u128::from(line_sum),
+        u128::from(dough_grams),
+    )
+}
+
+/// The dough weight once the lines' sum goes from `old_sum` to `new_sum` and the grams
+/// per percent stay the same, rounded half up. Unchanged without an old sum.
+#[must_use]
+pub fn dough_for_sum(dough_grams: u64, old_sum: u64, new_sum: u64) -> u64 {
+    if old_sum == 0 {
+        return dough_grams;
+    }
+    let numerator = u128::from(dough_grams) * u128::from(new_sum);
+    let denominator = u128::from(old_sum);
+    u64::try_from((numerator * 2 + denominator) / (denominator * 2)).unwrap_or(u64::MAX)
 }
 
 /// The dough weight [`Formula::analysis`] scales to: large enough that whole-unit
 /// rounding is far below the 0.001% the results show.
 const REFERENCE_GRAMS: u64 = 1_000_000_000_000;
 
-#[derive(Default)]
-struct Sums {
-    flour: u64,
-    water: u64,
-    preferment_flour: u64,
+/// Flour and water over all leaves of a scaled formula, sub-recipes included.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LeafGrams {
+    pub flour: u64,
+    pub water: u64,
+    /// Flour inside recipes of kind [`RecipeKind::Preferment`].
+    pub prefermented_flour: u64,
 }
 
-fn add_up(scaled: &[Scaled<'_>], in_preferment: bool, sums: &mut Sums) {
+#[must_use]
+pub fn leaf_grams(scaled: &[Scaled<'_>]) -> LeafGrams {
+    let mut sums = LeafGrams::default();
+    add_up(scaled, false, &mut sums);
+    sums
+}
+
+fn add_up(scaled: &[Scaled<'_>], in_preferment: bool, sums: &mut LeafGrams) {
     for line in scaled {
         match &line.line.part {
             Part::Ingredient(ingredient) => match ingredient.role {
                 IngredientRole::Flour => {
                     sums.flour += line.grams;
                     if in_preferment {
-                        sums.preferment_flour += line.grams;
+                        sums.prefermented_flour += line.grams;
                     }
                 }
                 IngredientRole::Water => sums.water += line.grams,

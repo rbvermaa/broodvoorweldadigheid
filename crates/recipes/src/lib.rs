@@ -13,14 +13,14 @@ pub mod rollup;
 
 pub use error::Error;
 pub use formula::{
-    Analysis, Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind, ScaleError,
-    Scaled, SubRecipe, ingredient_totals,
+    Analysis, Formula, IngredientRef, IngredientRole, LeafGrams, Line, Part, Pct, RecipeKind,
+    ScaleError, Scaled, SubRecipe, dough_for_sum, ingredient_totals, leaf_grams, pct_for_grams,
 };
 pub use ingredients::{Ingredient, IngredientInput};
 pub use needs::{DoughGrams, Need, ProductRecipe, RecipeInUse, shopping_list};
 pub use recipes::{
-    DraftInput, LineInput, LinePart, LineRow, LinkedProduct, Promotion, Recipe, RecipeInput,
-    RecipeSummary, SubChoice, Version,
+    DraftInput, LineEdit, LineInput, LinePart, LineRow, LinkedProduct, Promotion, Recipe,
+    RecipeInput, RecipeSummary, SubChoice, Version,
 };
 
 /// How many levels of sub-recipes a recipe may have below it.
