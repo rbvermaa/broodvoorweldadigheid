@@ -87,11 +87,11 @@ impl DoughCost {
         }
     }
 
-    /// Ingredients without a price on the date.
+    /// Ingredients used without a price on the date; a line of 0 g needs none.
     pub fn missing(&self) -> impl Iterator<Item = &IngredientRef> {
         self.lines
             .iter()
-            .filter(|line| line.per_kg.is_none())
+            .filter(|line| line.per_kg.is_none() && line.grams > 0)
             .map(|line| &line.ingredient)
     }
 
@@ -99,7 +99,7 @@ impl DoughCost {
     #[must_use]
     pub fn total(&self) -> Option<MilliCents> {
         self.lines.iter().try_fold(MilliCents::ZERO, |sum, line| {
-            line.per_kg.map(|_| MilliCents(sum.0 + line.cost.0))
+            (line.per_kg.is_some() || line.grams == 0).then_some(MilliCents(sum.0 + line.cost.0))
         })
     }
 }

@@ -39,7 +39,9 @@ value. A property test checks both. More good pieces than planned gives a negati
 yield part.
 
 **F11e.** "Your contribution" now prices an order line per drop with
-`production::costing::unit_costs`. When the drop has baked batches of the product with
+`production::costing::unit_costs`. The cost per piece is rounded half up to cents and
+then multiplied by the pieces sold, as the estimate was; a drop can be off by under half a
+cent per piece. When the drop has baked batches of the product with
 good pieces, the cost per piece is all their cost over all their good pieces; batches that
 were all waste count too, so a lost batch is still a cost. A batch with several products
 shares its cost by the dough of their good pieces (planned pieces when none came out

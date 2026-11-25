@@ -245,3 +245,15 @@ proptest! {
         prop_assert_eq!(v.actual.cents(), round_div(s3, 1000));
     }
 }
+
+#[test]
+fn a_line_left_out_needs_no_price() {
+    // The baker set salt to 0%: it weighs nothing and has no price.
+    let formula = Formula {
+        lines: vec![leaf(1, 100_000), leaf(2, 75_000), leaf(3, 0)],
+    };
+    let dough = DoughGrams::from_formula(&formula, 1750).unwrap();
+    let cost = DoughCost::new(&dough, &prices(&[(1, 100), (2, 0)]));
+    assert_eq!(cost.missing().count(), 0);
+    assert_eq!(cost.total().unwrap().cents(), cents(100));
+}
