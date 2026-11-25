@@ -12,10 +12,13 @@ use db::time::{from_epoch_days, from_micros, to_epoch_days, to_micros};
 use domain::{
     BakeDayId, BatchId, BatchLineId, Clock, IngredientId, ProductId, RecipeId, RecipeVersionId,
 };
+use i18n::{FluentArgs, Translator};
 use jiff::Timestamp;
 use jiff::civil::Date;
 use orders::audit::{self, Actor, Entry};
-use recipes::{Formula, IngredientRef, Line, Part, Pct, RecipeKind, SubRecipe};
+use recipes::{
+    Formula, IngredientRef, Line, LineInput, LinePart, Part, Pct, Promotion, RecipeKind, SubRecipe,
+};
 use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 
@@ -727,6 +730,138 @@ pub async fn formula(conn: &mut PgConnection, batch: &Batch) -> Result<Formula, 
         });
     }
     Ok(Formula { lines })
+}
+
+/// The formula a promotion saves (F14b): the batch's lines above 0%, in order, with their
+/// actual percentages unchanged. A sub-recipe line keeps the frozen version it points at.
+/// Nothing is rescaled, so the grams for any dough weight are those of the batch.
+#[must_use]
+pub fn promoted_formula(formula: &Formula) -> Formula {
+    Formula {
+        lines: formula
+            .lines
+            .iter()
+            .filter(|line| line.pct.thousandths() > 0)
+            .cloned()
+            .collect(),
+    }
+}
+
+/// The lines of a formula as a recipe version stores them.
+#[must_use]
+pub fn version_lines(formula: &Formula) -> Vec<LineInput> {
+    formula
+        .lines
+        .iter()
+        .map(|line| LineInput {
+            pct: line.pct,
+            part: match &line.part {
+                Part::Ingredient(ingredient) => LinePart::Ingredient(ingredient.id),
+                Part::Sub(sub) => LinePart::Sub(sub.version_id),
+            },
+        })
+        .collect()
+}
+
+/// The reasons given for the batch's line changes, oldest first, each once. The audit log
+/// keeps reasons a later save cleared from the lines.
+async fn line_reasons(conn: &mut PgConnection, id: BatchId) -> Result<Vec<String>, Error> {
+    let mut reasons: Vec<String> = Vec::new();
+    for entry in audit::history(conn, AUDIT_ENTITY, id.get()).await? {
+        if !matches!(entry.action.as_str(), "line" | "add_line") {
+            continue;
+        }
+        let reason = entry
+            .after
+            .as_ref()
+            .and_then(|after| after.get("reason"))
+            .and_then(|reason| reason.as_str());
+        if let Some(reason) = reason
+            && !reasons.iter().any(|r| r == reason)
+        {
+            reasons.push(reason.to_owned());
+        }
+    }
+    Ok(reasons)
+}
+
+/// The version saved from this batch, if any.
+///
+/// # Errors
+/// [`Error::Recipes`].
+pub async fn promoted_version(
+    conn: &mut PgConnection,
+    id: BatchId,
+) -> Result<Option<recipes::Version>, Error> {
+    Ok(recipes::recipes::promoted_from(conn, id).await?)
+}
+
+/// Saves the batch's formula as the next version of its recipe, a draft that is not in use
+/// yet (F14b). The version notes keep the batch code and the reasons for the changes.
+/// Promoting a batch again returns the version made the first time.
+///
+/// # Errors
+/// [`Error::Invalid`] with `unchanged` when the formula is the same as the version the
+/// batch was made from; [`Error::Recipes`] with `DraftExists` when the recipe has a draft.
+pub async fn promote(
+    conn: &mut PgConnection,
+    id: BatchId,
+    t: &Translator,
+    actor: Actor,
+    clock: &dyn Clock,
+) -> Result<recipes::Version, Error> {
+    let mut tx = conn.begin().await?;
+    lock(&mut tx, id).await?;
+    if let Some(done) = recipes::recipes::promoted_from(&mut tx, id).await? {
+        return Ok(done);
+    }
+    let batch = get(&mut tx, id).await?;
+    let lines = version_lines(&promoted_formula(&formula(&mut tx, &batch).await?));
+    if lines == recipes::recipes::lines(&mut tx, batch.recipe_version_id).await? {
+        return Err(Error::Invalid("unchanged"));
+    }
+    let base = recipes::recipes::version(&mut tx, batch.recipe_id, batch.recipe_version_id).await?;
+    let mut args = FluentArgs::new();
+    args.set("code", batch.code.to_string());
+    args.set("n", base.version);
+    let mut notes = t.t("batch-promote-note", Some(&args))?;
+    let reasons = line_reasons(&mut tx, id).await?;
+    if !reasons.is_empty() {
+        notes.push('\n');
+        notes.push_str(&t.t("batch-promote-reasons", None)?);
+        for reason in reasons {
+            notes.push_str("\n- ");
+            notes.push_str(&reason);
+        }
+    }
+    if !base.notes.trim().is_empty() {
+        notes = format!("{}\n\n{notes}", base.notes.trim_end());
+    }
+    let version = recipes::recipes::promote(
+        &mut tx,
+        &Promotion {
+            batch_id: id,
+            base: batch.recipe_version_id,
+            lines,
+            notes,
+        },
+    )
+    .await?;
+    audit::record(
+        &mut tx,
+        &Entry {
+            entity: AUDIT_ENTITY,
+            entity_id: id.get(),
+            action: "promote",
+            before: None,
+            after: Some(json!({ "recipe_version_id": version.id.get() })),
+            actor,
+            at: clock.now(),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(version)
 }
 
 /// Every batch of a bake day with its dough weight and formula, by code. Ingredient needs

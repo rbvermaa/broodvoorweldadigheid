@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use domain::{Clock, IngredientId, ProductId, RecipeId, RecipeVersionId};
+use domain::{BatchId, Clock, IngredientId, ProductId, RecipeId, RecipeVersionId};
 use jiff::Timestamp;
 use sqlx::{Acquire, PgConnection};
 
@@ -51,6 +51,8 @@ pub struct Version {
     /// Information for the baker only; it drives no deadline (ADR 0027).
     pub lead_time_hours: Option<i32>,
     pub notes: String,
+    /// The batch whose formula this version was saved from (F14b).
+    pub promoted_from_batch_id: Option<BatchId>,
 }
 
 impl Version {
@@ -125,6 +127,7 @@ struct VersionRow {
     frozen_at_us: Option<i64>,
     lead_time_hours: Option<i32>,
     notes: String,
+    promoted_from_batch_id: Option<i64>,
 }
 
 impl TryFrom<VersionRow> for Version {
@@ -138,6 +141,7 @@ impl TryFrom<VersionRow> for Version {
             frozen_at: row.frozen_at_us.map(db::time::from_micros).transpose()?,
             lead_time_hours: row.lead_time_hours,
             notes: row.notes,
+            promoted_from_batch_id: row.promoted_from_batch_id.map(BatchId::new),
         })
     }
 }
@@ -310,7 +314,7 @@ pub async fn versions(conn: &mut PgConnection, recipe_id: RecipeId) -> Result<Ve
         VersionRow,
         r#"SELECT id, recipe_id, version,
             (extract(epoch FROM frozen_at) * 1000000)::bigint AS frozen_at_us,
-            lead_time_hours, notes
+            lead_time_hours, notes, promoted_from_batch_id
         FROM recipe_version WHERE recipe_id = $1 ORDER BY version DESC"#,
         recipe_id.get(),
     )
@@ -332,7 +336,7 @@ pub async fn version(
         VersionRow,
         r#"SELECT id, recipe_id, version,
             (extract(epoch FROM frozen_at) * 1000000)::bigint AS frozen_at_us,
-            lead_time_hours, notes
+            lead_time_hours, notes, promoted_from_batch_id
         FROM recipe_version WHERE id = $1 AND recipe_id = $2"#,
         id.get(),
         recipe_id.get(),
@@ -699,6 +703,87 @@ pub async fn new_version(conn: &mut PgConnection, recipe_id: RecipeId) -> Result
     let draft = version(&mut tx, recipe_id, id).await?;
     tx.commit().await?;
     Ok(draft)
+}
+
+/// A batch's formula to save as the next version of the recipe of `base`, the version the
+/// batch was made from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Promotion {
+    pub batch_id: BatchId,
+    pub base: RecipeVersionId,
+    pub lines: Vec<LineInput>,
+    pub notes: String,
+}
+
+/// The version saved from this batch, if any.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn promoted_from(
+    conn: &mut PgConnection,
+    batch_id: BatchId,
+) -> Result<Option<Version>, Error> {
+    sqlx::query_as!(
+        VersionRow,
+        r#"SELECT id, recipe_id, version,
+            (extract(epoch FROM frozen_at) * 1000000)::bigint AS frozen_at_us,
+            lead_time_hours, notes, promoted_from_batch_id
+        FROM recipe_version WHERE promoted_from_batch_id = $1
+        ORDER BY version LIMIT 1"#,
+        batch_id.get(),
+    )
+    .fetch_optional(conn)
+    .await?
+    .map(Version::try_from)
+    .transpose()
+}
+
+/// Saves a batch's formula as a new draft, the next version of the recipe, with the
+/// lead time of `base` (F14b). It does not become the version in use. Promoting the same
+/// batch again returns the version made the first time.
+///
+/// # Errors
+/// [`Error::NotFound`] for an unknown base; [`Error::DraftExists`] when the recipe already
+/// has a draft; [`Error::Invalid`] or [`Error::Nesting`] as for [`save_draft`].
+pub async fn promote(conn: &mut PgConnection, promotion: &Promotion) -> Result<Version, Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    let base = sqlx::query!(
+        "SELECT recipe_id, lead_time_hours FROM recipe_version WHERE id = $1",
+        promotion.base.get(),
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let recipe_id = RecipeId::new(base.recipe_id);
+    lock_recipe(&mut tx, recipe_id).await?;
+    if let Some(done) = promoted_from(&mut tx, promotion.batch_id).await? {
+        return Ok(done);
+    }
+    if let Some(draft) = draft_of(&mut tx, recipe_id).await? {
+        return Err(Error::DraftExists(draft));
+    }
+    if promotion.lines.is_empty() {
+        return Err(Error::Invalid("lines"));
+    }
+    validate_draft(&DraftInput {
+        lines: promotion.lines.clone(),
+        lead_time_hours: base.lead_time_hours,
+        notes: String::new(),
+    })?;
+    let id = insert_next(&mut tx, recipe_id, base.lead_time_hours, &promotion.notes).await?;
+    sqlx::query!(
+        "UPDATE recipe_version SET promoted_from_batch_id = $2 WHERE id = $1",
+        id.get(),
+        promotion.batch_id.get(),
+    )
+    .execute(&mut *tx)
+    .await?;
+    replace_lines(&mut tx, recipe_id, id, &promotion.lines).await?;
+    formula(&mut tx, id).await?;
+    let saved = version(&mut tx, recipe_id, id).await?;
+    tx.commit().await?;
+    Ok(saved)
 }
 
 /// Freezes a version and every sub-recipe version it uses, so its formula never changes.

@@ -45,6 +45,16 @@
 {% call b::button(layout.t("batch-mix")?, opens = "mengen") %}{% endcall %}
 {% call d::confirm_dialog("mengen", layout.t("batch-mix")?, mix_text, layout.t("batch-mix-confirm")?, mix_action) %}{% endcall %}
 {% endif %}
+{% if let Some((text, link)) = promoted %}
+<p>{{ text }} <a href="{{ link }}">{{ layout.t("batch-promoted-link")? }}</a></p>
+{% else if promotable %}
+<h2>{{ layout.t("batch-promote-title")? }}</h2>
+<p class="field-hint">{{ layout.t("batch-promote-hint")? }}</p>
+<form method="post" action="{{ promote_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call b::button(layout.t("batch-promote")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
 {% if locked %}
 <h2>{{ layout.t("batch-actuals-title")? }}</h2>
 <p class="field-hint">{{ layout.t("batch-actuals-hint")? }}</p>

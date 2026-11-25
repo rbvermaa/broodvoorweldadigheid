@@ -39,3 +39,16 @@ Open:
   with those slices.
 - `RecipeVersion.bake_loss_pct` is still not stored; yield from actuals comes with costing
   (F16).
+
+**Promoting a batch (F14b, amended 2026-11-25).** `production::batches::promote` saves a
+batch's formula as the next recipe version (ADR 0037). Mapping rule: the batch keeps the
+version's structure (top-level lines, sub-recipe lines pointing at their frozen version),
+so the new version gets the batch's lines above 0%, in order, with their actual
+percentages unchanged; a sub-recipe line keeps its frozen version even when that recipe
+has a newer one. Nothing is renormalised to 100% flour: the percentages are already in
+the overall-formula convention of ADR 0037, and copying them gives exactly the batch's
+grams at any dough weight (property test). A batch that added flour shows a total flour
+above 100% on the new version, with the usual warning. Any batch status can be promoted,
+also before mixing. The batch page shows the button when a line differs from the
+recipe, and a link to the version once promoted. Production permission, as every batch
+screen.

@@ -86,3 +86,17 @@ batches-unbatched = { $n ->
 product-dough-weight = Deeg per stuk (gram)
 product-dough-weight-hint = Nodig voor batches. Leeg of 0 als het product geen deeg heeft.
 product-error-dough-weight = Vul het deeggewicht in gram in, van 0 tot 1.000.000.
+
+# Batch page: save the batch's formula as the next recipe version (F14b)
+batch-promote-title = Nieuwe receptversie
+batch-promote-hint = Bevalt deze aanpassing? Sla de regels van deze batch op als de volgende versie van het recept. Die wordt een concept; je neemt hem zelf in gebruik.
+batch-promote = Opslaan als nieuwe receptversie
+# $n: 4
+batch-promoted = Opgeslagen als versie { $n } van het recept.
+batch-promoted-link = Naar de receptversie
+batch-promote-unchanged = Deze batch is gelijk aan het recept. Er is niets om op te slaan.
+# $n: 4
+batch-promote-draft-exists = Er is al een concept: versie { $n }. Zet dat eerst vast of pas het aan.
+# Version notes of a version saved from a batch. $code: 261205-2, $n: 3
+batch-promote-note = Opgeslagen uit batch { $code } (gemaakt met versie { $n }).
+batch-promote-reasons = Redenen voor de aanpassing:

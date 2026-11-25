@@ -50,7 +50,7 @@ fn recipe_path(id: RecipeId) -> String {
     format!("{LIST}/{}", id.get())
 }
 
-fn version_path(recipe: RecipeId, version: RecipeVersionId) -> String {
+pub(super) fn version_path(recipe: RecipeId, version: RecipeVersionId) -> String {
     format!("{LIST}/{}/versions/{}", recipe.get(), version.get())
 }
 

@@ -381,6 +381,7 @@ async fn counter_staff_cannot_see_or_change_batches(pool: PgPool) {
         format!("{batch}/lines"),
         format!("{batch}/mixed"),
         format!("{batch}/actuals"),
+        format!("{batch}/promote"),
     ] {
         let reply = counter.post(&path, &[("pieces", "10")]).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{path}");
@@ -403,6 +404,7 @@ async fn changes_need_the_csrf_token(pool: PgPool) {
         format!("{batch}/lines"),
         format!("{batch}/mixed"),
         format!("{batch}/actuals"),
+        format!("{batch}/promote"),
     ] {
         let reply = baker.post_raw(&path, &[("pieces", "10")]).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{path}");
@@ -623,4 +625,93 @@ async fn baker_starts_a_batch_by_hand(pool: PgPool) {
         ))
         .await;
     assert_eq!(other_day.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn baker_saves_an_adjusted_batch_as_the_next_recipe_version(pool: PgPool) {
+    let app = app(pool.clone());
+    let b = bakery(&pool, &app.clock).await;
+    let id = manual_batch(&pool, &b, &app.clock).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let batch = stored(&pool, id).await;
+    let path = batch_path(b.day, id);
+    let promote = format!("{path}/promote");
+
+    let unchanged = owner.post(&promote, &[]).await;
+    assert_eq!(unchanged.status, StatusCode::UNPROCESSABLE_ENTITY);
+    unchanged.shows(&dutch("batch-promote-unchanged"));
+
+    let pct = |i: usize| format!("pct-{}", batch.lines[i].id.get());
+    let pieces = format!("pieces-{}", b.bread.get());
+    owner
+        .post(
+            &path,
+            &[
+                (pct(0).as_str(), "100"),
+                (pct(1).as_str(), "72,5"),
+                (pct(2).as_str(), "2"),
+                (pieces.as_str(), "10"),
+                ("reason", "nieuwe bloem"),
+            ],
+        )
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    owner.get(&path).await.shows(&dutch("batch-promote"));
+
+    let reply = owner.post(&promote, &[]).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let version = batches::promoted_version(&mut conn, id)
+        .await
+        .expect("read")
+        .expect("promoted");
+    drop(conn);
+    let version_path = format!(
+        "/staff/recipes/{}/versions/{}",
+        batch.recipe_id.get(),
+        version.id.get()
+    );
+    reply.redirects_to(&format!("{version_path}?opgeslagen=1"));
+    assert_eq!(version.version, 2);
+    assert!(version.notes.contains("nieuwe bloem"));
+    owner.get(&version_path).await.shows("nieuwe bloem");
+
+    owner
+        .post(&promote, &[])
+        .await
+        .redirects_to(&format!("{version_path}?opgeslagen=1"));
+    let page = owner.get(&path).await;
+    page.shows(&dutch_with("batch-promoted", &[("n", "2")]));
+    page.shows(&version_path);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_recipe_draft_blocks_saving_a_batch_as_a_version(pool: PgPool) {
+    let app = app(pool.clone());
+    let b = bakery(&pool, &app.clock).await;
+    let id = manual_batch(&pool, &b, &app.clock).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let batch = stored(&pool, id).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    batches::adjust(
+        &mut conn,
+        id,
+        &batches::Adjustment {
+            lines: vec![(batch.lines[1].id, Pct::from_thousandths(70_000))],
+            ..batches::Adjustment::default()
+        },
+        orders::audit::Actor::System("test"),
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("adjust");
+    store::new_version(&mut conn, batch.recipe_id)
+        .await
+        .expect("draft");
+    drop(conn);
+
+    let reply = baker
+        .post(&format!("{}/promote", batch_path(b.day, id)), &[])
+        .await;
+    assert_eq!(reply.status, StatusCode::CONFLICT);
+    reply.shows(&dutch_with("batch-promote-draft-exists", &[("n", "2")]));
 }
