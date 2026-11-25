@@ -138,7 +138,10 @@ async fn a_vote_counts_once_its_address_is_confirmed(mut conn: PoolConnection<Po
         polls::confirm_link(&mut conn, &clock, &token)
             .await
             .unwrap(),
-        Link::Open
+        Link::Open {
+            choice: "Spelt".to_owned(),
+            wish: Some("Meer spelt!".to_owned()),
+        }
     );
     let stored: Vec<u8> = sqlx::query_scalar("SELECT confirm_token_hash FROM vote")
         .fetch_one(&mut *conn)

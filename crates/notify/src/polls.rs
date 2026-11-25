@@ -139,9 +139,13 @@ pub enum Voted {
     Counted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Link {
-    Open,
+    /// The poll is open; the choice and wish the link would confirm.
+    Open {
+        choice: String,
+        wish: Option<String>,
+    },
     Closed(PollId),
     /// Unknown, expired or already used.
     Unknown,
@@ -530,7 +534,6 @@ pub async fn vote(
         to: row.email,
         poll: title,
         choice,
-        wish: wish.clone(),
         confirm_url: links.vote_confirm(&token),
     })?;
     outbox::enqueue_expiring(&mut tx, clock, &mail, None, expires).await?;
@@ -630,9 +633,9 @@ pub async fn confirm_link(
     };
     let now = micros(clock.now());
     let found = sqlx::query!(
-        r#"SELECT v.poll_id,
+        r#"SELECT v.poll_id, o.name, v.wish,
             p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond' AS "open!"
-        FROM vote v JOIN poll p ON p.id = v.poll_id
+        FROM vote v JOIN poll p ON p.id = v.poll_id JOIN poll_option o ON o.id = v.poll_option_id
         WHERE v.confirm_token_hash = $1
             AND v.confirm_expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'"#,
         hash,
@@ -641,7 +644,10 @@ pub async fn confirm_link(
     .fetch_optional(conn)
     .await?;
     Ok(match found {
-        Some(row) if row.open => Link::Open,
+        Some(row) if row.open => Link::Open {
+            choice: row.name,
+            wish: row.wish,
+        },
         Some(row) => Link::Closed(PollId::new(row.poll_id)),
         None => Link::Unknown,
     })
@@ -734,6 +740,7 @@ pub async fn forget(
     clock: &dyn Clock,
     email: &str,
 ) -> Result<(), PollError> {
+    let now = micros(clock.now());
     let mut tx = conn.begin().await?;
     sqlx::query!(
         "DELETE FROM vote v USING poll p
@@ -741,15 +748,20 @@ pub async fn forget(
             AND (v.confirmed_at IS NULL
                 OR p.closes_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond')",
         email,
-        micros(clock.now()),
+        now,
     )
     .execute(&mut *tx)
     .await?;
+    // Only what the DELETE left: a vote cast while this runs keeps its address, like one
+    // cast just after the erase.
     sqlx::query!(
-        "UPDATE vote SET email = NULL, wish = NULL, confirm_token_hash = NULL,
+        "UPDATE vote v SET email = NULL, wish = NULL, confirm_token_hash = NULL,
             confirm_expires_at = NULL, confirm_sent_at = NULL
-        WHERE lower(email) = lower($1)",
+        FROM poll p
+        WHERE p.id = v.poll_id AND lower(v.email) = lower($1) AND v.confirmed_at IS NOT NULL
+            AND p.closes_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
         email,
+        now,
     )
     .execute(&mut *tx)
     .await?;

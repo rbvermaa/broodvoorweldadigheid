@@ -265,6 +265,11 @@ async fn a_vote_counts_after_the_confirmation_link_and_its_button(pool: PgPool) 
         "private, no-store"
     );
     assert!(page.body.contains(&format!("action=\"{path}\"")));
+    assert!(page.body.contains("Roggebrood"), "the choice to confirm");
+    assert!(
+        page.body.contains("Meer rogge!"),
+        "and the wish, only for the link holder"
+    );
     assert_eq!(
         counts(&pool, id).await,
         [0, 0],

@@ -96,7 +96,6 @@ email-login-ignore = Heb je niet om deze link gevraagd? Dan kun je deze mail neg
 email-vote-subject = Bevestig je stem: { $poll }
 email-vote-heading = Bevestig je stem
 email-vote-intro = Bedankt voor je stem op { $choice }! Bevestig hem via de knop hieronder, dan telt hij mee. De link werkt 7 dagen, en niet meer als de stemming gesloten is.
-email-vote-wish = Je wens voor de bakker: { $wish }
 email-vote-confirm = Stem bevestigen
 email-vote-ignore = Heb je niet gestemd? Dan kun je deze mail negeren. Er telt dan geen stem en je krijgt geen mails van ons.
 

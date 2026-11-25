@@ -3,6 +3,11 @@
 {% block title %}{{ layout.t("votes-confirm-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("votes-confirm-title")? }}</h1>
+<p>{{ choice }}</p>
+{%- if let Some(wish) = wish %}
+<p>{{ layout.t("votes-confirm-wish")? }}</p>
+<p>{{ wish }}</p>
+{%- endif %}
 <p>{{ layout.t("votes-confirm-text")? }}</p>
 <form method="post" action="{{ action }}">
 {%- if let Some(token) = layout.csrf_token() %}

@@ -107,6 +107,8 @@ struct Message<'a> {
 struct ConfirmPage<'a> {
     layout: Layout<'a>,
     action: String,
+    choice: String,
+    wish: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -461,9 +463,15 @@ async fn confirm_page(
         Err(error) => return server_error(&state, &error),
     };
     match polls::confirm_link(&mut conn, state.clock.as_ref(), &token).await {
-        Ok(Link::Open) => {
+        Ok(Link::Open { choice, wish }) => {
             let csrf = match csrf::token(&session).await {
                 Ok(csrf) => csrf,
+                Err(error) => return server_error(&state, &error),
+            };
+            let mut args = FluentArgs::new();
+            args.set("choice", choice);
+            let choice = match state.i18n.t("votes-confirm-choice", Some(&args)) {
+                Ok(text) => text,
                 Err(error) => return server_error(&state, &error),
             };
             no_store(pages::render(
@@ -472,6 +480,8 @@ async fn confirm_page(
                 &ConfirmPage {
                     layout: Layout::new(&state).with_csrf_token(csrf),
                     action: format!("/stemmen/bevestig/{token}"),
+                    choice,
+                    wish,
                 },
             ))
         }
