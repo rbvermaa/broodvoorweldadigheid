@@ -1121,6 +1121,7 @@ fn order_problem(
         | orders::Error::NotOpen
         | orders::Error::PastDeadline => "b2b-error-day",
         orders::Error::Cart(CartError::Empty) => "b2b-error-empty",
+        orders::Error::Cart(CartError::KitchenAllergensNotApproved) => "b2b-error-kitchen",
         orders::Error::Cart(_) | orders::Error::FreeOrder => "b2b-error-product",
         orders::Error::Invalid(_) => "b2b-error-details",
         _ => return None,

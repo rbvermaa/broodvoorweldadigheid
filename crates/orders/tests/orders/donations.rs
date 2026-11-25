@@ -534,3 +534,18 @@ async fn a_cancelled_orders_saved_donation_moves_without_a_mail(
     };
     assert!(!moved.notify);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_malformed_link_chooses_nothing(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let hospice = charity(&mut conn, "Hospice").await;
+    for token in ["", "te-kort", &"!".repeat(43)] {
+        assert_eq!(
+            choose(&mut conn, Chooser::Link(token), hospice, clock.now())
+                .await
+                .unwrap(),
+            None,
+            "{token:?}"
+        );
+    }
+}

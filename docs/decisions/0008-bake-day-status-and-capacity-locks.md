@@ -58,6 +58,15 @@ The ordering tests are deterministic: they wait until the second session is bloc
 A checkout must also take step 1 (`bake_day` `FOR SHARE`) before it inserts an order,
 so a charity change (`FOR UPDATE` on the same row) waits for it and then counts it.
 
+Update 2026-11-25 (ADR 0038): after its capacity locks a checkout also locks the `product`
+rows of its cart `ORDER BY id FOR SHARE` (`catalog::products::lock_for_order`), then the
+`company` row `FOR SHARE` (`catalog::company::lock_kitchen_may_contain`), and reads the
+allergen approvals only after that. A staff edit that clears an approval (product
+allergens, the kitchen may-contain list) waits for the checkout to commit, so no order is
+placed against an approval revoked while it ran. These rows are leaves in the lock order:
+the staff writes to them are single statements that hold no other lock, so they cannot
+close a cycle with a checkout.
+
 **Orders come in through a trait, read after the locks.** The orders table lives in a
 higher crate, so bakedays cannot query it. Functions that need orders take
 `&impl OrderSource` and call it inside their own transaction (a savepoint when the

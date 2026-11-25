@@ -143,8 +143,8 @@ pub(crate) async fn menu_page(
     };
     let orderable = drop.status == PublicStatus::Open;
     let menu_ids = cart::menu_ids(&drop);
-    let products = match cart::load_products(conn, menu_ids.iter().copied()).await {
-        Ok(products) => products,
+    let shelf = match cart::load_products(conn, menu_ids.iter().copied()).await {
+        Ok(shelf) => shelf,
         Err(err) => return server_error(state, "cannot load products", &err),
     };
     let clock = state.clock.as_ref();
@@ -163,7 +163,7 @@ pub(crate) async fn menu_page(
         .as_ref()
         .map(|menu| {
             menu.iter()
-                .filter_map(|item| products.iter().find(|p| p.id == item.product_id))
+                .filter_map(|item| shelf.find(item.product_id))
                 .map(|product| {
                     let remaining =
                         stock
@@ -177,7 +177,7 @@ pub(crate) async fn menu_page(
                         .as_ref()
                         .and_then(|c| c.lines().find(|(id, _)| *id == product.id))
                         .map(|(_, line)| line);
-                    let allergens = ApprovedAllergens::from_catalog(product);
+                    let allergens = ApprovedAllergens::from_catalog(product, &shelf.kitchen);
                     let order = if orderable && allergens.is_some() {
                         let price = match product.pricing {
                             Pricing::Fixed(_) => None,
@@ -217,7 +217,7 @@ pub(crate) async fn menu_page(
         Ok(tiles) => tiles,
         Err(err) => return server_error(state, "cannot show the menu", &err),
     };
-    let cart_products =
+    let cart_shelf =
         match cart::load_products(conn, cart.iter().flat_map(orders::Cart::products)).await {
             Ok(products) => products,
             Err(err) => return server_error(state, "cannot load products", &err),
@@ -237,7 +237,7 @@ pub(crate) async fn menu_page(
                 state,
                 day,
                 cart.as_ref(),
-                &cart_products,
+                &cart_shelf,
                 &menu_ids,
                 orderable,
                 message,
