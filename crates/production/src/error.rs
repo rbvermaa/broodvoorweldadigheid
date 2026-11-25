@@ -22,6 +22,12 @@ pub enum Error {
     Locked,
     #[error("the batch is not mixed yet")]
     NotMixed,
+    /// The batch's product may not get a label (F17).
+    #[error("the label is blocked: {0:?}")]
+    LabelBlocked(crate::label_check::LabelBlock),
+    /// The batch's computed allergen data changed since it was reviewed.
+    #[error("allergen data changed since it was reviewed")]
+    AllergensChanged,
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
     #[error("the CSV could not be made: {0}")]

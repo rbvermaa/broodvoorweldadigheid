@@ -8,6 +8,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+catalog = { path = "../catalog" }
 db = { path = "../db" }
 domain = { path = "../domain" }
 jiff.workspace = true
