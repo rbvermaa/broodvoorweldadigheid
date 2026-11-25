@@ -1,0 +1,25 @@
+---
+source: crates/reports/src/invoice_pdf.rs
+expression: text
+---
+Factuuroverzicht Café Test BV
+Periode: 01-12-2026 t/m 31-12-2026
+Van | Voor
+Brood voor Weldadigheid | Café Test BV
+Majoor van Swietenlaan 15, 8382 CE Frederiksoord | Teststraat 1, 1234 AB Testdorp
+KvK-nummer: 12345678 | KvK-nummer: 87654321
+BTW-id: NL000000000B02 | BTW-id: NL000000000B01
+factuur@example.nl
+Alle bestellingen op rekening die nog niet gefactureerd zijn, per bakdag in de periode. Prijzen zijn excl. 
+BTW.
+Nog te factureren
+Bestelling | Bakdag | Aantal | Product | Prijs per stuk  | BTW-tarief | Omzet excl. BTW | BTW | Omzet incl. BTW
+excl. BTW
+2026-0004 | 05-12-2026 | Desem | 10 | € 4,13 | 9% | € 41,28 | € 3,72 | € 45,00
+2026-0004 | 05-12-2026 | Koekjes | 2 | € 2,75 | 9% | € 5,50 | € 0,50 | € 6,00
+2026-0009 | 12-12-2026 | Bezorging | 1 | € 4,13 | 21% | € 4,13 | € 0,87 | € 5,00
+Totalen per BTW-tarief
+BTW-tarief | Omzet excl. BTW | BTW | Omzet incl. BTW
+9% | € 46,78 | € 4,22 | € 51,00
+21% | € 4,13 | € 0,87 | € 5,00
+Totaal | € 50,91 | € 5,09 | € 56,00

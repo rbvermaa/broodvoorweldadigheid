@@ -3296,10 +3296,13 @@ async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
     let account = business_account(&owner).await;
     let invoice = format!("{account}/invoice");
     let csv = format!("{account}/invoice.csv");
-    assert_eq!(
-        owner.get(&format!("{csv}?van=gisteren")).await.status,
-        StatusCode::BAD_REQUEST
-    );
+    let pdf = format!("{account}/invoice.pdf");
+    for download in [&csv, &pdf] {
+        assert_eq!(
+            owner.get(&format!("{download}?van=gisteren")).await.status,
+            StatusCode::BAD_REQUEST
+        );
+    }
     let list = baker.get("/staff/business-accounts").await;
     assert_eq!(list.status, StatusCode::OK);
     list.shows(&format!("href=\"{account}/order\""));
@@ -3318,6 +3321,7 @@ async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
         account.as_str(),
         invoice.as_str(),
         csv.as_str(),
+        pdf.as_str(),
     ] {
         for who in [&baker, &counter] {
             assert_eq!(who.get(url).await.status, StatusCode::FORBIDDEN, "{url}");
@@ -3481,6 +3485,19 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     assert_eq!(csv.status, StatusCode::OK);
     assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
     csv.shows("Desembrood wit;2;5,96;9%;11,93;1,07;13,00");
+
+    overview.shows(&format!(
+        "href=\"{account}/invoice.pdf?van=2026-12-01&tot=2026-12-31\""
+    ));
+    let pdf = owner
+        .get(&format!(
+            "{account}/invoice.pdf?van=2026-12-01&tot=2026-12-31"
+        ))
+        .await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(pdf.header("cache-control"), "private, no-store");
+    assert!(pdf.text.starts_with("%PDF-"));
 
     let mark = format!("{account}/invoices");
     let id = order_id.to_string();

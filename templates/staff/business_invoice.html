@@ -18,6 +18,7 @@
 {% call tb::table(lines) %}{% endcall %}
 {% call tb::table(totals) %}{% endcall %}
 <p><a href="{{ csv }}">{{ layout.t("b2b-invoice-csv")? }}</a></p>
+<p><a href="{{ pdf }}">{{ layout.t("b2b-invoice-pdf")? }}</a></p>
 {% endif %}
 {% if let Some(form) = form %}
 <h2>{{ layout.t("b2b-invoice-mark")? }}</h2>

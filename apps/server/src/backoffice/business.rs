@@ -1,5 +1,6 @@
 //! Business customers (F11a): their accounts, staff orders on account, and the overview of
-//! on-account orders to invoice by hand, with its CSV and the form that records an invoice.
+//! on-account orders to invoice by hand, with its CSV and PDF and the form that records an
+//! invoice.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +13,7 @@ use bakedays::{days, pickup, range};
 use domain::{BakeDayId, BusinessAccountId, OrderId, PickupSlotId, ProductId, VatRate};
 use orders::audit::Actor;
 use orders::{Cart, CartError, CustomerInput};
+use reports::invoice_pdf;
 use reports::invoices::{
     self, AccountDetails, BusinessAccount, Contact, InvoiceOverview, NewInvoice,
 };
@@ -19,6 +21,7 @@ use serde::Deserialize;
 use tower_sessions::Session;
 
 use super::form::{Errors, Fields, parse_count, parse_date};
+use super::lists::pdf_response;
 use super::orders::order_path;
 use super::reports::{Chosen, PeriodForm, PeriodQuery, choose, csv_response, money, report_error};
 use super::{
@@ -488,6 +491,7 @@ struct InvoicePage<'a> {
     saved: bool,
     problem: String,
     csv: String,
+    pdf: String,
     lines: Table,
     totals: Table,
     form: Option<InvoiceForm>,
@@ -617,6 +621,7 @@ async fn render_invoice(
             ),
             back: path.clone(),
             csv: format!("{path}/invoice.csv?{}", chosen.query()),
+            pdf: format!("{path}/invoice.pdf?{}", chosen.query()),
             period: chosen.form,
             saved: answer.saved,
             problem: answer.problem,
@@ -726,6 +731,39 @@ pub async fn invoice_csv(
             chosen.period.to()
         );
         Ok(csv_response(&file, body))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+pub async fn invoice_pdf(
+    State(state): State<AppState>,
+    staff: Staff,
+    Path(id): Path<String>,
+    Query(query): Query<PeriodQuery>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Invoicing)?;
+        let account = load(&state, &id).await?;
+        let chosen = choose(&state, &query, "", false)?;
+        if !chosen.form.errors.is_empty() {
+            return Ok(pages::error(&state, StatusCode::BAD_REQUEST));
+        }
+        let overview = overview(&state, &account, &chosen).await?;
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let seller = invoice_pdf::seller(&mut conn)
+            .await
+            .map_err(|e| report_error(&state, &e))?;
+        drop(conn);
+        let file = format!(
+            "factuuroverzicht-{}-{}-{}.pdf",
+            account.id.get(),
+            chosen.period.from(),
+            chosen.period.to()
+        );
+        pdf_response(&state, (overview, seller), file, |(overview, seller), t| {
+            invoice_pdf::pdf(overview, seller, t)
+        })
+        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
