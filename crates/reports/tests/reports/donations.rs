@@ -104,6 +104,16 @@ async fn the_public_totals_are_the_owner_reports_minus_requested_refunds(
         .unwrap();
 
     let page = public::donations(&mut conn).await.unwrap();
+    assert!(
+        page.drops.is_empty(),
+        "a drop still taking orders is left out"
+    );
+    assert_eq!(page.total, Amount::Hidden);
+    bakedays::days::close(&mut conn, &clock, drop.day)
+        .await
+        .unwrap();
+
+    let page = public::donations(&mut conn).await.unwrap();
     assert_eq!(page.total, Amount::Shown(net));
     assert_eq!(page.drops.len(), 1);
     assert_eq!(page.drops[0].charity, food_bank);

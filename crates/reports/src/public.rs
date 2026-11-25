@@ -48,10 +48,25 @@ pub struct PublicDonations {
     pub unassigned: Option<Amount>,
 }
 
+/// Only drops whose ordering has closed (`closed` or `done`) count, so a total never moves
+/// with each new order while a visitor watches.
+///
 /// # Errors
 /// [`Error::Db`], [`Error::Corrupt`] or [`Error::Money`].
 pub async fn donations(conn: &mut PgConnection) -> Result<PublicDonations, Error> {
-    let facts = facts::donations(conn, None, None).await?;
+    let closed: BTreeSet<BakeDayId> = sqlx::query_scalar!(
+        "SELECT id FROM bake_day WHERE status IN ('closed', 'done') AND charity_id IS NOT NULL"
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(BakeDayId::new)
+    .collect();
+    let facts: Vec<DonationFact> = facts::donations(conn, None, None)
+        .await?
+        .into_iter()
+        .filter(|f| closed.contains(&f.bake_day_id))
+        .collect();
     summarize(&facts)
 }
 

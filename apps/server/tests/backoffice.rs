@@ -3632,6 +3632,13 @@ async fn more_orders_on(app: &App, paid: &PaidOrder, n: usize) -> Vec<orders::Or
     placed
 }
 
+async fn close_day(app: &App, day: BakeDayId) {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    days::close(&mut conn, app.clock.as_ref(), day)
+        .await
+        .expect("close");
+}
+
 fn visitor(app: &App) -> Client<'_> {
     Client {
         app,
@@ -3644,6 +3651,7 @@ fn visitor(app: &App) -> Client<'_> {
 async fn the_owner_switches_the_public_donation_page_on_and_off(pool: PgPool) {
     let app = app(pool.clone());
     let (_, paid) = charity_order(&app).await;
+    close_day(&app, paid.day).await;
     let visitor = visitor(&app);
     assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
     visitor.get("/faq").await.lacks("href=\"/giften\"");
@@ -3717,6 +3725,11 @@ async fn the_public_donation_page_shows_totals_only_from_five_orders(pool: PgPoo
         .await
         .expect("switch on");
     let owner = staff(&pool, "Eigenaar Eva", Role::Owner).await;
+
+    let open = visitor(&app).get("/giften").await;
+    open.shows(&dutch("giften-empty-title"));
+    open.lacks("Voedselbank");
+    close_day(&app, paid.day).await;
 
     let page = visitor(&app).get("/giften").await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.text);
