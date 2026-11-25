@@ -9,10 +9,11 @@ use orders::Orders;
 use orders::audit::{self, Actor};
 use production::Error;
 use production::batches::{self, Actual, Adjustment, LineRef, Status};
+use recipes::method;
 use recipes::recipes::{self as store};
 use recipes::{
-    DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, Pct, RecipeInput, RecipeKind,
-    ingredient_totals, ingredients,
+    DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, Method, MethodKind, Pct,
+    RecipeInput, RecipeKind, ingredient_totals, ingredients,
 };
 use sqlx::{PgConnection, PgPool};
 use testkit::FakeClock;
@@ -941,5 +942,41 @@ async fn a_promoted_sub_recipe_line_keeps_its_frozen_version(pool: PgPool) {
     assert_eq!(
         grams_by_ingredient(&promoted, batch.dough_g()),
         grams_by_ingredient(&made, batch.dough_g()),
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_promoted_version_keeps_the_instructions(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let seen = method::stamp(&method::method(&mut conn, k.version).await.unwrap());
+    method::set_kind(&mut conn, k.version, &seen, MethodKind::Text)
+        .await
+        .unwrap();
+    method::save_text(&mut conn, k.version, "Vouwen om het half uur.")
+        .await
+        .unwrap();
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    let water = batches::get(&mut conn, id).await.unwrap().lines[1].id;
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(water, pct(70))],
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    let version = batches::promote(&mut conn, id, &dutch(), BAKER, &clock())
+        .await
+        .unwrap();
+    assert_eq!(
+        method::method(&mut conn, version.id).await.unwrap(),
+        Method::Text("Vouwen om het half uur.".to_owned())
     );
 }

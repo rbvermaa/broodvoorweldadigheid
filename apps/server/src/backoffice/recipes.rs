@@ -1,6 +1,7 @@
 //! Recipes, their versions and the scaled formula for a dough weight (F14).
 
 mod editor;
+pub mod method;
 
 use askama::Template;
 use auth::Permission;
@@ -61,6 +62,34 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/recipes/{id}/versions/{version}/search",
             get(editor::search),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/method",
+            post(method::set_kind),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/text",
+            post(method::save_text),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/steps",
+            post(method::add_step),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/steps/{position}",
+            post(method::set_step),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/steps/{position}/remove",
+            post(method::remove_step),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/steps/{position}/up",
+            post(method::step_up),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/steps/{position}/down",
+            post(method::step_down),
         )
         .route(
             "/staff/recipes/{id}/versions/{version}/freeze",

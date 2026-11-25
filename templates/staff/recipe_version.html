@@ -3,6 +3,7 @@
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/layout.html" as l %}
+{% import "components/method.html" as m %}
 {% import "components/recipe.html" as r %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
@@ -14,6 +15,7 @@
 {% call l::split() %}
 <div>
 {% call r::editor(editor) %}{% endcall %}
+{% call m::method(method) %}{% endcall %}
 </div>
 <div>
 {% call fb::alert("info", status) %}{% endcall %}

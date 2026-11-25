@@ -9,11 +9,12 @@ use std::collections::{BTreeSet, HashMap};
 use askama::Template;
 use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect, Response};
 use catalog::products as catalog_products;
 use domain::{Allergen, IngredientId, ProductId, RecipeVersionId};
 use recipes::recipes::{self as store, MAX_LEAD_TIME_HOURS, MAX_LINE_PCT};
+use recipes::schedule::default_start;
 use recipes::{
     Formula, Ingredient, IngredientInput, IngredientRole, Line, LineEdit, LineInput, LinePart,
     Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum, ingredients,
@@ -27,6 +28,9 @@ use super::super::products::AllergenBox;
 use super::super::{
     Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, require, saved, t,
     t_with,
+};
+use super::method::{
+    MethodEditor, MethodState, MethodView, Shown, editor as method_editor, load_view, start_on_page,
 };
 use super::{
     Message, date_text, grams_text, load_version, pct_text, recipe_path, status_text, sub_label,
@@ -260,16 +264,16 @@ fn role_icon(state: &AppState, role: IngredientRole) -> (&'static str, String) {
 }
 
 /// Everything a recipe table needs from the database.
-struct Loaded {
-    recipe: Recipe,
-    version: Version,
+pub(super) struct Loaded {
+    pub(super) recipe: Recipe,
+    pub(super) version: Version,
     formula: Formula,
     frozen_subs: HashMap<RecipeVersionId, bool>,
     subs: Vec<SubChoice>,
     products: Vec<PieceProduct>,
 }
 
-async fn load(state: &AppState, raw_id: &str, raw_version: &str) -> Step<Loaded> {
+pub(super) async fn load(state: &AppState, raw_id: &str, raw_version: &str) -> Step<Loaded> {
     let (recipe, version) = load_version(state, raw_id, raw_version).await?;
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let formula = store::formula(&mut conn, version.id)
@@ -699,6 +703,7 @@ struct VersionPage<'a> {
     facts: Table,
     editor: Editor,
     notes: String,
+    method: MethodView,
 }
 
 fn facts(state: &AppState, loaded: &Loaded) -> Table {
@@ -743,12 +748,20 @@ pub async fn version_page(
     State(state): State<AppState>,
     staff: Staff,
     session: Session,
+    headers: HeaderMap,
+    uri: Uri,
     Path((id, version)): Path<(String, String)>,
     Query(fields): Query<Fields>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
         let loaded = load(&state, &id, &version).await?;
+        let on_page = start_on_page(&headers, &uri);
+        let fields = on_page
+            .as_ref()
+            .and_then(|query| format!("{}?{query}", uri.path()).parse::<Uri>().ok())
+            .and_then(|page| Query::<Fields>::try_from_uri(&page).ok())
+            .map_or(fields, |Query(merged)| merged);
         let scale = Scale::read(&state, &fields, &loaded.products);
         let (recipe, version) = (&loaded.recipe, &loaded.version);
         let path = version_path(recipe.id, version.id);
@@ -769,7 +782,19 @@ pub async fn version_page(
                 add: None,
             },
         );
-        Ok(pages::render(
+        let now = state.clock.now_in_bakery();
+        let method = load_view(
+            &state,
+            version.id,
+            &fields,
+            &Shown {
+                page: path.clone(),
+                form: "schaal",
+                base: &default_start(&now),
+            },
+        )
+        .await?;
+        let mut page = pages::render(
             &state,
             StatusCode::OK,
             &VersionPage {
@@ -793,8 +818,15 @@ pub async fn version_page(
                 facts: facts(&state, &loaded),
                 editor,
                 notes: version.notes.clone(),
+                method,
             },
-        ))
+        );
+        if let Some(value) = on_page.and_then(|q| HeaderValue::try_from(format!("{path}?{q}")).ok())
+        {
+            page.headers_mut()
+                .insert(HeaderName::from_static("hx-replace-url"), value);
+        }
+        Ok(page)
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -810,10 +842,11 @@ struct EditPage<'a> {
     lead_time: String,
     lead_time_error: String,
     notes: String,
+    method: MethodEditor,
 }
 
 /// The edit page after a change, or with what went wrong.
-struct EditView {
+pub(super) struct EditView {
     scale: Scale,
     notice: Option<Message>,
     /// A line change was saved; shown inside the table, which htmx swaps.
@@ -824,6 +857,9 @@ struct EditView {
     lead_time: Option<String>,
     lead_time_error: String,
     notes: Option<String>,
+    pub(super) method: MethodState,
+    /// The steps whose notes are open, as the page posted them.
+    pub(super) open_notes: BTreeSet<usize>,
 }
 
 impl EditView {
@@ -837,6 +873,19 @@ impl EditView {
             lead_time: None,
             lead_time_error: String::new(),
             notes: None,
+            method: MethodState::default(),
+            open_notes: BTreeSet::new(),
+        }
+    }
+
+    /// The page at the scale in `fields`, as it is stored.
+    pub(super) fn read(state: &AppState, fields: &Fields, loaded: &Loaded) -> Self {
+        Self {
+            open_notes: fields
+                .all("notities-open")
+                .filter_map(|v| v.parse().ok())
+                .collect(),
+            ..Self::new(Scale::read(state, fields, &loaded.products))
         }
     }
 
@@ -853,14 +902,14 @@ impl EditView {
 }
 
 /// Who is asking and with which status the page goes back.
-struct Reply<'a> {
-    state: &'a AppState,
-    session: &'a Session,
-    staff: &'a Staff,
-    status: StatusCode,
+pub(super) struct Reply<'a> {
+    pub(super) state: &'a AppState,
+    pub(super) session: &'a Session,
+    pub(super) staff: &'a Staff,
+    pub(super) status: StatusCode,
 }
 
-async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outcome {
+pub(super) async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outcome {
     let state = reply.state;
     let path = version_path(loaded.recipe.id, loaded.version.id);
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
@@ -875,6 +924,18 @@ async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outc
         gram: view.add.gram.clone(),
         suggestions: suggestions(state, reply.staff, &all, &loaded.subs, &view.add),
     });
+    let stored = recipes::method::method(&mut conn, loaded.version.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
+    let method = method_editor(
+        state,
+        &path,
+        view.scale.grams.to_string(),
+        &stored,
+        view.method,
+        &default_start(&state.clock.now_in_bakery()),
+        &view.open_notes,
+    );
     let editor = editor(
         state,
         loaded,
@@ -912,6 +973,7 @@ async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outc
             }),
             lead_time_error: view.lead_time_error,
             notes: view.notes.unwrap_or_else(|| loaded.version.notes.clone()),
+            method,
         },
     ))
 }
@@ -945,7 +1007,7 @@ pub async fn edit_page(
 
 /// A refused change goes back with 422 (409 for a frozen version); htmx gets 200, because
 /// it only swaps 2xx.
-fn refused_status(headers: &HeaderMap, error: Option<&recipes::Error>) -> StatusCode {
+pub(super) fn refused_status(headers: &HeaderMap, error: Option<&recipes::Error>) -> StatusCode {
     if matches!(error, Some(recipes::Error::Frozen)) && !is_htmx(headers) {
         StatusCode::CONFLICT
     } else {

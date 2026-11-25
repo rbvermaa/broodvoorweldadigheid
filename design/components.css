@@ -1060,6 +1060,238 @@ textarea.field-input {
 .recipe-switch .button {
   text-decoration: none;
 }
+
+/* Recipe instructions (templates/components/method.html): text, or steps with times. */
+.method {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 0;
+}
+
+.method h2 {
+  margin: 0;
+}
+
+.method-text {
+  margin: 0;
+  max-width: var(--size-content);
+}
+
+.method-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-4);
+}
+
+.method-start .field {
+  margin: 0;
+}
+
+.method-start .button {
+  margin: 0 0 var(--space-1);
+}
+
+.method-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.method-step {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border-thin) solid var(--color-grey-200);
+}
+
+.method-end {
+  border-top: var(--border-thick) solid var(--color-border);
+  border-bottom: 0;
+  font-weight: var(--font-weight-bold);
+}
+
+.method-time {
+  flex: none;
+  width: calc(var(--space-8) + var(--space-4));
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-bold);
+}
+
+.method-later {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
+.method-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.method-name {
+  font-weight: var(--font-weight-bold);
+}
+
+.method-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.method-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.method-notes {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.method-form {
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--color-grey-400);
+  border-radius: var(--radius-lg);
+}
+
+.method-form textarea {
+  min-height: calc(var(--space-8) + var(--space-8));
+}
+
+.method-step-actions,
+.method-row-tools,
+.method-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.method-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--size-target);
+  min-height: var(--size-target);
+  padding: 0;
+  border: var(--border-thin) solid var(--color-grey-400);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.method-icon-button:hover {
+  background: var(--color-surface-muted);
+}
+
+.method-table .method-col-time {
+  width: 0;
+  white-space: nowrap;
+}
+
+.method-table .method-col-number {
+  width: 0;
+}
+
+.method-table .method-col-number .field-input {
+  width: calc(var(--size-target) + var(--space-6));
+}
+
+.method-table .field-inline,
+.method-add .field-inline {
+  margin: 0;
+}
+
+.method-row tr:first-child td {
+  border-bottom: 0;
+}
+
+.method-row-more td {
+  padding-top: 0;
+}
+
+.method-row-tools {
+  justify-content: space-between;
+}
+
+.method-notes-edit {
+  flex: 1;
+  min-width: 0;
+}
+
+.method-row-tools .method-step-actions {
+  flex: none;
+}
+
+.method-notes-summary {
+  display: block;
+  min-height: var(--size-target);
+  padding: var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.method-notes-edit:not(:has(.method-notes-toggle:checked)) .method-notes-field {
+  display: none;
+}
+
+.method-notes-toggle:focus-visible + .method-notes-summary {
+  outline: var(--border-thick) solid var(--color-ink);
+}
+
+.method-notes-preview {
+  white-space: pre-line;
+}
+
+.method-icon-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.method-add {
+  align-items: flex-end;
+}
+
+.method-add .field {
+  margin: 0;
+}
+
+.method-add-duration {
+  flex: none;
+  width: calc(var(--size-target) + var(--space-7));
+}
+
+.method-table .field-input-number,
+.method-add .field-input-number {
+  padding: var(--space-1) var(--space-2);
+  appearance: textfield;
+}
+
+.method-table .field-input-number::-webkit-inner-spin-button,
+.method-add .field-input-number::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.method-add-name {
+  flex: 1 1 var(--size-tile);
+  min-width: 0;
+}
 /* Layout wrappers (templates/components/layout.html). On a phone they add nothing. */
 @media (min-width: 48rem) {
   .form-grid,

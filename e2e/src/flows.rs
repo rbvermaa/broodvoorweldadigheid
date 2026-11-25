@@ -87,7 +87,9 @@ impl Flow {
             Self::SickDayCancel => "a sick-day cancel refunds and emails the customer (F2)",
             Self::PickupList => "tick an order off the pickup list on a phone, and undo (F8)",
             Self::GalleryAxe => "the gallery passes axe-core (WCAG 2.2 AA)",
-            Self::RecipeEditor => "edit a recipe line and add one by name on a phone (F14)",
+            Self::RecipeEditor => {
+                "edit a recipe line, add one by name and add a step on a phone (F14)"
+            }
         }
     }
 
@@ -577,10 +579,38 @@ async fn recipe_editor(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
     click(driver, &suggestion).await?;
     wait_for_text(driver, "#receptuur tfoot", "1.770").await?;
 
+    click(driver, "#werkwijze input[value=\"steps\"] + button").await?;
+    fill(driver, "#stap-nieuw-naam", "Autolyse").await?;
+    fill(driver, "#stap-nieuw-duur", "30").await?;
+    click(driver, "#werkwijze .method-add button[type=\"submit\"]").await?;
+    wait_for("the saved step", || async {
+        Ok(driver.find(By::Css("#stap-0-naam")).await.ok().map(|_| ()))
+    })
+    .await?;
+    axe(ctx, driver, "recipe steps edit").await?;
+
+    set_value(driver, "#stap-0-duur", "45").await?;
     driver
-        .goto(ctx.url(&format!("{}?gewicht=1770", recipe.path)))
+        .find(By::Css("#stap-0-duur"))
+        .await?
+        .send_keys(Key::Enter)
+        .await?;
+    wait_for("the duration saved from its cell", || async {
+        let minutes: Option<i32> = sqlx::query_scalar(
+            "SELECT duration_min FROM recipe_step WHERE recipe_version_id = $1 AND position = 0",
+        )
+        .bind(recipe.version)
+        .fetch_one(&ctx.pool)
+        .await?;
+        Ok((minutes == Some(45)).then_some(()))
+    })
+    .await?;
+
+    driver
+        .goto(ctx.url(&format!("{}?gewicht=1770&start=21:00", recipe.path)))
         .await?;
     wait_for_text(driver, "#receptuur tfoot", "1.770").await?;
+    wait_for_text(driver, "#werkwijze .method-end", "21:45").await?;
     axe(ctx, driver, "recipe").await
 }
 

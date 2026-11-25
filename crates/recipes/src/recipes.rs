@@ -660,7 +660,9 @@ pub async fn save_draft(
         if let Some(draft) = draft_of(&mut tx, recipe_id).await? {
             return Err(Error::DraftExists(draft));
         }
-        insert_next(&mut tx, recipe_id, input.lead_time_hours, &input.notes).await?
+        let next = insert_next(&mut tx, recipe_id, input.lead_time_hours, &input.notes).await?;
+        crate::method::copy(&mut tx, id, next).await?;
+        next
     } else {
         sqlx::query!(
             "UPDATE recipe_version SET lead_time_hours = $2, notes = $3 WHERE id = $1",
@@ -713,7 +715,10 @@ pub enum LineEdit {
 }
 
 /// Locks a draft for a change to its lines or details and returns its recipe.
-async fn lock_draft(conn: &mut PgConnection, id: RecipeVersionId) -> Result<RecipeId, Error> {
+pub(crate) async fn lock_draft(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+) -> Result<RecipeId, Error> {
     let row = sqlx::query!(
         r#"SELECT recipe_id, frozen_at IS NOT NULL AS "frozen!" FROM recipe_version
         WHERE id = $1 FOR NO KEY UPDATE"#,
@@ -999,6 +1004,7 @@ pub async fn new_version(conn: &mut PgConnection, recipe_id: RecipeId) -> Result
             )
             .execute(&mut *tx)
             .await?;
+            crate::method::copy(&mut tx, RecipeVersionId::new(newest.id), id).await?;
             id
         }
     };
@@ -1081,6 +1087,7 @@ pub async fn promote(conn: &mut PgConnection, promotion: &Promotion) -> Result<V
     )
     .execute(&mut *tx)
     .await?;
+    crate::method::copy(&mut tx, promotion.base, id).await?;
     replace_lines(&mut tx, recipe_id, id, &promotion.lines).await?;
     formula(&mut tx, id).await?;
     let saved = version(&mut tx, recipe_id, id).await?;

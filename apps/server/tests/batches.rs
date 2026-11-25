@@ -713,3 +713,59 @@ async fn a_recipe_draft_blocks_saving_a_batch_as_a_version(pool: PgPool) {
     assert_eq!(reply.status, StatusCode::CONFLICT);
     reply.shows(&dutch_with("batch-promote-draft-exists", &[("n", "2")]));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_batch_page_shows_the_steps_of_its_version_with_times(pool: PgPool) {
+    let app = app(pool.clone());
+    let b = bakery(&pool, &app.clock).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let version: i64 =
+        sqlx::query_scalar("SELECT current_version_id FROM recipe WHERE name = 'Desembrood'")
+            .fetch_one(&mut *conn)
+            .await
+            .expect("version");
+    let version = domain::RecipeVersionId::new(version);
+    let seen = |m: &recipes::Method| recipes::method::stamp(m);
+    let none = recipes::method::method(&mut conn, version)
+        .await
+        .expect("method");
+    recipes::method::set_kind(&mut conn, version, &seen(&none), recipes::MethodKind::Steps)
+        .await
+        .expect("steps");
+    for (name, minutes) in [("Autolyse", 30), ("Bulk", 240)] {
+        let now = recipes::method::method(&mut conn, version)
+            .await
+            .expect("method");
+        let step = recipes::Step {
+            name: name.to_owned(),
+            duration_min: Some(minutes),
+            temperature_c: None,
+            notes: String::new(),
+        };
+        recipes::method::edit_step(
+            &mut conn,
+            version,
+            &seen(&now),
+            recipes::StepEdit::Add(step),
+        )
+        .await
+        .expect("step");
+    }
+    let id = manual_batch(&pool, &b, &app.clock).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = batch_path(b.day, id);
+
+    let page = baker.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows(&dutch("method-title"));
+    page.shows("<span class=\"method-time\">11:00</span>");
+    page.shows("<span class=\"method-time\">11:30</span>");
+    page.shows("<span class=\"method-time\">15:30</span>");
+    page.lacks("action=\"/staff/recipes");
+
+    let late = baker.get(&format!("{path}?start=22:00")).await;
+    late.shows("<span class=\"method-time\">22:30</span>");
+    late.shows(
+        "<span class=\"method-time\">02:30 <span class=\"method-later\">+1 dag</span></span>",
+    );
+}

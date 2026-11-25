@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE recipe_version t SET method_kind = f.method_kind, method_text = f.method_text\n        FROM recipe_version f WHERE f.id = $1 AND t.id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "471826a22dc426eccc36c01816ce330de9e9fda306e40591ccc22b1c0c5e70e8"
+}
