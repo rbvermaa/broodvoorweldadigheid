@@ -115,3 +115,15 @@ Questions about the spec. The spec is only changed when the owner asks.
   `RecipeVersion`?
   **Spec updated 2026-11-24:** F1, data model and the deadline rules. `RecipeVersion` keeps
   its lead time as information only; it no longer drives warnings.
+- [ ] **Spec data model for recipe lines and kinds** (ADR 0037). A sub-recipe line points
+  at a recipe version, so a frozen dough keeps the levain it was frozen with: rename
+  `RecipeLine.sub_recipe_id` to `sub_recipe_version_id`? And add `preferment` and
+  `soaker` to `Recipe.kind` (dough | filling | topping), so prefermented flour can be
+  shown?
+- [ ] **Allergen approval before the roll-up** (ADR 0037). The spec says changing a
+  product's recipe or an ingredient's allergens clears the product's allergen approval.
+  Until F17, product allergens are entered by hand (F10) and nothing is computed from
+  recipes, so this slice does not clear the approval when a recipe is linked or an
+  ingredient's allergens change. Clear it now already, or wait for F17?
+  **Status: block and ask.** The owner has been asked; the answer is pending. Until then
+  nothing computed from recipes is published or printed.
