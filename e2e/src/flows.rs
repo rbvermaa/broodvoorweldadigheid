@@ -2,16 +2,19 @@ use std::path::PathBuf;
 
 use domain::OrderId;
 use i18n::{FluentArgs, Translator};
+use orders::OrderStatus;
 use serde_json::Value;
 use sqlx::PgPool;
 use thirtyfour::prelude::*;
 
-use crate::browser::{firefox, wait_for, wait_for_text};
-use crate::mollie::{CHECKOUT_BASE, MockMollie, on_server};
-use crate::{Error, seed};
+use crate::Error;
+use crate::browser::{
+    LAPTOP, PHONE, choose, click, fill, firefox, path, set_value, wait_for, wait_for_text,
+};
+use crate::mollie::{CHECKOUT_BASE, MockMollie, Payment, on_server};
+use crate::seed::{self, OpenDrop};
 
 const CUSTOMER_NAME: &str = "Test Klant";
-const CUSTOMER_EMAIL: &str = "klant@example.org";
 
 /// The WCAG 2.2 AA rule sets of axe-core.
 const AXE_TAGS: &str = r#"["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]"#;
@@ -41,22 +44,54 @@ impl Ctx {
     fn url(&self, path: &str) -> String {
         format!("{}{path}", self.server.trim_end_matches('/'))
     }
+
+    async fn order_status(&self, order: i64) -> Result<OrderStatus, Error> {
+        let mut conn = self.pool.acquire().await?;
+        Ok(orders::order::get(&mut conn, OrderId::new(order))
+            .await?
+            .status)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Flow {
     BuyALoaf,
+    StaffBakeDay,
+    CustomerLogin,
+    ChooseCharity,
+    SickDayCancel,
+    PickupList,
     GalleryAxe,
 }
 
 impl Flow {
-    pub const ALL: [Self; 2] = [Self::BuyALoaf, Self::GalleryAxe];
+    pub const ALL: [Self; 7] = [
+        Self::BuyALoaf,
+        Self::StaffBakeDay,
+        Self::CustomerLogin,
+        Self::ChooseCharity,
+        Self::SickDayCancel,
+        Self::PickupList,
+        Self::GalleryAxe,
+    ];
 
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             Self::BuyALoaf => "buy a loaf, pay and get the confirmation (F4, F5, F9)",
+            Self::StaffBakeDay => "staff plan a bake day and open it for ordering (F1)",
+            Self::CustomerLogin => "a customer signs in with a magic link and out again",
+            Self::ChooseCharity => "save a donation and choose its charity by link (F4d)",
+            Self::SickDayCancel => "a sick-day cancel refunds and emails the customer (F2)",
+            Self::PickupList => "tick an order off the pickup list on a phone, and undo (F8)",
             Self::GalleryAxe => "the gallery passes axe-core (WCAG 2.2 AA)",
+        }
+    }
+
+    fn window(self) -> (u32, u32) {
+        match self {
+            Self::PickupList => PHONE,
+            _ => LAPTOP,
         }
     }
 }
@@ -66,9 +101,14 @@ impl Flow {
 /// # Errors
 /// What the flow or the WebDriver reports.
 pub async fn run(ctx: &Ctx, flow: Flow) -> Result<(), Error> {
-    let driver = firefox(&ctx.webdriver).await?;
+    let driver = firefox(&ctx.webdriver, flow.window()).await?;
     let result = match flow {
         Flow::BuyALoaf => buy_a_loaf(ctx, &driver).await,
+        Flow::StaffBakeDay => staff_bake_day(ctx, &driver).await,
+        Flow::CustomerLogin => customer_login(ctx, &driver).await,
+        Flow::ChooseCharity => choose_charity(ctx, &driver).await,
+        Flow::SickDayCancel => sick_day_cancel(ctx, &driver).await,
+        Flow::PickupList => pickup_list(ctx, &driver).await,
         Flow::GalleryAxe => gallery_is_accessible(ctx, &driver).await,
     };
     let quit = driver.quit().await;
@@ -77,46 +117,45 @@ pub async fn run(ctx: &Ctx, flow: Flow) -> Result<(), Error> {
     Ok(())
 }
 
-async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
-    let drop = seed::open_drop(&ctx.pool).await?;
+/// A paid order, as the webhook left it.
+struct Paid {
+    order: i64,
+    payment: Payment,
+}
+
+/// Orders `qty` loaves on `drop` as `email`, with `donation` as the donation choice if
+/// given, pays in the mock and sends the webhook. With `audit`, axe-core checks the drop
+/// and checkout pages.
+async fn order_and_pay(
+    ctx: &Ctx,
+    driver: &WebDriver,
+    drop: &OpenDrop,
+    email: &str,
+    donation: Option<&str>,
+    audit: bool,
+) -> Result<Paid, Error> {
     driver
         .goto(ctx.url(&format!("/drops/{}", drop.day)))
         .await?;
     wait_for_text(driver, ".product-name", &drop.product_name).await?;
-
-    let qty = driver
-        .find(By::Css(format!("#aantal-{}", drop.product)))
-        .await?;
-    qty.clear().await?;
-    qty.send_keys("2").await?;
-    driver
-        .find(By::Css("form.product-order button[type=submit]"))
-        .await?
-        .click()
-        .await?;
+    if audit {
+        axe(ctx, driver, "drop").await?;
+    }
+    fill(driver, &format!("#aantal-{}", drop.product), "2").await?;
+    click(driver, "form.product-order button[type=submit]").await?;
     wait_for_text(driver, "#mandje", &ctx.t("cart-added")?).await?;
-    driver
-        .find(By::Css("#mandje a.button-primary"))
-        .await?
-        .click()
-        .await?;
+    click(driver, "#mandje a.button-primary").await?;
 
     wait_for_text(driver, "h1", &ctx.t("checkout-title")?).await?;
-    driver
-        .find(By::Css("#naam"))
-        .await?
-        .send_keys(CUSTOMER_NAME)
-        .await?;
-    driver
-        .find(By::Css("#email"))
-        .await?
-        .send_keys(CUSTOMER_EMAIL)
-        .await?;
-    driver
-        .find(By::Css("label[for=ophaalmoment-1]"))
-        .await?
-        .click()
-        .await?;
+    if audit {
+        axe(ctx, driver, "checkout").await?;
+    }
+    fill(driver, "#naam", CUSTOMER_NAME).await?;
+    fill(driver, "#email", email).await?;
+    click(driver, "label[for=ophaalmoment-1]").await?;
+    if let Some(value) = donation {
+        choose(driver, "#donatie", value).await?;
+    }
     // Firefox cannot load the checkout page, so the click reports an error page; the URL
     // check below decides whether the server sent the customer to Mollie.
     let submitted = driver
@@ -152,26 +191,62 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
     if status != 200 {
         return Err(format!("the webhook answered {status}").into());
     }
-    let (to, subject, body): (String, String, String) =
-        wait_for("the confirmation email", || async {
-            Ok(sqlx::query_as(
-                "SELECT to_address, subject, text_body FROM email_outbox
-             WHERE kind = 'order_confirmation' AND dedupe_key = $1",
-            )
-            .bind(format!("order-confirmation:{order}"))
-            .fetch_optional(&ctx.pool)
-            .await?)
-        })
-        .await?;
-    // Checked before the status page opens: that page asks Mollie itself and would settle
+    // Checked before any status page opens: that page asks Mollie itself and would settle
     // the payment even if the webhook did not.
-    let placed = orders::order::get(&mut *ctx.pool.acquire().await?, OrderId::new(order)).await?;
-    if placed.status != orders::OrderStatus::Paid {
-        return Err(format!("after the webhook the order is {:?}", placed.status).into());
+    let after = ctx.order_status(order).await?;
+    if after != OrderStatus::Paid {
+        return Err(format!("after the webhook the order is {after:?}").into());
     }
-    let number = placed.number;
+    Ok(Paid { order, payment })
+}
+
+/// The confirmation email of `order`: recipient, subject and text.
+async fn confirmation(ctx: &Ctx, order: i64) -> Result<(String, String, String), Error> {
+    wait_for("the confirmation email", || async {
+        Ok(sqlx::query_as(
+            "SELECT to_address, subject, text_body FROM email_outbox
+             WHERE kind = 'order_confirmation' AND dedupe_key = $1",
+        )
+        .bind(format!("order-confirmation:{order}"))
+        .fetch_optional(&ctx.pool)
+        .await?)
+    })
+    .await
+}
+
+/// The first link in `text` to `path_prefix` (such as `/inloggen/`), on the test server.
+fn link_in(server: &str, text: &str, path_prefix: &str) -> Result<String, Error> {
+    let link = text
+        .split_whitespace()
+        .find(|word| word.starts_with("https://") && word.contains(path_prefix))
+        .ok_or_else(|| format!("no {path_prefix} link in:\n{text}"))?;
+    let link = link.trim_end_matches(['.', ',', ')', '>', '"']);
+    Ok(on_server(link, server)?.to_string())
+}
+
+async fn staff_sign_in(ctx: &Ctx, driver: &WebDriver, staff: i64) -> Result<(), Error> {
+    driver.goto(ctx.url("/staff/login")).await?;
+    wait_for_text(driver, "h1", &ctx.t("staff-dev-login-title")?).await?;
+    fill(driver, "#staff_id", &staff.to_string()).await?;
+    click(
+        driver,
+        "form[action=\"/staff/dev-login\"] button[type=submit]",
+    )
+    .await?;
+    wait_for_text(driver, "h1", &ctx.t("staff-title")?).await
+}
+
+async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let drop = seed::open_drop(&ctx.pool).await?;
+    let email = seed::customer_email("koop");
+    let Paid { order, payment } = order_and_pay(ctx, driver, &drop, &email, None, true).await?;
+    let (to, subject, body) = confirmation(ctx, order).await?;
+    let mut conn = ctx.pool.acquire().await?;
+    let number = orders::order::get(&mut conn, OrderId::new(order))
+        .await?
+        .number;
     let checks = [
-        (to == CUSTOMER_EMAIL, "is sent to the customer"),
+        (to == email, "is sent to the customer"),
         (
             subject
                 == ctx.t_with(
@@ -199,14 +274,237 @@ async fn buy_a_loaf(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
         .goto(on_server(&payment.redirect_url, &ctx.server)?.as_str())
         .await?;
     wait_for_text(driver, "#bestelstatus", &ctx.t("order-status-paid")?).await?;
+    axe(ctx, driver, "order status").await
+}
+
+async fn staff_bake_day(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let basics = seed::basics(&ctx.pool).await?;
+    staff_sign_in(ctx, driver, basics.owner).await?;
+
+    driver.goto(ctx.url("/staff/bake-days/new")).await?;
+    wait_for_text(driver, "h1", &ctx.t("day-new")?).await?;
+    set_value(driver, "#date", &seed::drop_date()?.to_string()).await?;
+    choose(driver, "#location_id", &basics.location.to_string()).await?;
+    choose(driver, "#charity_id", &basics.charity.to_string()).await?;
+    click(
+        driver,
+        "form[action=\"/staff/bake-days/new\"] button[type=submit]",
+    )
+    .await?;
+    let day: i64 = wait_for("the new bake day's page", || async {
+        Ok(path(driver)
+            .await?
+            .strip_prefix("/staff/bake-days/")
+            .and_then(|rest| rest.parse().ok()))
+    })
+    .await?;
+    let page = format!("/staff/bake-days/{day}");
+    wait_for_text(driver, "main", &ctx.t("day-status-draft")?).await?;
+    axe(ctx, driver, "bake day").await?;
+
+    choose(driver, "#product_id", &basics.product.to_string()).await?;
+    fill(driver, "#max_qty", "12").await?;
+    click(
+        driver,
+        &format!("form[action=\"{page}/range\"] button[type=submit]"),
+    )
+    .await?;
+    wait_for("the product on the menu", || async {
+        Ok(sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT max_qty FROM bake_day_product WHERE bake_day_id = $1 AND product_id = $2",
+        )
+        .bind(day)
+        .bind(basics.product)
+        .fetch_optional(&ctx.pool)
+        .await?
+        .flatten()
+        .filter(|max| *max == 12))
+    })
+    .await?;
+
+    driver.goto(ctx.url(&page)).await?;
+    click(driver, "button[data-dialog-open=\"day-open\"]").await?;
+    wait_for("the open dialog", || async {
+        Ok(driver.find(By::Css("dialog#day-open[open]")).await.ok())
+    })
+    .await?;
+    click(driver, "dialog#day-open button[type=submit]").await?;
+    wait_for("the bake day to open", || async {
+        let status: String = sqlx::query_scalar("SELECT status FROM bake_day WHERE id = $1")
+            .bind(day)
+            .fetch_one(&ctx.pool)
+            .await?;
+        Ok((status == "open").then_some(()))
+    })
+    .await?;
+    driver.goto(ctx.url(&page)).await?;
+    wait_for_text(driver, "main", &ctx.t("day-status-open")?).await?;
+
+    driver.goto(ctx.url(&format!("/drops/{day}"))).await?;
+    wait_for_text(driver, ".product-name", &basics.product_name).await
+}
+
+async fn customer_login(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let email = seed::customer_email("login");
+    seed::customer(&ctx.pool, &email).await?;
+
+    driver.goto(ctx.url("/inloggen")).await?;
+    wait_for_text(driver, "h1", &ctx.t("account-login-title")?).await?;
+    fill(driver, "#email", &email).await?;
+    click(driver, "form[action=\"/inloggen\"] button[type=submit]").await?;
+    wait_for_text(driver, "h1", &ctx.t("account-check-title")?).await?;
+
+    let body: String = wait_for("the login link email", || async {
+        Ok(sqlx::query_scalar(
+            "SELECT text_body FROM email_outbox WHERE kind = 'login_link' AND to_address = $1",
+        )
+        .bind(&email)
+        .fetch_optional(&ctx.pool)
+        .await?)
+    })
+    .await?;
+    driver
+        .goto(link_in(&ctx.server, &body, "/inloggen/")?)
+        .await?;
+    wait_for_text(driver, "h1", &ctx.t("account-link-title")?).await?;
+    click(driver, "main form button[type=submit]").await?;
+
+    wait_for_text(driver, "h1", &ctx.t("account-orders-title")?).await?;
+    wait_for_text(
+        driver,
+        "main",
+        &ctx.t_with("account-orders-signed-in-as", "email", email.clone())?,
+    )
+    .await?;
+    axe(ctx, driver, "Mijn bestellingen").await?;
+
+    click(driver, "form[action=\"/uitloggen\"] button[type=submit]").await?;
+    wait_for("the home page", || async {
+        Ok((path(driver).await? == "/").then_some(()))
+    })
+    .await?;
+    driver.goto(ctx.url("/mijn-bestellingen")).await?;
+    wait_for_text(driver, "h1", &ctx.t("account-login-title")?).await
+}
+
+async fn choose_charity(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let drop = seed::open_drop(&ctx.pool).await?;
+    let other = seed::charity(
+        &mut *ctx.pool.acquire().await?,
+        &format!("Ander doel {}", seed::unique()),
+    )
+    .await?;
+    let email = seed::customer_email("doel");
+    let Paid { order, .. } =
+        order_and_pay(ctx, driver, &drop, &email, Some("bewaren"), false).await?;
+    let (_, _, body) = confirmation(ctx, order).await?;
+
+    driver
+        .goto(link_in(&ctx.server, &body, "/donatie/kies/")?)
+        .await?;
+    wait_for_text(driver, "h1", &ctx.t("donation-choose-title")?).await?;
+    choose(driver, "#goed-doel", &other.to_string()).await?;
+    click(driver, "main form button[type=submit]").await?;
+    wait_for_text(driver, "h1", &ctx.t("donation-chosen-title")?).await?;
+
+    let (charity, status): (Option<i64>, String) =
+        sqlx::query_as("SELECT charity_id, status FROM donation_allocation WHERE order_id = $1")
+            .bind(order)
+            .fetch_one(&ctx.pool)
+            .await?;
+    if charity != Some(other) || status != "earmarked" {
+        return Err(format!(
+            "the donation should go to charity {other}, it has {charity:?} ({status})"
+        )
+        .into());
+    }
     Ok(())
 }
 
+async fn sick_day_cancel(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let drop = seed::open_drop(&ctx.pool).await?;
+    let email = seed::customer_email("ziek");
+    let Paid { order, payment } = order_and_pay(ctx, driver, &drop, &email, None, false).await?;
+
+    staff_sign_in(ctx, driver, drop.owner).await?;
+    let page = format!("/staff/bake-days/{}/cancel", drop.day);
+    driver.goto(ctx.url(&page)).await?;
+    fill(driver, "#bericht", "Sorry, de bakker is ziek.").await?;
+    click(
+        driver,
+        &format!("form[action=\"{page}\"] button[type=submit]"),
+    )
+    .await?;
+    wait_for_text(driver, "main", &ctx.t("staff-sick-day-cancelled")?).await?;
+    wait_for_text(driver, "main", &ctx.t("staff-sick-day-all-done")?).await?;
+
+    let refunds = ctx
+        .mollie
+        .payment(&payment.id)
+        .map(|p| p.refunds)
+        .unwrap_or_default();
+    if refunds != ["9.00"] {
+        return Err(format!("Mollie should have one refund of 9.00, it has {refunds:?}").into());
+    }
+    let (to, body): (String, String) = wait_for("the sick-day email", || async {
+        Ok(sqlx::query_as(
+            "SELECT to_address, text_body FROM email_outbox
+             WHERE kind = 'sick_day_cancelled' AND dedupe_key = $1",
+        )
+        .bind(format!("sick-day:{order}"))
+        .fetch_optional(&ctx.pool)
+        .await?)
+    })
+    .await?;
+    if to != email || !body.contains("Sorry, de bakker is ziek.") {
+        return Err(format!("the sick-day email to {to} lacks the message:\n{body}").into());
+    }
+    let after = ctx.order_status(order).await?;
+    if after != OrderStatus::Refunded && after != OrderStatus::Cancelled {
+        return Err(format!("after the cancel the order is {after:?}").into());
+    }
+    Ok(())
+}
+
+async fn pickup_list(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let drop = seed::open_drop(&ctx.pool).await?;
+    let email = seed::customer_email("ophalen");
+    let Paid { order, .. } = order_and_pay(ctx, driver, &drop, &email, None, false).await?;
+
+    staff_sign_in(ctx, driver, drop.owner).await?;
+    driver
+        .goto(ctx.url(&format!("/staff/bake-days/{}/pickup-list", drop.day)))
+        .await?;
+    let card = format!("article#bestelling-{order}");
+    wait_for_text(driver, &card, CUSTOMER_NAME).await?;
+    axe(ctx, driver, "pickup list").await?;
+
+    let wait_status = |want: OrderStatus| async move {
+        wait_for(&format!("the order to be {want:?}"), || async {
+            Ok((ctx.order_status(order).await? == want).then_some(()))
+        })
+        .await
+    };
+    click(driver, &format!("{card} form button[type=submit]")).await?;
+    wait_status(OrderStatus::PickedUp).await?;
+    wait_for_text(driver, &card, &ctx.t("pickup-list-status-picked-up")?).await?;
+    wait_for_text(driver, &card, &ctx.t("lists-undo")?).await?;
+
+    click(driver, &format!("{card} form button[type=submit]")).await?;
+    wait_status(OrderStatus::Paid).await?;
+    wait_for_text(driver, &card, &ctx.t("pickup-list-status-paid")?).await
+}
+
 async fn gallery_is_accessible(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
-    let axe = std::fs::read_to_string(&ctx.axe_js)
-        .map_err(|err| format!("{}: {err}", ctx.axe_js.display()))?;
     driver.goto(ctx.url("/gallery")).await?;
     wait_for_text(driver, "h1", &ctx.t("gallery-title")?).await?;
+    axe(ctx, driver, "gallery").await
+}
+
+/// Runs axe-core's WCAG 2.2 AA rules on the current page; any violation fails the flow.
+async fn axe(ctx: &Ctx, driver: &WebDriver, page: &str) -> Result<(), Error> {
+    let axe = std::fs::read_to_string(&ctx.axe_js)
+        .map_err(|err| format!("{}: {err}", ctx.axe_js.display()))?;
     driver.execute(axe, Vec::new()).await?;
     let script = format!(
         "const done = arguments[arguments.length - 1];
@@ -219,7 +517,7 @@ async fn gallery_is_accessible(ctx: &Ctx, driver: &WebDriver) -> Result<(), Erro
     let result = driver.execute_async(script, Vec::new()).await?;
     let result = result.json();
     if let Some(error) = result.get("error") {
-        return Err(format!("axe-core failed: {error}").into());
+        return Err(format!("axe-core failed on the {page} page: {error}").into());
     }
     let violations = result
         .get("violations")
@@ -229,7 +527,7 @@ async fn gallery_is_accessible(ctx: &Ctx, driver: &WebDriver) -> Result<(), Erro
         Ok(())
     } else {
         Err(format!(
-            "{} axe-core violations:\n{}",
+            "{} axe-core violations on the {page} page:\n{}",
             violations.len(),
             serde_json::to_string_pretty(violations)?
         )
@@ -269,5 +567,15 @@ mod tests {
             None
         );
         assert_eq!(checkout_url("about:neterror?e=dnsNotFound"), None);
+    }
+
+    #[test]
+    fn link_in_finds_the_link_and_moves_it_to_the_server() {
+        let text = "Hoi,\n\nLog in via https://bvw.test/inloggen/abc_12-.\nTot snel!";
+        assert_eq!(
+            link_in("http://127.0.0.1:8080", text, "/inloggen/").unwrap(),
+            "http://127.0.0.1:8080/inloggen/abc_12-"
+        );
+        assert!(link_in("http://127.0.0.1:8080", text, "/donatie/kies/").is_err());
     }
 }

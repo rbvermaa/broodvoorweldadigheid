@@ -19,13 +19,33 @@ The crate is `e2e/`; the VM is `nix/e2e-vm.nix`, run by `make e2e` and the `e2e`
 | thirtyfour turns on serde_json's `preserve_order`, and workspace builds share it. The two `production` snapshot tests of the JSON handed to Typst now sort keys first; the snapshots did not change. The nextest check runs with it, the coverage run without it; nothing else depends on key order. The images build the server and cli per package, without it | Feature unification would otherwise make those snapshots depend on whether e2e is in the build |
 | CI: one matrix job `e2e` that makes `/dev/kvm` usable with a udev rule and adds `kvm` to Nix's system features; it fails loudly if the runner has no `/dev/kvm` | GitHub's ubuntu-24.04 runners have KVM, but only root can open it by default |
 
+## Amendment, 2026-11-25: the flows
+
+The first PR ran one flow (buy a loaf, F4, F5, F9) and the gallery audit. Now there are
+seven, each in its own Firefox session:
+
+| Flow | Window | axe-core on |
+|---|---|---|
+| Buy a loaf, pay and get the confirmation (F4, F5, F9) | laptop | drop, checkout, order status |
+| Staff plan a bake day and open it for ordering (F1) | laptop | bake day |
+| A customer signs in with a magic link and out again | laptop | Mijn bestellingen |
+| Save a donation and choose its charity by link (F4d) | laptop | |
+| A sick-day cancel refunds and emails the customer (F2) | laptop | |
+| Tick an order off the pickup list, and undo (F8) | phone (390×844) | pickup list |
+| The component gallery | laptop | gallery |
+
+| Choice | Why |
+|---|---|
+| Staff sign in through the dev login: the VM's server runs with `DEV_STAFF_LOGIN=true`, and the seed adds an owner (`oidc_sub` `e2e-owner`) | The config allows the dev login only with a loopback `BIND_ADDR` and no `TRUSTED_PROXY`, which the VM has and the images never do. Kanidm in the VM stays a follow-up |
+| Each flow seeds its own pickup location (a window on every weekday), product, charity and customer address, named with a per-run tag | Flows never share rows, so their order does not matter, they can run again on the same database, and the login-link limit per address never applies |
+| `make e2e-local` runs the binary against a server, database and geckodriver started by hand (`e2e/README.md`); not in CI | Debugging a flow without booting the VM |
+| `payments` is a normal dependency of `e2e`, not only a dev-dependency | The mock formats and parses Mollie amounts with the server's own functions |
+| The mock also refunds (`POST /v2/payments/{id}/refunds`): at most what is left of a paid payment, recorded on the payment and reflected in `amountRefunded`; a repeated `Idempotency-Key` gets the first refund again | The sick-day flow checks the refund the server asks for, through the same client the server uses |
+
 Follow-ups, each its own PR:
 
 - Visual tests of the component gallery: screenshots compared with approved images
   (image-compare in the spec), with the approved images in the repo.
-- Flows: back office through the dev login, sick-day cancel, choose another charity,
-  customer login link, pickup list.
-- Chromium and WebKit next to Firefox, and iPhone and desktop window sizes next to laptop.
+- Chromium and WebKit next to Firefox, and an iPhone window size for the customer flows.
 - Boot the OCI images with Kanidm and Caddy in the VM, as the spec's pipeline describes,
-  instead of the binaries as systemd units.
-- A `make` target to run the e2e binary against a local server outside the VM.
+  instead of the binaries as systemd units; staff then sign in through Kanidm.

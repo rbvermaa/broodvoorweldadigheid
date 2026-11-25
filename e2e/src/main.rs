@@ -11,9 +11,11 @@ use e2e::mollie::MockMollie;
 use i18n::Translator;
 use tokio::net::TcpListener;
 
-/// Runs every browser flow against a running server. The server must use
-/// `MOLLIE_API_URL=http://<mollie-listen>/v2/`, an https `PUBLIC_URL`, `COOKIE_SECURE=false`
-/// and `GALLERY=true`; the database must be migrated.
+/// Runs every browser flow against a running server, each in a fresh Firefox session. The
+/// server must use `MOLLIE_API_URL=http://<mollie-listen>/v2/`, an https `PUBLIC_URL`,
+/// `COOKIE_SECURE=false`, `GALLERY=true`, and `DEV_STAFF_LOGIN=true` with a loopback
+/// `BIND_ADDR` (the staff flows sign in through the dev login); the database must be
+/// migrated. Each flow seeds its own data, so the binary can run again on the same database.
 #[derive(Parser)]
 #[command(name = "e2e")]
 struct Args {
