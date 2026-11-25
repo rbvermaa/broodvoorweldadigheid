@@ -590,3 +590,358 @@ async fn an_inactive_product_with_pieces_to_bake_can_still_get_a_batch(pool: PgP
             .is_empty()
     );
 }
+
+fn dutch() -> i18n::Translator {
+    i18n::Translator::dutch().unwrap()
+}
+
+fn grams_by_ingredient(formula: &recipes::Formula, dough_g: u64) -> Vec<(IngredientId, u64)> {
+    let scaled = formula.scale(dough_g).unwrap();
+    let mut totals: Vec<(IngredientId, u64)> = ingredient_totals(&scaled)
+        .into_iter()
+        .filter(|(_, g)| *g > 0)
+        .map(|(i, g)| (i.id, g))
+        .collect();
+    totals.sort_unstable();
+    totals
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn promoting_saves_the_batch_formula_as_the_next_draft(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    let (water, salt) = (batch.lines[1].id, batch.lines[2].id);
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(water, pct(72))],
+            reason: Some("bloem neemt minder op".to_owned()),
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    batches::add_line(
+        &mut conn,
+        id,
+        k.flour,
+        pct(5),
+        Some("te slap"),
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(salt, Pct::from_thousandths(0))],
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    batches::mark_mixed(&mut conn, id, BAKER, &clock())
+        .await
+        .unwrap();
+
+    let version = batches::promote(&mut conn, id, &dutch(), BAKER, &clock())
+        .await
+        .unwrap();
+    assert_eq!(version.version, 2);
+    assert!(!version.is_frozen(), "a promoted version is a draft");
+    assert_eq!(version.promoted_from_batch_id, Some(id));
+    assert_eq!(version.recipe_id, k.recipe);
+    assert!(version.notes.contains("261205-1"), "{}", version.notes);
+    assert!(version.notes.contains("versie 1"), "{}", version.notes);
+    assert!(
+        version.notes.contains("bloem neemt minder op"),
+        "{}",
+        version.notes
+    );
+    assert!(version.notes.contains("te slap"), "{}", version.notes);
+
+    let lines = store::lines(&mut conn, version.id).await.unwrap();
+    assert_eq!(
+        lines,
+        [
+            LineInput {
+                pct: pct(100),
+                part: LinePart::Ingredient(k.flour)
+            },
+            LineInput {
+                pct: pct(72),
+                part: LinePart::Ingredient(k.water)
+            },
+            LineInput {
+                pct: pct(5),
+                part: LinePart::Ingredient(k.flour)
+            },
+        ],
+        "lines at 0% are left out"
+    );
+    let recipe = store::get(&mut conn, k.recipe).await.unwrap();
+    assert_eq!(
+        recipe.current_version_id,
+        Some(k.version),
+        "the baker takes the new version into use"
+    );
+    let base = store::version(&mut conn, k.recipe, k.version)
+        .await
+        .unwrap();
+    assert!(base.is_frozen());
+    assert_eq!(store::lines(&mut conn, k.version).await.unwrap().len(), 3);
+
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    let promoted = store::formula(&mut conn, version.id).await.unwrap();
+    let made = batches::formula(&mut conn, &batch).await.unwrap();
+    assert_eq!(
+        grams_by_ingredient(&promoted, batch.dough_g()),
+        grams_by_ingredient(&made, batch.dough_g()),
+        "the new version weighs out the batch's grams"
+    );
+
+    let history = audit::history(&mut conn, "batch", id.get()).await.unwrap();
+    let last = history.last().unwrap();
+    assert_eq!(last.action, "promote");
+    assert_eq!(
+        last.after.as_ref().unwrap()["recipe_version_id"],
+        version.id.get()
+    );
+
+    store::save_draft(
+        &mut conn,
+        version.id,
+        &DraftInput {
+            lines: lines.clone(),
+            lead_time_hours: Some(12),
+            notes: version.notes.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    store::set_current(&mut conn, k.recipe, version.id)
+        .await
+        .unwrap();
+    batches::start_manual(&mut conn, k.day, k.bread, 2, BAKER, &clock())
+        .await
+        .unwrap();
+    let used = store::version(&mut conn, k.recipe, version.id)
+        .await
+        .unwrap();
+    assert!(
+        used.is_frozen(),
+        "the promoted version freezes like any other"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn promoting_a_batch_twice_gives_one_version(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    let water = batches::get(&mut conn, id).await.unwrap().lines[1].id;
+    let set_water = |p: u32| Adjustment {
+        lines: vec![(water, pct(p))],
+        ..Adjustment::default()
+    };
+    batches::adjust(&mut conn, id, &set_water(70), BAKER, &clock())
+        .await
+        .unwrap();
+    assert_eq!(
+        batches::promoted_version(&mut conn, id).await.unwrap(),
+        None
+    );
+    let first = batches::promote(&mut conn, id, &dutch(), BAKER, &clock())
+        .await
+        .unwrap();
+    batches::adjust(&mut conn, id, &set_water(68), BAKER, &clock())
+        .await
+        .unwrap();
+    let again = batches::promote(&mut conn, id, &dutch(), BAKER, &clock())
+        .await
+        .unwrap();
+    assert_eq!(again, first);
+    assert_eq!(
+        batches::promoted_version(&mut conn, id).await.unwrap(),
+        Some(first.clone())
+    );
+    assert_eq!(store::versions(&mut conn, k.recipe).await.unwrap().len(), 2);
+    let history = audit::history(&mut conn, "batch", id.get()).await.unwrap();
+    assert_eq!(history.iter().filter(|h| h.action == "promote").count(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn promoting_is_refused_while_the_recipe_has_a_draft(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    let water = batches::get(&mut conn, id).await.unwrap().lines[1].id;
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(water, pct(70))],
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    let draft = store::new_version(&mut conn, k.recipe).await.unwrap();
+    let refused = batches::promote(&mut conn, id, &dutch(), BAKER, &clock()).await;
+    assert!(
+        matches!(refused, Err(Error::Recipes(recipes::Error::DraftExists(d))) if d == draft.id),
+        "{refused:?}"
+    );
+    assert_eq!(
+        batches::promoted_version(&mut conn, id).await.unwrap(),
+        None
+    );
+    assert_eq!(store::versions(&mut conn, k.recipe).await.unwrap().len(), 2);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unchanged_batch_has_nothing_to_promote(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            pieces: vec![(k.bread, 12)],
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    let refused = batches::promote(&mut conn, id, &dutch(), BAKER, &clock()).await;
+    assert!(
+        matches!(refused, Err(Error::Invalid("unchanged"))),
+        "{refused:?}"
+    );
+    assert_eq!(store::versions(&mut conn, k.recipe).await.unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_promoted_sub_recipe_line_keeps_its_frozen_version(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let (levain, levain_v1) = store::create(
+        &mut conn,
+        &RecipeInput {
+            name: "Desem".to_owned(),
+            kind: RecipeKind::Preferment,
+        },
+    )
+    .await
+    .unwrap();
+    store::save_draft(
+        &mut conn,
+        levain_v1.id,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: pct(100),
+                    part: LinePart::Ingredient(k.flour),
+                },
+                LineInput {
+                    pct: pct(100),
+                    part: LinePart::Ingredient(k.water),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    store::save_draft(
+        &mut conn,
+        k.version,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: pct(90),
+                    part: LinePart::Ingredient(k.flour),
+                },
+                LineInput {
+                    pct: pct(65),
+                    part: LinePart::Ingredient(k.water),
+                },
+                LineInput {
+                    pct: pct(20),
+                    part: LinePart::Sub(levain_v1.id),
+                },
+            ],
+            lead_time_hours: Some(16),
+            notes: "Basis".to_owned(),
+        },
+    )
+    .await
+    .unwrap();
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 7, BAKER, &clock())
+        .await
+        .unwrap();
+    let sub = batches::get(&mut conn, id).await.unwrap().lines[2].id;
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(sub, Pct::from_thousandths(25_500))],
+            reason: Some("warme keuken".to_owned()),
+            ..Adjustment::default()
+        },
+        BAKER,
+        &clock(),
+    )
+    .await
+    .unwrap();
+    store::new_version(&mut conn, levain.id).await.unwrap();
+
+    let version = batches::promote(&mut conn, id, &dutch(), BAKER, &clock())
+        .await
+        .unwrap();
+    assert_eq!(version.lead_time_hours, Some(16), "lead time of the base");
+    assert!(
+        version.notes.starts_with("Basis\n\n"),
+        "base notes come first: {}",
+        version.notes
+    );
+    let lines = store::lines(&mut conn, version.id).await.unwrap();
+    assert_eq!(
+        lines[2],
+        LineInput {
+            pct: Pct::from_thousandths(25_500),
+            part: LinePart::Sub(levain_v1.id),
+        },
+        "the sub-recipe line keeps the frozen version, not the levain's draft"
+    );
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    let promoted = store::formula(&mut conn, version.id).await.unwrap();
+    let made = batches::formula(&mut conn, &batch).await.unwrap();
+    assert_eq!(
+        grams_by_ingredient(&promoted, batch.dough_g()),
+        grams_by_ingredient(&made, batch.dough_g()),
+    );
+}
