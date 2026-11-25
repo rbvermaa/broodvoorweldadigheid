@@ -30,5 +30,5 @@ Open, for the slices that use this:
   `SMTP_TLS=none` for the server.
 - The emails say "Beantwoord deze mail", so `MAIL_FROM` must be a mailbox the bakery reads,
   or a `Reply-To` must be added.
-- `email_outbox` keeps addresses and bodies. A cleanup job should delete sent rows after
-  a short period (GDPR); failed rows need a place in the morning email to the owner.
+- Failed rows need a place in the morning email to the owner. Retention: rows are deleted
+  90 days after they were sent or failed (ADR 0031).

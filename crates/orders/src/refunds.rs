@@ -478,6 +478,8 @@ pub struct DayCancelled {
     pub invoiced: Vec<(OrderId, OrderNumber)>,
     /// Refunds of the day's orders that still have to be sent.
     pub open_refunds: Vec<Refund>,
+    /// The day was already cancelled before this run.
+    pub repeated: bool,
 }
 
 /// Cancels a bake day for a sick day (F2): the day gets `message`, every order that is
@@ -509,6 +511,7 @@ pub async fn cancel_day(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(Error::NotFound)?;
+    let repeated = row.status == "cancelled";
     let message = match (row.status.as_str(), row.cancel_message) {
         ("cancelled", Some(kept)) => kept,
         ("done", _) => return Err(Error::DayFinal),
@@ -567,6 +570,7 @@ pub async fn cancel_day(
         orders,
         invoiced: invoiced_orders,
         open_refunds,
+        repeated,
     })
 }
 

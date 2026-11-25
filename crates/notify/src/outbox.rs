@@ -19,6 +19,9 @@ pub const BACKOFF: [SignedDuration; 7] = [
 ];
 pub const MAX_ATTEMPTS: i32 = 8;
 
+/// How long an email stays in the outbox after it was sent or failed for good (F12).
+pub const RETENTION: SignedDuration = SignedDuration::from_hours(90 * 24);
+
 const MAX_ERROR_LEN: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -87,8 +90,8 @@ async fn insert(
     let now = db::time::to_micros(clock.now());
     let id = sqlx::query_scalar!(
         r#"INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
-            list_unsubscribe, reply_to, next_attempt_at, created_at, expires_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+            list_unsubscribe, reply_to, cc_address, next_attempt_at, created_at, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $11,
             timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
             timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
             timestamptz 'epoch' + $10::bigint * interval '1 microsecond')
@@ -104,6 +107,7 @@ async fn insert(
         email.reply_to,
         now,
         expires_at.map(db::time::to_micros),
+        email.cc,
     )
     .fetch_optional(conn)
     .await?;
@@ -165,14 +169,15 @@ pub async fn withdraw_unsent_prefixed(
     .rows_affected())
 }
 
-/// Deletes every email to `email`, or with replies going to it, sent or not (F12). An
-/// email being sent right now is waited for and then deleted.
+/// Deletes every email to `email`, copied to it or with replies going to it, sent or not
+/// (F12). An email being sent right now is waited for and then deleted.
 ///
 /// # Errors
 /// [`OutboxError::Db`].
 pub async fn forget_address(conn: &mut PgConnection, email: &str) -> Result<u64, OutboxError> {
     Ok(sqlx::query!(
-        "DELETE FROM email_outbox WHERE lower(to_address) = lower($1) OR lower(reply_to) = lower($1)",
+        "DELETE FROM email_outbox WHERE lower(to_address) = lower($1) OR lower(reply_to) = lower($1)
+            OR lower(cc_address) = lower($1)",
         email,
     )
     .execute(conn)
@@ -194,6 +199,27 @@ pub async fn delete_finished(conn: &mut PgConnection, kind: EmailKind) -> Result
     .rows_affected())
 }
 
+/// Deletes the emails sent or failed for good at least [`RETENTION`] ago, bodies and
+/// addresses with them. Pending emails stay, however old.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn delete_retired(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+) -> Result<u64, OutboxError> {
+    let cutoff = clock.now().checked_sub(RETENTION).unwrap_or(Timestamp::MIN);
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE status <> 'pending'
+            AND coalesce(sent_at, failed_at, next_attempt_at)
+                <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'",
+        db::time::to_micros(cutoff),
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
+}
+
 struct Due {
     id: i64,
     message_id: String,
@@ -204,6 +230,7 @@ struct Due {
     html_body: String,
     list_unsubscribe: Option<String>,
     reply_to: Option<String>,
+    cc_address: Option<String>,
     attempts: i32,
     expired: bool,
 }
@@ -240,7 +267,7 @@ pub async fn send_pending(
         let Some(due) = sqlx::query_as!(
             Due,
             r#"SELECT id, message_id::text AS "message_id!", kind, to_address, subject,
-                text_body, html_body, list_unsubscribe, reply_to, attempts,
+                text_body, html_body, list_unsubscribe, reply_to, cc_address, attempts,
                 coalesce(expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond',
                     false) AS "expired!"
             FROM email_outbox
@@ -313,11 +340,13 @@ pub async fn send_pending(
                 sqlx::query!(
                     r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3,
                         text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
-                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END
+                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END,
+                        failed_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'
                     WHERE id = $1"#,
                     id,
                     attempts,
                     truncate(&error),
+                    db::time::to_micros(now),
                 )
                 .execute(&mut *tx)
                 .await?;
@@ -356,6 +385,7 @@ fn outgoing(due: Due, now: Timestamp) -> Result<OutgoingEmail, OutboxError> {
             html: due.html_body,
             list_unsubscribe: due.list_unsubscribe,
             reply_to: due.reply_to,
+            cc: due.cc_address,
         },
     })
 }

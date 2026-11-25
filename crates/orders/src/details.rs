@@ -30,6 +30,8 @@ pub struct OrderDetails {
     /// The charity the order's money is earmarked for; `None` for a normal sale.
     pub charity: Option<String>,
     pub status_token: String,
+    /// The invoice email of the customer's business account, if they have one (F11a).
+    pub invoice_email: Option<String>,
 }
 
 /// An order with everything its emails show.
@@ -42,9 +44,11 @@ pub async fn details(conn: &mut PgConnection, id: OrderId) -> Result<OrderDetail
         r#"SELECT c.email, d.date - date 'epoch' AS "date_days!",
             (extract(epoch FROM s.starts_at) * 1000000)::bigint AS "starts_us!",
             (extract(epoch FROM s.ends_at) * 1000000)::bigint AS "ends_us!",
-            l.name AS location, l.address, o.status_token::text AS "status_token!"
+            l.name AS location, l.address, o.status_token::text AS "status_token!",
+            b.invoice_email AS "invoice_email?"
         FROM "order" o
         JOIN customer c ON c.id = o.customer_id
+        LEFT JOIN business_account b ON b.customer_id = o.customer_id
         JOIN bake_day d ON d.id = o.bake_day_id
         JOIN pickup_slot s ON s.id = o.pickup_slot_id
         JOIN pickup_location l ON l.id = s.location_id
@@ -92,6 +96,7 @@ pub async fn details(conn: &mut PgConnection, id: OrderId) -> Result<OrderDetail
         products,
         charity,
         status_token: row.status_token,
+        invoice_email: row.invoice_email,
     })
 }
 

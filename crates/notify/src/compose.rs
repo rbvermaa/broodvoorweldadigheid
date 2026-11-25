@@ -97,6 +97,18 @@ pub struct OrderConfirmation {
     pub status_url: String,
 }
 
+/// F11a: an order staff placed on account for a business customer. It has no status page link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnAccountConfirmation {
+    pub to: Recipient,
+    /// The invoice email, when it is not the contact's.
+    pub cc: Option<String>,
+    pub order_number: String,
+    pub drop_date: Date,
+    pub pickup: Pickup,
+    pub lines: Vec<OrderLine>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PickupReminder {
     pub to: Recipient,
@@ -301,6 +313,39 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::OrderConfirmation, &order.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`]; also [`ComposeError::Address`] for a bad copy
+    /// address.
+    pub fn order_on_account(&self, order: &OnAccountConfirmation) -> Result<Email, ComposeError> {
+        if order.lines.is_empty() {
+            return Err(ComposeError::NoLines);
+        }
+        let cc = order.cc.as_deref().map(address).transpose()?;
+        let number = order.order_number.as_str();
+        let blocks = vec![
+            Block::Paragraph(self.t("email-on-account-intro", &[])?),
+            Block::Facts(vec![
+                self.fact("email-label-order", number.to_owned())?,
+                self.fact("email-label-drop", self.i18n.long_date(order.drop_date))?,
+                self.fact("email-label-pickup", self.moment(&order.pickup)?)?,
+                self.fact("email-label-location", self.place(&order.pickup)?)?,
+            ]),
+            Block::Lines(self.lines(&order.lines)?),
+            Block::Paragraph(self.t("email-on-account-invoice", &[])?),
+            Block::Paragraph(self.t("email-questions", &[])?),
+        ];
+        let parts = Parts {
+            subject: self.t("email-on-account-subject", &[("number", number.to_owned())])?,
+            heading: self.t("email-on-account-heading", &[])?,
+            greeting: self.greeting(order.to.name.as_deref())?,
+            blocks,
+            unsubscribe: None,
+        };
+        let mut email = self.email(EmailKind::OrderConfirmation, &order.to.email, parts)?;
+        email.cc = cc;
+        Ok(email)
     }
 
     /// # Errors
@@ -693,6 +738,7 @@ impl<'a> Composer<'a> {
             subject: content.subject,
             list_unsubscribe: None,
             reply_to: None,
+            cc: None,
         })
     }
 

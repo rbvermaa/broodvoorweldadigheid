@@ -2,6 +2,7 @@
 //! emails once they went out (ADR 0031).
 #![forbid(unsafe_code)]
 
+use domain::Clock;
 use jiff::Timestamp;
 use jobs::CleanupReport;
 use jobs::cleanup::tick;
@@ -49,6 +50,7 @@ async fn the_cleanup_deletes_expired_logins_and_sent_account_deleted_emails(pool
             login_links: 1,
             logins: 1,
             emails: 1,
+            old_emails: 0,
         }
     );
     assert_eq!(
@@ -60,5 +62,46 @@ async fn the_cleanup_deletes_expired_logins_and_sent_account_deleted_emails(pool
     assert_eq!(
         tick(&mut conn, &clock).await.unwrap(),
         CleanupReport::default()
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_cleanup_deletes_emails_90_days_after_they_were_sent_or_failed(pool: PgPool) {
+    let clock = FakeClock::new("2026-11-24T10:00:00Z".parse().unwrap());
+    sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body, status,
+            next_attempt_at, created_at, sent_at, failed_at)
+        SELECT 'order_confirmation', status || '-' || days || '@example.nl', 'S', 't', 'h',
+            status, at, at,
+            CASE WHEN status = 'sent' THEN at END, CASE WHEN status = 'failed' THEN at END
+        FROM (VALUES ('sent', 89), ('sent', 91), ('failed', 89), ('failed', 91),
+                ('pending', 91)) t(status, days),
+            LATERAL (SELECT $1::timestamptz - days * interval '1 day' AS at) a",
+    )
+    .bind(clock.now().to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(
+        tick(&mut conn, &clock).await.unwrap(),
+        CleanupReport {
+            old_emails: 2,
+            ..CleanupReport::default()
+        }
+    );
+    let left: Vec<String> =
+        sqlx::query_scalar("SELECT to_address FROM email_outbox ORDER BY to_address")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        left,
+        [
+            "failed-89@example.nl",
+            "pending-91@example.nl",
+            "sent-89@example.nl"
+        ]
     );
 }

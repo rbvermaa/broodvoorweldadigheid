@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_outbox WHERE status <> 'pending'\n            AND coalesce(sent_at, failed_at, next_attempt_at)\n                <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aabe1ea9adf40179f031a31055690fa8ce258d5b89bb20ea90e83ab0e57206b3"
+}
