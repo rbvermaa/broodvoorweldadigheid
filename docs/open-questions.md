@@ -55,10 +55,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   drop-alert list. Update the spec to `Vote poll_id, poll_option_id, email, wish?,
   confirmed_at?, created_at`?
   **Spec updated 2026-11-25:** the data model lists `email` and `confirmed_at` on Vote.
-- [ ] **Voters without an account** (F9b, F12). Their votes are only in the export and
+- [x] **Voters without an account** (F9b, F12). Their votes are only in the export and
   erase of a customer with the same address. How long may a confirmed vote keep its
   address: blank it some time after the poll closes, or add "erase by address" for the
   owner?
+  **Owner, 2026-11-25:** blank the address (and wish) 30 days after the poll closes;
+  the counts stay the same. Done by `jobs::cleanup` (ADR 0039).
 - [x] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?
