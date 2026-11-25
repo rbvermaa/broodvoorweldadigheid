@@ -34,6 +34,9 @@ id_type!(
     CharityId,
     DonationAllocationId,
     RefundId,
+    IngredientId,
+    RecipeId,
+    RecipeVersionId,
 );
 
 #[cfg(test)]
