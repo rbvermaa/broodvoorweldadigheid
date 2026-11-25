@@ -21,7 +21,7 @@ exactly the sum of its parts, and all totals together are exactly the day's doug
 | Weights shown as `850 g` below 1 kg and `12,345 kg` from there; the CSV has whole grams | Exact to the gram, so the sums on paper add up; no rounding to explain |
 | Products whose grams cannot be computed are listed under "Geen recept" with their pieces and why: no recipe, no version in use, a recipe (or sub-recipe) without lines, or 0 g dough per piece | Never drop pieces silently. The screen also shows a warning |
 | The pure part lives in `recipes::needs` (`DoughGrams`, `shopping_list`); reading pieces and grouping lives in `production::needs` | The spec puts ingredient needs in `recipes`, and only `production` sees both orders and recipes |
-| CSV uses the accountant format of ADR 0017, with `csv` in `production` | Same format staff already open in Excel |
+| CSV uses the accountant format of ADR 0017, with `csv` in `production`; products left out follow the ingredients as "Niet meegeteld (…)" rows with an empty gram cell | Same format staff already open in Excel, and the CSV never looks complete when it is not |
 
 **Seam for batches.** The spec says: before cutoff from recipe versions, after cutoff from
 batch lines. Batches are built separately (F14a), so only the recipe-version path exists.

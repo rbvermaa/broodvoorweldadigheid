@@ -47,7 +47,7 @@ needs-pieces = Stuks
 needs-reason = Waarom
 needs-reason-no-recipe = geen recept
 needs-reason-no-version = geen versie in gebruik
-needs-reason-empty = recept zonder regels
+needs-reason-empty = recept zonder regels of percentages
 needs-reason-no-dough-weight = geen deeggewicht per stuk
 # $amount is preformatted: 850 or 12,345
 needs-grams = { $amount } g

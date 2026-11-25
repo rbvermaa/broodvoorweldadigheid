@@ -342,3 +342,16 @@ fn ingredient_needs_as_csv() {
          \"Niet meegeteld (geen recept): Granola; groot, 13 stuks\";\r\n"
     );
 }
+
+#[test]
+fn needs_with_only_products_without_recipe_list_them_instead_of_nothing() {
+    let mut needs = ingredient_needs();
+    needs.ingredients.clear();
+    needs.doughs.clear();
+    let data = paper::needs(&needs, &dutch()).unwrap();
+    let (document, _) = pdf::layout(&pdf::NEEDS, &data).unwrap();
+    let text = pdf::text(&document);
+    assert!(!text.contains("Nog niets nodig."), "{text}");
+    assert!(text.contains("Granola | 13 | geen recept"), "{text}");
+    assert!(!text.contains("Ingrediënt"), "{text}");
+}

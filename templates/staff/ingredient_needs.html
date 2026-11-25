@@ -12,9 +12,10 @@
 {% if !missing.rows.is_empty() %}
 {% call fb::alert("warning", layout.t("needs-missing-intro")?) %}{% endcall %}
 {% endif %}
-{% if ingredients.rows.is_empty() %}
+{% if ingredients.rows.is_empty() && missing.rows.is_empty() %}
 {% call fb::empty_state(layout.t("needs-title")?, layout.t("needs-empty")?) %}{% endcall %}
-{% else %}
+{% endif %}
+{% if !ingredients.rows.is_empty() %}
 {% call tb::table(ingredients) %}{% endcall %}
 {% call tb::table(doughs) %}{% endcall %}
 {% endif %}

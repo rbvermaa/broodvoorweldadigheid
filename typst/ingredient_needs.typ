@@ -11,9 +11,9 @@
 
 #data.basis
 
-#if data.ingredients.len() == 0 [
+#if data.ingredients.len() == 0 and data.missing.len() == 0 [
   #l.empty
-] else {
+] else if data.ingredients.len() > 0 {
   table(
     columns: (1fr, auto),
     align: (left, right),
