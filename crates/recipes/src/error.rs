@@ -11,6 +11,9 @@ pub enum Error {
     /// A frozen version uses it, and the change would alter that version's figures.
     #[error("a frozen recipe version uses it")]
     InUse,
+    /// The lines changed since the page that asked for the change showed them.
+    #[error("the recipe changed since it was shown")]
+    Stale,
     /// The version is frozen; only a draft can change.
     #[error("the recipe version is frozen")]
     Frozen,
@@ -66,6 +69,7 @@ mod tests {
             (Error::Duplicate, "the name is already in use"),
             (Error::InUse, "a frozen recipe version uses it"),
             (Error::Frozen, "the recipe version is frozen"),
+            (Error::Stale, "the recipe changed since it was shown"),
             (
                 Error::DraftExists(RecipeVersionId::new(7)),
                 "recipe already has draft version",

@@ -176,9 +176,26 @@ impl Client<'_> {
     }
 
     async fn post(&self, path: &str, fields: &[(&str, &str)]) -> Reply {
+        let seen = self.seen(path, fields).await;
         let mut all: Vec<(&str, &str)> = vec![("_csrf", &self.token)];
+        all.extend(seen.iter().map(|s| ("seen", s.as_str())));
         all.extend_from_slice(fields);
         self.post_raw(path, &all).await
+    }
+
+    /// For a line change without a `seen` field: the stamp of the lines as stored now, as an
+    /// up-to-date page sends it.
+    async fn seen(&self, path: &str, fields: &[(&str, &str)]) -> Option<String> {
+        if !path.contains("/lines") || fields.iter().any(|(k, _)| *k == "seen") {
+            return None;
+        }
+        let mut parts = path.split('/').skip_while(|p| *p != "versions");
+        let version: i64 = parts.nth(1)?.parse().ok()?;
+        let mut conn = self.app.pool.acquire().await.expect("conn");
+        let lines = store::lines(&mut conn, RecipeVersionId::new(version))
+            .await
+            .expect("lines");
+        Some(store::stamp(&lines))
     }
 
     async fn post_raw(&self, path: &str, fields: &[(&str, &str)]) -> Reply {
@@ -867,7 +884,9 @@ impl Client<'_> {
     }
 
     async fn htmx_post(&self, path: &str, fields: &[(&str, &str)]) -> Reply {
+        let seen = self.seen(path, fields).await;
         let mut all: Vec<(&str, &str)> = vec![("_csrf", &self.token)];
+        all.extend(seen.iter().map(|s| ("seen", s.as_str())));
         all.extend_from_slice(fields);
         self.send(
             Request::post(path)
@@ -1052,6 +1071,7 @@ async fn a_draft_line_is_edited_by_percent_or_by_grams(pool: PgPool) {
         ("pct", "abc", "recipe-line-error-pct"),
         ("gram", "0", "recipe-line-error-grams"),
         ("gram", "-3", "recipe-line-error-grams"),
+        ("gram", "", "recipe-line-error-grams"),
     ] {
         let refused = baker
             .htmx_post(
@@ -1373,4 +1393,58 @@ async fn line_edits_need_production_and_the_csrf_token(pool: PgPool) {
     assert_eq!(lines[2].pct.thousandths(), 2_000);
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(ingredients::list(&mut conn).await.expect("list").len(), 3);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_change_from_an_out_of_date_page_is_refused(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let salt = format!("i{}", k.salt.get());
+    let page = baker.get(&format!("{version}/edit?gewicht=1770")).await;
+    let shown = store::stamp(&stored_lines(&pool, k.dough_v1).await);
+    page.shows(&format!("name=\"seen\" value=\"{shown}\""));
+
+    baker
+        .htmx_post(
+            &format!("{version}/lines/2"),
+            &[
+                ("part", &salt),
+                ("pct", "3"),
+                ("gewicht", "1770"),
+                ("seen", &shown),
+            ],
+        )
+        .await
+        .shows(&grams_input("gram-2", "30"));
+    let stale = baker
+        .htmx_post(
+            &format!("{version}/lines/2/remove"),
+            &[("part", &salt), ("gewicht", "1770"), ("seen", &shown)],
+        )
+        .await;
+    assert_eq!(stale.status, StatusCode::OK);
+    stale.shows(&dutch("recipe-error-stale"));
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 4);
+    let plain = baker
+        .post(
+            &format!("{version}/lines"),
+            &[("part", &salt), ("pct", "1"), ("seen", &shown)],
+        )
+        .await;
+    assert_eq!(plain.status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn search_finds_a_sub_recipe_version_by_its_number(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let found = baker.htmx_get(&format!("{version}/search?q=desem+1")).await;
+    found.shows(&format!("value=\"v{}\"", k.levain_v1.get()));
+    let none = baker.htmx_get(&format!("{version}/search?q=desem+7")).await;
+    none.lacks(&format!("value=\"v{}\"", k.levain_v1.get()));
 }

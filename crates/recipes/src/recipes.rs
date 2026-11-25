@@ -659,22 +659,50 @@ fn apply(lines: &mut Vec<LineInput>, edit: &LineEdit) -> Result<(), Error> {
     Ok(())
 }
 
-/// Changes one line of a draft and keeps the others, its lead time and notes.
+/// A short fingerprint of a version's lines in order (FNV-1a, 64 bits). A page sends back
+/// the stamp of the lines it showed, so a change made on an out-of-date page is refused.
+#[must_use]
+pub fn stamp(lines: &[LineInput]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for line in lines {
+        let (kind, id) = match line.part {
+            LinePart::Ingredient(id) => (b'i', id.get()),
+            LinePart::Sub(id) => (b'v', id.get()),
+        };
+        let bytes = [kind]
+            .into_iter()
+            .chain(id.to_le_bytes())
+            .chain(line.pct.thousandths().to_le_bytes());
+        for byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+/// Changes one line of a draft and keeps the others, its lead time and notes. `seen` is
+/// the [`stamp`] of the lines the change was made on.
 ///
 /// # Errors
 /// [`Error::NotFound`] for an unknown version; [`Error::Frozen`] for a frozen one;
+/// [`Error::Stale`] when the lines are no longer the ones `seen` stamps;
 /// [`Error::Invalid`] (`"line"`) when the line at that position holds something else or
 /// the new line names an unknown ingredient or version, or as for [`save_draft`];
 /// [`Error::Nesting`] as for [`save_draft`].
 pub async fn edit_line(
     conn: &mut PgConnection,
     id: RecipeVersionId,
+    seen: &str,
     edit: &LineEdit,
 ) -> Result<Version, Error> {
     let mut tx = conn.begin().await?;
     lock_graph(&mut tx).await?;
     let recipe_id = lock_draft(&mut tx, id).await?;
     let mut new_lines = lines(&mut tx, id).await?;
+    if stamp(&new_lines) != seen {
+        return Err(Error::Stale);
+    }
     apply(&mut new_lines, edit)?;
     validate_draft(&DraftInput {
         lines: new_lines.clone(),

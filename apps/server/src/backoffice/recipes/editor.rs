@@ -211,6 +211,8 @@ pub struct Editor {
     pub notice: Option<Message>,
     pub saved: bool,
     pub grams: String,
+    /// The [`store::stamp`] of the lines shown, posted back with every line change.
+    pub stamp: String,
     pub weight: String,
     pub weight_error: String,
     pub pieces: String,
@@ -496,6 +498,17 @@ fn editor(state: &AppState, loaded: &Loaded, input: EditorInput<'_>) -> Editor {
         notice,
         saved,
         grams: scale.grams.to_string(),
+        stamp: store::stamp(
+            &loaded
+                .formula
+                .lines
+                .iter()
+                .map(|line| LineInput {
+                    pct: line.pct,
+                    part: line_part(line),
+                })
+                .collect::<Vec<_>>(),
+        ),
         weight: scale.weight.clone(),
         weight_error: scale.weight_error.clone(),
         pieces: scale.pieces.clone(),
@@ -585,8 +598,11 @@ fn suggestions(
     add: &AddState,
 ) -> Suggestions {
     let q = add.q.as_str();
-    let lower = q.to_lowercase();
-    let hits = |name: &str| !q.is_empty() && name.to_lowercase().contains(&lower);
+    let words: Vec<String> = q.split_whitespace().map(str::to_lowercase).collect();
+    let hits = |label: &str| {
+        let label = label.to_lowercase();
+        !words.is_empty() && words.iter().all(|word| label.contains(word.as_str()))
+    };
     let ingredient_hits = ingredients
         .iter()
         .filter(|i| hits(&i.name))
@@ -594,24 +610,27 @@ fn suggestions(
             value: part_value(LinePart::Ingredient(i.id)),
             label: i.name.clone(),
         });
-    let sub_hits = subs.iter().filter(|s| hits(&s.recipe_name)).map(|s| {
-        let id = if s.frozen {
-            "recipe-sub-option"
-        } else {
-            "recipe-sub-option-draft"
-        };
-        Suggestion {
-            value: part_value(LinePart::Sub(s.version_id)),
-            label: t_with(
-                state,
-                id,
-                &[
-                    ("name", s.recipe_name.clone()),
-                    ("n", s.version.to_string()),
-                ],
-            ),
-        }
-    });
+    let sub_hits = subs
+        .iter()
+        .map(|s| {
+            let id = if s.frozen {
+                "recipe-sub-option"
+            } else {
+                "recipe-sub-option-draft"
+            };
+            Suggestion {
+                value: part_value(LinePart::Sub(s.version_id)),
+                label: t_with(
+                    state,
+                    id,
+                    &[
+                        ("name", s.recipe_name.clone()),
+                        ("n", s.version.to_string()),
+                    ],
+                ),
+            }
+        })
+        .filter(|s| hits(&s.label));
     let exact = ingredients.iter().any(|i| same_name(&i.name, q));
     let new_name = if q.is_empty() || exact || !staff.0.role.can(Permission::EditAllergens) {
         String::new()
@@ -919,6 +938,7 @@ fn refused_status(headers: &HeaderMap, error: Option<&recipes::Error>) -> Status
 fn error_text(state: &AppState, error: &recipes::Error) -> Option<String> {
     let id = match error {
         recipes::Error::Frozen => "recipe-error-frozen",
+        recipes::Error::Stale => "recipe-error-stale",
         recipes::Error::Invalid("line") => "recipe-error-line-gone",
         recipes::Error::Invalid("lines") => "recipe-error-lines",
         recipes::Error::Invalid("pct") => "recipe-line-error-pct",
@@ -968,7 +988,7 @@ pub async fn save_details(
             Err(error) => error,
         };
         let text = error_text(&state, &error).ok_or_else(|| fail(&state, &error))?;
-        let mut view = EditView::new(Scale::weight(DEFAULT_WEIGHT_G, BTreeSet::new()));
+        let mut view = EditView::new(Scale::read(&state, &fields, &loaded.products));
         if matches!(error, recipes::Error::Invalid("lead_time_hours")) {
             view.lead_time_error = text;
         } else {
@@ -994,7 +1014,8 @@ pub async fn save_details(
 fn amount(state: &AppState, fields: &Fields, dough: u64, line_sum: u64) -> Result<Pct, String> {
     let pct = fields.text("pct");
     let gram = fields.text("gram");
-    if pct.is_empty() && !gram.is_empty() {
+    let by_grams = !gram.is_empty() || (fields.checked("gram") && !fields.checked("pct"));
+    if pct.is_empty() && by_grams {
         if line_sum == 0 {
             return Err(t(state, "recipe-add-error-first-pct"));
         }
@@ -1134,6 +1155,7 @@ impl Request<'_> {
 async fn apply(
     state: &AppState,
     version: RecipeVersionId,
+    seen: &str,
     edit: LineEdit,
     new: Option<IngredientInput>,
 ) -> Step<Result<LineEdit, recipes::Error>> {
@@ -1149,7 +1171,7 @@ async fn apply(
         },
         (edit, _) => edit,
     };
-    if let Err(error) = store::edit_line(&mut tx, version, &edit).await {
+    if let Err(error) = store::edit_line(&mut tx, version, seen, &edit).await {
         return Ok(Err(error));
     }
     tx.commit().await.map_err(|e| fail(state, &e))?;
@@ -1238,7 +1260,9 @@ async fn change_line(
         };
         let outcome = match planned {
             None => Err(recipes::Error::Frozen),
-            Some(Ok((edit, new))) => apply(&state, loaded.version.id, edit, new).await?,
+            Some(Ok((edit, new))) => {
+                apply(&state, loaded.version.id, fields.text("seen"), edit, new).await?
+            }
             Some(Err(text)) => {
                 let reply = Reply {
                     state: &state,

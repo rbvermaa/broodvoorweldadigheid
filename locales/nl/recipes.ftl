@@ -112,3 +112,4 @@ recipe-error-frozen = Deze versie staat vast en verandert niet meer. Bewerk een 
 recipe-edit-new-version = Nieuwe versie bewerken
 recipe-done = Klaar met aanpassen
 recipe-details = Over deze versie
+recipe-error-stale = Het recept is intussen veranderd, bijvoorbeeld in een ander scherm. Kijk het na en probeer het opnieuw.

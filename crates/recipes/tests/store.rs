@@ -907,9 +907,9 @@ async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConne
         part: water,
         pct: pct(75),
     };
-    store::edit_line(&mut conn, v1.id, &set).await.unwrap();
+    edit_now(&mut conn, v1.id, &set).await.unwrap();
     let add = store::LineEdit::Add(line(salt, 2));
-    store::edit_line(&mut conn, v1.id, &add).await.unwrap();
+    edit_now(&mut conn, v1.id, &add).await.unwrap();
     assert_eq!(
         store::lines(&mut conn, v1.id).await.unwrap(),
         vec![line(flour, 100), line(water, 75), line(salt, 2)]
@@ -923,7 +923,7 @@ async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConne
         part: salt,
     };
     assert!(matches!(
-        store::edit_line(&mut conn, v1.id, &stale).await,
+        edit_now(&mut conn, v1.id, &stale).await,
         Err(Error::Invalid("line"))
     ));
     let past_end = store::LineEdit::SetPct {
@@ -932,7 +932,7 @@ async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConne
         pct: pct(3),
     };
     assert!(matches!(
-        store::edit_line(&mut conn, v1.id, &past_end).await,
+        edit_now(&mut conn, v1.id, &past_end).await,
         Err(Error::Invalid("line"))
     ));
     let zero = store::LineEdit::SetPct {
@@ -941,14 +941,14 @@ async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConne
         pct: pct(0),
     };
     assert!(matches!(
-        store::edit_line(&mut conn, v1.id, &zero).await,
+        edit_now(&mut conn, v1.id, &zero).await,
         Err(Error::Invalid("pct"))
     ));
     let remove = store::LineEdit::Remove {
         position: 1,
         part: water,
     };
-    store::edit_line(&mut conn, v1.id, &remove).await.unwrap();
+    edit_now(&mut conn, v1.id, &remove).await.unwrap();
     assert_eq!(
         store::lines(&mut conn, v1.id).await.unwrap(),
         vec![line(flour, 100), line(salt, 2)]
@@ -968,11 +968,11 @@ async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConne
     let full = draft(vec![line(flour, 1); store::MAX_LINES]);
     store::save_draft(&mut conn, v1.id, &full).await.unwrap();
     assert!(matches!(
-        store::edit_line(&mut conn, v1.id, &add).await,
+        edit_now(&mut conn, v1.id, &add).await,
         Err(Error::Invalid("lines"))
     ));
     assert!(matches!(
-        store::edit_line(&mut conn, RecipeVersionId::new(999), &add).await,
+        edit_now(&mut conn, RecipeVersionId::new(999), &add).await,
         Err(Error::NotFound)
     ));
 }
@@ -1001,7 +1001,7 @@ async fn a_frozen_version_refuses_line_edits(mut conn: PoolConnection<Postgres>)
             part: flour,
         },
     ] {
-        let refused = store::edit_line(&mut conn, v1.id, &edit).await;
+        let refused = edit_now(&mut conn, v1.id, &edit).await;
         assert!(matches!(refused, Err(Error::Frozen)), "{refused:?}");
     }
     let refused = store::save_details(&mut conn, v1.id, Some(1), "x").await;
@@ -1019,10 +1019,57 @@ async fn an_added_line_cannot_use_the_recipe_itself(mut conn: PoolConnection<Pos
     let (_, l1) = levain(&mut conn, &k).await;
     let (_, d1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
     let add = store::LineEdit::Add(line(LinePart::Sub(l1.id), 20));
-    store::edit_line(&mut conn, d1.id, &add).await.unwrap();
+    edit_now(&mut conn, d1.id, &add).await.unwrap();
     let back = store::LineEdit::Add(line(LinePart::Sub(d1.id), 5));
     assert!(matches!(
-        store::edit_line(&mut conn, l1.id, &back).await,
+        edit_now(&mut conn, l1.id, &back).await,
         Err(Error::Nesting)
     ));
+}
+
+/// Edits as a page showing the lines as they are now would.
+async fn edit_now(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    edit: &store::LineEdit,
+) -> Result<Version, Error> {
+    let seen = match store::lines(conn, id).await {
+        Ok(lines) => store::stamp(&lines),
+        Err(_) => String::new(),
+    };
+    store::edit_line(conn, id, &seen, edit).await
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_edit_from_an_out_of_date_page_is_refused(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (_, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let water = LinePart::Ingredient(k.water);
+    let two_waters = vec![
+        line(LinePart::Ingredient(k.flour), 100),
+        line(water, 50),
+        line(water, 20),
+    ];
+    store::save_draft(&mut conn, v1.id, &draft(two_waters.clone()))
+        .await
+        .unwrap();
+    let page = store::stamp(&two_waters);
+    let first = store::LineEdit::Remove {
+        position: 1,
+        part: water,
+    };
+    store::edit_line(&mut conn, v1.id, &page, &first)
+        .await
+        .unwrap();
+    let again = store::edit_line(&mut conn, v1.id, &page, &first).await;
+    assert!(matches!(again, Err(Error::Stale)), "{again:?}");
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![line(LinePart::Ingredient(k.flour), 100), line(water, 20)]
+    );
+    assert_ne!(
+        store::stamp(&[line(water, 50), line(water, 20)]),
+        store::stamp(&[line(water, 20), line(water, 50)])
+    );
+    assert_eq!(store::stamp(&[]).len(), 16);
 }

@@ -34,9 +34,9 @@
 {% endmacro %}
 
 {% macro line_form(e, row, field) %}
-<form id="regel-{{ row.index }}-{{ field }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:#{{ field }}-{{ row.index }}" hx-sync="this:drop" hx-include="#schaal" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">
+<form id="regel-{{ row.index }}-{{ field }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:#{{ field }}-{{ row.index }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">
 {%- call csrf() %}{% endcall -%}
-<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"></form>
+<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><input type="hidden" name="seen" value="{{ e.stamp }}"></form>
 {% endmacro %}
 
 {% macro editor(e) %}
@@ -77,7 +77,7 @@
 </td>
 <td class="recipe-pct">{% if e.editable %}<label class="visually-hidden" for="pct-{{ row.index }}">{{ row.pct_label }}</label><input class="recipe-input" id="pct-{{ row.index }}" name="pct" value="{{ row.pct_value }}" form="regel-{{ row.index }}-pct" type="text" inputmode="decimal" autocomplete="off">{% else %}{{ row.pct }}{% endif %}</td>
 {%- if e.editable %}
-<td class="recipe-actions"><form method="post" action="{{ row.remove }}" hx-post="{{ row.remove }}" hx-include="#schaal" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">{% call csrf() %}{% endcall %}<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><button type="submit" class="recipe-remove">{{ layout.icon_labelled("trash-2", row.remove_label.as_str())? }}</button></form></td>
+<td class="recipe-actions"><form method="post" action="{{ row.remove }}" hx-post="{{ row.remove }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">{% call csrf() %}{% endcall %}<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><input type="hidden" name="seen" value="{{ e.stamp }}"><button type="submit" class="recipe-remove">{{ layout.icon_labelled("trash-2", row.remove_label.as_str())? }}</button></form></td>
 {%- endif %}
 </tr>
 {%- for child in row.children %}
@@ -108,19 +108,21 @@
 {% call line_form(e, row, "pct") %}{% endcall %}
 {%- endfor %}
 {%- endif %}
+{%- if e.add.is_some() %}
+<input type="hidden" name="gewicht" value="{{ e.grams }}" form="regel-nieuw"><input type="hidden" name="seen" value="{{ e.stamp }}" form="regel-nieuw">
+{%- endif %}
 </div>
 {%- if let Some(add) = e.add %}
-<form id="regel-nieuw" class="recipe-add" method="post" action="{{ add.action }}" hx-post="{{ add.action }}" hx-include="#schaal" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML" hx-disinherit="*">
+<form id="regel-nieuw" class="recipe-add" method="post" action="{{ add.action }}" hx-post="{{ add.action }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML" hx-disinherit="*">
 {%- call csrf() %}{% endcall -%}
-<input type="hidden" name="gewicht" value="{{ e.grams }}">
 <div class="recipe-add-row">
 <div class="recipe-add-grams"><label class="field-label" for="add-gram">{{ layout.t("recipe-line-grams")? }}</label><input class="field-input" id="add-gram" name="gram" value="{{ add.gram }}" type="text" inputmode="numeric" autocomplete="off"></div>
 <div class="recipe-add-name"><label class="field-label" for="add-q">{{ layout.t("recipe-add-label")? }}</label><input class="field-input" id="add-q" name="q" value="{{ add.q }}" type="search" autocomplete="off" aria-describedby="add-q-hint" aria-controls="suggesties" hx-get="{{ add.search }}" hx-trigger="input changed delay:200ms, search" hx-target="#suggesties" hx-swap="innerHTML" hx-sync="this:replace"></div>
 <div class="recipe-add-pct"><label class="field-label" for="add-pct"><span aria-hidden="true">{{ layout.t("recipe-col-pct")? }}</span><span class="visually-hidden">{{ layout.t("recipe-line-pct")? }}</span></label><input class="field-input" id="add-pct" name="pct" value="{{ add.pct }}" type="text" inputmode="decimal" autocomplete="off"></div>
 </div>
 <p class="field-hint" id="add-q-hint">{{ layout.t("recipe-add-hint")? }}</p>
-<div id="suggesties" class="recipe-suggestions">{% call suggestions(add.suggestions) %}{% endcall %}</div>
 <button type="submit" class="button button-secondary"><span class="button-label">{{ layout.t("recipe-add-submit")? }}</span></button>
+<div id="suggesties" class="recipe-suggestions">{% call suggestions(add.suggestions) %}{% endcall %}</div>
 </form>
 {%- endif %}
 </section>

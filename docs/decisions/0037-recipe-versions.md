@@ -93,7 +93,7 @@ gone.
 | Choice | Why |
 |---|---|
 | Every line edit (by % or grams, add, remove) keeps the grams per percent; the dough weight follows (`recipes::dough_for_sum`) | The other lines keep their grams, as a baker expects when changing the salt. Typed grams become a percentage at the current scale (`pct_for_grams`, half up to 0.001%); scaled back, the line is within half the grams of 0.001% plus 1.5 g of what was typed (property test) |
-| One line per request: `recipes::edit_line` sets, adds or removes a line under the graph lock, checks the line still holds what the page showed, and refuses a frozen version (`Error::Frozen`) | A stale page or two tabs never change the wrong line. Lines go through the same write and nesting check as a full save, so the allergen triggers fire as before |
+| One line per request: `recipes::edit_line` sets, adds or removes a line under the graph lock and refuses a frozen version (`Error::Frozen`). The page posts a stamp of the lines it showed (`recipes::recipes::stamp`); other lines refuse the change (`Error::Stale`) | A stale page, a second tab or two quick edits never change the wrong line or convert grams against another sum, also when an ingredient is in the recipe twice. Lines go through the same write and nesting check as a full save, so the allergen triggers fire as before |
 | Lead time and notes save on their own (`save_details`) | Saving them no longer rewrites the lines |
 | Lines inside a sub-recipe are shown, not edited | They belong to that recipe's version, which may be frozen; its own page edits it |
 | The scale (`gewicht`, or `stuks` × a linked product's dough per piece) and the open sub-recipes live in the URL | Remembered per viewer without storing anything |
