@@ -11,12 +11,22 @@ test ran. The signature lines then show 0 hits, although tests call the function
 body lines are hit. Which copy wins changes from build to build.
 
 **Evidence.** Two workers measured `crates/orders` swing between 94.9% and 96.5% on
-unchanged code, around the 95% threshold of the strict crates. About 90 lines in `orders`
-are such signature lines. ADR 0033 already took e2e out of the coverage run for the same
+unchanged code, around the 95% threshold of the strict crates. About 90 signature lines in `orders`
+were unhit. ADR 0033 already took e2e out of the coverage run for the same
 reason; the remaining test binaries still trigger it. Builds of `coverage-report` on dev1
-before and after this change:
+with this change on top of recent main commits:
 
-MEASUREMENTS
+| main at | orders without rule | orders signature lines unhit | orders with rule | notify without rule | notify with rule |
+|---|---|---|---|---|---|
+| 86a7856 | 94.96% (fails) | 85 of 341 | 97.63% | 94.21% | 96.26% |
+| a5d482d | 95.56% | 71 of 341 | 97.75% | 95.49% | 96.58% |
+| 7567144 | 95.56% | 71 of 341 | 97.75% | 95.49% | 96.58% |
+| 1d195b0 | 95.56% | 71 of 341 | 97.75% | 95.49% | 96.58% |
+
+`orders` code barely changed between these commits (14 lines). Rebuilding one commit
+(`--rebuild`) gave a byte-identical report, both on main and with this change; the
+swing comes with changes elsewhere in the workspace. On 1d195b0 the rule leaves out 2419
+lines overall (171 of them unhit), 341 in `orders`.
 
 **The rule.** `cargo xtask coverage` reads the source file of each lcov `SF` record and
 finds every `async fn` with a body (`xtask/src/async_fn.rs`). When at least one line of
@@ -31,7 +41,7 @@ many of those had no hits, and the percentage without the rule.
 |---|---|
 | Leave out the signature lines in both directions (hit or missed) | Leaving out only the missed ones would still let the count of found lines move with the build |
 | Only when a body line is hit | An untested function still lowers coverage, through its body and its signature |
-| Parse the source in xtask, with a small tokenizer that skips comments, strings, chars and lifetimes. When it cannot tell where the body starts, it finds no function, so the lines keep counting | No new dependency, and a parser mistake can only keep lines in. Checked against all workspace files: it finds every `async fn` with a body that a line search finds |
+| Parse the source in xtask, with a small tokenizer that skips comments, strings, chars and lifetimes. When it cannot tell where the body starts, it finds no function, so the lines keep counting | No new dependency, and a wrong guess about where the body starts keeps the lines counted. Checked against all workspace files: it finds every `async fn` with a body that a line search finds |
 | The report keeps line data (`--summary-only` is gone); a record with lines (`LF` above 0) but no `DA` lines is an error | The rule needs per-line hits; failing loudly keeps the rule from silently turning off |
 
 **Why this does not weaken the gate.** The left-out lines carry no information about
