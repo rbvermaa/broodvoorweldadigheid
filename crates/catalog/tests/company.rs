@@ -179,6 +179,27 @@ async fn any_writer_changing_the_kitchen_list_clears_its_approval(
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_same_kitchen_set_in_another_order_keeps_its_approval(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new("2026-11-25T10:00:00Z".parse().unwrap());
+    add_baker(&mut conn).await;
+    company::set_kitchen_may_contain(&mut conn, &traces())
+        .await
+        .unwrap();
+    company::approve_kitchen_may_contain(&mut conn, &traces(), BAKER, &clock)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE company SET may_contain = '{sesame_seeds,nuts}'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let kept = company::kitchen_may_contain(&mut conn).await.unwrap();
+    assert_eq!(kept.allergens, traces());
+    assert!(kept.approval.is_some(), "a reordered list is no change");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn other_company_changes_keep_the_kitchen_approval(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new("2026-11-25T10:00:00Z".parse().unwrap());
     add_baker(&mut conn).await;

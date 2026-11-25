@@ -3628,6 +3628,9 @@ async fn approving_a_kitchen_list_that_changed_meanwhile_is_refused(pool: PgPool
 async fn counter_cannot_see_or_change_the_kitchen_list(pool: PgPool) {
     let app = app(pool.clone());
     let counter = client(&app, "Balie Bo", Role::Counter).await;
+    let home = counter.get("/staff").await;
+    home.shows(&dutch("kitchen-may-contain-unapproved"));
+    home.lacks(&dutch("kitchen-may-contain-link"));
     assert_eq!(counter.get(KITCHEN).await.status, StatusCode::FORBIDDEN);
     assert_eq!(
         counter.post(KITCHEN, &[("may_nuts", "ja")]).await.status,

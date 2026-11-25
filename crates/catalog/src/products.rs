@@ -381,6 +381,23 @@ pub async fn approve_allergens(
     }
 }
 
+/// Locks the rows of `ids` `FOR SHARE`, in id order, until the caller's transaction ends,
+/// so their allergen approval cannot be cleared between a checkout's check and its commit
+/// (ADR 0008, ADR 0038). Unknown ids are skipped.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn lock_for_order(conn: &mut PgConnection, ids: &[ProductId]) -> Result<(), Error> {
+    let ids: Vec<i64> = ids.iter().map(|id| id.get()).collect();
+    sqlx::query_scalar!(
+        "SELECT id FROM product WHERE id = ANY($1) ORDER BY id FOR SHARE",
+        &ids,
+    )
+    .fetch_all(conn)
+    .await?;
+    Ok(())
+}
+
 /// # Errors
 /// [`Error::NotFound`] when there is no such product.
 pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Error> {

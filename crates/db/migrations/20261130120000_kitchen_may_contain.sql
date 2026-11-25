@@ -1,5 +1,6 @@
--- The kitchen-wide "may contain traces of" list (F10, ADR 0038). Any change clears its
--- approval, whoever writes it. product.may_contain is no longer read or written; it goes
+-- The kitchen-wide "may contain traces of" list (F10, ADR 0038). A change to the set of
+-- allergens clears its approval, whoever writes it; the same set in another order or with
+-- duplicates is no change. product.may_contain is no longer read or written; it goes
 -- in a later release.
 ALTER TABLE company
     ADD COLUMN may_contain text[] NOT NULL DEFAULT '{}'
@@ -14,7 +15,7 @@ ALTER TABLE company
 CREATE FUNCTION clear_may_contain_approval() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF NEW.may_contain IS DISTINCT FROM OLD.may_contain THEN
+    IF NOT (NEW.may_contain @> OLD.may_contain AND NEW.may_contain <@ OLD.may_contain) THEN
         NEW.may_contain_approved_by := NULL;
         NEW.may_contain_approved_at := NULL;
     END IF;

@@ -238,6 +238,7 @@ struct Home<'a> {
     name: &'a str,
     role: &'static str,
     kitchen_unapproved: bool,
+    can_edit_allergens: bool,
 }
 
 fn role_message(role: Role) -> &'static str {
@@ -269,6 +270,7 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
             name: &staff.0.name,
             role: role_message(staff.0.role),
             kitchen_unapproved: kitchen.approval.is_none(),
+            can_edit_allergens: staff.0.role.can(Permission::EditAllergens),
         },
     )
 }

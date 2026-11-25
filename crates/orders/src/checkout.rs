@@ -166,8 +166,9 @@ async fn insert_lines(
 
 /// Turns a cart into an order waiting for payment, holding its capacity for [`HOLD`]
 /// (F3, F4, F4b). One transaction, locking in the order of ADR 0008 and ADR 0012: the
-/// bake day `FOR SHARE`, the products and pools ([`range::lock_capacity`]), the pickup
-/// slot, the customer, the year's order number. Orders are read after those locks.
+/// bake day `FOR SHARE`, the products and pools ([`range::lock_capacity`]), the product
+/// and company rows `FOR SHARE` (their allergen approvals), the pickup slot, the customer,
+/// the year's order number. Orders are read after those locks.
 ///
 /// Lines copy the price and BTW rate of this moment; a pay-what-you-want price is checked
 /// here, never trusted from the browser.
@@ -337,6 +338,10 @@ async fn place(
             return Err(Error::NotReplaceable);
         }
     }
+    // ADR 0008 step 2b: the product rows by id, then the company row, `FOR SHARE`, so
+    // staff cannot clear an allergen approval between this check and the commit.
+    catalog::products::lock_for_order(&mut tx, &products).await?;
+    let kitchen = catalog::company::lock_kitchen_may_contain(&mut tx).await?;
     let mut catalog = Vec::with_capacity(products.len());
     for &id in &products {
         match catalog::products::get(&mut tx, id).await {
@@ -346,7 +351,6 @@ async fn place(
         }
     }
     let on_range = range::list_products(&mut tx, day).await?;
-    let kitchen = catalog::company::kitchen_may_contain(&mut tx).await?;
     let lines = cart.price(&catalog, &on_range, &kitchen)?;
     let total = cart::totals(&lines)?.gross()?;
     if total <= domain::Money::ZERO {

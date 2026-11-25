@@ -182,8 +182,9 @@ impl Cart {
 
     /// Prices every line from `products` (the catalog) and checks it against the bake
     /// day's `range`: each product must be active, sold online, on the range and have
-    /// approved allergen data, and the kitchen-wide may-contain list must be approved. A pay-what-you-want price must lie within the product's
-    /// minimum and maximum; without a choice it is the suggested price (F4b).
+    /// approved allergen data, and the kitchen-wide may-contain list must be approved. A
+    /// pay-what-you-want price must lie within the product's minimum and maximum; without
+    /// a choice it is the suggested price (F4b).
     ///
     /// # Errors
     /// The first [`CartError`] found, by product id.

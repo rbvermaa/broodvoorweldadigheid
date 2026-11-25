@@ -468,6 +468,67 @@ async fn checkout_waits_for_the_kitchen_may_contain_approval(mut conn: PoolConne
     ));
 }
 
+/// A staff change that clears an approval (`revoke`) is still open when a checkout starts:
+/// the checkout waits on the row lock (ADR 0008, update 2026-11-25), then reads the
+/// cleared approval and refuses.
+async fn checkout_waits_for(pool: &PgPool, revoke: &'static str) -> Error {
+    let clock = wednesday();
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    drop(conn);
+
+    let mut staff = pool.begin().await.unwrap();
+    sqlx::query(revoke).execute(&mut *staff).await.unwrap();
+
+    let mut customer = pool.acquire().await.unwrap();
+    let pid = backend_pid(&mut customer).await;
+    let day = shop.day.id;
+    let slot = shop.slot;
+    let task = tokio::spawn(async move {
+        let clock = wednesday();
+        let mut cart = Cart::new(day);
+        cart.set(bread, 1, None).unwrap();
+        checkout(
+            &mut customer,
+            &clock,
+            &cart,
+            &guest("klant@example.org"),
+            slot,
+            OrderedBy::Guest,
+        )
+        .await
+    });
+    wait_until_blocked(pool, pid).await;
+    staff.commit().await.unwrap();
+    let refused = task.await.unwrap().unwrap_err();
+    let count: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    refused
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn checkout_waits_for_a_kitchen_list_change_and_then_refuses(pool: PgPool) {
+    let refused = checkout_waits_for(&pool, "UPDATE company SET may_contain = '{nuts}'").await;
+    assert!(
+        matches!(refused, Error::Cart(CartError::KitchenAllergensNotApproved)),
+        "{refused:?}"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn checkout_waits_for_a_product_allergen_change_and_then_refuses(pool: PgPool) {
+    let refused = checkout_waits_for(&pool, "UPDATE product SET allergens = '{milk}'").await;
+    assert!(
+        matches!(refused, Error::Cart(CartError::AllergensNotApproved(_))),
+        "{refused:?}"
+    );
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn sold_out_products_and_shared_pools_are_refused(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();

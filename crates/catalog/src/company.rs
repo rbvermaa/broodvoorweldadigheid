@@ -106,7 +106,27 @@ pub async fn kitchen_may_contain(conn: &mut PgConnection) -> Result<KitchenMayCo
     .try_into()
 }
 
-/// Replaces the list. A different list clears its approval (database trigger).
+/// [`kitchen_may_contain`], with the company row locked `FOR SHARE` until the caller's
+/// transaction ends, so the list and its approval cannot change between a checkout's check
+/// and its commit. A checkout takes it after its product locks (ADR 0008, ADR 0038).
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn lock_kitchen_may_contain(conn: &mut PgConnection) -> Result<KitchenMayContain, Error> {
+    sqlx::query_as!(
+        KitchenRow,
+        r#"SELECT may_contain, may_contain_approved_by AS approved_by,
+            (extract(epoch FROM may_contain_approved_at) * 1000000)::bigint AS approved_at_us
+        FROM company FOR SHARE"#,
+    )
+    .fetch_optional(conn)
+    .await?
+    .ok_or_else(|| Error::Corrupt("no company row".to_owned()))?
+    .try_into()
+}
+
+/// Replaces the list. A different set of allergens clears its approval (database
+/// trigger); the same set again keeps it.
 ///
 /// # Errors
 /// [`Error::Db`] or [`Error::Corrupt`].
