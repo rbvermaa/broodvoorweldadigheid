@@ -11,11 +11,7 @@ mod vat;
 
 pub use allergen::{Allergen, UnknownAllergen};
 pub use clock::{Clock, bakery_time_zone, in_bakery_time};
-pub use ids::{
-    BakeDayId, BusinessAccountId, CapacityPoolId, CharityId, CustomerId, DonationAllocationId,
-    OrderId, OrderLineId, PaymentId, PickupLocationId, PickupSlotId, PickupWindowId, ProductId,
-    StaffUserId,
-};
+pub use ids::*;
 pub use money::{Money, MoneyError};
 pub use payment::{
     CreatedPayment, CreatedRefund, FeeCursor, FeeKind, FeePage, IdempotencyKey, InvalidToken,

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT public_donations FROM company",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "public_donations",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "public_donations"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "11abb50249fc860af5c9d1e74d895591650a32cde744027c50c5deb56c9e5b6d"
+}

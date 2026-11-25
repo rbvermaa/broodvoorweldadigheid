@@ -10,8 +10,9 @@ pub const DEFAULT_DATA_DIR: &str = "/data";
 const ADMIN: &str = "idm_admin";
 const CA_COPY: &str = "/tmp/bvw-kanidm-ca.pem";
 const TOKEN_CACHE: &str = "/tmp/bvw-kanidm-tokens";
-const STAFF_GROUP: &str = "idm_all_persons";
-const SCOPES: [&str; 3] = ["openid", "email", "profile"];
+/// Only members of this group may log in to the shop; their role lives in `staff_user`.
+pub const STAFF_GROUP: &str = "bvw_staff";
+const SCOPES: [&str; 2] = ["openid", "email"];
 
 #[derive(Debug, clap::Subcommand)]
 pub enum KanidmCommand {
@@ -33,7 +34,9 @@ pub enum KanidmCommand {
         #[arg(long, default_value = DEFAULT_DATA_DIR)]
         data_dir: PathBuf,
     },
-    #[command(about = "Create a person and print their subject and a passkey set-up link")]
+    #[command(
+        about = "Create a person in the bvw_staff group and print their subject and a passkey set-up link"
+    )]
     Person {
         #[arg(long, default_value = DEFAULT_URL)]
         url: String,
@@ -251,6 +254,9 @@ pub fn execute(command: KanidmCommand) -> Result<String, Error> {
             data_dir,
         } => {
             let admin = Admin::login(&url, &data_dir)?;
+            if !admin.succeeds(&kanidm(&["group", "get", STAFF_GROUP])) {
+                admin.run(&kanidm(&["group", "create", STAFF_GROUP]))?;
+            }
             let exists = admin.succeeds(&kanidm(&["system", "oauth2", "get", &client_id]));
             if !exists {
                 admin.run(&kanidm(&[
@@ -291,6 +297,7 @@ pub fn execute(command: KanidmCommand) -> Result<String, Error> {
             if let Some(mail) = &mail {
                 admin.run(&kanidm(&["person", "update", &name, "--mail", mail]))?;
             }
+            admin.run(&kanidm(&["group", "add-members", STAFF_GROUP, &name]))?;
             let get = kanidm(&["person", "get", &name]);
             let details = admin.run(&get)?;
             let uuid = person_uuid(&details).ok_or_else(|| Error::Parse {
@@ -393,7 +400,7 @@ mod tests {
             [
                 "kanidm system oauth2 add-redirect-url bvw-staff https://localhost:8443/staff/oidc/callback",
                 "kanidm system oauth2 enable-strict-redirect-url bvw-staff",
-                "kanidm system oauth2 update-scope-map bvw-staff idm_all_persons openid email profile",
+                "kanidm system oauth2 update-scope-map bvw-staff bvw_staff openid email",
                 "kanidm system oauth2 prefer-short-username bvw-staff",
                 "kanidm system oauth2 set-landing-url bvw-staff https://localhost:8443/staff",
             ]

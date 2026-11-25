@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE subscriber SET confirm_token_hash = $2,\n            confirm_expires_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond',\n            confirm_sent_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bytea",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "66c08b019b06f17927a914acc6779832282152c62b11bd26de439f8ca5f74967"
+}

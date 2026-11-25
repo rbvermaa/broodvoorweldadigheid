@@ -19,6 +19,9 @@ pub const BACKOFF: [SignedDuration; 7] = [
 ];
 pub const MAX_ATTEMPTS: i32 = 8;
 
+/// How long an email stays in the outbox after it was sent or failed for good (F12).
+pub const RETENTION: SignedDuration = SignedDuration::from_hours(90 * 24);
+
 const MAX_ERROR_LEN: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -58,13 +61,40 @@ pub async fn enqueue(
     email: &Email,
     dedupe_key: Option<&str>,
 ) -> Result<Option<OutboxId>, OutboxError> {
+    insert(conn, clock, email, dedupe_key, None).await
+}
+
+/// Queues an email that carries a secret, such as a login link: it is not sent after
+/// `expires_at`, and its bodies are blanked once it is sent or failed. A `dedupe_key`
+/// works as in [`enqueue`].
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn enqueue_expiring(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &Email,
+    dedupe_key: Option<&str>,
+    expires_at: Timestamp,
+) -> Result<Option<OutboxId>, OutboxError> {
+    insert(conn, clock, email, dedupe_key, Some(expires_at)).await
+}
+
+async fn insert(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    email: &Email,
+    dedupe_key: Option<&str>,
+    expires_at: Option<Timestamp>,
+) -> Result<Option<OutboxId>, OutboxError> {
     let now = db::time::to_micros(clock.now());
     let id = sqlx::query_scalar!(
         r#"INSERT INTO email_outbox (dedupe_key, kind, to_address, subject, text_body, html_body,
-            list_unsubscribe, next_attempt_at, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7,
-            timestamptz 'epoch' + $8::bigint * interval '1 microsecond',
-            timestamptz 'epoch' + $8::bigint * interval '1 microsecond')
+            list_unsubscribe, reply_to, cc_address, next_attempt_at, created_at, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $11,
+            timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
+            timestamptz 'epoch' + $10::bigint * interval '1 microsecond')
         ON CONFLICT (dedupe_key) DO NOTHING
         RETURNING id"#,
         dedupe_key,
@@ -74,11 +104,120 @@ pub async fn enqueue(
         email.text,
         email.html,
         email.list_unsubscribe,
+        email.reply_to,
         now,
+        expires_at.map(db::time::to_micros),
+        email.cc,
     )
     .fetch_optional(conn)
     .await?;
     Ok(id.map(OutboxId))
+}
+
+/// Which of `keys` are already used as a dedupe key, sent or not.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn queued_keys(
+    conn: &mut PgConnection,
+    keys: &[String],
+) -> Result<Vec<String>, OutboxError> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT dedupe_key AS "key!" FROM email_outbox WHERE dedupe_key = ANY($1)"#,
+        keys,
+    )
+    .fetch_all(conn)
+    .await?;
+    Ok(found)
+}
+
+/// Deletes the email queued with `dedupe_key` if it has not been sent, so the key can be
+/// queued again with new content. Returns whether one was deleted. An email being sent
+/// right now is waited for and then kept.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn withdraw_unsent(
+    conn: &mut PgConnection,
+    dedupe_key: &str,
+) -> Result<bool, OutboxError> {
+    let deleted = sqlx::query!(
+        "DELETE FROM email_outbox WHERE dedupe_key = $1 AND status <> 'sent'",
+        dedupe_key,
+    )
+    .execute(conn)
+    .await?
+    .rows_affected();
+    Ok(deleted > 0)
+}
+
+/// [`withdraw_unsent`] for every email whose dedupe key starts with `prefix`. Returns how
+/// many were deleted.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn withdraw_unsent_prefixed(
+    conn: &mut PgConnection,
+    prefix: &str,
+) -> Result<u64, OutboxError> {
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE starts_with(dedupe_key, $1) AND status <> 'sent'",
+        prefix,
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
+}
+
+/// Deletes every email to `email`, copied to it or with replies going to it, sent or not
+/// (F12). An email being sent right now is waited for and then deleted.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn forget_address(conn: &mut PgConnection, email: &str) -> Result<u64, OutboxError> {
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE lower(to_address) = lower($1) OR lower(reply_to) = lower($1)
+            OR lower(cc_address) = lower($1)",
+        email,
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
+}
+
+/// Deletes the emails of `kind` that were sent or failed for good.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn delete_finished(conn: &mut PgConnection, kind: EmailKind) -> Result<u64, OutboxError> {
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE kind = $1 AND status IN ('sent', 'failed')",
+        kind.as_str(),
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
+}
+
+/// Deletes the emails sent or failed for good at least [`RETENTION`] ago, bodies and
+/// addresses with them. Pending emails stay, however old.
+///
+/// # Errors
+/// [`OutboxError::Db`].
+pub async fn delete_retired(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+) -> Result<u64, OutboxError> {
+    let cutoff = clock.now().checked_sub(RETENTION).unwrap_or(Timestamp::MIN);
+    Ok(sqlx::query!(
+        "DELETE FROM email_outbox WHERE status <> 'pending'
+            AND coalesce(sent_at, failed_at, next_attempt_at)
+                <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'",
+        db::time::to_micros(cutoff),
+    )
+    .execute(conn)
+    .await?
+    .rows_affected())
 }
 
 struct Due {
@@ -90,13 +229,18 @@ struct Due {
     text_body: String,
     html_body: String,
     list_unsubscribe: Option<String>,
+    reply_to: Option<String>,
+    cc_address: Option<String>,
     attempts: i32,
+    expired: bool,
 }
 
 enum Outcome {
     Sent,
     Retry(Timestamp, String),
     Failed(String),
+    /// A secret link that ran out before the email went: expected, not an error.
+    Expired,
 }
 
 /// Sends up to `batch` due emails, oldest first. Each email is locked with
@@ -123,7 +267,9 @@ pub async fn send_pending(
         let Some(due) = sqlx::query_as!(
             Due,
             r#"SELECT id, message_id::text AS "message_id!", kind, to_address, subject,
-                text_body, html_body, list_unsubscribe, attempts
+                text_body, html_body, list_unsubscribe, reply_to, cc_address, attempts,
+                coalesce(expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond',
+                    false) AS "expired!"
             FROM email_outbox
             WHERE status = 'pending'
                 AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
@@ -139,7 +285,9 @@ pub async fn send_pending(
         };
         let id = due.id;
         let attempts = due.attempts.saturating_add(1);
+        let expired = due.expired;
         let outcome = match outgoing(due, now) {
+            Ok(_) if expired => Outcome::Expired,
             Ok(email) => match sender.send(&email).await {
                 Ok(()) => Outcome::Sent,
                 Err(SendError::Transient(error)) => match retry_at(now, attempts) {
@@ -154,6 +302,8 @@ pub async fn send_pending(
             Outcome::Sent => {
                 sqlx::query!(
                     r#"UPDATE email_outbox SET status = 'sent', attempts = $2, last_error = NULL,
+                        text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
+                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END,
                         sent_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
                     WHERE id = $1"#,
                     id,
@@ -179,14 +329,24 @@ pub async fn send_pending(
                 .await?;
                 report.retrying += 1;
             }
-            Outcome::Failed(error) => {
-                tracing::error!(outbox_id = id, attempts, "email failed for good");
+            outcome @ (Outcome::Failed(_) | Outcome::Expired) => {
+                let error = if let Outcome::Failed(error) = outcome {
+                    tracing::error!(outbox_id = id, attempts, "email failed for good");
+                    error
+                } else {
+                    tracing::info!(outbox_id = id, "email expired before it was sent");
+                    "expired before it was sent".to_owned()
+                };
                 sqlx::query!(
-                    r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3
+                    r#"UPDATE email_outbox SET status = 'failed', attempts = $2, last_error = $3,
+                        text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,
+                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END,
+                        failed_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond'
                     WHERE id = $1"#,
                     id,
                     attempts,
                     truncate(&error),
+                    db::time::to_micros(now),
                 )
                 .execute(&mut *tx)
                 .await?;
@@ -224,6 +384,8 @@ fn outgoing(due: Due, now: Timestamp) -> Result<OutgoingEmail, OutboxError> {
             text: due.text_body,
             html: due.html_body,
             list_unsubscribe: due.list_unsubscribe,
+            reply_to: due.reply_to,
+            cc: due.cc_address,
         },
     })
 }

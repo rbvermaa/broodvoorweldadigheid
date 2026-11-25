@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO payment (order_id, provider_payment_id, amount_cents, status, received_at)\n        VALUES ($1, $2, $3, 'open', timestamptz 'epoch' + $4::bigint * interval '1 microsecond')\n        ON CONFLICT (provider_payment_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34121f2256757194741eac1c4be0863138777d856975fe5a10c686e0e5598062"
+}

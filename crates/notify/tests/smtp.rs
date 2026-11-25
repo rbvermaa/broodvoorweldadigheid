@@ -3,6 +3,10 @@
 use notify::{
     Email, EmailKind, EmailSender, OutgoingEmail, SendError, SmtpConfig, SmtpSender, TlsMode,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -85,6 +89,8 @@ fn outgoing() -> OutgoingEmail {
             text: "Hoi Sanne,\n".to_owned(),
             html: "<p>Hoi Sanne,</p>".to_owned(),
             list_unsubscribe: None,
+            reply_to: None,
+            cc: None,
         },
     }
 }
@@ -117,10 +123,30 @@ async fn sends_over_smtp() {
 }
 
 #[tokio::test]
+async fn a_copy_goes_to_its_own_recipient() {
+    let (port, server) = fake_relay("250 OK").await;
+    let mut email = outgoing();
+    email.email.cc = Some("factuur@example.org".to_owned());
+    sender(port).send(&email).await.expect("sent");
+    let said = server.await.unwrap();
+    assert!(said.contains("RCPT TO:<sanne@example.org>"), "{said}");
+    assert!(said.contains("RCPT TO:<factuur@example.org>"), "{said}");
+    assert!(said.contains("Cc: factuur@example.org"), "{said}");
+}
+
+#[tokio::test]
 async fn a_rejected_recipient_is_permanent() {
     let (port, server) = fake_relay("550 5.1.1 no such user").await;
     let result = sender(port).send(&outgoing()).await;
     assert!(matches!(result, Err(SendError::Permanent(_))), "{result:?}");
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_sender_policy_refusal_is_temporary_so_a_misconfigured_relay_keeps_the_queue() {
+    let (port, server) = fake_relay("550 5.7.1 relaying denied for this sender").await;
+    let result = sender(port).send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
     server.await.unwrap();
 }
 
@@ -147,4 +173,81 @@ async fn a_relay_that_is_down_is_temporary() {
     drop(listener);
     let result = sender(port).send(&outgoing()).await;
     assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+}
+
+/// Serves every connection like a normal relay, except that on the first one the reply
+/// to the end of DATA comes only after `delay`.
+async fn slow_first_relay(delay: Duration) -> (u16, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&accepted);
+    tokio::spawn(async move {
+        loop {
+            let (socket, _) = listener.accept().await.unwrap();
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            tokio::spawn(async move {
+                let (read, mut write) = socket.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let mut in_data = false;
+                write.write_all(b"220 fake ESMTP\r\n").await.ok();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let reply = if in_data {
+                        if line != "." {
+                            continue;
+                        }
+                        in_data = false;
+                        if first {
+                            tokio::time::sleep(delay).await;
+                        }
+                        "250 queued"
+                    } else {
+                        match line
+                            .get(..4)
+                            .unwrap_or_default()
+                            .to_ascii_uppercase()
+                            .as_str()
+                        {
+                            "DATA" => {
+                                in_data = true;
+                                "354 go ahead"
+                            }
+                            "QUIT" => "221 bye",
+                            _ => "250 OK",
+                        }
+                    };
+                    if write
+                        .write_all(format!("{reply}\r\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    (port, accepted)
+}
+
+#[tokio::test]
+async fn a_send_past_its_deadline_is_temporary_and_its_connection_is_not_reused() {
+    let (port, accepted) = slow_first_relay(Duration::from_millis(500)).await;
+    let sender = sender(port).with_send_deadline(Duration::from_millis(200));
+    let result = sender.send(&outgoing()).await;
+    assert!(matches!(result, Err(SendError::Transient(_))), "{result:?}");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    sender.send(&outgoing()).await.expect("the next send works");
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "a fresh connection");
+}
+
+#[tokio::test]
+async fn a_send_cancelled_from_outside_does_not_reuse_its_connection() {
+    let (port, accepted) = slow_first_relay(Duration::from_millis(500)).await;
+    let sender = sender(port);
+    let cut = tokio::time::timeout(Duration::from_millis(200), sender.send(&outgoing())).await;
+    assert!(cut.is_err(), "the caller gave up first");
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    sender.send(&outgoing()).await.expect("the next send works");
+    assert_eq!(accepted.load(Ordering::SeqCst), 2, "a fresh connection");
 }

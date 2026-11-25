@@ -4,21 +4,18 @@ use db::PgPool;
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn company_settings_are_seeded(pool: PgPool) {
-    let (name, lead_time): (String, i32) =
-        sqlx::query_as("SELECT name, default_lead_time_hours FROM company")
-            .fetch_one(&pool)
-            .await
-            .expect("one company row");
+    let name: String = sqlx::query_scalar("SELECT name FROM company")
+        .fetch_one(&pool)
+        .await
+        .expect("one company row");
     assert_eq!(name, "Brood voor Weldadigheid");
-    assert_eq!(lead_time, 36);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn company_is_a_single_row(pool: PgPool) {
-    let second =
-        sqlx::query("INSERT INTO company (id, name, default_lead_time_hours) VALUES (2, 'x', 1)")
-            .execute(&pool)
-            .await;
+    let second = sqlx::query("INSERT INTO company (id, name) VALUES (2, 'x')")
+        .execute(&pool)
+        .await;
     assert!(second.is_err());
 }
 

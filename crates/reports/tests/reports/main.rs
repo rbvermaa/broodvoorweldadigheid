@@ -1,0 +1,10 @@
+#![forbid(unsafe_code)]
+
+mod common;
+mod contribution;
+mod donations;
+mod invoices;
+mod payouts;
+mod privacy;
+mod sales;
+mod saved_donations;

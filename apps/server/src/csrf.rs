@@ -35,6 +35,14 @@ pub async fn token(session: &Session) -> Result<String, tower_sessions::session:
     Ok(token)
 }
 
+/// Drops the session's CSRF token; the next page gets a new one.
+///
+/// # Errors
+/// Fails when the session store cannot be read or written.
+pub async fn forget(session: &Session) -> Result<(), tower_sessions::session::Error> {
+    session.remove::<String>(SESSION_KEY).await.map(|_| ())
+}
+
 /// Rejects every request that can change state unless it carries the session's token,
 /// in the `X-CSRF-Token` header (HTMX, through app.js) or a urlencoded `_csrf` field.
 pub async fn verify(

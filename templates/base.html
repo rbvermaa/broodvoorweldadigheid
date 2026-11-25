@@ -1,3 +1,4 @@
+{% import "components/brand.html" as brand -%}
 <!doctype html>
 <html lang="nl">
 <head>
@@ -6,7 +7,9 @@
 <title>{% block title %}{% endblock %} · {{ layout.t("app-name")? }}</title>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,"historyCacheSize":0}'>
 {% if let Some(token) = layout.csrf_token() %}<meta name="csrf-token" content="{{ token }}">
-{% endif %}<link rel="stylesheet" href="{{ layout.asset("fonts.css") }}">
+{% endif %}<link rel="icon" type="image/png" sizes="64x64" href="{{ layout.asset("favicon.png") }}">
+<link rel="apple-touch-icon" href="{{ layout.asset("apple-touch-icon.png") }}">
+<link rel="stylesheet" href="{{ layout.asset("fonts.css") }}">
 <link rel="stylesheet" href="{{ layout.asset("tokens.css") }}">
 <link rel="stylesheet" href="{{ layout.asset("app.css") }}">
 <link rel="stylesheet" href="{{ layout.asset("components.css") }}">
@@ -15,14 +18,30 @@
 </head>
 <body>
 <a class="skip-link" href="#inhoud">{{ layout.t("skip-to-content")? }}</a>
+{#- Pages that open with the hero logo put it in this block instead, so it is not shown twice. #}
+{% block header %}
 <header class="site-header">
-<a class="site-name" href="/">{{ layout.t("app-name")? }}</a>
+<a class="site-brand" href="/">{% call brand::logo() %}{% endcall %}<span class="site-name">{{ layout.t("app-name")? }}</span></a>
+{%- block site_nav %}
+<nav>
+{%- if layout.signed_in() %}
+<a href="/mijn-bestellingen">{{ layout.t("site-nav-orders")? }}</a>
+{%- else %}
+<a href="/inloggen">{{ layout.t("site-nav-login")? }}</a>
+{%- endif %}
+</nav>
+{%- endblock %}
 </header>
+{% endblock %}
 <main id="inhoud" class="site-main">
 {% block content %}{% endblock %}
 </main>
 <footer class="site-footer">
-<p>{{ layout.t("app-name")? }} {{ layout.t("tagline")? }}</p>
+{% call brand::rule() %}{% endcall %}
+<p><span class="site-footer-name">{{ layout.t("app-name")? }}</span> {{ layout.t("tagline")? }}</p>
+{%- if layout.donations_link() %}
+<p><a href="/giften">{{ layout.t("giften-title")? }}</a></p>
+{%- endif %}
 </footer>
 </body>
 </html>

@@ -5,9 +5,10 @@ use i18n::Translator;
 use jiff::Timestamp;
 use jiff::civil::{Date, date};
 use notify::{
-    Company, ComposeError, Composer, Donation, DropAlert, DropAlertKind, Email, EmailKind, Item,
-    OrderCancelled, OrderConfirmation, OrderLine, OutgoingEmail, Pickup, PickupReminder, Recipient,
-    SendError, SickDayCancelled, SubscriptionConfirmation,
+    Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
+    DropAlertKind, Email, EmailKind, Item, LoginLink, OnAccountConfirmation, OrderCancelled,
+    OrderConfirmation, OrderLine, OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient,
+    SendError, SickDayCancelled, SubscriptionConfirmation, VoteConfirmation,
 };
 
 const NBSP: char = '\u{a0}';
@@ -73,6 +74,9 @@ fn confirmation(donation: Donation) -> OrderConfirmation {
         pickup: pickup(),
         lines: lines(),
         donation,
+        status_url:
+            "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+                .to_owned(),
     }
 }
 
@@ -116,6 +120,14 @@ fn order_confirmation_for_a_charity_drop() {
     });
     assert_eq!(email.kind, EmailKind::OrderConfirmation);
     assert_eq!(email.list_unsubscribe, None);
+    for part in [&email.text, &email.html] {
+        assert!(
+            part.contains(
+                "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+            ),
+            "status page link: {part}"
+        );
+    }
     snapshot("order-confirmation-charity", &email);
 }
 
@@ -148,6 +160,75 @@ fn order_confirmation_with_a_saved_donation_links_to_the_choice() {
             .contains("href=\"https://broodvoorweldadigheid.nl/donatie/kies/abc123\"")
     );
     snapshot("order-confirmation-saved", &email);
+}
+
+fn on_account() -> OnAccountConfirmation {
+    OnAccountConfirmation {
+        to: Recipient {
+            email: "inkoop@dehoek.example".to_owned(),
+            name: Some("Café De Hoek".to_owned()),
+        },
+        cc: Some("factuur@dehoek.example".to_owned()),
+        order_number: "2026-0043".to_owned(),
+        drop_date: DROP,
+        pickup: pickup(),
+        lines: lines()
+            .into_iter()
+            .map(|line| OrderLine {
+                pay_what_you_want: false,
+                ..line
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn order_on_account_confirmation_asks_no_payment_and_copies_the_invoice_address() {
+    let email = compose(|c| c.order_on_account(&on_account()));
+    assert_eq!(email.kind, EmailKind::OrderConfirmation);
+    assert_eq!(email.to, "inkoop@dehoek.example");
+    assert_eq!(email.cc.as_deref(), Some("factuur@dehoek.example"));
+    for part in [&email.text, &email.html] {
+        assert!(part.contains("op rekening"), "{part}");
+        assert!(!part.contains("/bestelling/"), "no status page: {part}");
+    }
+    insta::assert_snapshot!(
+        "order-on-account-text",
+        format!(
+            "To: {}\nCc: {}\nSubject: {}\n\n{}",
+            email.to,
+            email.cc.as_deref().unwrap_or_default(),
+            email.subject,
+            email.text
+        )
+    );
+    insta::assert_snapshot!("order-on-account-html", email.html);
+
+    let raw = mime(email);
+    assert!(raw.contains("To: inkoop@dehoek.example\r\n"), "{raw}");
+    assert!(raw.contains("Cc: factuur@dehoek.example\r\n"), "{raw}");
+
+    let mut alone = on_account();
+    alone.cc = None;
+    let email = compose(|c| c.order_on_account(&alone));
+    assert_eq!(email.cc, None);
+    assert!(!mime(email).contains("Cc:"));
+
+    let i18n = i18n();
+    let company = company();
+    let composer = Composer::new(&i18n, &company);
+    let mut bad = on_account();
+    bad.cc = Some("factuur@dehoek.example\r\nBcc: x@y.example".to_owned());
+    assert!(matches!(
+        composer.order_on_account(&bad),
+        Err(ComposeError::Address)
+    ));
+    let mut empty = on_account();
+    empty.lines.clear();
+    assert!(matches!(
+        composer.order_on_account(&empty),
+        Err(ComposeError::NoLines)
+    ));
 }
 
 #[test]
@@ -236,6 +317,25 @@ fn pickup_reminder() {
     });
     assert_eq!(email.kind, EmailKind::PickupReminder);
     snapshot("pickup-reminder", &email);
+}
+
+#[test]
+fn pickup_moved_names_the_new_moment() {
+    let email = compose(|c| {
+        c.pickup_moved(&PickupMoved {
+            to: sanne(),
+            order_number: "2026-0042".to_owned(),
+            pickup: Pickup {
+                starts: ts("2026-12-05T13:00:00Z"),
+                ends: ts("2026-12-05T14:30:00Z"),
+                ..pickup()
+            },
+        })
+    });
+    assert_eq!(email.kind, EmailKind::PickupMoved);
+    assert!(email.text.contains("14:00"), "{}", email.text);
+    assert!(email.text.contains("15:30"), "{}", email.text);
+    snapshot("pickup-moved", &email);
 }
 
 #[test]
@@ -368,6 +468,69 @@ fn subscription_confirmation() {
 }
 
 #[test]
+fn vote_confirmation() {
+    let email = compose(|c| {
+        c.vote_confirmation(&VoteConfirmation {
+            to: "stemmer@example.org".to_owned(),
+            poll: "Welk brood bakken we in december?".to_owned(),
+            choice: "Spelt-walnoot".to_owned(),
+            confirm_url: "https://broodvoorweldadigheid.nl/stemmen/bevestig/tok3n".to_owned(),
+        })
+    });
+    assert_eq!(email.kind, EmailKind::VoteConfirmation);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("Spelt-walnoot"), "{}", email.text);
+    snapshot("vote-confirmation", &email);
+}
+
+#[test]
+fn login_link() {
+    let email = compose(|c| {
+        c.login_link(&LoginLink {
+            to: "klant@example.org".to_owned(),
+            login_url: "https://broodvoorweldadigheid.nl/inloggen/tok3n".to_owned(),
+            valid_minutes: 30,
+        })
+    });
+    assert_eq!(email.kind, EmailKind::LoginLink);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("30 minuten"), "{}", email.text);
+    snapshot("login-link", &email);
+}
+
+#[test]
+fn donation_moved() {
+    let email = compose(|c| {
+        c.donation_moved(&DonationMoved {
+            to: sanne(),
+            order_number: "2026-0042".to_owned(),
+            amount: Money::from_cents(3275),
+            charity: "Hospice Steenwijk".to_owned(),
+            drop_date: date(2027, 3, 13),
+            status_url:
+                "https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666"
+                    .to_owned(),
+        })
+    });
+    assert_eq!(email.kind, EmailKind::DonationMoved);
+    assert!(
+        email.subject.contains("Hospice Steenwijk"),
+        "{}",
+        email.subject
+    );
+    snapshot("donation-moved", &email);
+}
+
+#[test]
+fn account_deleted() {
+    let email = compose(|c| c.account_deleted("klant@example.org"));
+    assert_eq!(email.kind, EmailKind::AccountDeleted);
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("7 jaar"), "{}", email.text);
+    snapshot("account-deleted", &email);
+}
+
+#[test]
 fn every_email_carries_the_company_details_and_no_class_attributes() {
     let i18n = i18n();
     let company = company();
@@ -379,6 +542,18 @@ fn every_email_carries_the_company_details_and_no_class_attributes() {
             to: "abonnee@example.org".to_owned(),
             confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
         }),
+        composer.login_link(&LoginLink {
+            to: "klant@example.org".to_owned(),
+            login_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+            valid_minutes: 30,
+        }),
+        composer.vote_confirmation(&VoteConfirmation {
+            to: "stemmer@example.org".to_owned(),
+            poll: "Stemming".to_owned(),
+            choice: "Spelt".to_owned(),
+            confirm_url: "https://broodvoorweldadigheid.nl/x".to_owned(),
+        }),
+        composer.account_deleted("klant@example.org"),
     ];
     for email in emails {
         let email = email.expect("compose");
@@ -417,6 +592,13 @@ fn bad_inputs_are_refused() {
     assert!(matches!(
         c.order_confirmation(&order),
         Err(ComposeError::Money(_))
+    ));
+
+    let mut order = confirmation(Donation::NormalSale);
+    order.status_url = "http://broodvoorweldadigheid.nl/bestelling/x".to_owned();
+    assert!(matches!(
+        c.order_confirmation(&order),
+        Err(ComposeError::Url)
     ));
 
     let mut alert = drop_alert(DropAlertKind::MenuPublished);
@@ -552,4 +734,105 @@ fn a_bad_recipient_is_a_permanent_failure() {
         notify::message(&from, &outgoing),
         Err(SendError::Permanent(_))
     ));
+}
+
+fn contact() -> ContactMessage {
+    ContactMessage {
+        to: "bakker@broodvoorweldadigheid.nl".to_owned(),
+        name: "Sanne de Vries".to_owned(),
+        email: "sanne@example.org".to_owned(),
+        message: "Hoi!\nKan ik ook een halfje bestellen?\n\n<b>Groet</b>".to_owned(),
+    }
+}
+
+#[test]
+fn contact_message_goes_to_the_bakery_with_the_sender_as_reply_to() {
+    let email = compose(|c| c.contact_message(&contact()));
+    assert_eq!(email.kind, EmailKind::ContactMessage);
+    assert_eq!(email.to, "bakker@broodvoorweldadigheid.nl");
+    assert_eq!(email.reply_to.as_deref(), Some("sanne@example.org"));
+    assert_eq!(email.list_unsubscribe, None);
+    assert!(email.text.contains("> Kan ik ook een halfje bestellen?"));
+    assert!(!email.html.contains("<b>"));
+    snapshot("contact-message", &email);
+
+    let raw = mime(email);
+    assert!(raw.contains("Reply-To: sanne@example.org\r\n"), "{raw}");
+    assert!(
+        raw.contains("To: bakker@broodvoorweldadigheid.nl\r\n"),
+        "{raw}"
+    );
+}
+
+#[test]
+fn contact_message_refuses_header_injection_and_blanks() {
+    let i18n = i18n();
+    let company = company();
+    let c = Composer::new(&i18n, &company);
+    for email in [
+        "sanne@example.org\r\nBcc: spam@example.org",
+        "sanne@example.org\nBcc: spam@example.org",
+        "sanne",
+        "",
+    ] {
+        let message = ContactMessage {
+            email: email.to_owned(),
+            ..contact()
+        };
+        assert!(
+            matches!(c.contact_message(&message), Err(ComposeError::Address)),
+            "{email:?}"
+        );
+    }
+    for name in [
+        "Sanne\r\nBcc: spam@example.org",
+        "Sanne\n",
+        "Sa\u{0}nne",
+        " ",
+    ] {
+        let message = ContactMessage {
+            name: name.to_owned(),
+            ..contact()
+        };
+        assert!(
+            matches!(c.contact_message(&message), Err(ComposeError::Contact)),
+            "{name:?}"
+        );
+    }
+    let message = ContactMessage {
+        message: " \n ".to_owned(),
+        ..contact()
+    };
+    assert!(matches!(
+        c.contact_message(&message),
+        Err(ComposeError::Contact)
+    ));
+}
+
+#[test]
+fn contact_message_needs_only_the_company_name() {
+    let i18n = i18n();
+    let company = Company {
+        address: String::new(),
+        kvk: String::new(),
+        ..company()
+    };
+    let email = Composer::new(&i18n, &company)
+        .contact_message(&contact())
+        .expect("compose");
+    assert!(email.text.contains("Brood voor Weldadigheid"));
+}
+
+#[test]
+fn addresses_are_checked_without_composing() {
+    assert!(notify::is_address("sanne@example.org"));
+    assert!(!notify::is_address(" sanne@example.org"));
+    assert!(!notify::is_address(
+        "sanne@example.org\r\nBcc: x@example.org"
+    ));
+    assert!(!notify::is_address("sanne"));
+    assert!(
+        !notify::is_address("sanne@[192.0.2.1]"),
+        "the SMTP layer refuses domain literals in Reply-To"
+    );
 }

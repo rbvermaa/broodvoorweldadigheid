@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod customer;
 pub mod identity;
 pub mod login;
 pub mod oidc;

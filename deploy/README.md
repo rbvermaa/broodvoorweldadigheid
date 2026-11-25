@@ -20,10 +20,11 @@ Staff log in at https://localhost:8443/staff through Kanidm with a passkey. Pass
 real browser, so these steps are manual. Run them once per fresh `kanidm` volume:
 
     make up
-    make kanidm-setup        # OAuth2 client bvw-staff; writes secrets/oidc/client-secret and kanidm-ca.pem
+    make kanidm-setup        # group bvw_staff and OAuth2 client bvw-staff; writes secrets/oidc/client-secret and kanidm-ca.pem
     make kanidm-person NAME=bas DISPLAY_NAME="Bas" MAIL=bas@example.org
 
-`kanidm-person` prints the person's `sub` (their Kanidm UUID) and a reset link. Open the
+`kanidm-person` adds the person to `bvw_staff`, the only group that may log in, and prints
+their `sub` (their Kanidm UUID) and a reset link. Open the
 link, add a passkey, then let the person in. The very first owner can come from the
 environment instead; it only works while there is no owner yet:
 
@@ -53,3 +54,10 @@ postgres volume to start fresh (`bvw` is the `make up` project name):
 
 Do not use `docker compose down --volumes`: it also deletes Kanidm, the Caddy CA and the
 backup repository.
+
+The server sends email through Mailpit (`SMTP_HOST=mailpit`). Order emails need the
+company's address and KvK number, which have no form yet; until they are set, payments
+go through without an email and the server logs why. For the local stack:
+
+    docker compose --file deploy/compose.yaml --project-name bvw exec postgres \
+      psql -U postgres -c "UPDATE company SET address = 'Teststraat 1, 1234 AB Testdorp', kvk = '12345678'"

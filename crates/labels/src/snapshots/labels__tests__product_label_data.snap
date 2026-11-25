@@ -1,0 +1,45 @@
+---
+source: crates/labels/src/tests.rs
+expression: "sorted_json(data(&granola(), Side::Whole, &T).unwrap())"
+---
+{
+  "business": "Brood voor Weldadigheid, Voorbeeldlaan 1, 1234 AB Voorbeeld",
+  "fields": [
+    {
+      "label": "Netto gewicht:",
+      "value": "350 g"
+    },
+    {
+      "label": "Ten minste houdbaar tot:",
+      "value": "03-02-2027"
+    },
+    {
+      "label": "Partij:",
+      "value": "261205-2"
+    }
+  ],
+  "ingredients": [
+    {
+      "bold": true,
+      "name": "havervlokken"
+    },
+    {
+      "bold": true,
+      "name": "walnoten"
+    },
+    {
+      "bold": false,
+      "name": "honing"
+    },
+    {
+      "bold": false,
+      "name": "zonnebloemolie"
+    }
+  ],
+  "ingredients_label": "Ingrediënten:",
+  "may_contain": "Kan sporen bevatten van melk, sesamzaad.",
+  "part": "whole",
+  "product": "Granola met noten",
+  "storage": "Droog en koel bewaren.",
+  "width_mm": 50
+}

@@ -17,13 +17,21 @@ const LAYERS: &[(&str, u8)] = &[
     ("ai", 5),
     ("reports", 6),
     ("jobs", 6),
-    ("server", 6),
-    ("pos", 6),
-    ("cli", 6),
+    ("server", APP_LAYER),
+    ("pos", APP_LAYER),
+    ("cli", APP_LAYER),
+    ("e2e", E2E_LAYER),
 ];
+/// The top library layer of the spec. testkit stays below it.
 const TOP_LAYER: u8 = 6;
+/// The apps sit above every library crate and may use all of them (ADR 0020).
+const APP_LAYER: u8 = 7;
+/// The browser tests drive the running apps from above; nothing may depend on them.
+const E2E_LAYER: u8 = 8;
 const TESTKIT: &str = "testkit";
 const EXCLUDED: &[&str] = &["xtask"];
+/// e2e runs a mock Mollie on axum.
+const HTTP_ALLOWED: &[&str] = &["server", "e2e"];
 const HTTP_CRATES: &[&str] = &[
     "actix-web",
     "axum",
@@ -127,9 +135,9 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
         for dep in &krate.deps {
             if dep.workspace {
                 check_workspace_dep(name, dep, &mut violations);
-            } else if name != "server" && HTTP_CRATES.contains(&dep.name.as_str()) {
+            } else if !HTTP_ALLOWED.contains(&name) && HTTP_CRATES.contains(&dep.name.as_str()) {
                 violations.push(format!(
-                    "{} has {} {}; only server may depend on HTTP crates",
+                    "{} has {} {}; only server and e2e may depend on HTTP crates",
                     label(name),
                     kind_name(dep.kind),
                     dep.name
@@ -287,12 +295,56 @@ mod tests {
     }
 
     #[test]
-    fn rule_a_testkit_depending_on_layer_6_fails() {
+    fn rule_a_testkit_depending_on_layer_6_or_an_app_fails() {
+        for top in ["jobs", "server"] {
+            let mut crates = clean_workspace();
+            crates[4].deps.push(ws(top, DepKind::Normal));
+            let violations = check(&crates);
+            assert_eq!(violations.len(), 1, "{top}: {violations:?}");
+            assert!(violations[0].contains(top), "{violations:?}");
+        }
+    }
+
+    #[test]
+    fn rule_a_apps_may_use_jobs_and_reports() {
         let mut crates = clean_workspace();
-        crates[4].deps.push(ws("server", DepKind::Normal));
+        crates.push(krate("jobs", vec![ws("orders", DepKind::Normal)]));
+        crates.push(krate("reports", vec![ws("orders", DepKind::Normal)]));
+        for app in ["server", "cli", "pos"] {
+            if let Some(krate) = crates.iter_mut().find(|k| k.name == app) {
+                krate.deps.push(ws("jobs", DepKind::Normal));
+                krate.deps.push(ws("reports", DepKind::Normal));
+            } else {
+                crates.push(krate(
+                    app,
+                    vec![ws("jobs", DepKind::Normal), ws("reports", DepKind::Normal)],
+                ));
+            }
+        }
+        assert_eq!(check(&crates), Vec::<String>::new());
+    }
+
+    #[test]
+    fn rule_a_layer_6_crates_may_not_use_each_other() {
+        let mut crates = clean_workspace();
+        crates.push(krate("jobs", vec![ws("reports", DepKind::Normal)]));
+        crates.push(krate("reports", vec![]));
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
-        assert!(violations[0].contains("server (layer 6)"), "{violations:?}");
+        assert!(violations[0].contains("jobs (layer 6)"), "{violations:?}");
+        assert!(
+            violations[0].contains("reports (layer 6)"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn rule_a_apps_may_not_use_each_other() {
+        let mut crates = clean_workspace();
+        crates.push(krate("cli", vec![ws("server", DepKind::Normal)]));
+        let violations = check(&crates);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("cli (layer 7)"), "{violations:?}");
     }
 
     #[test]
@@ -311,7 +363,7 @@ mod tests {
         crates[5].deps[2].optional = false;
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
-        assert!(violations[0].contains("server (layer 6)"), "{violations:?}");
+        assert!(violations[0].contains("server (layer 7)"), "{violations:?}");
         assert!(violations[0].contains("ai (layer 5)"), "{violations:?}");
         assert!(violations[0].contains("optional"), "{violations:?}");
     }
@@ -333,6 +385,34 @@ mod tests {
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].contains("axum-core"), "{violations:?}");
+    }
+
+    #[test]
+    fn e2e_may_use_the_apps_and_http_crates() {
+        let mut crates = clean_workspace();
+        crates.push(krate(
+            "e2e",
+            vec![
+                ext("axum"),
+                ws("server", DepKind::Normal),
+                ws("orders", DepKind::Normal),
+                ws("testkit", DepKind::Dev),
+            ],
+        ));
+        assert_eq!(check(&crates), Vec::<String>::new());
+    }
+
+    #[test]
+    fn nothing_may_depend_on_e2e() {
+        for user in ["server", "testkit"] {
+            let mut crates = clean_workspace();
+            crates.push(krate("e2e", vec![]));
+            let krate = crates.iter_mut().find(|k| k.name == user).unwrap();
+            krate.deps.push(ws("e2e", DepKind::Dev));
+            let violations = check(&crates);
+            assert_eq!(violations.len(), 1, "{user}: {violations:?}");
+            assert!(violations[0].contains("e2e (layer 8)"), "{violations:?}");
+        }
     }
 
     #[test]

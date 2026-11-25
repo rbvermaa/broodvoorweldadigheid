@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, amount_cents, (transferred_on - date 'epoch') AS \"day!\", bank_reference\n        FROM charity_transfer WHERE charity_id = $1 ORDER BY transferred_on, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity_transfer",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "amount_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "charity_transfer",
+            "name": "amount_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "bank_reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "charity_transfer",
+            "name": "bank_reference"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "ea6891125a75420633eacfc73e3e875378d4e547b8a2243600731ff1449c04bd"
+}

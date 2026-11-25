@@ -1,10 +1,13 @@
-{% extends "base.html" %}
+{% extends "staff/layout.html" %}
 {% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
 {% block title %}{{ layout.t("staff-title")? }}{% endblock %}
-{% block content %}
+{% block page %}
 <h1>{{ layout.t("staff-title")? }}</h1>
 <p>{{ layout.t("staff-signed-in-as")? }} <strong>{{ name }}</strong> ({{ layout.t(role)? }})</p>
 <p>{{ layout.t("staff-intro")? }}</p>
+{% if kitchen_unapproved %}{% call fb::alert("warning", layout.t("kitchen-may-contain-unapproved")?) %}{% endcall %}
+{% if can_edit_allergens %}<p><a href="/staff/products/may-contain">{{ layout.t("kitchen-may-contain-link")? }}</a></p>{% endif %}{% endif %}
 <form method="post" action="/staff/logout">
 {%- if let Some(token) = layout.csrf_token() %}
 <input type="hidden" name="_csrf" value="{{ token }}">

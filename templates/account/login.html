@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% import "components/field.html" as f %}
+{% import "components/button.html" as b %}
+{% block title %}{{ layout.t("account-login-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("account-login-title")? }}</h1>
+<p>{{ layout.t("account-login-intro")? }}</p>
+<form method="post" action="/inloggen" novalidate>
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::field("email", "email", layout.t("account-email")?, value = email, error = error, required = true) %}{% endcall %}
+{% call b::button(layout.t("account-login-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

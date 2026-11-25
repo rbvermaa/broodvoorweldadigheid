@@ -1,10 +1,9 @@
-use bakedays::schedule::{LeadTimeRule, LeadTimeWarning};
+use bakedays::schedule::LeadTimeWarning;
 use bakedays::status::TransitionRefused;
 use bakedays::{
     BakeDayProduct, BakeDayStatus, Error, ExtraInput, NewBakeDay, NoOrders, PickupSlotInput,
     PickupWindowInput, PublicStatus, Purpose, Schedule, Transition, days, extras, pickup, range,
 };
-use catalog::SourdoughDeadline;
 use domain::{BakeDayId, Clock, PickupLocationId};
 use jiff::civil::{Weekday, time};
 use sqlx::pool::PoolConnection;
@@ -22,7 +21,6 @@ fn schedule_of(day: &bakedays::BakeDay) -> Schedule {
         menu_publish_at: day.menu_publish_at,
         opens_at: day.opens_at,
         cutoff_at: day.cutoff_at,
-        bake_starts_at: day.bake_starts_at,
     }
 }
 
@@ -33,7 +31,8 @@ async fn new_day_takes_pickup_and_deadline_from_the_window(mut conn: PoolConnect
     assert_eq!(day.status, BakeDayStatus::Draft);
     assert!(day.online_ordering);
     assert_eq!(day.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
-    assert_eq!(day.bake_starts_at, ts("2026-10-31T03:00:00Z"));
+    // Baking starts at 05:00 CET.
+    assert_eq!(day.bake_starts_at, ts("2026-10-31T04:00:00Z"));
     assert_eq!(
         (day.menu_publish_at, day.opens_at, day.charity_id),
         (None, None, None)
@@ -156,7 +155,7 @@ async fn schedule_changes_per_drop(mut conn: PoolConnection<Postgres>) {
             ..changed
         },
         Schedule {
-            bake_starts_at: ts("2026-10-29T10:59:59Z"),
+            cutoff_at: Some(ts("2026-10-31T04:00:01Z")),
             ..changed
         },
         Schedule {
@@ -218,6 +217,57 @@ async fn production_only_days_never_open(mut conn: PoolConnection<Postgres>) {
     assert_eq!(
         err.as_database_error().and_then(|e| e.constraint()),
         Some("bake_day_production_only_never_opens")
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_pickup_slots_never_sells_online(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-26T12:00:00Z"));
+    let friday = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-10-30"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert!(
+        days::list_slots(&mut conn, friday.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let online = Schedule {
+        online_ordering: true,
+        cutoff_at: Some(ts("2026-10-28T19:00:00Z")),
+        ..schedule_of(&friday)
+    };
+    assert!(matches!(
+        days::update_schedule(&mut conn, friday.id, &online).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert!(
+        !days::get(&mut conn, friday.id)
+            .await
+            .unwrap()
+            .online_ordering
+    );
+
+    sqlx::query(
+        "UPDATE bake_day SET online_ordering = true, cutoff_at = '2026-10-28T19:00:00Z' WHERE id = $1",
+    )
+    .bind(friday.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    assert!(matches!(
+        days::open(&mut conn, &clock, friday.id).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert_eq!(
+        days::get(&mut conn, friday.id).await.unwrap().status,
+        BakeDayStatus::Draft
     );
 }
 
@@ -411,6 +461,159 @@ async fn slots_change_per_drop(mut conn: PoolConnection<Postgres>) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_slot_moves_to_another_date_but_never_before_baking_starts(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let day = create_day(&mut conn, &saturday()).await;
+    let slot = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    let sunday = PickupSlotInput {
+        starts_at: ts("2026-11-01T10:00:00Z"),
+        ends_at: ts("2026-11-01T11:00:00Z"),
+        max_orders: None,
+    };
+    let before = days::update_slot(&mut conn, slot.id, &sunday)
+        .await
+        .unwrap();
+    assert_eq!(before, slot);
+    let moved = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    assert_eq!(
+        (moved.starts_at, moved.ends_at),
+        (sunday.starts_at, sunday.ends_at)
+    );
+
+    // Baking starts at 05:00 CET, 04:00 UTC.
+    let at_bake_start = PickupSlotInput {
+        starts_at: ts("2026-10-31T04:00:00Z"),
+        ends_at: ts("2026-10-31T05:00:00Z"),
+        max_orders: None,
+    };
+    days::update_slot(&mut conn, slot.id, &at_bake_start)
+        .await
+        .unwrap();
+    let too_early = PickupSlotInput {
+        starts_at: ts("2026-10-31T03:59:00Z"),
+        ..at_bake_start
+    };
+    assert!(matches!(
+        days::update_slot(&mut conn, slot.id, &too_early).await,
+        Err(Error::Invalid("pickup before bake start"))
+    ));
+    assert!(matches!(
+        days::add_slot(&mut conn, day.id, DE_PROEF, &too_early).await,
+        Err(Error::Invalid("pickup before bake start"))
+    ));
+}
+
+async fn order_in_slot(conn: &mut PgConnection, slot: &bakedays::PickupSlot) {
+    sqlx::query(
+        "WITH c AS (INSERT INTO customer (email, name, created_at)
+            VALUES ('klant@example.org', 'Test Klant', now()) RETURNING id),
+        n AS (INSERT INTO order_number (year, last) VALUES (2026, 1) RETURNING year)
+        INSERT INTO \"order\" (number_year, number_seq, customer_id, customer_name,
+            bake_day_id, pickup_slot_id, channel, payment_mode, status, cancel_reason,
+            total_cents, created_at)
+        SELECT n.year, 1, c.id, 'Test Klant', $1, $2, 'web', 'online', 'cancelled',
+            'hold_expired', 650, now()
+        FROM c, n",
+    )
+    .bind(slot.bake_day_id.get())
+    .bind(slot.id.get())
+    .execute(conn)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_slot_is_removed_only_without_orders_and_an_online_day_keeps_one(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let day = create_day(&mut conn, &saturday()).await;
+    let first = days::list_slots(&mut conn, day.id).await.unwrap()[0];
+    let input = PickupSlotInput {
+        starts_at: ts("2026-10-31T12:00:00Z"),
+        ends_at: ts("2026-10-31T13:00:00Z"),
+        max_orders: None,
+    };
+    let second = days::add_slot(&mut conn, day.id, DE_PROEF, &input)
+        .await
+        .unwrap();
+    days::remove_slot(&mut conn, second).await.unwrap();
+    assert_eq!(days::list_slots(&mut conn, day.id).await.unwrap(), [first]);
+    assert!(matches!(
+        days::remove_slot(&mut conn, first.id).await,
+        Err(Error::NoPickupSlot)
+    ));
+    assert!(matches!(
+        days::remove_slot(&mut conn, second).await,
+        Err(Error::NotFound)
+    ));
+
+    let third = days::add_slot(&mut conn, day.id, DE_PROEF, &input)
+        .await
+        .unwrap();
+    let third = days::list_slots(&mut conn, day.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|s| s.id == third)
+        .unwrap();
+    order_in_slot(&mut conn, &third).await;
+    assert!(matches!(
+        days::remove_slot(&mut conn, third.id).await,
+        Err(Error::SlotHasOrders)
+    ));
+    assert_eq!(days::list_slots(&mut conn, day.id).await.unwrap().len(), 2);
+
+    let production = create_day(
+        &mut conn,
+        &NewBakeDay {
+            online_ordering: false,
+            ..next_saturday()
+        },
+    )
+    .await;
+    let markt: i64 = sqlx::query_scalar(
+        "INSERT INTO pickup_location (name, address) VALUES ('Markt', 'Brink 1') RETURNING id",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    let slotless = create_day(
+        &mut conn,
+        &NewBakeDay {
+            location_id: PickupLocationId::new(markt),
+            online_ordering: false,
+            ..next_saturday()
+        },
+    )
+    .await;
+    let only = days::list_slots(&mut conn, production.id).await.unwrap()[0];
+    assert!(matches!(
+        days::remove_slot(&mut conn, only.id).await,
+        Err(Error::DateTaken(_))
+    ));
+    days::cancel(&mut conn, &clock, slotless.id, "Geen markt")
+        .await
+        .unwrap();
+    days::remove_slot(&mut conn, only.id).await.unwrap();
+    assert!(
+        days::list_slots(&mut conn, production.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    days::cancel(&mut conn, &clock, day.id, "Ziek")
+        .await
+        .unwrap();
+    assert!(matches!(
+        days::remove_slot(&mut conn, first.id).await,
+        Err(Error::Final)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConnection<Postgres>) {
     let clock = FakeClock::new(ts("2026-10-20T12:00:00Z"));
     let archived_later = charity(&mut conn, "Later gearchiveerd", false).await;
@@ -418,7 +621,6 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
         &mut conn,
         &NewBakeDay {
             date: date("2026-10-24"),
-            bake_starts_at: ts("2026-10-24T02:00:00Z"),
             charity_id: Some(archived_later),
             ..saturday()
         },
@@ -436,20 +638,15 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
     .await
     .unwrap();
     days::open(&mut conn, &clock, source.id).await.unwrap();
-    let bread = product(&mut conn, "Desem", None).await;
-    let rolls = product(&mut conn, "Bolletjes", None).await;
-    let oven = range::create_pool(&mut conn, source.id, "Oven", 40)
-        .await
-        .unwrap();
-    for (product_id, pool) in [(bread, Some(oven.id)), (rolls, None)] {
+    let bread = product(&mut conn, "Desem").await;
+    let rolls = product(&mut conn, "Bolletjes").await;
+    for (product_id, max_qty) in [(bread, Some(12)), (rolls, None)] {
         range::set_product(
             &mut conn,
             source.id,
             &BakeDayProduct {
                 product_id,
-                max_qty: Some(12),
-                capacity_pool_id: pool,
-                units_per_item: 2,
+                max_qty,
             },
         )
         .await
@@ -490,15 +687,11 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
     assert_eq!(copy.menu_publish_at, Some(ts("2026-10-28T07:00:00Z")));
     assert_eq!(copy.opens_at, Some(ts("2026-10-28T07:00:00Z")));
     assert_eq!(copy.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
-    assert_eq!(copy.bake_starts_at, ts("2026-10-31T03:00:00Z"));
+    assert_eq!(copy.bake_starts_at, ts("2026-10-31T04:00:00Z"));
     let slots = days::list_slots(&mut conn, copy.id).await.unwrap();
     assert_eq!(slots.len(), 1);
     assert_eq!(slots[0].starts_at, ts("2026-10-31T10:00:00Z"));
 
-    let pools = range::list_pools(&mut conn, copy.id).await.unwrap();
-    assert_eq!(pools.len(), 1);
-    assert_ne!(pools[0].id, oven.id);
-    assert_eq!((pools[0].name.as_str(), pools[0].max_units), ("Oven", 40));
     let products = range::list_products(&mut conn, copy.id).await.unwrap();
     assert_eq!(
         products,
@@ -506,14 +699,10 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
             BakeDayProduct {
                 product_id: bread,
                 max_qty: Some(12),
-                capacity_pool_id: Some(pools[0].id),
-                units_per_item: 2,
             },
             BakeDayProduct {
                 product_id: rolls,
-                max_qty: Some(12),
-                capacity_pool_id: None,
-                units_per_item: 2,
+                max_qty: None,
             },
         ]
     );
@@ -574,10 +763,6 @@ async fn set_cutoff(conn: &mut PgConnection, day: &bakedays::BakeDay, cutoff: &s
 
 fn sourdough_warning(cutoff: &str, latest: &str) -> Option<LeadTimeWarning> {
     Some(LeadTimeWarning {
-        rule: LeadTimeRule::Sourdough(SourdoughDeadline {
-            days_before: 2,
-            at: time(20, 0, 0, 0),
-        }),
         cutoff_at: ts(cutoff),
         latest_cutoff: ts(latest),
     })
@@ -611,7 +796,6 @@ async fn summer_time_saturday_after_the_march_change(mut conn: PoolConnection<Po
         &mut conn,
         &NewBakeDay {
             date: date("2026-04-04"),
-            bake_starts_at: ts("2026-04-04T02:00:00Z"),
             ..saturday()
         },
     )
@@ -643,42 +827,41 @@ async fn the_rule_comes_from_the_company_settings(mut conn: PoolConnection<Postg
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_product_with_a_longer_lead_time_is_stricter(mut conn: PoolConnection<Postgres>) {
-    let day = create_day(&mut conn, &saturday()).await;
-    let add = |product_id| BakeDayProduct {
-        product_id,
-        max_qty: None,
-        capacity_pool_id: None,
-        units_per_item: 1,
-    };
-    let rolls = product(&mut conn, "Bolletjes", Some(12)).await;
-    let bread = product(&mut conn, "Desem", None).await;
-    for product_id in [rolls, bread] {
-        range::set_product(&mut conn, day.id, &add(product_id))
-            .await
-            .unwrap();
-    }
-    assert_eq!(
-        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
-        None
-    );
+async fn baking_starts_at_five_on_the_bake_date(mut conn: PoolConnection<Postgres>) {
+    // The clocks jump forward on Sunday 29 March: 05:00 is summer time.
+    let spring = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-03-29"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(spring.bake_starts_at, ts("2026-03-29T03:00:00Z"));
+    // They fall back on Sunday 25 October: 05:00 is winter time.
+    let autumn = create_day(
+        &mut conn,
+        &NewBakeDay {
+            date: date("2026-10-25"),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await;
+    assert_eq!(autumn.bake_starts_at, ts("2026-10-25T04:00:00Z"));
 
-    // 60 h before Saturday 04:00 CET is Wednesday 16:00 CET.
-    let rye = product(&mut conn, "Rogge", Some(60)).await;
-    range::set_product(&mut conn, day.id, &add(rye))
+    let day = create_day(&mut conn, &saturday()).await;
+    sqlx::query("UPDATE bake_day SET bake_starts_at = $2::timestamptz WHERE id = $1")
+        .bind(day.id.get())
+        .bind("2026-10-31T02:00:00Z")
+        .execute(&mut *conn)
         .await
         .unwrap();
-    assert_eq!(
-        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
-        Some(LeadTimeWarning {
-            rule: LeadTimeRule::Product {
-                product_id: rye,
-                lead_time_hours: 60,
-            },
-            cutoff_at: ts("2026-10-29T19:00:00Z"),
-            latest_cutoff: ts("2026-10-28T15:00:00Z"),
-        })
-    );
+    let saved = days::update_schedule(&mut conn, day.id, &schedule_of(&day))
+        .await
+        .unwrap();
+    assert_eq!(saved.bake_starts_at, ts("2026-10-31T04:00:00Z"));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -738,15 +921,13 @@ async fn production_only_days_need_no_pickup_window(mut conn: PoolConnection<Pos
             .is_empty()
     );
 
-    let bread = product(&mut conn, "Desem", Some(168)).await;
+    let bread = product(&mut conn, "Desem").await;
     range::set_product(
         &mut conn,
         friday.id,
         &BakeDayProduct {
             product_id: bread,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await
@@ -795,7 +976,6 @@ async fn a_cancelled_day_does_not_block_a_copy(mut conn: PoolConnection<Postgres
         &mut conn,
         &NewBakeDay {
             date: date("2026-11-07"),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
     )

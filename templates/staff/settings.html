@@ -1,0 +1,23 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("settings-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("settings-title")? }}</h1>
+{% call s::status(saved) %}{% endcall %}
+<h2>{{ layout.t("settings-public-donations-title")? }}</h2>
+<p>{{ layout.t("settings-public-donations-intro")? }}</p>
+<form method="post" action="/staff/settings">
+{% call s::csrf() %}{% endcall %}
+{% call f::checkbox("public_donations", layout.t("settings-public-donations")?, checked = public_donations) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% if public_donations %}<p><a href="/giften">{{ layout.t("settings-public-donations-view")? }}</a></p>{% endif %}
+<h2>{{ layout.t("settings-address-title")? }}</h2>
+<form method="post" action="{{ address_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("text", "address", layout.t("settings-address")?, value = address, hint = layout.t("settings-address-hint")?, error = address_error) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

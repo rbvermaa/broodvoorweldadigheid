@@ -6,3 +6,27 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+bakedays = { path = "../bakedays" }
+catalog = { path = "../catalog" }
+csv.workspace = true
+db = { path = "../db" }
+domain = { path = "../domain" }
+i18n = { path = "../i18n" }
+labels = { path = "../labels" }
+jiff.workspace = true
+orders = { path = "../orders" }
+recipes = { path = "../recipes" }
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-pdf = "0.15.1"
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true
+testkit = { path = "../testkit" }
+tokio.workspace = true

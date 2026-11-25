@@ -1,0 +1,16 @@
+---
+source: crates/labels/src/tests.rs
+expression: "text(&granola(), &T).unwrap()"
+---
+--- whole 50 x 30 mm ---
+GRANOLA MET NOTEN
+*Netto gewicht:* |  350 g
+*Ten minste houdbaar tot:* |  
+03-02-2027
+*Partij:* |  261205-2
+Droog en koel bewaren.
+Brood voor Weldadigheid, Voorbeeldlaan 1, 
+1234 AB Voorbeeld
+*Ingrediënten:* |   | *havervlokken* | ,  | *walnoten* | , 
+honing, zonnebloemolie.
+Kan sporen bevatten van melk, sesamzaad.

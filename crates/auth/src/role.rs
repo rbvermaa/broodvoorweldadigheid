@@ -8,36 +8,71 @@ pub enum Role {
     Counter,
 }
 
-/// What a back-office action needs. The table per role is in ADR 0010.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Permission {
-    ViewOrders,
-    PickupList,
-    Production,
-    EditAllergens,
-    ManageBakeDays,
-    /// Sick-day cancel (F2), including the refunds it sends for that day.
-    CloseBakeDay,
-    /// Refunding a single order or line.
-    Refund,
-    ViewReports,
-    ManageCharities,
-    ManageStaff,
+macro_rules! permissions {
+    ($($(#[doc = $doc:literal])+ $name:ident => [$($role:ident),+],)+) => {
+        /// What a back-office action needs. The table per role is in docs/permissions.md.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum Permission {
+            $($(#[doc = $doc])+ $name,)+
+        }
+
+        impl Permission {
+            pub const ALL: [Self; [$(Self::$name),+].len()] = [$(Self::$name),+];
+
+            /// The roles that have this permission.
+            #[must_use]
+            pub const fn roles(self) -> &'static [Role] {
+                match self {
+                    $(Self::$name => &[$(Role::$role),+],)+
+                }
+            }
+
+            /// What it covers, for docs/permissions.md.
+            #[must_use]
+            pub fn description(self) -> &'static str {
+                match self {
+                    $(Self::$name => concat!($($doc),+).trim(),)+
+                }
+            }
+        }
+    };
 }
 
-impl Permission {
-    pub const ALL: [Self; 10] = [
-        Self::ViewOrders,
-        Self::PickupList,
-        Self::Production,
-        Self::EditAllergens,
-        Self::ManageBakeDays,
-        Self::CloseBakeDay,
-        Self::Refund,
-        Self::ViewReports,
-        Self::ManageCharities,
-        Self::ManageStaff,
-    ];
+// One line per permission, sorted by name (ADR 0044). Owner is in every line.
+permissions! {
+    /// Sick-day cancel (F2), including that day's refunds (ADR 0028).
+    CloseBakeDay => [Owner],
+    /// Ingredient prices, standard and batch cost, cost variance (F16).
+    Costing => [Owner],
+    /// Allergens, ingredient text, nutrition approval.
+    EditAllergens => [Owner, Baker],
+    /// Moving an order to another pickup slot, cancelling an unpaid order (F6), placing an
+    /// order on account (F11a).
+    EditOrders => [Owner, Baker],
+    /// Business accounts, the invoice overview, marking orders invoiced (F11a).
+    Invoicing => [Owner],
+    /// Bake days, cutoffs, pickup slots, capacity.
+    ManageBakeDays => [Owner, Baker],
+    /// Charities and payouts.
+    ManageCharities => [Owner],
+    /// Adding staff and changing roles.
+    ManageStaff => [Owner],
+    /// Pickup list, marking orders picked up.
+    PickupList => [Owner, Baker, Counter],
+    /// Bread votes: create, change, see results and wishes (F9b, ADR 0039).
+    Polls => [Owner, Baker],
+    /// Exporting and erasing a customer's data on their request (F12, ADR 0031).
+    Privacy => [Owner],
+    /// Production list, recipes, batches, labels.
+    Production => [Owner, Baker],
+    /// Cancelling a paid order with its refund, retrying a refund (F6, ADR 0028).
+    Refund => [Owner, Baker],
+    /// Company settings, such as switching the public donation page on (F11d, ADR 0040).
+    Settings => [Owner],
+    /// Order list and order details.
+    ViewOrders => [Owner, Baker, Counter],
+    /// Sales, donation and contribution reports (F11c, F11e).
+    ViewReports => [Owner],
 }
 
 impl Role {
@@ -54,20 +89,15 @@ impl Role {
 
     #[must_use]
     pub const fn can(self, permission: Permission) -> bool {
-        use Permission as P;
-        match self {
-            Self::Owner => true,
-            Self::Baker => matches!(
-                permission,
-                P::ViewOrders
-                    | P::PickupList
-                    | P::Production
-                    | P::EditAllergens
-                    | P::ManageBakeDays
-                    | P::CloseBakeDay
-            ),
-            Self::Counter => matches!(permission, P::ViewOrders | P::PickupList),
+        let roles = permission.roles();
+        let mut i = 0;
+        while i < roles.len() {
+            if roles[i] as u8 == self as u8 {
+                return true;
+            }
+            i += 1;
         }
+        false
     }
 }
 
@@ -97,35 +127,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn permission_table_matches_adr_0010() {
-        use Permission as P;
-        let expected: [(P, bool, bool, bool); 10] = [
-            // permission, owner, baker, counter
-            (P::ViewOrders, true, true, true),
-            (P::PickupList, true, true, true),
-            (P::Production, true, true, false),
-            (P::EditAllergens, true, true, false),
-            (P::ManageBakeDays, true, true, false),
-            (P::CloseBakeDay, true, true, false),
-            (P::Refund, true, false, false),
-            (P::ViewReports, true, false, false),
-            (P::ManageCharities, true, false, false),
-            (P::ManageStaff, true, false, false),
-        ];
-        assert_eq!(
-            expected.map(|(permission, ..)| permission),
-            Permission::ALL,
-            "every permission is in the table once"
-        );
-        for (permission, owner, baker, counter) in expected {
-            assert_eq!(Role::Owner.can(permission), owner, "owner {permission:?}");
-            assert_eq!(Role::Baker.can(permission), baker, "baker {permission:?}");
-            assert_eq!(
-                Role::Counter.can(permission),
-                counter,
-                "counter {permission:?}"
-            );
+    fn owner_can_do_everything_and_can_follows_the_table() {
+        for permission in Permission::ALL {
+            assert!(Role::Owner.can(permission), "owner {permission:?}");
+            for role in Role::ALL {
+                assert_eq!(
+                    role.can(permission),
+                    permission.roles().contains(&role),
+                    "{role} {permission:?}"
+                );
+            }
+            assert!(!permission.description().is_empty(), "{permission:?}");
         }
+    }
+
+    #[test]
+    fn permissions_are_sorted_by_name() {
+        let names = Permission::ALL.map(|permission| format!("{permission:?}"));
+        assert!(names.is_sorted(), "{names:?}");
     }
 
     #[test]

@@ -1,0 +1,13 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="/staff/costing">{{ layout.t("costing-back")? }}</a></p>
+<p>{{ standard_date }}</p>
+{% if !recipe.is_empty() %}<p>{{ recipe }}</p>{% endif %}
+{% if !why.is_empty() %}{% call fb::alert("warning", why) %}{% endcall %}{% endif %}
+{% if let Some(missing) = missing %}{% call fb::alert("warning", missing) %}{% endcall %}{% endif %}
+{% if let Some(lines) = lines %}{% call tb::table(lines) %}{% endcall %}{% endif %}
+{% endblock %}

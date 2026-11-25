@@ -1,0 +1,64 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("lists-back-orders")? }}</a></p>
+<p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
+<div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}</div>
+{%- for slot in slots %}
+<section>
+<h2>{{ slot.heading }}</h2>
+{% if slot.orders.is_empty() %}<p>{{ layout.t("pickup-list-empty")? }}</p>{% endif %}
+{%- for order in slot.orders %}
+<article id="{{ order.anchor }}">
+<h3>{% if order.erased %}<span class="field-hint">{{ order.name }}</span>{% else %}{{ order.name }}{% endif %}</h3>
+<p>{{ layout.t("pickup-list-number")? }} <a href="{{ order.link }}">{{ order.number }}</a>
+{%- if !order.phone.is_empty() %} · <a href="tel:{{ order.phone_href }}">{{ order.phone }}</a>{% endif %}</p>
+<ul>
+{%- for line in order.lines %}
+<li>{{ line }}</li>
+{%- endfor %}
+</ul>
+<p>{{ layout.t("pickup-list-status")? }}: <strong>{{ order.status }}</strong></p>
+<div role="status">{% if order.saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !order.error.is_empty() %}{% call fb::alert("error", order.error) %}{% endcall %}{% endif %}</div>
+<form method="post" action="{{ order.action }}" hx-post="{{ order.action }}" hx-target="#{{ order.anchor }}" hx-select="#{{ order.anchor }}" hx-swap="outerHTML">
+{% call s::csrf() %}{% endcall %}
+{% if order.picked_up %}
+{% call b::button(layout.t("lists-undo")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% else %}
+{% call b::button(layout.t("staff-order-picked-up")?, kind = "submit") %}{% endcall %}
+{% endif %}
+</form>
+</article>
+{%- endfor %}
+</section>
+{%- endfor %}
+{% if !allergens.is_empty() %}
+<section>
+<h2>{{ layout.t("pickup-list-allergens")? }}</h2>
+{%- for product in allergens %}
+<h3>{{ product.name }}</h3>
+{%- if let Some(info) = product.allergens %}
+{% call p::allergen_list(info.contains()) %}{% endcall %}
+{% call p::allergen_list(info.may_contain(), true) %}{% endcall %}
+{%- if !info.ingredients().is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(info.ingredients()) %}{% endcall %}</p>
+{%- endif %}
+{%- else %}
+<p class="product-status">{{ layout.t("product-allergens-pending")? }}</p>
+{%- endif %}
+{%- for notice in product.batches %}
+{% call fb::alert("warning", notice.text) %}{% endcall %}
+{% call p::allergen_list(notice.allergens) %}{% endcall %}
+{%- if !notice.ingredients.is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(notice.ingredients) %}{% endcall %}</p>
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+</section>
+{% endif %}
+{% endblock %}

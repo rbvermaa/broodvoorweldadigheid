@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.product_id, sum(o.planned_pieces)::bigint AS \"pieces!\"\n        FROM batch b JOIN batch_output o ON o.batch_id = b.id\n        WHERE b.bake_day_id = $1\n        GROUP BY o.product_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pieces!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "2719bd195d1af6a36a6badad3386ec0f9a2c31e7bd4c524280d83173b0e086b7"
+}

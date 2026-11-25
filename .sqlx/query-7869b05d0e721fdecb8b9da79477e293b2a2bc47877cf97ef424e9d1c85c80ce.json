@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bake_day_product (bake_day_id, product_id, max_qty) VALUES ($1, $2, $3)\n        ON CONFLICT (bake_day_id, product_id) DO UPDATE SET max_qty = EXCLUDED.max_qty",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7869b05d0e721fdecb8b9da79477e293b2a2bc47877cf97ef424e9d1c85c80ce"
+}

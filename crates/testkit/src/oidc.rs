@@ -1,23 +1,16 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::SystemTime;
 
-use auth::oidc::{HttpFuture, HttpRequest, HttpResponse, OidcHttp, Settings, http};
+use auth::oidc::{
+    HttpFuture, HttpRequest, HttpResponse, Method, OidcHttp, Settings, form_urlencode,
+    pkce_challenge,
+};
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use jiff::{SignedDuration, Timestamp};
-use openidconnect::core::{
-    CoreIdToken, CoreIdTokenClaims, CoreIdTokenFields, CoreJsonWebKeySet, CoreJwsSigningAlgorithm,
-    CoreProviderMetadata, CoreResponseType, CoreRsaPrivateSigningKey, CoreSubjectIdentifierType,
-    CoreTokenResponse, CoreTokenType,
-};
-use openidconnect::url::{Url, form_urlencoded};
-use openidconnect::{
-    AccessToken, Audience, AuthUrl, EmptyAdditionalClaims, EmptyAdditionalProviderMetadata,
-    EmptyExtraTokenFields, EndUserEmail, EndUserName, EndUserUsername, IssuerUrl, JsonWebKeySetUrl,
-    Nonce, PrivateSigningKey, ResponseTypes, StandardClaims, SubjectIdentifier, TokenUrl,
-};
-use sha2::{Digest, Sha256};
+use ring::rand::SystemRandom;
+use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair, KeyPair};
+use serde_json::{Value, json};
 
 use crate::oidc_keys::{OTHER_KEY, SIGNING_KEY};
 
@@ -25,7 +18,8 @@ pub const BASE: &str = "https://idm.test";
 pub const ISSUER: &str = "https://idm.test/oauth2/openid/bvw-staff";
 pub const CLIENT_ID: &str = "bvw-staff";
 pub const CLIENT_SECRET: &str = "fake-client-secret";
-const TOKEN_LIFETIME: SignedDuration = SignedDuration::from_mins(5);
+pub const KID: &str = "fake-es256";
+pub const TOKEN_LIFETIME: SignedDuration = SignedDuration::from_mins(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FakeUser {
@@ -48,6 +42,15 @@ impl FakeUser {
         }
     }
 
+    /// Without `name` or `preferred_username`.
+    #[must_use]
+    pub fn nameless(sub: &str) -> Self {
+        Self {
+            name: None,
+            ..Self::new(sub, "")
+        }
+    }
+
     #[must_use]
     pub fn with_email(mut self, email: &str, verified: bool) -> Self {
         self.email = Some(email.to_string());
@@ -60,9 +63,23 @@ impl FakeUser {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sabotage {
     WrongNonce,
+    NoNonce,
     WrongAudience,
+    /// `aud` holds this client and another one, without `azp`.
+    ExtraAudience,
+    WrongAuthorizedParty,
     WrongIssuer,
+    /// Signed by another P-256 key under the known `kid`.
     ForeignSignature,
+    /// The claims changed after signing.
+    Tampered,
+    UnknownKid,
+    NoKid,
+    AlgNone,
+    /// HMAC with the client secret, the classic key-confusion attack.
+    AlgHs256,
+    AlgRs256,
+    IssuedInTheFuture,
     NoIdToken,
 }
 
@@ -76,14 +93,21 @@ pub struct Callback {
 
 impl Callback {
     /// The callback path and query, for a request to the app under test.
+    ///
+    /// # Panics
+    /// When the redirect URI is not an absolute URL.
     #[must_use]
     pub fn path_and_query(&self) -> String {
-        let url = Url::parse(&self.redirect_uri).expect("redirect URL");
-        let query: String = form_urlencoded::Serializer::new(String::new())
-            .append_pair("code", &self.code)
-            .append_pair("state", &self.state)
-            .finish();
-        format!("{}?{query}", url.path())
+        let after_scheme = self
+            .redirect_uri
+            .split_once("://")
+            .expect("absolute redirect URL")
+            .1;
+        let path = after_scheme
+            .find('/')
+            .map_or("/", |start| &after_scheme[start..]);
+        let query = form_urlencode(&[("code", &self.code), ("state", &self.state)]);
+        format!("{path}?{query}")
     }
 }
 
@@ -100,10 +124,11 @@ struct Inner {
     sabotage: Option<Sabotage>,
     requests: Vec<String>,
     next_code: u64,
+    down: bool,
 }
 
-/// An OIDC provider in memory: discovery, JWKS and token endpoints, RS256-signed ID tokens.
-/// `authorize` plays the browser and the login page.
+/// An OIDC provider in memory, like Kanidm: discovery, JWKS and token endpoints, and
+/// ES256-signed ID tokens. `authorize` plays the browser and the login page.
 #[derive(Clone)]
 pub struct FakeOidc {
     inner: Arc<Mutex<Inner>>,
@@ -120,6 +145,7 @@ impl FakeOidc {
                 sabotage: None,
                 requests: Vec::new(),
                 next_code: 0,
+                down: false,
             })),
         }
     }
@@ -142,6 +168,16 @@ impl FakeOidc {
         self.lock().sabotage = Some(sabotage);
     }
 
+    /// When the provider issues its next tokens.
+    pub fn set_now(&self, now: Timestamp) {
+        self.lock().now = now;
+    }
+
+    /// While down, every request fails as if the provider could not be reached.
+    pub fn set_down(&self, down: bool) {
+        self.lock().down = down;
+    }
+
     /// Method and URL of every request so far.
     #[must_use]
     pub fn requests(&self) -> Vec<String> {
@@ -154,12 +190,11 @@ impl FakeOidc {
     /// When the URL lacks what a code flow with PKCE needs.
     #[must_use]
     pub fn authorize(&self, authorization_url: &str, user: FakeUser) -> Callback {
-        let url = Url::parse(authorization_url).expect("authorization URL");
-        assert_eq!(
-            format!("{}{}", url.origin().ascii_serialization(), url.path()),
-            format!("{BASE}/authorize")
-        );
-        let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+        let (endpoint, query) = authorization_url
+            .split_once('?')
+            .expect("authorization URL has a query");
+        assert_eq!(endpoint, format!("{BASE}/authorize"));
+        let params = form_decode(query.as_bytes());
         let param = |name: &str| {
             params
                 .get(name)
@@ -190,21 +225,27 @@ impl FakeOidc {
         }
     }
 
-    fn handle(&self, request: &HttpRequest) -> HttpResponse {
-        let url = request.uri().to_string();
-        self.lock()
-            .requests
-            .push(format!("{} {url}", request.method()));
-        let discovery = format!("{ISSUER}/.well-known/openid-configuration");
-        match (request.method().as_str(), url.as_str()) {
-            ("GET", path) if path == discovery => json(200, &metadata()),
-            ("GET", path) if path == format!("{BASE}/jwks") => json(
-                200,
-                &CoreJsonWebKeySet::new(vec![key(SIGNING_KEY).as_verification_key()]),
-            ),
-            ("POST", path) if path == format!("{BASE}/token") => self.token(request),
-            _ => respond(404, "application/json", b"{}".to_vec()),
+    fn handle(&self, request: &HttpRequest) -> Option<HttpResponse> {
+        let method = match request.method {
+            Method::Get => "GET",
+            Method::Post => "POST",
+        };
+        let url = request.url.as_str();
+        let down = {
+            let mut inner = self.lock();
+            inner.requests.push(format!("{method} {url}"));
+            inner.down
+        };
+        if down {
+            return None;
         }
+        let discovery = format!("{ISSUER}/.well-known/openid-configuration");
+        Some(match (request.method, url) {
+            (Method::Get, path) if path == discovery => respond(200, &metadata()),
+            (Method::Get, path) if path == format!("{BASE}/jwks") => respond(200, &key_set()),
+            (Method::Post, path) if path == format!("{BASE}/token") => self.token(request),
+            _ => respond(404, &json!({})),
+        })
     }
 
     fn token(&self, request: &HttpRequest) -> HttpResponse {
@@ -212,23 +253,17 @@ impl FakeOidc {
             "Basic {}",
             STANDARD.encode(format!("{CLIENT_ID}:{CLIENT_SECRET}"))
         );
-        let authorized = request
-            .headers()
-            .get(http::header::AUTHORIZATION)
-            .is_some_and(|value| value.as_bytes() == expected_auth.as_bytes());
-        if !authorized {
+        if request.header("authorization") != Some(expected_auth.as_str()) {
             return oauth_error(401, "invalid_client");
         }
-        let form: HashMap<String, String> = form_urlencoded::parse(request.body())
-            .into_owned()
-            .collect();
+        let form = form_decode(&request.body);
         let mut inner = self.lock();
         let Some(grant) = form.get("code").and_then(|code| inner.grants.remove(code)) else {
             return oauth_error(400, "invalid_grant");
         };
-        let verifier_matches = form.get("code_verifier").is_some_and(|verifier| {
-            URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())) == grant.challenge
-        });
+        let verifier_matches = form
+            .get("code_verifier")
+            .is_some_and(|verifier| pkce_challenge(verifier) == grant.challenge);
         let redirect_matches = form.get("redirect_uri") == Some(&grant.redirect_uri);
         if form.get("grant_type").map(String::as_str) != Some("authorization_code")
             || !verifier_matches
@@ -237,110 +272,216 @@ impl FakeOidc {
             return oauth_error(400, "invalid_grant");
         }
         let sabotage = inner.sabotage.take();
-        let id_token =
-            (sabotage != Some(Sabotage::NoIdToken)).then(|| id_token(&grant, inner.now, sabotage));
+        let now = inner.now;
         drop(inner);
-        let response = CoreTokenResponse::new(
-            AccessToken::new("fake-access-token".to_string()),
-            CoreTokenType::Bearer,
-            CoreIdTokenFields::new(id_token, EmptyExtraTokenFields {}),
-        );
-        json(200, &response)
+        let mut body = json!({
+            "access_token": "fake-access-token",
+            "token_type": "Bearer",
+            "expires_in": 300,
+        });
+        if sabotage != Some(Sabotage::NoIdToken) {
+            body["id_token"] = Value::String(id_token(&grant, now, sabotage));
+        }
+        respond(200, &body)
     }
 }
 
 impl OidcHttp for FakeOidc {
     fn send(&self, request: HttpRequest) -> HttpFuture {
         let response = self.handle(&request);
-        Box::pin(async move { Ok(response) })
+        Box::pin(async move {
+            response.ok_or_else(|| auth::oidc::HttpError("connection refused".to_string()))
+        })
     }
 }
 
-fn key(pem: &str) -> CoreRsaPrivateSigningKey {
-    CoreRsaPrivateSigningKey::from_pem(pem, None).expect("test RSA key")
+fn key_pair(pkcs8: &str) -> EcdsaKeyPair {
+    let der = STANDARD.decode(pkcs8).expect("test key base64");
+    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &der, &SystemRandom::new())
+        .expect("test P-256 key")
 }
 
-fn metadata() -> CoreProviderMetadata {
-    CoreProviderMetadata::new(
-        IssuerUrl::new(ISSUER.to_string()).expect("issuer"),
-        AuthUrl::new(format!("{BASE}/authorize")).expect("auth URL"),
-        JsonWebKeySetUrl::new(format!("{BASE}/jwks")).expect("jwks URL"),
-        vec![ResponseTypes::new(vec![CoreResponseType::Code])],
-        vec![CoreSubjectIdentifierType::Public],
-        vec![CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256],
-        EmptyAdditionalProviderMetadata {},
+fn jwk_point(pkcs8: &str) -> (String, String) {
+    let key = key_pair(pkcs8);
+    let point = key.public_key().as_ref();
+    (
+        URL_SAFE_NO_PAD.encode(&point[1..33]),
+        URL_SAFE_NO_PAD.encode(&point[33..65]),
     )
-    .set_token_endpoint(Some(
-        TokenUrl::new(format!("{BASE}/token")).expect("token URL"),
-    ))
 }
 
-fn id_token(grant: &Grant, now: Timestamp, sabotage: Option<Sabotage>) -> CoreIdToken {
-    let issuer = if sabotage == Some(Sabotage::WrongIssuer) {
+/// The signing key, plus keys a client must skip: an encryption key and an RSA key.
+fn key_set() -> Value {
+    let (x, y) = jwk_point(SIGNING_KEY);
+    let (other_x, other_y) = jwk_point(OTHER_KEY);
+    json!({
+        "keys": [
+            {"kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256", "kid": KID, "x": x, "y": y},
+            {"kty": "EC", "crv": "P-256", "use": "enc", "kid": "fake-enc", "x": other_x, "y": other_y},
+            {"kty": "RSA", "kid": "fake-rsa", "alg": "RS256", "n": "AQAB", "e": "AQAB"},
+        ]
+    })
+}
+
+fn metadata() -> Value {
+    json!({
+        "issuer": ISSUER,
+        "authorization_endpoint": format!("{BASE}/authorize"),
+        "token_endpoint": format!("{BASE}/token"),
+        "jwks_uri": format!("{BASE}/jwks"),
+        "response_types_supported": ["code"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["ES256"],
+    })
+}
+
+fn claims(grant: &Grant, now: Timestamp, is: impl Fn(Sabotage) -> bool) -> Value {
+    let user = &grant.user;
+    let issued = if is(Sabotage::IssuedInTheFuture) {
+        now + SignedDuration::from_mins(10)
+    } else {
+        now
+    };
+    let audience = if is(Sabotage::WrongAudience) {
+        json!("another-client")
+    } else if is(Sabotage::ExtraAudience) {
+        json!([CLIENT_ID, "another-client"])
+    } else {
+        json!(CLIENT_ID)
+    };
+    let issuer = if is(Sabotage::WrongIssuer) {
         "https://elders.test"
     } else {
         ISSUER
     };
-    let audience = if sabotage == Some(Sabotage::WrongAudience) {
-        "another-client"
-    } else {
-        CLIENT_ID
-    };
-    let nonce = if sabotage == Some(Sabotage::WrongNonce) {
-        "not-the-nonce".to_string()
-    } else {
-        grant.nonce.clone()
-    };
-    let user = &grant.user;
-    let standard = StandardClaims::new(SubjectIdentifier::new(user.sub.clone()))
-        .set_name(user.name.clone().map(|name| EndUserName::new(name).into()))
-        .set_preferred_username(user.username.clone().map(EndUserUsername::new))
-        .set_email(user.email.clone().map(EndUserEmail::new))
-        .set_email_verified(user.email.as_ref().map(|_| user.email_verified));
-    let claims = CoreIdTokenClaims::new(
-        IssuerUrl::new(issuer.to_string()).expect("issuer"),
-        vec![Audience::new(audience.to_string())],
-        SystemTime::from(now + TOKEN_LIFETIME).into(),
-        SystemTime::from(now).into(),
-        standard,
-        EmptyAdditionalClaims {},
-    )
-    .set_nonce(Some(Nonce::new(nonce)));
-    let signer = key(if sabotage == Some(Sabotage::ForeignSignature) {
-        OTHER_KEY
-    } else {
-        SIGNING_KEY
+    let mut claims = json!({
+        "iss": issuer,
+        "sub": user.sub,
+        "aud": audience,
+        "exp": (issued + TOKEN_LIFETIME).as_second(),
+        "iat": issued.as_second(),
     });
-    CoreIdToken::new(
-        claims,
-        &signer,
-        CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
-        None,
-        None,
-    )
-    .expect("sign ID token")
+    if is(Sabotage::WrongAuthorizedParty) {
+        claims["azp"] = json!("another-client");
+    }
+    if !is(Sabotage::NoNonce) {
+        let nonce = if is(Sabotage::WrongNonce) {
+            "not-the-nonce"
+        } else {
+            grant.nonce.as_str()
+        };
+        claims["nonce"] = json!(nonce);
+    }
+    for (name, value) in [
+        ("name", &user.name),
+        ("preferred_username", &user.username),
+        ("email", &user.email),
+    ] {
+        if let Some(value) = value {
+            claims[name] = json!(value);
+        }
+    }
+    if user.email.is_some() {
+        claims["email_verified"] = json!(user.email_verified);
+    }
+    claims
 }
 
-fn json(status: u16, body: &impl serde::Serialize) -> HttpResponse {
-    respond(
+fn id_token(grant: &Grant, now: Timestamp, sabotage: Option<Sabotage>) -> String {
+    let is = |wanted: Sabotage| sabotage == Some(wanted);
+    let mut claims = claims(grant, now, is);
+    let alg = if is(Sabotage::AlgNone) {
+        "none"
+    } else if is(Sabotage::AlgHs256) {
+        "HS256"
+    } else if is(Sabotage::AlgRs256) {
+        "RS256"
+    } else {
+        "ES256"
+    };
+    let mut header = json!({"alg": alg, "typ": "JWT"});
+    if !is(Sabotage::NoKid) {
+        let kid = if is(Sabotage::UnknownKid) {
+            "rotated-away"
+        } else {
+            KID
+        };
+        header["kid"] = json!(kid);
+    }
+    let encode = |value: &Value| URL_SAFE_NO_PAD.encode(serde_json::to_vec(value).expect("JSON"));
+    let signing_input = format!("{}.{}", encode(&header), encode(&claims));
+    let signature = match alg {
+        "none" => Vec::new(),
+        "HS256" => {
+            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, CLIENT_SECRET.as_bytes());
+            ring::hmac::sign(&key, signing_input.as_bytes())
+                .as_ref()
+                .to_vec()
+        }
+        "RS256" => vec![0x5a; 256],
+        _ => {
+            let pkcs8 = if is(Sabotage::ForeignSignature) {
+                OTHER_KEY
+            } else {
+                SIGNING_KEY
+            };
+            key_pair(pkcs8)
+                .sign(&SystemRandom::new(), signing_input.as_bytes())
+                .expect("sign")
+                .as_ref()
+                .to_vec()
+        }
+    };
+    let signed_part = if is(Sabotage::Tampered) {
+        claims["sub"] = json!("00000000-0000-0000-0000-000000000000");
+        format!("{}.{}", encode(&header), encode(&claims))
+    } else {
+        signing_input
+    };
+    format!("{signed_part}.{}", URL_SAFE_NO_PAD.encode(signature))
+}
+
+/// Parses `application/x-www-form-urlencoded`.
+///
+/// # Panics
+/// On malformed percent escapes or text that is not UTF-8.
+#[must_use]
+pub fn form_decode(input: &[u8]) -> HashMap<String, String> {
+    let decode = |part: &[u8]| {
+        let mut out = Vec::with_capacity(part.len());
+        let mut bytes = part.iter();
+        while let Some(&byte) = bytes.next() {
+            match byte {
+                b'+' => out.push(b' '),
+                b'%' => {
+                    let hex: Vec<u8> = bytes.by_ref().take(2).copied().collect();
+                    let hex = std::str::from_utf8(&hex).expect("hex escape");
+                    out.push(u8::from_str_radix(hex, 16).expect("hex escape"));
+                }
+                _ => out.push(byte),
+            }
+        }
+        String::from_utf8(out).expect("UTF-8")
+    };
+    input
+        .split(|byte| *byte == b'&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let mut halves = pair.splitn(2, |byte| *byte == b'=');
+            let key = decode(halves.next().unwrap_or_default());
+            let value = decode(halves.next().unwrap_or_default());
+            (key, value)
+        })
+        .collect()
+}
+
+fn respond(status: u16, body: &Value) -> HttpResponse {
+    HttpResponse {
         status,
-        "application/json",
-        serde_json::to_vec(body).expect("JSON"),
-    )
+        body: serde_json::to_vec(body).expect("JSON"),
+    }
 }
 
 fn oauth_error(status: u16, error: &str) -> HttpResponse {
-    respond(
-        status,
-        "application/json",
-        format!("{{\"error\":\"{error}\"}}").into_bytes(),
-    )
-}
-
-fn respond(status: u16, content_type: &str, body: Vec<u8>) -> HttpResponse {
-    http::Response::builder()
-        .status(status)
-        .header(http::header::CONTENT_TYPE, content_type)
-        .body(body)
-        .expect("response")
+    respond(status, &json!({"error": error}))
 }

@@ -1,5 +1,7 @@
 # Oswald (headings) and Inter (body), both SIL OFL 1.1, as variable woff2 files.
-# apps/server/src/assets.rs embeds them into the server binary.
+# apps/server/src/assets.rs embeds them into the server binary. Typst cannot read woff2,
+# so the PDFs (crates/production) embed the TTF files: static Inter Regular and Bold, and
+# the variable Oswald.
 {
   runCommand,
   fetchurl,
@@ -31,4 +33,7 @@ runCommand "bvw-fonts"
     woff2_compress work/oswald.ttf
     cp work/oswald.woff2 $out/oswald.woff2
     cp ${oswaldLicence} $out/oswald-OFL.txt
+    cp ${inter.src}/extras/ttf/Inter-Regular.ttf $out/inter-regular.ttf
+    cp ${inter.src}/extras/ttf/Inter-Bold.ttf $out/inter-bold.ttf
+    cp ${oswald} $out/oswald.ttf
   ''

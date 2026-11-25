@@ -1,0 +1,2 @@
+crates/db/migrations/migrations.lock merge=union
+docs/open-questions.md merge=union

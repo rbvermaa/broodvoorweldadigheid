@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE reach (version_id, depth) AS (\n            SELECT $1::bigint, 0\n            UNION ALL\n            SELECT l.sub_recipe_version_id, r.depth + 1\n            FROM recipe_line l JOIN reach r ON l.recipe_version_id = r.version_id\n            WHERE l.sub_recipe_version_id IS NOT NULL AND r.depth < $2\n        )\n        SELECT l.recipe_version_id, l.bakers_pct_x1000,\n            l.ingredient_id, i.name AS \"ingredient_name?\", i.role AS \"ingredient_role?\",\n            l.sub_recipe_version_id, sv.recipe_id AS \"sub_recipe_id?\", sr.name AS \"sub_name?\",\n            sv.version AS \"sub_version?\", sr.kind AS \"sub_kind?\"\n        FROM recipe_line l\n        LEFT JOIN ingredient i ON i.id = l.ingredient_id\n        LEFT JOIN recipe_version sv ON sv.id = l.sub_recipe_version_id\n        LEFT JOIN recipe sr ON sr.id = sv.recipe_id\n        WHERE l.recipe_version_id IN (SELECT DISTINCT version_id FROM reach)\n        ORDER BY l.recipe_version_id, l.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recipe_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_line",
+            "name": "recipe_version_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bakers_pct_x1000",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "recipe_line",
+            "name": "bakers_pct_x1000"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ingredient_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_line",
+            "name": "ingredient_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ingredient_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ingredient",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "ingredient_role?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ingredient",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "sub_recipe_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_line",
+            "name": "sub_recipe_version_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sub_recipe_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "recipe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "sub_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "sub_version?",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "sub_kind?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "kind"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "98808eef0acebae215b084c7542bca6cf93710341749902210f0aafc91b395bb"
+}

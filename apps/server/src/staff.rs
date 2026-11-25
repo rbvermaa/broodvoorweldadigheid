@@ -21,6 +21,7 @@ use crate::state::AppState;
 
 pub const LOGIN_PATH: &str = "/staff/login";
 pub const DEV_LOGIN_PATH: &str = "/staff/dev-login";
+pub const CALLBACK_PATH: &str = "/staff/oidc/callback";
 
 /// Headers a reverse proxy adds; a request carrying one did not come straight from the
 /// developer's own machine.
@@ -267,6 +268,10 @@ pub async fn callback(
         Err(OidcError::StateMismatch) => {
             return login_failed(&state, StatusCode::BAD_REQUEST, "state mismatch");
         }
+        Err(OidcError::UnknownKey) => {
+            login.forget();
+            return login_failed(&state, StatusCode::FORBIDDEN, "unknown signing key");
+        }
         Err(error @ OidcError::Unreachable(_)) => {
             tracing::error!(error = %auth::oidc::error_chain(&error), "staff login unavailable");
             return login_down(&state);
@@ -359,6 +364,8 @@ struct Home<'a> {
     layout: Layout<'a>,
     name: &'a str,
     role: &'static str,
+    kitchen_unapproved: bool,
+    can_edit_allergens: bool,
 }
 
 fn role_message(role: Role) -> &'static str {
@@ -374,6 +381,14 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
         Ok(token) => token,
         Err(error) => return server_error(&state, &error),
     };
+    let kitchen = match state.pool.acquire().await {
+        Ok(mut conn) => catalog::company::kitchen_may_contain(&mut conn).await,
+        Err(error) => return server_error(&state, &error),
+    };
+    let kitchen = match kitchen {
+        Ok(kitchen) => kitchen,
+        Err(error) => return server_error(&state, &error),
+    };
     pages::render(
         &state,
         StatusCode::OK,
@@ -381,6 +396,8 @@ pub async fn home(State(state): State<AppState>, staff: Staff, session: Session)
             layout: Layout::new(&state).with_csrf_token(token),
             name: &staff.0.name,
             role: role_message(staff.0.role),
+            kitchen_unapproved: kitchen.approval.is_none(),
+            can_edit_allergens: staff.0.role.can(Permission::EditAllergens),
         },
     )
 }

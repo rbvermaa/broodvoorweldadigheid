@@ -1,0 +1,304 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active AND sold_online ORDER BY name_nl, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "description_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "description_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "photo_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "photo_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "price_incl_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "price_incl_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "vat_rate",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "vat_rate"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "pay_what_you_want",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "pay_what_you_want"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "min_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "min_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "max_price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "max_price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "unit_weight_g",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "unit_weight_g"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "dough_g_per_piece",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "dough_g_per_piece"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "freezer_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "freezer_days"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "allergens",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "ingredient_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_text"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "allergens_approved_by",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "allergens_approved_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "allergens_cleared_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_cleared_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "allergens_recipe_rev",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_recipe_rev"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "ingredient_names",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_names"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "ingredient_emphasis",
+        "type_info": "BoolArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_emphasis"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "has_recipe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 21,
+        "name": "packaged",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "packaged"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "sold_online",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "sold_online"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "estimated_cost_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "estimated_cost_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "active"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      null,
+      true,
+      false,
+      true,
+      true,
+      null,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "6407814e17146c12e829c8febd2f5a9e8393136e619a81de4137d2c681c2b315"
+}

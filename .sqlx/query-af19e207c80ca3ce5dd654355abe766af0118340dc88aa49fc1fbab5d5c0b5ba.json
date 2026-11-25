@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM customer_login\n         WHERE created_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            OR last_seen_at <= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af19e207c80ca3ce5dd654355abe766af0118340dc88aa49fc1fbab5d5c0b5ba"
+}

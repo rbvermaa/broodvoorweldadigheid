@@ -10,10 +10,9 @@ base64.workspace = true
 domain = { path = "../domain" }
 jiff.workspace = true
 notify = { path = "../notify", optional = true }
-openidconnect.workspace = true
+ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 
 [features]
 email = ["dep:notify"]

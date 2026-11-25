@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT actual_pieces, waste_pieces, frozen_pieces,\n                (frozen_on - date '1970-01-01') AS \"frozen_on: i32\"\n            FROM batch_output WHERE batch_id = $1 AND product_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "actual_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "actual_pieces"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "waste_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "waste_pieces"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "frozen_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "frozen_pieces"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "frozen_on: i32",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "c1af7e299ec5b5da7b0f77b4067db5a6bc400637bedac294f25c7d461980d1ad"
+}

@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod adr_numbers;
+mod async_fn;
 mod compose_smoke;
 mod coverage;
 mod layers;
@@ -11,8 +13,7 @@ mod unsafe_forbid;
 
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: cargo xtask <layers|unsafe-forbid|coverage <lcov-report>|compose-smoke [options]>";
+const USAGE: &str = "usage: cargo xtask <layers|unsafe-forbid|adr-numbers|coverage <lcov-report>|compose-smoke [options]>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,11 +32,28 @@ fn main() -> ExitCode {
                 Ok(violations)
             }),
         ),
+        [task] if task == "adr-numbers" => (
+            task,
+            metadata::load(None).and_then(|metadata| {
+                adr_numbers::check(metadata.workspace_root.join("docs/decisions").as_std_path())
+            }),
+        ),
         [task, report] if task == "coverage" => (
             task,
             std::fs::read_to_string(report)
                 .map_err(|error| format!("cannot read {report}: {error}"))
-                .and_then(|contents| coverage::check(&contents)),
+                .and_then(|contents| {
+                    coverage::check(&contents, |path| {
+                        std::fs::read_to_string(path)
+                            .map_err(|error| format!("cannot read {path}: {error}"))
+                    })
+                })
+                .map(|outcome| {
+                    for line in &outcome.summary {
+                        println!("{task}: {line}");
+                    }
+                    outcome.violations
+                }),
         ),
         [task, rest @ ..] if task == "compose-smoke" => (task, compose_smoke::run(rest)),
         _ => {

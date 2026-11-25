@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT recipe_id, lead_time_hours FROM recipe_version WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recipe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "recipe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "lead_time_hours",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "lead_time_hours"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "3618282db764d17419e11ff571698c226c94b3b796ad4db94515e406fc0da34d"
+}

@@ -3,39 +3,44 @@ use std::pin::Pin;
 
 use jiff::Timestamp;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EmailKind {
-    OrderConfirmation,
-    PickupReminder,
-    OrderCancelled,
-    SickDayCancelled,
-    DropAlert,
-    SubscriptionConfirmation,
+macro_rules! email_kinds {
+    ($($name:ident => $stored:literal,)+) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum EmailKind {
+            $($name,)+
+        }
+
+        impl EmailKind {
+            pub const ALL: [Self; [$(Self::$name),+].len()] = [$(Self::$name),+];
+
+            /// The value stored in `email_outbox.kind`; a row of the `email_kind` table.
+            #[must_use]
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$name => $stored,)+
+                }
+            }
+        }
+    };
+}
+
+// One line per kind, sorted by name. A new kind also needs its `email_kind` row (ADR 0044).
+email_kinds! {
+    AccountDeleted => "account_deleted",
+    ContactMessage => "contact_message",
+    DonationMoved => "donation_moved",
+    DropAlert => "drop_alert",
+    LoginLink => "login_link",
+    OrderCancelled => "order_cancelled",
+    OrderConfirmation => "order_confirmation",
+    PickupMoved => "pickup_moved",
+    PickupReminder => "pickup_reminder",
+    SickDayCancelled => "sick_day_cancelled",
+    SubscriptionConfirmation => "subscription_confirmation",
+    VoteConfirmation => "vote_confirmation",
 }
 
 impl EmailKind {
-    pub const ALL: [Self; 6] = [
-        Self::OrderConfirmation,
-        Self::PickupReminder,
-        Self::OrderCancelled,
-        Self::SickDayCancelled,
-        Self::DropAlert,
-        Self::SubscriptionConfirmation,
-    ];
-
-    /// The value stored in `email_outbox.kind`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::OrderConfirmation => "order_confirmation",
-            Self::PickupReminder => "pickup_reminder",
-            Self::OrderCancelled => "order_cancelled",
-            Self::SickDayCancelled => "sick_day_cancelled",
-            Self::DropAlert => "drop_alert",
-            Self::SubscriptionConfirmation => "subscription_confirmation",
-        }
-    }
-
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.as_str() == value)
@@ -52,6 +57,10 @@ pub struct Email {
     pub html: String,
     /// The https URL for `List-Unsubscribe` (RFC 8058 one-click), on drop alerts.
     pub list_unsubscribe: Option<String>,
+    /// Where replies go when that is not the From address, such as a contact form sender.
+    pub reply_to: Option<String>,
+    /// A copy, such as to the invoice email of a business account.
+    pub cc: Option<String>,
 }
 
 /// An email taken from the outbox to send.

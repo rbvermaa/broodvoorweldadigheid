@@ -1,0 +1,43 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("b2b-back")? }}</a></p>
+{% call s::period(period) %}{% endcall %}
+{% call s::status(saved) %}{% endcall %}
+{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+<p>{{ layout.t("b2b-invoice-intro")? }}</p>
+{% if lines.rows.is_empty() %}
+<p>{{ layout.t("b2b-invoice-none")? }}</p>
+{% else %}
+{% call tb::table(lines) %}{% endcall %}
+{% call tb::table(totals) %}{% endcall %}
+<p><a href="{{ csv }}">{{ layout.t("b2b-invoice-csv")? }}</a></p>
+<p><a href="{{ pdf }}">{{ layout.t("b2b-invoice-pdf")? }}</a></p>
+{% endif %}
+{% if let Some(form) = form %}
+<h2>{{ layout.t("b2b-invoice-mark")? }}</h2>
+<p>{{ layout.t("b2b-invoice-mark-hint")? }}</p>
+{% if !form.errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ form.action }}">
+{% call s::csrf() %}{% endcall %}
+<input type="hidden" name="van" value="{{ form.from }}">
+<input type="hidden" name="tot" value="{{ form.to }}">
+{%- for order in form.orders %}
+<input type="hidden" name="order" value="{{ order }}">
+{%- endfor %}
+{% call f::field("text", "invoice_number", layout.t("b2b-invoice-number")?, value = form.invoice_number, error = form.errors.get("invoice_number"), required = true) %}{% endcall %}
+{% call f::field("date", "invoice_date", layout.t("b2b-invoice-date")?, value = form.invoice_date, error = form.errors.get("invoice_date"), required = true) %}{% endcall %}
+{% call b::button(layout.t("b2b-invoice-mark")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+<h2>{{ layout.t("b2b-invoices")? }}</h2>
+{% if invoices.rows.is_empty() %}<p>{{ layout.t("b2b-invoices-none")? }}</p>{% else %}
+{% call tb::table(invoices) %}{% endcall %}
+{% endif %}
+{% endblock %}

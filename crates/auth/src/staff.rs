@@ -195,14 +195,13 @@ pub async fn sign_in(
     identity: &Identity,
     bootstrap: &BootstrapOwner,
 ) -> Result<StaffUser, Error> {
-    let name = identity.display_name();
     let row = sqlx::query_as!(
         Row,
-        "UPDATE staff_user SET name = $2, email = COALESCE($3, email)
+        "UPDATE staff_user SET name = COALESCE($2, name), email = COALESCE($3, email)
          WHERE oidc_sub = $1 AND active
          RETURNING id, oidc_sub, name, email, role, active",
         identity.sub,
-        name,
+        identity.claimed_name(),
         identity.email,
     )
     .fetch_optional(pool)
@@ -221,6 +220,7 @@ pub async fn sign_in(
         .bind(BOOTSTRAP_LOCK)
         .execute(&mut *tx)
         .await?;
+    let name = identity.display_name();
     let row = sqlx::query_as!(
         Row,
         r#"INSERT INTO staff_user (oidc_sub, name, email, role)

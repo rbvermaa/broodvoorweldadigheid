@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT frozen_pieces FROM batch_output WHERE batch_id = $1 AND product_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "frozen_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "frozen_pieces"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "a86b503764a7e55827afb28a0082adc73a9f763eb4554cdabe7d344de636389c"
+}

@@ -20,6 +20,10 @@ pub enum Error {
     OrdersExist,
     #[error("the bake day is done or cancelled")]
     Final,
+    #[error("the bake day has no pickup slot")]
+    NoPickupSlot,
+    #[error("orders use this pickup slot")]
+    SlotHasOrders,
     #[error(transparent)]
     Transition(#[from] TransitionRefused),
     #[error("only {remaining} left of product {product_id:?}")]

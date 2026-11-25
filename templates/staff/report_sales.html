@@ -1,0 +1,22 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("reports-sales-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("reports-sales-title")? }}</h1>
+<p><a href="/staff/reports">{{ layout.t("reports-back")? }}</a></p>
+{% call s::period(period) %}{% endcall %}
+{% if !estimated.is_empty() %}{% call fb::alert("warning", estimated) %}{% endcall %}{% endif %}
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("reports-sales-title")?, layout.t("reports-empty")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+<p><a href="{{ csv }}">{{ layout.t("reports-csv")? }}</a></p>
+<h2>{{ layout.t("reports-pwyw-title")? }}</h2>
+{% if pwyw.rows.is_empty() %}<p>{{ layout.t("reports-empty")? }}</p>{% else %}
+{% call tb::table(pwyw) %}{% endcall %}
+{% endif %}
+<p><a href="{{ pwyw_csv }}">{{ layout.t("reports-csv")? }}</a></p>
+{% endblock %}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wish AS \"wish!\" FROM vote\n        WHERE poll_id = $1 AND confirmed_at IS NOT NULL AND wish IS NOT NULL\n        ORDER BY confirmed_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "wish!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "vote",
+            "name": "wish"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "cb96ecb1b41387b96783dd9978b1a3275e110cc1cc4204a13ed50db543a0ae74"
+}

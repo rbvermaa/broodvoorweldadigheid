@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO batch (bake_day_id, recipe_version_id, code_date, mix_no, created_at)\n        SELECT $1, $2, date 'epoch' + $3::integer,\n            COALESCE(max(mix_no), 0) + 1,\n            timestamptz 'epoch' + $4::bigint * interval '1 microsecond'\n        FROM batch WHERE code_date = date 'epoch' + $3::integer\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "77de130d1a40d8fcabdce2bd03c99608cc8cea9321c2a76fe0d34bf99859539d"
+}

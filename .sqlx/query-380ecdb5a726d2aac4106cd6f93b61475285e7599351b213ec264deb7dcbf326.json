@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM vote WHERE confirmed_at IS NULL\n            AND (confirm_expires_at IS NULL\n                OR confirm_expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "380ecdb5a726d2aac4106cd6f93b61475285e7599351b213ec264deb7dcbf326"
+}

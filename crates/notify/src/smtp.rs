@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::str::FromStr;
+use std::sync::{PoisonError, RwLock};
 use std::time::{Duration, SystemTime};
 
 use lettre::message::header::{HeaderName, HeaderValue};
@@ -11,6 +12,8 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use crate::email::{EmailSender, OutgoingEmail, SendError, SendFuture};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// The whole send, all SMTP replies included; `TIMEOUT` only bounds connecting.
+const SEND_DEADLINE: Duration = Duration::from_secs(40);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TlsMode {
@@ -155,8 +158,10 @@ impl SmtpConfig {
 
 /// Sends through the SMTP relay with lettre.
 pub struct SmtpSender {
-    transport: AsyncSmtpTransport<Tokio1Executor>,
+    config: SmtpConfig,
+    transport: RwLock<AsyncSmtpTransport<Tokio1Executor>>,
     from: Mailbox,
+    deadline: Duration,
 }
 
 impl SmtpSender {
@@ -165,74 +170,166 @@ impl SmtpSender {
     /// # Errors
     /// [`SmtpConfigError::Transport`] when TLS cannot be set up for the host.
     pub fn new(config: &SmtpConfig) -> Result<Self, SmtpConfigError> {
-        let transport =
-            |e: lettre::transport::smtp::Error| SmtpConfigError::Transport(e.to_string());
-        let mut builder = match config.tls {
-            TlsMode::Starttls => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
-                .map_err(transport)?,
-            TlsMode::Tls => {
-                AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host).map_err(transport)?
-            }
-            TlsMode::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host),
-        }
-        .port(config.port)
-        .timeout(Some(TIMEOUT))
-        .hello_name(ClientId::Domain(config.from.email.domain().to_owned()));
-        if let (Some(username), Some(password)) = (&config.username, &config.password) {
-            builder = builder.credentials(Credentials::new(
-                username.clone(),
-                password.expose().to_owned(),
-            ));
-        }
         Ok(Self {
-            transport: builder.build(),
+            config: config.clone(),
+            transport: RwLock::new(transport(config)?),
             from: config.from.clone(),
+            deadline: SEND_DEADLINE,
         })
     }
+
+    /// How long one send may take, all SMTP replies included (default 40 s).
+    #[must_use]
+    pub fn with_send_deadline(mut self, deadline: Duration) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
+    fn transport(&self) -> AsyncSmtpTransport<Tokio1Executor> {
+        self.transport
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// A send cut off by the deadline can leave its connection waiting for a reply, and
+    /// lettre would put that connection back in the pool. A fresh pool drops it.
+    fn replace_pool(&self) {
+        match transport(&self.config) {
+            Ok(fresh) => {
+                *self
+                    .transport
+                    .write()
+                    .unwrap_or_else(PoisonError::into_inner) = fresh;
+            }
+            Err(error) => tracing::warn!(%error, "cannot renew the SMTP connection pool"),
+        }
+    }
+}
+
+/// Renews the pool when dropped while armed: by our own deadline, or by a caller that
+/// drops the send future (the tick's send budget), since a cut-off connection must not go
+/// back into the pool either way.
+struct Unfinished<'a>(Option<&'a SmtpSender>);
+
+impl Drop for Unfinished<'_> {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0 {
+            sender.replace_pool();
+        }
+    }
+}
+
+fn transport(config: &SmtpConfig) -> Result<AsyncSmtpTransport<Tokio1Executor>, SmtpConfigError> {
+    let transport = |e: lettre::transport::smtp::Error| SmtpConfigError::Transport(e.to_string());
+    let mut builder = match config.tls {
+        TlsMode::Starttls => {
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host).map_err(transport)?
+        }
+        TlsMode::Tls => {
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.host).map_err(transport)?
+        }
+        TlsMode::None => AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host),
+    }
+    .port(config.port)
+    .timeout(Some(TIMEOUT))
+    .hello_name(ClientId::Domain(config.from.email.domain().to_owned()));
+    if let (Some(username), Some(password)) = (&config.username, &config.password) {
+        builder = builder.credentials(Credentials::new(
+            username.clone(),
+            password.expose().to_owned(),
+        ));
+    }
+    Ok(builder.build())
 }
 
 impl EmailSender for SmtpSender {
     fn send<'a>(&'a self, email: &'a OutgoingEmail) -> SendFuture<'a> {
         Box::pin(async move {
             let message = message(&self.from, email)?;
-            self.transport
-                .send(message)
-                .await
-                .map(|_| ())
-                .map_err(|error| {
-                    let code = error.status().map(|code| code.to_string());
-                    if error.is_permanent() && is_recipient_refusal(code.as_deref()) {
-                        SendError::Permanent(error.to_string())
-                    } else {
-                        SendError::Transient(error.to_string())
+            let transport = self.transport();
+            let mut unfinished = Unfinished(Some(self));
+            let Ok(sent) = tokio::time::timeout(self.deadline, transport.send(message)).await
+            else {
+                return Err(SendError::Transient(
+                    "the SMTP relay did not answer in time".to_owned(),
+                ));
+            };
+            unfinished.0 = None;
+            sent.map(|_| ()).map_err(|error| {
+                let code = error.status().map(|code| code.to_string());
+                let reply = std::error::Error::source(&error).map(ToString::to_string);
+                if error.is_permanent() && is_recipient_refusal(code.as_deref(), reply.as_deref()) {
+                    SendError::Permanent(error.to_string())
+                } else {
+                    if error.is_permanent() {
+                        tracing::error!(
+                            code = code.as_deref().unwrap_or_default(),
+                            status = enhanced_status(reply.as_deref()).unwrap_or_default(),
+                            "the SMTP relay refuses our emails; check its settings, they stay queued"
+                        );
                     }
-                })
+                    SendError::Transient(error.to_string())
+                }
+            })
         })
     }
 }
 
-/// Only replies about the recipient mailbox are final. Other 5xx replies, such as 535
-/// (authentication failed) or 554, usually mean the relay or our settings are wrong, and
-/// would otherwise fail every queued email at once.
-fn is_recipient_refusal(code: Option<&str>) -> bool {
+/// Only replies that name the recipient mailbox as the problem are final: 550, 551 or
+/// 553 with a recipient address status from RFC 3463 (5.1.1 bad mailbox, 5.1.2 bad
+/// domain, 5.1.3 bad address syntax, 5.1.6 moved) or RFC 7505 (5.1.10 null MX). Other
+/// 5xx replies, such as `550 5.7.1` (relay or sender policy), 5.1.7 and 5.1.8 (our sender
+/// address), 535 (authentication failed) or a reply without an enhanced code, usually
+/// mean the relay or our settings are wrong, and would otherwise fail every queued email.
+fn is_recipient_refusal(code: Option<&str>, reply: Option<&str>) -> bool {
     matches!(code, Some("550" | "551" | "553"))
+        && matches!(
+            enhanced_status(reply),
+            Some("5.1.1" | "5.1.2" | "5.1.3" | "5.1.6" | "5.1.10")
+        )
+}
+
+/// The RFC 3463 code at the start of a reply, like `5.7.1`. Safe to log, unlike the rest
+/// of the reply, which may hold the address.
+fn enhanced_status(reply: Option<&str>) -> Option<&str> {
+    reply
+        .and_then(|reply| reply.split_whitespace().next())
+        .filter(|status| {
+            let parts: Vec<&str> = status.split('.').collect();
+            parts.len() == 3
+                && parts.iter().all(|part| {
+                    (1..=3).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())
+                })
+        })
 }
 
 /// The MIME message: multipart/alternative with the text part first, a Message-ID on the
 /// From domain and, on drop alerts, the RFC 8058 one-click unsubscribe headers.
 ///
 /// # Errors
-/// [`SendError::Permanent`] when the recipient is not a valid address.
+/// [`SendError::Permanent`] when the recipient or the copy is not a valid address.
 pub fn message(from: &Mailbox, outgoing: &OutgoingEmail) -> Result<Message, SendError> {
     let email = &outgoing.email;
     let to = Mailbox::from_str(&email.to)
         .map_err(|error| SendError::Permanent(format!("recipient: {error}")))?;
-    let mut message = Message::builder()
+    let mut builder = Message::builder()
         .from(from.clone())
         .to(to)
         .subject(email.subject.clone())
         .message_id(Some(format!("<{}@{}>", outgoing.id, from.email.domain())))
-        .date(SystemTime::from(outgoing.date))
+        .date(SystemTime::from(outgoing.date));
+    if let Some(cc) = &email.cc {
+        let cc =
+            Mailbox::from_str(cc).map_err(|error| SendError::Permanent(format!("cc: {error}")))?;
+        builder = builder.cc(cc);
+    }
+    if let Some(reply_to) = &email.reply_to {
+        let reply_to = Mailbox::from_str(reply_to)
+            .map_err(|error| SendError::Permanent(format!("reply-to: {error}")))?;
+        builder = builder.reply_to(reply_to);
+    }
+    let mut message = builder
         .multipart(MultiPart::alternative_plain_html(
             email.text.clone(),
             email.html.clone(),
@@ -257,12 +354,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_mailbox_refusals_are_final() {
-        for code in ["550", "551", "553"] {
-            assert!(is_recipient_refusal(Some(code)), "{code}");
+    fn the_enhanced_status_is_the_first_word_when_it_looks_like_one() {
+        assert_eq!(enhanced_status(Some("5.7.1 denied")), Some("5.7.1"));
+        assert_eq!(enhanced_status(Some("5.1.10")), Some("5.1.10"));
+        for reply in [
+            "5.7 denied",
+            "5.7.1.2 denied",
+            "5..1 denied",
+            "5.1234.1 denied",
+            "5.a.1 denied",
+            "denied 5.7.1",
+            "",
+        ] {
+            assert_eq!(enhanced_status(Some(reply)), None, "{reply}");
         }
-        for code in [Some("535"), Some("530"), Some("554"), Some("552"), None] {
-            assert!(!is_recipient_refusal(code), "{code:?}");
+        assert_eq!(enhanced_status(None), None);
+    }
+
+    #[test]
+    fn only_mailbox_refusals_are_final() {
+        for (code, reply) in [
+            ("550", "5.1.1 no such user"),
+            ("551", "5.1.6 user has moved"),
+            ("553", "5.1.3 bad address syntax"),
+            ("550", "5.1.10 null MX"),
+            ("550", "5.1.2 bad destination domain"),
+        ] {
+            assert!(
+                is_recipient_refusal(Some(code), Some(reply)),
+                "{code} {reply}"
+            );
+        }
+        for (code, reply) in [
+            (Some("550"), Some("5.7.1 relaying denied")),
+            (Some("553"), Some("5.7.1 sender not allowed")),
+            (Some("553"), Some("5.1.8 bad sender's system address")),
+            (Some("550"), Some("5.1.7 bad sender's mailbox")),
+            (Some("550"), Some("no such user")),
+            (Some("550"), None),
+            (Some("535"), Some("5.7.8 authentication failed")),
+            (Some("554"), Some("5.1.1 no such user")),
+            (Some("552"), Some("5.2.2 mailbox full")),
+            (None, None),
+        ] {
+            assert!(!is_recipient_refusal(code, reply), "{code:?} {reply:?}");
         }
     }
 

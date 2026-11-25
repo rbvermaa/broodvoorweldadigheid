@@ -19,6 +19,9 @@ use testkit::{FakeClock, FakeOidc, FakeUser, Sabotage};
 use tower::ServiceExt;
 
 const REDIRECT: &str = "https://shop.test/staff/oidc/callback";
+const BAKER: &str = "6f3a0c1e-2b4d-4e5f-8a9b-0c1d2e3f4a5b";
+const OWNER: &str = "1e2d3c4b-5a69-4788-9a0b-1c2d3e4f5a6b";
+const STRANGER: &str = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 
 fn now() -> jiff::Timestamp {
     "2026-11-24T09:00:00Z".parse().expect("timestamp")
@@ -224,12 +227,10 @@ async fn login_redirects_to_the_provider_with_pkce(pool: PgPool) {
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_staff_member_logs_in_with_a_new_session_id(pool: PgPool) {
-    add(&pool, "uuid-baker", "Bakker Bas", Role::Baker).await;
+    add(&pool, BAKER, "Bakker Bas", Role::Baker).await;
     let harness = harness(pool, &[]);
     let (before, url) = begin_login(&harness.app).await;
-    let callback = harness
-        .fake
-        .authorize(&url, FakeUser::new("uuid-baker", "Bas"));
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
     let reply = get_with(&harness.app, &callback.path_and_query(), Some(&before)).await;
     assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
     let after = reply.cookie().expect("new cookie");
@@ -252,12 +253,10 @@ async fn a_staff_member_logs_in_with_a_new_session_id(pool: PgPool) {
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_callback_with_a_wrong_state_is_refused(pool: PgPool) {
-    add(&pool, "uuid-baker", "Bas", Role::Baker).await;
+    add(&pool, BAKER, "Bas", Role::Baker).await;
     let harness = harness(pool, &[]);
     let (cookie, url) = begin_login(&harness.app).await;
-    let mut callback = harness
-        .fake
-        .authorize(&url, FakeUser::new("uuid-baker", "Bas"));
+    let mut callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
     callback.state = "forged".to_string();
     let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
     assert_page(
@@ -306,12 +305,10 @@ async fn a_callback_without_a_login_or_with_an_error_is_refused(pool: PgPool) {
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_forged_id_token_is_refused(pool: PgPool) {
-    add(&pool, "uuid-baker", "Bas", Role::Baker).await;
+    add(&pool, BAKER, "Bas", Role::Baker).await;
     let harness = harness(pool, &[]);
     let (cookie, url) = begin_login(&harness.app).await;
-    let callback = harness
-        .fake
-        .authorize(&url, FakeUser::new("uuid-baker", "Bas"));
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
     harness.fake.sabotage(Sabotage::ForeignSignature);
     let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
     assert_page(
@@ -329,7 +326,7 @@ async fn strangers_are_refused_and_not_added(pool: PgPool) {
     let (cookie, url) = begin_login(&harness.app).await;
     let callback = harness
         .fake
-        .authorize(&url, FakeUser::new("stranger", "Onbekend"));
+        .authorize(&url, FakeUser::new(STRANGER, "Onbekend"));
     let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
     assert_page(
         &reply,
@@ -352,7 +349,7 @@ async fn the_bootstrap_owner_from_the_environment_becomes_owner(pool: PgPool) {
     );
     let cookie = log_in(
         &harness,
-        FakeUser::new("uuid-owner", "Eigenaar").with_email("eigenaar@example.org", true),
+        FakeUser::new(OWNER, "Eigenaar").with_email("eigenaar@example.org", true),
     )
     .await;
     let page = get_with(&harness.app, "/staff", Some(&cookie)).await;
@@ -407,4 +404,99 @@ async fn login_is_rate_limited(pool: PgPool) {
         "{statuses:?}"
     );
     assert_eq!(statuses[10], StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unreachable_provider_answers_503(pool: PgPool) {
+    add(&pool, BAKER, "Bas", Role::Baker).await;
+    let harness = harness(pool, &[]);
+    harness.fake.set_down(true);
+    let reply = get_with(&harness.app, staff::LOGIN_PATH, None).await;
+    assert_page(
+        &reply,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "staff-login-down-title",
+        "staff-login-down-text",
+    );
+
+    harness.fake.set_down(false);
+    let (cookie, url) = begin_login(&harness.app).await;
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
+    harness.fake.set_down(true);
+    let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
+    assert_page(
+        &reply,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "staff-login-down-title",
+        "staff-login-down-text",
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn tokens_that_are_not_es256_are_refused(pool: PgPool) {
+    add(&pool, BAKER, "Bas", Role::Baker).await;
+    let harness = harness(pool, &[]);
+    for sabotage in [Sabotage::AlgNone, Sabotage::AlgHs256, Sabotage::AlgRs256] {
+        let (cookie, url) = begin_login(&harness.app).await;
+        let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
+        harness.fake.sabotage(sabotage);
+        let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
+        assert_page(
+            &reply,
+            StatusCode::FORBIDDEN,
+            "staff-login-failed-title",
+            "staff-login-failed-text",
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unknown_key_is_refused_and_the_keys_are_read_again(pool: PgPool) {
+    add(&pool, BAKER, "Bas", Role::Baker).await;
+    let harness = harness(pool, &[]);
+    let (cookie, url) = begin_login(&harness.app).await;
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
+    harness.fake.sabotage(Sabotage::UnknownKid);
+    let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.body);
+    let discoveries = || {
+        harness
+            .fake
+            .requests()
+            .iter()
+            .filter(|request| request.ends_with("/jwks"))
+            .count()
+    };
+    assert_eq!(discoveries(), 1);
+    log_in(&harness, FakeUser::new(BAKER, "Bas")).await;
+    assert_eq!(discoveries(), 2, "the next login reads the key set again");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expired_token_is_refused_by_the_app_clock(pool: PgPool) {
+    add(&pool, BAKER, "Bas", Role::Baker).await;
+    let harness = harness(pool, &[]);
+    let (cookie, url) = begin_login(&harness.app).await;
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
+    harness
+        .fake
+        .set_now(now() - testkit::oidc::TOKEN_LIFETIME - jiff::SignedDuration::from_mins(2));
+    let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
+    assert_page(
+        &reply,
+        StatusCode::FORBIDDEN,
+        "staff-login-failed-title",
+        "staff-login-failed-text",
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_login_without_a_name_claim_keeps_the_local_name_and_role(pool: PgPool) {
+    add(&pool, BAKER, "Bakker Bas", Role::Counter).await;
+    let harness = harness(pool, &[]);
+    let cookie = log_in(&harness, FakeUser::nameless(BAKER)).await;
+    let page = get_with(&harness.app, "/staff", Some(&cookie)).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.body);
+    assert!(page.body.contains("Bakker Bas"), "{}", page.body);
+    assert!(page.body.contains(&dutch("staff-role-counter")));
 }

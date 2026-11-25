@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT o.batch_id, o.product_id, p.name_nl, o.dough_g_per_piece, o.planned_pieces,\n            o.actual_pieces, o.waste_pieces\n        FROM batch_output o JOIN product p ON p.id = o.product_id\n        WHERE o.batch_id = ANY($1)\n        ORDER BY o.batch_id, lower(p.name_nl), p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "batch_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "batch_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "name_nl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dough_g_per_piece",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "dough_g_per_piece"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "planned_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "planned_pieces"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "actual_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "actual_pieces"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "waste_pieces",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch_output",
+            "name": "waste_pieces"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "0a46a7d5dbfa89b9e7116a221d79e344716abb7d8ac9d9625fe3c870f5f45649"
+}

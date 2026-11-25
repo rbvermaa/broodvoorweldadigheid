@@ -10,10 +10,15 @@ workspace = true
 [dependencies]
 apalis = { version = "1.2", default-features = false }
 apalis-postgres = { version = "1.2", default-features = false, features = ["tokio", "migrate"] }
+auth = { path = "../auth" }
 bakedays = { path = "../bakedays" }
+catalog = { path = "../catalog" }
 db = { path = "../db" }
 domain = { path = "../domain" }
+i18n = { path = "../i18n" }
 jiff.workspace = true
+notify = { path = "../notify" }
+orders = { path = "../orders" }
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
@@ -21,4 +26,4 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-testkit = { path = "../testkit" }
+testkit = { path = "../testkit", features = ["email"] }

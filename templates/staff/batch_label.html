@@ -1,0 +1,40 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/product.html" as p %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("label-check-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if changed %}{% call fb::alert("error", layout.t("label-check-changed")?) %}{% endcall %}{% endif %}
+{%- for notice in notices %}
+{% call fb::alert(notice.kind, notice.text) %}{% endcall %}
+{%- endfor %}
+{% if let Some(computed) = computed %}
+<p>{{ computed.source }}</p>
+{% if computed.allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(computed.allergens) %}{% endcall %}{% endif %}
+<p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
+<p>{% call p::ingredient_text(computed.ingredients) %}{% endcall %}</p>
+{% if approvable %}
+<form method="post" action="{{ computed.action }}">
+{% call s::csrf() %}{% endcall %}
+{%- for code in computed.allergens.iter() %}
+<input type="hidden" name="allergens" value="{{ code }}">
+{%- endfor %}
+{%- for item in computed.ingredients.iter() %}
+<input type="hidden" name="ingredient" value="{{ item.name }}">
+<input type="hidden" name="vet" value="{% if item.emphasised %}1{% else %}0{% endif %}">
+{%- endfor %}
+{% call b::button(layout.t("label-check-approve")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% endif %}
+{% if let Some(items) = product_list %}
+<h2>{{ layout.t("label-check-product-values")? }}</h2>
+{% if product_allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(product_allergens) %}{% endcall %}{% endif %}
+<p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
+<p>{% call p::ingredient_text(items) %}{% endcall %}</p>
+{% endif %}
+{% endblock %}

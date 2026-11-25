@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as t %}
+{% block title %}{{ layout.t("account-orders-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("account-orders-title")? }}</h1>
+<div role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
+{%- if let Some(text) = refused %}
+{% call fb::alert("warning", layout.t(text)?) %}{% endcall %}
+{%- endif %}
+<p>{{ signed_in_as }}</p>
+{%- if orders.rows.is_empty() %}
+{% call fb::empty_state(layout.t("account-orders-empty-title")?, layout.t("account-orders-empty-text")?) %}{% endcall %}
+{%- else %}
+{% call t::table(orders) %}{% endcall %}
+{%- endif %}
+{%- if !donations.is_empty() %}
+<h2>{{ layout.t("donation-saved-heading")? }}</h2>
+{%- for form in donations %}
+{% include "account/choose_form.html" %}
+{%- endfor %}
+{%- endif %}
+<h2>{{ layout.t("privacy-heading")? }}</h2>
+<p>{{ layout.t("privacy-intro")? }}</p>
+<p><a href="/mijn-bestellingen/gegevens" download>{{ layout.t("privacy-download")? }}</a></p>
+<form method="post" action="/mijn-bestellingen/meldingen">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::checkbox("meldingen", layout.t("privacy-drop-alerts")?, checked = drop_alerts) %}{% endcall %}
+{% call b::button(layout.t("privacy-drop-alerts-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+<h3>{{ layout.t("privacy-delete-heading")? }}</h3>
+<p>{{ layout.t("privacy-delete-intro")? }}</p>
+{% call b::button(layout.t("privacy-delete")?, variant = "danger", opens = "account-verwijderen") %}{% endcall %}
+{% call d::confirm_dialog("account-verwijderen", layout.t("privacy-delete-title")?, layout.t("privacy-delete-text")?, layout.t("privacy-delete-confirm")?, "/mijn-bestellingen/verwijderen") %}{% endcall %}
+<form method="post" action="/uitloggen">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call b::button(layout.t("account-logout")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

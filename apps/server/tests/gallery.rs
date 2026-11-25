@@ -4,7 +4,7 @@
 use askama::Template;
 use i18n::Translator;
 use server::AppState;
-use server::components::Product;
+use server::components::{Product, SelectOption};
 use server::config::Config;
 use server::gallery::Gallery;
 use server::pages::Layout;
@@ -129,9 +129,10 @@ async fn components_escape_user_text() {
             name: "<script>alert(\"x\")</script>".to_string(),
             description: "Brood & \"boter\"".to_string(),
             price_cents: 450,
-            allergens: vec!["milk"],
-            may_contain: Vec::new(),
+            allergens: None,
             sold_out: false,
+            remaining: None,
+            order: None,
         },
     }
     .render()
@@ -139,5 +140,93 @@ async fn components_escape_user_text() {
     assert!(!tile.contains("<script>"), "{tile}");
     assert!(tile.contains("&#60;script&#62;"), "{tile}");
     assert!(tile.contains("Brood &#38; &#34;boter&#34;"), "{tile}");
-    assert!(tile.contains(&dutch("allergen-milk")), "{tile}");
+    assert!(tile.contains(&dutch("product-allergens-pending")), "{tile}");
+}
+
+#[derive(Template)]
+#[template(
+    source = "{% import \"components/field.html\" as f %}{% call f::select(\"keuze\", \"Keuze\", options, required = required, choose_only = choose_only) %}{% endcall %}",
+    ext = "html"
+)]
+struct Select<'a> {
+    layout: Layout<'a>,
+    options: Vec<SelectOption>,
+    required: bool,
+    choose_only: bool,
+}
+
+fn option(value: &str, selected: bool) -> SelectOption {
+    SelectOption {
+        value: value.to_string(),
+        label: value.to_string(),
+        selected,
+    }
+}
+
+fn select_html(options: Vec<SelectOption>, required: bool, choose_only: bool) -> String {
+    let state = state();
+    Select {
+        layout: Layout::new(&state),
+        options,
+        required,
+        choose_only,
+    }
+    .render()
+    .expect("render")
+}
+
+fn placeholder() -> String {
+    format!(
+        "<option value=\"\">{}</option>",
+        dutch("select-placeholder")
+    )
+}
+
+#[tokio::test]
+async fn a_select_without_options_keeps_the_placeholder() {
+    let html = select_html(vec![], true, false);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(!html.contains(" selected"), "{html}");
+}
+
+#[tokio::test]
+async fn a_required_select_with_one_option_chooses_it() {
+    let html = select_html(vec![option("proef", false)], true, false);
+    assert!(!html.contains(&placeholder()), "{html}");
+    assert!(html.contains("<option value=\"proef\" selected>"), "{html}");
+}
+
+#[tokio::test]
+async fn an_optional_select_with_one_option_keeps_a_stored_empty_choice() {
+    let html = select_html(vec![option("voedselbank", false)], false, false);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(!html.contains(" selected"), "{html}");
+}
+
+#[tokio::test]
+async fn an_optional_select_asked_to_choose_its_only_option_can_still_be_cleared() {
+    let html = select_html(vec![option("voedselbank", false)], false, true);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(
+        html.contains("<option value=\"voedselbank\" selected>"),
+        "{html}"
+    );
+}
+
+#[tokio::test]
+async fn a_select_with_two_options_waits_for_a_choice() {
+    let html = select_html(vec![option("a", false), option("b", false)], true, true);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(!html.contains(" selected"), "{html}");
+}
+
+#[tokio::test]
+async fn a_select_keeps_the_stored_value() {
+    let html = select_html(vec![option("a", false), option("b", true)], true, false);
+    assert!(html.contains(&placeholder()), "{html}");
+    assert!(html.contains("<option value=\"a\">"), "{html}");
+    assert!(html.contains("<option value=\"b\" selected>"), "{html}");
+
+    let one = select_html(vec![option("a", true)], true, false);
+    assert_eq!(one.matches(" selected").count(), 1, "{one}");
 }

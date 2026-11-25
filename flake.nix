@@ -1,6 +1,13 @@
 {
   description = "Brood voor Weldadigheid bakery platform";
 
+  nixConfig = {
+    extra-substituters = [ "https://rbvermaa.cachix.org" ];
+    extra-trusted-public-keys = [
+      "rbvermaa.cachix.org-1:pNfK77adCg94nKplW/niSN7kgLqLmiEopPiarYNGBUw="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     crane.url = "github:ipetkov/crane";
@@ -41,6 +48,7 @@
           inherit (pkgs) lib;
           craneLib = (crane.mkLib pkgs).overrideToolchain (_: toolchain);
           htmx = pkgs.callPackage ./nix/htmx.nix { };
+          axe = pkgs.callPackage ./nix/axe-core.nix { };
           fonts = pkgs.callPackage ./nix/fonts.nix { };
           lucide = pkgs.callPackage ./nix/lucide.nix { };
           assetEnv = {
@@ -54,10 +62,13 @@
               (craneLib.fileset.commonCargoSources ./.)
               ./crates/db/migrations
               ./.sqlx
+              ./.cargo/audit.toml
               (lib.fileset.fileFilter (file: file.hasExt "ftl") ./locales)
               (lib.fileset.fileFilter (file: file.hasExt "snap") ./crates)
               ./design
               ./templates
+              ./typst
+              ./docs/permissions.md
               ./apps/server/tests/snapshots
               ./crates/notify/tests/snapshots
             ];
@@ -84,6 +95,16 @@
               meta.mainProgram = "cli";
             }
           );
+          e2e = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "e2e";
+              cargoExtraArgs = "--locked --package e2e";
+              doCheck = false;
+              meta.mainProgram = "e2e";
+            }
+          );
         in
         {
           inherit
@@ -97,8 +118,34 @@
             postgres
             assetEnv
             cli
+            e2e
+            axe
             ;
         };
+
+      # KVM runners are x86_64-linux (ADR 0033).
+      e2eVm =
+        {
+          pkgs,
+          postgresql,
+          cli,
+          e2e,
+          axe,
+          ...
+        }:
+        pkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") (
+          import ./nix/e2e-vm.nix {
+            inherit
+              nixpkgs
+              pkgs
+              cli
+              e2e
+              axe
+              postgresql
+              ;
+            inherit (self.packages.${pkgs.stdenv.hostPlatform.system}) server;
+          }
+        );
 
       images =
         { pkgs, postgresql, ... }:
@@ -122,6 +169,7 @@
           ...
         }@ctx:
         (images ctx).checks or { }
+        // pkgs.lib.optionalAttrs (e2eVm ctx ? check) { e2e = (e2eVm ctx).check; }
         // {
           fmt = craneLib.cargoFmt { inherit (commonArgs) src pname version; };
 
@@ -186,13 +234,42 @@
             }
           );
 
+          adr-numbers = craneLib.mkCargoDerivation (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              src = pkgs.lib.fileset.toSource {
+                root = ./.;
+                fileset = pkgs.lib.fileset.unions [
+                  (craneLib.fileset.commonCargoSources ./.)
+                  ./docs/decisions
+                ];
+              };
+              pnameSuffix = "-adr-numbers";
+              buildPhaseCargoCommand = "cargo xtask adr-numbers";
+              installPhaseCommand = "mkdir -p $out";
+              doInstallCargoArtifacts = false;
+            }
+          );
+
           coverage-report = craneLib.cargoLlvmCov (
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
+              # One process per test, as in the nextest check. Under `cargo test` every
+              # #[sqlx::test] in a binary shares one 20-connection master pool, and tests
+              # that hold a connection while the app waits for another deadlock until the
+              # 30 s acquire timeout.
+              cargoLlvmCovCommand = "nextest";
+              NEXTEST_SHOW_PROGRESS = "counter";
+              # Not e2e (ADR 0033): its binaries add copies of the async fn wrappers of the
+              # crates it calls, which moves which of their lines llvm-cov reports as run.
+              cargoLlvmCovExtraArgs = "--workspace --exclude e2e --all-features --no-tests=pass --remap-path-prefix --lcov --output-path $out";
               TZDIR = "${pkgs.tzdata}/share/zoneinfo";
-              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              nativeBuildInputs = postgres.packages ++ [
+                pkgs.rustic
+                pkgs.cargo-nextest
+              ];
               preBuild = postgres.start;
               postBuild = postgres.stop;
               __darwinAllowLocalNetworking = true;
@@ -240,6 +317,8 @@
 
       packages = forAllSystems (
         {
+          pkgs,
+          toolchain,
           craneLib,
           commonArgs,
           cargoArtifacts,
@@ -247,6 +326,7 @@
           ...
         }@ctx:
         (images ctx).packages or { }
+        // pkgs.lib.optionalAttrs (e2eVm ctx ? toplevel) { e2e-vm-system = (e2eVm ctx).toplevel; }
         // rec {
           server = craneLib.buildPackage (
             commonArgs
@@ -259,6 +339,10 @@
             }
           );
           inherit cli;
+          ci-deps = pkgs.linkFarmFromDrvs "ci-deps" [
+            cargoArtifacts
+            toolchain
+          ];
           default = server;
         }
       );
@@ -268,17 +352,20 @@
           pkgs,
           craneLib,
           assetEnv,
+          axe,
           ...
         }:
         {
           default = craneLib.devShell (
             assetEnv
             // {
-              # Only the cargo checks: the image and restore checks would build the
+              AXE_JS = "${axe}/axe.min.js";
+              # Only the cargo checks: the image, restore and e2e checks would build the
               # workspace, so a stale .sqlx/ would keep the shell from starting.
               checks = removeAttrs self.checks.${pkgs.stdenv.hostPlatform.system} [
                 "restore"
                 "image-contents"
+                "e2e"
               ];
               SQLX_OFFLINE = "true";
               packages = with pkgs; [
@@ -286,6 +373,7 @@
                 postgresql_17
                 sqlx-cli
                 cargo-nextest
+                cargo-insta
                 cargo-llvm-cov
                 cargo-deny
                 cargo-audit

@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.order_id, p.method, p.status, p.amount_cents,\n            payment_refunded_cents(p.id) AS \"refunded_cents!\",\n            (extract(epoch FROM p.received_at) * 1000000)::bigint AS \"received_us!\"\n        FROM payment p JOIN \"order\" o ON o.id = p.order_id\n        WHERE o.customer_id = $1\n        ORDER BY p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "payment",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "method",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "payment",
+            "name": "method"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "payment",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "amount_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "payment",
+            "name": "amount_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "refunded_cents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "received_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "cc712b6f297195670cb1cb831ffd11af20cb4a89677925d37264e863cb4bfb90"
+}

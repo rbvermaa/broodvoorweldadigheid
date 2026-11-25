@@ -61,19 +61,8 @@ pub enum StaffCommand {
 
 /// Kanidm's `sub` is the person's UUID; anything else is most likely their user name.
 fn uuid_sub(raw: &str) -> Result<String, String> {
-    let sub = raw.trim().to_ascii_lowercase();
-    let groups: Vec<&str> = sub.split('-').collect();
-    let lengths = groups.iter().map(|group| group.len()).collect::<Vec<_>>();
-    let hex = groups
-        .iter()
-        .all(|group| group.bytes().all(|b| b.is_ascii_hexdigit()));
-    if hex && lengths == [8, 4, 4, 4, 12] {
-        Ok(sub)
-    } else {
-        Err(format!(
-            "{raw:?} is not a UUID; use the person's Kanidm UUID"
-        ))
-    }
+    auth::identity::canonical_uuid(raw.trim())
+        .ok_or_else(|| format!("{raw:?} is not a UUID; use the person's Kanidm UUID"))
 }
 
 fn trimmed(raw: &str) -> Result<String, String> {

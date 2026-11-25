@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% block title %}{{ layout.t("account-link-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("account-link-title")? }}</h1>
+<p>{{ layout.t("account-link-text")? }}</p>
+<form method="post" action="{{ action }}">
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call b::button(layout.t("account-link-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

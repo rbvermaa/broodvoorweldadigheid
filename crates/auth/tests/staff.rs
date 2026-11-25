@@ -92,6 +92,23 @@ async fn known_staff_sign_in_and_get_their_name_refreshed(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn no_name_claim_keeps_the_stored_name(pool: PgPool) {
+    staff::add(&pool, &new_staff("sub-1", Role::Baker))
+        .await
+        .expect("add");
+    let nameless = Identity {
+        name: None,
+        email: Some("tineke@bakkerij.example".to_string()),
+        ..identity("sub-1", "")
+    };
+    let signed_in = staff::sign_in(&pool, &nameless, &BootstrapOwner::default())
+        .await
+        .expect("sign in");
+    assert_eq!(signed_in.name, "Toonbank Tineke");
+    assert_eq!(signed_in.email.as_deref(), Some("tineke@bakkerij.example"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn inactive_and_unknown_people_are_refused(pool: PgPool) {
     let added = staff::add(&pool, &new_staff("sub-1", Role::Baker))
         .await

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO poll (title, bake_day_id, closes_at, public_results, created_at)\n        VALUES ($1, $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond', $4,\n            timestamptz 'epoch' + $5::bigint * interval '1 microsecond')\n        RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "poll",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "20abb71326f1e988533921329e997837f0322d2a5ef911ecf14737f76ae9331a"
+}

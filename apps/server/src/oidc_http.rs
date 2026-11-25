@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use auth::oidc::{HttpError, HttpFuture, HttpRequest, OidcHttp, error_chain, http};
+use auth::oidc::{HttpError, HttpFuture, HttpRequest, HttpResponse, Method, OidcHttp, error_chain};
 use reqwest::{Certificate, Client, redirect};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -80,18 +80,21 @@ impl OidcHttp for ReqwestHttp {
         let cache = Arc::clone(&self.client);
         Box::pin(async move {
             let client = client?;
-            let request = reqwest::Request::try_from(request)
-                .map_err(|error| HttpError(error.to_string()))?;
-            let mut response = client.execute(request).await.map_err(|error| {
+            let method = match request.method {
+                Method::Get => reqwest::Method::GET,
+                Method::Post => reqwest::Method::POST,
+            };
+            let builder = request.headers.iter().fold(
+                client.request(method, &request.url),
+                |builder, (name, value)| builder.header(*name, value),
+            );
+            let mut response = builder.body(request.body).send().await.map_err(|error| {
                 if error.is_connect() {
                     *cache.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 }
                 HttpError(error_chain(&error))
             })?;
-            let mut builder = http::Response::builder().status(response.status());
-            if let Some(headers) = builder.headers_mut() {
-                headers.extend(response.headers().clone());
-            }
+            let status = response.status().as_u16();
             let mut body = Vec::new();
             while let Some(chunk) = response
                 .chunk()
@@ -103,12 +106,11 @@ impl OidcHttp for ReqwestHttp {
                 }
                 body.extend_from_slice(&chunk);
             }
-            builder
-                .body(body)
-                .map_err(|error| HttpError(error.to_string()))
+            Ok(HttpResponse { status, body })
         })
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,10 +167,11 @@ udpcPAPQEx5DIy3YTpQ=
     async fn the_client_is_built_once_and_refuses_plain_http() {
         let ca = TempFile::new("ca.pem", TEST_CA);
         let http = ReqwestHttp::new(Some(ca.0.clone()));
-        let request = || {
-            http::Request::get("http://127.0.0.1:1/")
-                .body(Vec::new())
-                .expect("request")
+        let request = || HttpRequest {
+            method: Method::Get,
+            url: "http://127.0.0.1:1/".to_string(),
+            headers: Vec::new(),
+            body: Vec::new(),
         };
         let error = http.send(request()).await.expect_err("http refused");
         assert!(error.0.contains("scheme"), "{error}");

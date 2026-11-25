@@ -16,6 +16,27 @@ secrets. Tracked in `docs/open-questions.md` until the spec is updated.
 Update 2026-11-24: the repository moved to a new public repo (rbvermaa/broodvoorweldadigheid,
 history rewritten to the owner's personal email; the old private repo is kept as
 -private). Public repos get free Actions minutes and branch protection, so `main` now
-requires the check and smoke jobs on both architectures, applies to admins, and refuses
+requires the CI checks (see the CI fan-out update below), applies to admins, and refuses
 force-pushes and deletion. "No merge without a green pipeline" (spec, "Rules that keep
 it safe") is enforced by GitHub. PRs still also need a Claude and a Codex review.
+
+Update 2026-11-24 (later): merge queues need an organisation repo, and the owner keeps the
+repo on the personal account. A PR is set to auto-merge once its reviews are clean and merges
+as soon as `ci-ok` passes. Branch protection does not require PRs to be up to date with
+`main`, so a PR that conflicts with `main` still needs main merged in by hand.
+
+Update 2026-11-24 (Cachix): CI pushes and pulls build output through the public Cachix
+cache `rbvermaa` (owner's choice), and flake.nix lists it as an extra substituter, so dev1,
+dev2 and the Mac can reuse CI's builds. Like GitHub, it holds only build output of this
+public repository, never customer data or secrets. The spec names a self-hosted attic cache;
+Cachix replaces it for now. The push token is the `CACHIX_AUTH_TOKEN` repository secret.
+
+Update 2026-11-24 (CI fan-out): CI runs on x86_64 only (ubuntu-24.04); the arm runner is gone
+(ADR 0002). The workflow no longer runs one `make check`. A `deps` job builds the shared
+dependency artifacts and toolchain (`make ci-deps`) and pushes them to Cachix. Then one job
+per check group runs the `make` target for its flake checks, and the smoke job runs beside
+them. Every flake check still runs in CI, and `make check` still runs them all locally.
+A final `ci-ok` job fails unless every other job succeeded; it is the only check `main`
+requires. The GitHub Actions Nix store cache (cache-nix-action) is dropped:
+Cachix already serves everything we build, and parallel jobs would each restore and save a
+4 GB store snapshot.

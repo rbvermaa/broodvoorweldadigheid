@@ -5,6 +5,7 @@
 #   make db-up && make sqlx-prepare   regenerate .sqlx/ after changing a query or migration
 #   PG_PORT=54332 make db-up    use another port when one is taken
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
+#   make logo                   remake design/logo.png, favicon.png and apple-touch-icon.png
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
 #   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
 #   make kanidm-setup           register the staff login client in the running stack (once)
@@ -13,6 +14,8 @@
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
+#   make e2e                    browser tests in a NixOS VM (x86_64-linux with kvm; LINUX_BUILDER on macOS)
+#   make e2e-local              the same flows against a server and geckodriver you run yourself (e2e/README.md)
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
 #   MOLLIE_TEST_API_KEY_FILE=path make mollie-contract   contract test against Mollie test mode
 
@@ -41,7 +44,8 @@ IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
-LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid coverage-report coverage restore image-contents
+LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid adr-numbers coverage-report coverage restore image-contents \
+	$(if $(filter x86_64-linux,$(ARCH)),e2e)
 IMAGE_CAT = $(if $(LINUX_STORE),nix store cat --store $(LINUX_STORE),cat)
 
 PG_DIR := $(CURDIR)/.pg
@@ -73,13 +77,14 @@ SHOP_URL := https://localhost:$(BVW_HTTPS_PORT)
 IDM_URL := https://idm.localhost:$(BVW_HTTPS_PORT)
 
 .DEFAULT_GOAL := help
-.PHONY: help check test fmt fmt-check lint layers unsafe-forbid deny audit coverage server db-up db-down \
-	sqlx-prepare sqlx-check migrations-lock restore-test mollie-contract linux-check images $(addprefix image-,$(IMAGES)) up down smoke staff-add \
+.PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
+	db-down sqlx-prepare sqlx-check migrations-lock permissions-doc logo restore-test mollie-contract ci-deps image-contents linux-check \
+	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e e2e-local \
 	kanidm-setup kanidm-person
 
 help: ## List targets
-	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
-	@echo "  image-NAME     Build one image and docker load it; NAME is one of: $(IMAGES)"
+	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
+	@echo "  image-NAME       Build one image and docker load it; NAME is one of: $(IMAGES)"
 	@echo
 	@echo "Variables:"
 	@echo "  ARCH=$(ARCH)  system the images are built for"
@@ -101,17 +106,26 @@ fmt-check: ## Formatting check only
 lint: ## Clippy check only
 	$(call CHECK,clippy)
 
+nextest: ## Test suite check only (nextest in the Nix sandbox)
+	$(call CHECK,nextest)
+
 layers: ## Crate layer and dependency rules check
 	$(call CHECK,layers)
 
 unsafe-forbid: ## Every crate root forbids unsafe code
 	$(call CHECK,unsafe-forbid)
 
+adr-numbers: ## Every ADR in docs/decisions has its own number and a title
+	$(call CHECK,adr-numbers)
+
 deny: ## Licence, ban and source checks (cargo-deny)
 	$(call CHECK,deny)
 
 audit: ## Known-vulnerability check (cargo-audit)
 	$(call CHECK,audit)
+
+coverage-report: ## Coverage report only (cargo llvm-cov)
+	$(call CHECK,coverage-report)
 
 coverage: ## Line coverage gate (80% overall, 95% in strict crates)
 	$(call CHECK,coverage)
@@ -166,7 +180,30 @@ kanidm-person: ## Create a Kanidm person and print their sub and passkey link: N
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)
 
+# The logo and the icons cut from its inner disc (ADR 0023). The outputs are committed.
+LOGO_SRC := docs/media/image1.png
+LOGO_TOOLS := nix shell --inputs-from . nixpkgs\#imagemagick nixpkgs\#oxipng --command
+LOGO_DISC := \( -size 600x600 xc:black -fill white -draw "circle 299.5,299.5 299.5,0" \) \
+	-alpha off -compose CopyOpacity -composite -background white -compose Over -flatten
+logo: ## Remake the logo PNGs in design/ from docs/media/image1.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -filter Lanczos -resize 420x420 -strip design/logo.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 64x64 -strip design/favicon.png
+	$(LOGO_TOOLS) magick $(LOGO_SRC) -colorspace Gray -crop 600x600+213+206 +repage $(LOGO_DISC) -resize 180x180 -strip design/apple-touch-icon.png
+	$(LOGO_TOOLS) oxipng --opt max --strip all design/logo.png design/favicon.png design/apple-touch-icon.png
+
 images: $(addprefix image-,$(IMAGES)) ## Build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
+
+ci-deps: ## Build the dependency artifacts and toolchain every check shares (CI deps job)
+	nix build --no-link --print-build-logs .\#packages.$(HOST_SYSTEM).ci-deps
+
+image-contents: ## Image contents check only, for ARCH on the Linux builder
+	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.$(ARCH).image-contents
+
+e2e: ## Browser tests (thirtyfour, axe-core) in a NixOS VM; x86_64-linux with kvm only
+	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.x86_64-linux.e2e
+
+e2e-local: ## Browser tests against a local server, DATABASE_URL and geckodriver (e2e/README.md); not in CI
+	$(NIX_DEV) cargo run --package e2e --
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
@@ -187,6 +224,9 @@ db-up: ## Start a local PostgreSQL in .pg/ on PG_PORT (default 54331)
 
 db-down: ## Stop the local PostgreSQL
 	$(NIX_DEV) pg_ctl --pgdata=$(PG_DIR)/data --wait --mode=fast stop
+
+permissions-doc: ## Regenerate docs/permissions.md from the permission table in crates/auth
+	$(NIX_DEV) env BVW_WRITE_PERMISSIONS_DOC=1 cargo nextest run --package auth --test permissions_doc
 
 migrations-lock: ## Append new migrations to crates/db/migrations/migrations.lock; never rewrites entries
 	$(NIX_DEV) bash -c 'set -e; cd crates/db/migrations; touch migrations.lock; \

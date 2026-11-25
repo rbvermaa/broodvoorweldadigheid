@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE product SET recipe_id = NULL WHERE id = $1 AND recipe_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d989db03cd948ded0f60e4df3c63d707f8c7ba906c66de081b1e85b8c6c643ce"
+}

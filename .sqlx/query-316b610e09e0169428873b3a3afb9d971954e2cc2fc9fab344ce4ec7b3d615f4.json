@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO drop_alert_sent (bake_day_id, kind, recipients, sent_at)\n        VALUES ($1, $2, 0, timestamptz 'epoch' + $3::bigint * interval '1 microsecond')\n        ON CONFLICT DO NOTHING\n        RETURNING bake_day_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "drop_alert_sent",
+            "name": "bake_day_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "316b610e09e0169428873b3a3afb9d971954e2cc2fc9fab344ce4ec7b3d615f4"
+}

@@ -11,7 +11,7 @@ pub const IDLE_TIMEOUT: SignedDuration = SignedDuration::from_hours(12);
 pub const ABSOLUTE_TIMEOUT: SignedDuration = SignedDuration::from_hours(7 * 24);
 
 /// The random id of one signed-in browser, kept in its session. Whoever holds it is that
-/// staff member, so it is never logged.
+/// staff member or customer, so it is never logged.
 #[derive(Clone, PartialEq, Eq)]
 pub struct LoginId(String);
 

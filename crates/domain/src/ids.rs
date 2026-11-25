@@ -18,21 +18,29 @@ macro_rules! id_type {
     )+};
 }
 
+// One line per id, sorted by name (ADR 0044).
 id_type!(
-    StaffUserId,
-    CustomerId,
-    BusinessAccountId,
-    PickupLocationId,
-    PickupWindowId,
-    ProductId,
     BakeDayId,
-    PickupSlotId,
-    CapacityPoolId,
+    BatchId,
+    BatchLineId,
+    BusinessAccountId,
+    CharityId,
+    CustomerId,
+    DonationAllocationId,
+    IngredientId,
     OrderId,
     OrderLineId,
     PaymentId,
-    CharityId,
-    DonationAllocationId,
+    PickupLocationId,
+    PickupSlotId,
+    PickupWindowId,
+    PollId,
+    PollOptionId,
+    ProductId,
+    RecipeId,
+    RecipeVersionId,
+    RefundId,
+    StaffUserId,
 );
 
 #[cfg(test)]

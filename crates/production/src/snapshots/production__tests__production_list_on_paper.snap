@@ -1,0 +1,10 @@
+---
+source: crates/production/src/tests.rs
+expression: "pdf::text(&document)"
+---
+Productielijst
+zaterdag 31 oktober 2026
+Product | Besteld | Vriezer | SumUp | Proeverij | Overig | Bakken
+Desem | 1.204 | 6 | 0 | 2 | 0 | 1.212
+Granola | 0 | 0 | 12 | 0 | 1 | 13
+Totaal | 1.204 | 6 | 12 | 2 | 1 | 1.225

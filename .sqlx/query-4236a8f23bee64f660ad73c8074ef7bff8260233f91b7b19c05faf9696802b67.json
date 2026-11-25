@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, address, kvk, btw_id FROM company",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "address"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kvk",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "kvk"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "btw_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "btw_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4236a8f23bee64f660ad73c8074ef7bff8260233f91b7b19c05faf9696802b67"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_outbox SET status = 'sent', attempts = $2, last_error = NULL,\n                        text_body = CASE WHEN expires_at IS NULL THEN text_body ELSE '' END,\n                        html_body = CASE WHEN expires_at IS NULL THEN html_body ELSE '' END,\n                        sent_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n                    WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9236eca1272912497586eec412cb02c793248084371b2ae0d31f29680c174bbd"
+}

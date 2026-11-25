@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM customer_login_link\n         WHERE customer_id = $1\n           AND created_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e56c5239a3d8ebbca1c90f9ace2193982a45cc5d3586195e73c59070af687d4c"
+}

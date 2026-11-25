@@ -28,3 +28,8 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+
+# Same accepted advisories as .cargo/audit.toml (ADR 0016), so `cargo deny check advisories`
+# agrees with `make audit`.
+[advisories]
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]

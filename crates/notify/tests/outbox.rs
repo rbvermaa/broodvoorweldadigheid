@@ -3,11 +3,13 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
+use domain::Clock;
 use jiff::SignedDuration;
-use notify::outbox::{BACKOFF, MAX_ATTEMPTS};
+use notify::outbox::{BACKOFF, MAX_ATTEMPTS, RETENTION};
 use notify::{
-    Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport, enqueue,
-    send_pending,
+    Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport,
+    delete_finished, delete_retired, enqueue, enqueue_expiring, forget_address, send_pending,
+    withdraw_unsent,
 };
 use sqlx::{Acquire, PgPool};
 use testkit::{FakeClock, FakeEmailSender};
@@ -25,6 +27,8 @@ fn email(to: &str) -> Email {
         text: "Hoi,\n".to_owned(),
         html: "<p>Hoi,</p>".to_owned(),
         list_unsubscribe: None,
+        reply_to: None,
+        cc: None,
     }
 }
 
@@ -343,4 +347,328 @@ async fn two_workers_never_send_the_same_email(pool: PgPool) {
             .iter()
             .all(|s| s.status == "sent" && s.attempts == 1)
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn reply_to_survives_the_outbox(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut contact = email("bakker@example.org");
+    contact.kind = EmailKind::ContactMessage;
+    contact.reply_to = Some("sanne@example.org".to_owned());
+    enqueue(&mut conn, &clock, &contact, None).await.unwrap();
+
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
+    assert_eq!(sender.sent()[0].email, contact);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn cc_survives_the_outbox_and_is_forgotten_with_its_address(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut on_account = email("inkoop@example.nl");
+    on_account.cc = Some("factuur@example.nl".to_owned());
+    enqueue(&mut conn, &clock, &on_account, None).await.unwrap();
+
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
+    assert_eq!(sender.sent()[0].email, on_account);
+    assert_eq!(
+        forget_address(&mut conn, "FACTUUR@example.nl")
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+async fn finish(pool: &PgPool, to: &str, status: &str, days_ago: i32) {
+    sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body, status,
+            next_attempt_at, created_at, sent_at, failed_at)
+        SELECT 'order_confirmation', $1, 'S', 't', 'h', $2, at, at,
+            CASE WHEN $2 = 'sent' THEN at END, CASE WHEN $2 = 'failed' THEN at END
+        FROM (SELECT timestamptz '2026-12-01T08:00:00Z' - $3 * interval '1 day' AS at) t",
+    )
+    .bind(to)
+    .bind(status)
+    .bind(days_ago)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn emails_are_deleted_90_days_after_they_were_sent_or_failed(pool: PgPool) {
+    assert_eq!(RETENTION, SignedDuration::from_hours(90 * 24));
+    for (to, status, days) in [
+        ("sent-89@example.nl", "sent", 89),
+        ("sent-91@example.nl", "sent", 91),
+        ("failed-89@example.nl", "failed", 89),
+        ("failed-91@example.nl", "failed", 91),
+        ("pending-91@example.nl", "pending", 91),
+    ] {
+        finish(&pool, to, status, days).await;
+    }
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(delete_retired(&mut conn, &clock()).await.unwrap(), 2);
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(
+        left,
+        [
+            "sent-89@example.nl",
+            "failed-89@example.nl",
+            "pending-91@example.nl"
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_email_that_fails_for_good_records_when(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("a@example.org"), None)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    sender.fail_next(SendError::Permanent("550 5.1.1 no such user".to_owned()));
+    clock.advance(SignedDuration::from_mins(3));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 0, 1));
+    let recorded: Option<bool> =
+        sqlx::query_scalar("SELECT failed_at = $1::timestamptz FROM email_outbox")
+            .bind(clock.now().to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(recorded, Some(true));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn company_details_come_from_the_settings_row(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let seeded = notify::Company::load(&mut conn).await.unwrap();
+    assert_eq!(seeded.name, "Brood voor Weldadigheid");
+    assert_eq!((seeded.address.as_str(), seeded.kvk.as_str()), ("", ""));
+
+    sqlx::query("UPDATE company SET address = 'Dorpsstraat 1, 1234 AB Ergens', kvk = '12345678'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let filled = notify::Company::load(&mut conn).await.unwrap();
+    assert_eq!(filled.address, "Dorpsstraat 1, 1234 AB Ergens");
+    assert_eq!(filled.kvk, "12345678");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unsent_email_can_be_withdrawn_but_a_sent_one_stays(pool: PgPool) {
+    let clock = clock();
+    let sender = FakeEmailSender::new();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("a@example.org"), Some("sent:1"))
+        .await
+        .unwrap();
+    send(&pool, &sender, &clock, 10).await;
+    enqueue(&mut conn, &clock, &email("b@example.org"), Some("unsent:1"))
+        .await
+        .unwrap();
+
+    assert!(withdraw_unsent(&mut conn, "unsent:1").await.unwrap());
+    assert!(!withdraw_unsent(&mut conn, "unsent:1").await.unwrap());
+    assert!(!withdraw_unsent(&mut conn, "sent:1").await.unwrap());
+    assert_eq!(states(&pool).await.len(), 1);
+    assert!(
+        enqueue(&mut conn, &clock, &email("b@example.org"), Some("unsent:1"))
+            .await
+            .unwrap()
+            .is_some(),
+        "the key is free again"
+    );
+}
+
+async fn bodies(pool: &PgPool) -> Vec<(String, String)> {
+    sqlx::query_as("SELECT text_body, html_body FROM email_outbox ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expiring_email_is_blanked_once_sent(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_mins(30);
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), None, expires)
+        .await
+        .unwrap();
+    enqueue(&mut conn, &clock, &email("b@example.org"), None)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(2, 0, 0));
+    assert_eq!(sender.sent()[0].email.text, "Hoi,\n");
+    assert_eq!(
+        bodies(&pool).await,
+        [
+            (String::new(), String::new()),
+            ("Hoi,\n".to_owned(), "<p>Hoi,</p>".to_owned()),
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expired_email_is_never_sent_and_is_blanked(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_mins(30);
+    enqueue_expiring(&mut conn, &clock, &email("a@example.org"), None, expires)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    sender.fail_next(SendError::Transient("timeout".to_owned()));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 1, 0));
+    assert_eq!(bodies(&pool).await[0].0, "Hoi,\n", "kept for the retry");
+
+    clock.advance(SignedDuration::from_mins(30));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 0, 1));
+    assert!(sender.sent().is_empty());
+    let state = &states(&pool).await[0];
+    assert_eq!(state.status, "failed");
+    assert_eq!(
+        state.last_error.as_deref(),
+        Some("expired before it was sent")
+    );
+    assert_eq!(bodies(&pool).await, [(String::new(), String::new())]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn every_kind_can_be_queued(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    for kind in EmailKind::ALL {
+        let email = Email {
+            kind,
+            ..email("a@example.org")
+        };
+        assert!(
+            enqueue(&mut conn, &clock, &email, None)
+                .await
+                .unwrap()
+                .is_some(),
+            "{kind:?}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_email_kind_table_lists_exactly_the_kinds_in_code(pool: PgPool) {
+    let mut in_db: Vec<String> = sqlx::query_scalar("SELECT kind FROM email_kind")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    in_db.sort();
+    let mut in_code: Vec<String> = EmailKind::ALL.map(|k| k.as_str().to_owned()).into();
+    in_code.sort();
+    assert_eq!(in_db, in_code);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_unknown_kind_is_refused(pool: PgPool) {
+    let error = sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body,
+             next_attempt_at, created_at)
+         VALUES ('newsletter', 'a@example.org', 'Hoi', '', '', now(), now())",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().and_then(|e| e.constraint()),
+        Some("email_outbox_kind_fkey")
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_expiring_email_with_a_key_is_queued_once(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let expires = clock.now() + SignedDuration::from_hours(24);
+    for expected in [true, false] {
+        let queued = enqueue_expiring(
+            &mut conn,
+            &clock,
+            &email("a@example.org"),
+            Some("order-confirmation:1"),
+            expires,
+        )
+        .await
+        .unwrap();
+        assert_eq!(queued.is_some(), expected);
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn forgetting_an_address_deletes_its_emails_sent_or_not(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("Klant@example.nl"), None)
+        .await
+        .unwrap();
+    send(&pool, &FakeEmailSender::new(), &clock, 10).await;
+    enqueue(&mut conn, &clock, &email("klant@example.nl"), None)
+        .await
+        .unwrap();
+    let mut contact = email("bakker@example.nl");
+    contact.kind = EmailKind::ContactMessage;
+    contact.reply_to = Some("KLANT@example.nl".to_owned());
+    enqueue(&mut conn, &clock, &contact, None).await.unwrap();
+    enqueue(&mut conn, &clock, &email("ander@example.nl"), None)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        forget_address(&mut conn, "klant@example.nl").await.unwrap(),
+        3
+    );
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(left, ["ander@example.nl"]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn finished_emails_of_one_kind_are_deleted(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut deleted = email("weg@example.nl");
+    deleted.kind = EmailKind::AccountDeleted;
+    enqueue(&mut conn, &clock, &deleted, None).await.unwrap();
+    enqueue(&mut conn, &clock, &email("klant@example.nl"), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        delete_finished(&mut conn, EmailKind::AccountDeleted)
+            .await
+            .unwrap(),
+        0,
+        "not before it is sent"
+    );
+    send(&pool, &FakeEmailSender::new(), &clock, 10).await;
+    assert_eq!(
+        delete_finished(&mut conn, EmailKind::AccountDeleted)
+            .await
+            .unwrap(),
+        1
+    );
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(left, ["klant@example.nl"]);
 }

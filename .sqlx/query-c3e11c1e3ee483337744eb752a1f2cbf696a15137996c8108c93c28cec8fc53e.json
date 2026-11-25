@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE \"order\" SET status = 'picked_up' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3e11c1e3ee483337744eb752a1f2cbf696a15137996c8108c93c28cec8fc53e"
+}

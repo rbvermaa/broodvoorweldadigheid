@@ -22,7 +22,6 @@ fn saturday() -> NewBakeDay {
     NewBakeDay {
         date: "2026-10-31".parse().unwrap(),
         location_id: PickupLocationId::new(1),
-        bake_starts_at: ts("2026-10-31T03:00:00Z"),
         online_ordering: true,
         charity_id: None,
     }
@@ -38,7 +37,6 @@ async fn day_opening_at(conn: &mut PgConnection, input: &NewBakeDay, opens_at: &
             menu_publish_at: None,
             opens_at: Some(ts(opens_at)),
             cutoff_at: day.cutoff_at,
-            bake_starts_at: day.bake_starts_at,
         },
     )
     .await
@@ -100,7 +98,6 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
         &mut conn,
         &NewBakeDay {
             date: "2026-11-14".parse().unwrap(),
-            bake_starts_at: ts("2026-11-14T03:00:00Z"),
             online_ordering: false,
             ..saturday()
         },
@@ -111,7 +108,6 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
         &mut conn,
         &NewBakeDay {
             date: "2026-11-07".parse().unwrap(),
-            bake_starts_at: ts("2026-11-07T03:00:00Z"),
             ..saturday()
         },
         "2026-11-02T08:00:00Z",
@@ -127,6 +123,37 @@ async fn days_without_opening_time_production_only_or_past_deadline_stay_shut(
     for day in [&no_opening_time, &production_only, &missed] {
         assert_eq!(status(&mut conn, day).await, BakeDayStatus::Draft);
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_pickup_slots_is_refused_and_the_rest_still_opens(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let good = day_opening_at(&mut conn, &saturday(), "2026-10-26T08:00:00Z").await;
+    let friday = days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: "2026-10-30".parse().unwrap(),
+            online_ordering: false,
+            ..saturday()
+        },
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE bake_day SET online_ordering = true, opens_at = '2026-10-26T08:00:00Z',
+            cutoff_at = '2026-10-28T19:00:00Z' WHERE id = $1",
+    )
+    .bind(friday.id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let clock = FakeClock::new(ts("2026-10-26T09:00:00Z"));
+    let report = tick(&mut conn, &clock).await.unwrap();
+    assert_eq!(report.opened, [good.id]);
+    assert_eq!(report.refused, [friday.id]);
+    assert_eq!(status(&mut conn, &good).await, BakeDayStatus::Open);
+    assert_eq!(status(&mut conn, &friday).await, BakeDayStatus::Draft);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -224,6 +251,15 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
         let handle = tokio::spawn(jobs::run(
             pool.clone(),
             Arc::clone(&clock),
+            jobs::Mail {
+                sender: Some(Arc::new(testkit::FakeEmailSender::new())),
+                i18n: Arc::new(i18n::Translator::dutch().unwrap()),
+                links: notify::subscribers::Links::new("https://broodvoorweldadigheid.nl"),
+                orders: Arc::new(jobs::OrderEmails::new(
+                    Arc::new(i18n::Translator::dutch().unwrap()),
+                    "https://shop.example.org",
+                )),
+            },
             name.to_owned(),
             async {
                 stopped.await.ok();
@@ -251,5 +287,17 @@ async fn two_servers_work_the_queue_and_open_the_day_once(pool: PgPool) {
     assert_eq!(
         queued_ticks(&pool).await,
         [tick_key(ts("2026-10-27T12:00:00Z"))]
+    );
+    let ran_on: Option<String> =
+        sqlx::query_scalar("SELECT lock_by FROM apalis.jobs WHERE idempotency_key = $1")
+            .bind(tick_key(ts("2026-10-27T12:00:00Z")))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        ran_on.as_deref().is_some_and(|worker| {
+            ["bake-day-ticks-server-a", "bake-day-ticks-server-b"].contains(&worker)
+        }),
+        "the tick ran on {ran_on:?}"
     );
 }

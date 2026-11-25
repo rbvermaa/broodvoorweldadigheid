@@ -1,0 +1,21 @@
+---
+source: crates/notify/tests/emails.rs
+expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
+---
+To: sanne@example.org
+Subject: Je bewaarde donatie gaat naar Hospice Steenwijk
+
+Je donatie heeft een bestemming
+
+Hoi Sanne,
+
+Je bewaarde je donatie van € 32,75 bij bestelling 2026-0042 voor later. Je hebt geen goed doel gekozen, dus gaat je donatie nu naar Hospice Steenwijk, het goede doel van de drop van zaterdag 13 maart 2027.
+
+Bekijk je bestelling: https://broodvoorweldadigheid.nl/bestelling/0b5e7c2a-1111-4222-8333-944455556666
+
+Vragen? Beantwoord deze mail, dan helpen we je verder.
+
+Groetjes van de bakker
+
+-- 
+Brood voor Weldadigheid · Majoor van Swietenlaan 15, 8382 CE Frederiksoord · KvK 12345678

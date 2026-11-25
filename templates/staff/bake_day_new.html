@@ -1,0 +1,19 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("day-new")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("day-new")? }}</h1>
+<p>{{ layout.t("day-new-intro")? }}</p>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="/staff/bake-days/new">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("date", "date", layout.t("day-date")?, value = form.date, error = errors.get("date"), required = true) %}{% endcall %}
+{% call f::select("location_id", layout.t("day-location")?, locations, error = errors.get("location_id"), required = true) %}{% endcall %}
+{% call f::select("charity_id", layout.t("day-charity")?, charities, hint = layout.t("day-charity-hint")?, error = errors.get("charity_id"), choose_only = errors.is_empty()) %}{% endcall %}
+{% call f::checkbox("production_only", layout.t("day-production-only-label")?, checked = form.production_only) %}{% endcall %}
+{% call b::button(layout.t("day-create")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

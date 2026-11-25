@@ -4,12 +4,27 @@
 {% import "components/product.html" as p %}
 {% import "components/picker.html" as pick %}
 {% import "components/table.html" as t %}
+{% import "components/chart.html" as ch %}
 {% import "components/feedback.html" as fb %}
 {% import "components/dialog.html" as d %}
+{% import "components/drop.html" as dr %}
+{% import "components/cart.html" as c %}
+{% import "components/brand.html" as brand %}
 {% block title %}{{ layout.t("gallery-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("gallery-title")? }}</h1>
 <p>{{ layout.t("gallery-intro")? }}</p>
+
+<section class="gallery-section" aria-labelledby="gallery-brand">
+<h2 id="gallery-brand">{{ layout.t("gallery-brand")? }}</h2>
+{% call brand::logo("hero") %}{% endcall %}
+<div class="gallery-row">
+{% call brand::logo() %}{% endcall %}
+{% call brand::stamp(layout.t("gallery-stamp")?) %}{% endcall %}
+{% call b::button(layout.t("gallery-cart")?, variant = "stamp") %}{% endcall %}
+</div>
+{% call brand::rule() %}{% endcall %}
+</section>
 
 <section class="gallery-section" aria-labelledby="gallery-buttons">
 <h2 id="gallery-buttons">{{ layout.t("gallery-buttons")? }}</h2>
@@ -36,6 +51,7 @@
 {% call f::field("text", "uit", layout.t("gallery-disabled-field")?, value = layout.t("gallery-disabled")?, disabled = true) %}{% endcall %}
 {% call f::select("doel", layout.t("gallery-charity")?, charities, required = true) %}{% endcall %}
 {% call f::select("doel-fout", layout.t("gallery-charity")?, charities, error = layout.t("gallery-charity-error")?) %}{% endcall %}
+{% call f::select("locatie", layout.t("gallery-location")?, locations, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord", layout.t("gallery-terms")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-fout", layout.t("gallery-terms")?, error = layout.t("gallery-terms-error")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-uit", layout.t("gallery-terms")?, checked = true, disabled = true) %}{% endcall %}
@@ -49,6 +65,22 @@
 {% call p::product_tile(product) %}{% endcall %}
 {%- endfor %}
 </div>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-drops">
+<h2 id="gallery-drops">{{ layout.t("gallery-drops")? }}</h2>
+<ul class="drop-list">
+{%- for drop in drops %}
+<li>{% call dr::drop_card(drop) %}{% endcall %}</li>
+{%- endfor %}
+</ul>
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-cart-panel">
+<h2 id="gallery-cart-panel">{{ layout.t("gallery-cart-panel")? }}</h2>
+{%- for cart in carts %}
+{% call c::cart_panel(cart) %}{% endcall %}
+{%- endfor %}
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-allergens">
@@ -75,6 +107,11 @@
 <section class="gallery-section" aria-labelledby="gallery-tables">
 <h2 id="gallery-tables">{{ layout.t("gallery-tables")? }}</h2>
 {% call t::table(table) %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-charts">
+<h2 id="gallery-charts">{{ layout.t("gallery-charts")? }}</h2>
+{% call ch::bar_chart(chart) %}{% endcall %}
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-alerts">

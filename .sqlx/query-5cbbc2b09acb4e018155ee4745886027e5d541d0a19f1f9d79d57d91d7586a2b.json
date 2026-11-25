@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT order_id,\n            COALESCE(SUM(payment_refunded_cents(id)) FILTER (WHERE NOT refund_due), 0)::bigint\n                AS \"refunded!\",\n            COALESCE(SUM(fee_cents), 0)::bigint AS \"fees!\",\n            COUNT(*) FILTER (WHERE fee_cents IS NULL) AS \"fees_missing!\"\n        FROM payment\n        WHERE order_id = ANY($1) AND status = 'paid'\n        GROUP BY order_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "order_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "payment",
+            "name": "order_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "refunded!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "fees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "fees_missing!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5cbbc2b09acb4e018155ee4745886027e5d541d0a19f1f9d79d57d91d7586a2b"
+}

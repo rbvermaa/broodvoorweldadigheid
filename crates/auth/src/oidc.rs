@@ -1,27 +1,62 @@
+//! A small OpenID Connect client for staff login through Kanidm: discovery, the
+//! authorization code flow with PKCE, and ID tokens signed with ES256 only (ADR 0010).
+
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::time::SystemTime;
 
-use jiff::Timestamp;
-use openidconnect::core::{
-    CoreAuthenticationFlow, CoreClient, CoreJwsSigningAlgorithm, CoreProviderMetadata,
-};
-use openidconnect::{
-    AsyncHttpClient, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IssuerUrl, Nonce, PkceCodeChallenge, PkceCodeVerifier,
-    RedirectUrl, RequestTokenError, Scope, TokenResponse,
-};
-pub use openidconnect::{HttpRequest, HttpResponse, http, url};
+use base64::Engine;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use jiff::{SignedDuration, Timestamp};
+use ring::rand::{SecureRandom, SystemRandom};
+use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
 
-pub use crate::identity::Identity;
+use crate::identity::{Identity, canonical_uuid};
 
-/// Kanidm signs with ES256 by default and RS256 when told to; nothing else is accepted,
-/// HS256 with the client secret included.
-const ALLOWED_ALGS: [CoreJwsSigningAlgorithm; 2] = [
-    CoreJwsSigningAlgorithm::EcdsaP256Sha256,
-    CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
-];
+pub const SCOPE: &str = "openid email";
+/// Room for clock drift between Kanidm and this server.
+pub const LEEWAY: SignedDuration = SignedDuration::from_secs(60);
+const RANDOM_BYTES: usize = 32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpRequest {
+    pub method: Method,
+    pub url: String,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Vec<u8>,
+}
+
+impl HttpRequest {
+    fn get(url: &str) -> Self {
+        Self {
+            method: Method::Get,
+            url: url.to_string(),
+            headers: vec![("accept", "application/json".to_string())],
+            body: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: Vec<u8>,
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -32,18 +67,6 @@ pub type HttpFuture = Pin<Box<dyn Future<Output = Result<HttpResponse, HttpError
 /// The provider's HTTP endpoints, behind a trait so tests can answer without a network.
 pub trait OidcHttp: Send + Sync {
     fn send(&self, request: HttpRequest) -> HttpFuture;
-}
-
-/// A named type instead of a closure, so the request futures stay `Send` for axum.
-struct Client<'a>(&'a dyn OidcHttp);
-
-impl<'c> AsyncHttpClient<'c> for Client<'_> {
-    type Error = HttpError;
-    type Future = HttpFuture;
-
-    fn call(&'c self, request: HttpRequest) -> HttpFuture {
-        self.0.send(request)
-    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -93,79 +116,196 @@ pub enum OidcError {
     Unreachable(String),
     #[error("the token response has no ID token")]
     NoIdToken,
+    #[error("ID token signed with a key that is not in the provider's key set")]
+    UnknownKey,
     #[error("ID token rejected: {0}")]
     InvalidIdToken(String),
 }
 
-type DiscoveredClient = CoreClient<
-    EndpointSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointMaybeSet,
-    EndpointMaybeSet,
->;
+fn invalid(reason: impl Into<String>) -> OidcError {
+    OidcError::InvalidIdToken(reason.into())
+}
 
+#[derive(Deserialize)]
+struct Metadata {
+    issuer: String,
+    authorization_endpoint: String,
+    token_endpoint: String,
+    jwks_uri: String,
+}
+
+#[derive(Deserialize)]
+struct KeySet {
+    keys: Vec<Jwk>,
+}
+
+#[derive(Deserialize)]
+struct Jwk {
+    kty: Option<String>,
+    crv: Option<String>,
+    kid: Option<String>,
+    alg: Option<String>,
+    #[serde(rename = "use")]
+    usage: Option<String>,
+    x: Option<String>,
+    y: Option<String>,
+}
+
+impl Jwk {
+    /// The `kid` and uncompressed point `0x04 || x || y` of a P-256 signing key, or `None`
+    /// for any other key.
+    fn es256_point(&self) -> Option<(String, Vec<u8>)> {
+        let ec = self.kty.as_deref() == Some("EC") && self.crv.as_deref() == Some("P-256");
+        let es256 = self.alg.as_deref().is_none_or(|alg| alg == "ES256");
+        let signing = self.usage.as_deref().is_none_or(|usage| usage == "sig");
+        if !(ec && es256 && signing) {
+            return None;
+        }
+        let x = URL_SAFE_NO_PAD.decode(self.x.as_deref()?).ok()?;
+        let y = URL_SAFE_NO_PAD.decode(self.y.as_deref()?).ok()?;
+        if x.len() != 32 || y.len() != 32 {
+            return None;
+        }
+        let mut point = Vec::with_capacity(65);
+        point.push(0x04);
+        point.extend_from_slice(&x);
+        point.extend_from_slice(&y);
+        Some((self.kid.clone()?, point))
+    }
+}
+
+#[derive(Deserialize)]
+struct Header {
+    alg: String,
+    kid: Option<String>,
+    crit: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Audience {
+    One(String),
+    Many(Vec<String>),
+}
+
+#[derive(Deserialize)]
+struct Claims {
+    iss: String,
+    sub: String,
+    aud: Audience,
+    azp: Option<String>,
+    exp: i64,
+    iat: i64,
+    nonce: Option<String>,
+    name: Option<String>,
+    preferred_username: Option<String>,
+    email: Option<String>,
+    email_verified: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct TokenResponse {
+    id_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct OAuthError {
+    error: String,
+}
+
+/// The provider as discovery found it: its endpoints and ES256 keys by `kid`.
 pub struct Provider {
-    client: DiscoveredClient,
+    settings: Settings,
+    authorization_endpoint: String,
+    token_endpoint: String,
+    keys: HashMap<String, Vec<u8>>,
 }
 
 impl Provider {
     /// Reads the provider's metadata and signing keys.
     ///
     /// # Errors
-    /// `Config` for a malformed URL, `Discovery` when the provider cannot be read.
+    /// `Config` for a malformed setting, `Discovery` when the provider cannot be read, names
+    /// another issuer, or has no ES256 key.
     pub async fn discover(settings: &Settings, http: &dyn OidcHttp) -> Result<Self, OidcError> {
-        let issuer =
-            IssuerUrl::new(settings.issuer.clone()).map_err(|error| OidcError::Config {
-                name: "issuer",
-                reason: error.to_string(),
-            })?;
-        let redirect =
-            RedirectUrl::new(settings.redirect_url.clone()).map_err(|error| OidcError::Config {
-                name: "redirect_url",
-                reason: error.to_string(),
-            })?;
-        let metadata = CoreProviderMetadata::discover_async(issuer, &Client(http))
-            .await
-            .map_err(|error| OidcError::Discovery(error_chain(&error)))?;
-        let client = CoreClient::from_provider_metadata(
-            metadata,
-            ClientId::new(settings.client_id.clone()),
-            Some(ClientSecret::new(settings.client_secret.clone())),
-        )
-        .set_redirect_uri(redirect);
-        Ok(Self { client })
+        check_url("issuer", &settings.issuer)?;
+        check_url("redirect_url", &settings.redirect_url)?;
+        let url = format!(
+            "{}/.well-known/openid-configuration",
+            settings.issuer.trim_end_matches('/')
+        );
+        let metadata: Metadata = get_json(http, &url).await?;
+        if metadata.issuer != settings.issuer {
+            return Err(OidcError::Discovery(format!(
+                "the provider calls itself {:?}, not {:?}",
+                metadata.issuer, settings.issuer
+            )));
+        }
+        for (name, endpoint) in [
+            ("authorization_endpoint", &metadata.authorization_endpoint),
+            ("token_endpoint", &metadata.token_endpoint),
+            ("jwks_uri", &metadata.jwks_uri),
+        ] {
+            if !is_https(endpoint) {
+                return Err(OidcError::Discovery(format!(
+                    "{name} {endpoint:?} is not an https URL"
+                )));
+            }
+        }
+        let key_set: KeySet = get_json(http, &metadata.jwks_uri).await?;
+        let keys: HashMap<String, Vec<u8>> =
+            key_set.keys.iter().filter_map(Jwk::es256_point).collect();
+        if keys.is_empty() {
+            return Err(OidcError::Discovery(
+                "the key set has no ES256 key with a kid".to_string(),
+            ));
+        }
+        Ok(Self {
+            settings: settings.clone(),
+            authorization_endpoint: metadata.authorization_endpoint,
+            token_endpoint: metadata.token_endpoint,
+            keys,
+        })
     }
 
     /// The URL to send the browser to, with PKCE (S256), state and nonce.
+    ///
+    /// # Panics
+    /// When the system's random number generator fails.
     #[must_use]
     pub fn begin(&self) -> (String, PendingLogin) {
-        let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-        let (url, state, nonce) = self
-            .client
-            .authorize_url(
-                CoreAuthenticationFlow::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
-            .add_scope(Scope::new("email".to_string()))
-            .add_scope(Scope::new("profile".to_string()))
-            .set_pkce_challenge(challenge)
-            .url();
         let pending = PendingLogin {
-            state: state.secret().clone(),
-            nonce: nonce.secret().clone(),
-            pkce_verifier: verifier.secret().clone(),
+            state: random_token(),
+            nonce: random_token(),
+            pkce_verifier: random_token(),
         };
-        (url.to_string(), pending)
+        let challenge = pkce_challenge(&pending.pkce_verifier);
+        let query = form_urlencode(&[
+            ("response_type", "code"),
+            ("client_id", &self.settings.client_id),
+            ("redirect_uri", &self.settings.redirect_url),
+            ("scope", SCOPE),
+            ("state", &pending.state),
+            ("nonce", &pending.nonce),
+            ("code_challenge", &challenge),
+            ("code_challenge_method", "S256"),
+        ]);
+        let separator = if self.authorization_endpoint.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
+        (
+            format!("{}{separator}{query}", self.authorization_endpoint),
+            pending,
+        )
     }
 
-    /// Checks the returned state, trades the code for tokens and verifies the ID token's
-    /// signature, issuer, audience, nonce and expiry against `now`.
+    /// Checks the returned state, trades the code for tokens and verifies the ID token.
     ///
     /// # Errors
-    /// `StateMismatch`, `Exchange`, `Unreachable`, `NoIdToken` or `InvalidIdToken`.
+    /// `StateMismatch`, `Exchange`, `Unreachable`, `NoIdToken`, `UnknownKey` or
+    /// `InvalidIdToken`.
     pub async fn complete(
         &self,
         http: &dyn OidcHttp,
@@ -177,40 +317,234 @@ impl Provider {
         if !constant_time_eq(state.as_bytes(), pending.state.as_bytes()) {
             return Err(OidcError::StateMismatch);
         }
-        let request = self
-            .client
-            .exchange_code(AuthorizationCode::new(code.to_string()))
-            .map_err(|error| OidcError::Exchange(error.to_string()))?;
-        let response = request
-            .set_pkce_verifier(PkceCodeVerifier::new(pending.pkce_verifier))
-            .request_async(&Client(http))
+        let credentials = format!(
+            "{}:{}",
+            form_urlencode_value(&self.settings.client_id),
+            form_urlencode_value(&self.settings.client_secret)
+        );
+        let request = HttpRequest {
+            method: Method::Post,
+            url: self.token_endpoint.clone(),
+            headers: vec![
+                ("accept", "application/json".to_string()),
+                (
+                    "content-type",
+                    "application/x-www-form-urlencoded".to_string(),
+                ),
+                (
+                    "authorization",
+                    format!("Basic {}", STANDARD.encode(credentials)),
+                ),
+            ],
+            body: form_urlencode(&[
+                ("grant_type", "authorization_code"),
+                ("code", code),
+                ("redirect_uri", &self.settings.redirect_url),
+                ("code_verifier", &pending.pkce_verifier),
+            ])
+            .into_bytes(),
+        };
+        let response = http
+            .send(request)
             .await
-            .map_err(|error| match error {
-                RequestTokenError::Request(_) => OidcError::Unreachable(error_chain(&error)),
-                _ => OidcError::Exchange(error_chain(&error)),
-            })?;
-        let id_token = response.id_token().ok_or(OidcError::NoIdToken)?;
-        let verifier = self
-            .client
-            .id_token_verifier()
-            .set_allowed_algs(ALLOWED_ALGS)
-            .set_time_fn(move || SystemTime::from(now).into());
-        let claims = id_token
-            .claims(&verifier, &Nonce::new(pending.nonce))
-            .map_err(|error| OidcError::InvalidIdToken(error_chain(&error)))?;
+            .map_err(|error| OidcError::Unreachable(error.0))?;
+        if response.status >= 500 {
+            return Err(OidcError::Unreachable(format!("HTTP {}", response.status)));
+        }
+        if response.status != 200 {
+            let error = serde_json::from_slice::<OAuthError>(&response.body)
+                .map_or_else(|_| String::new(), |body| body.error);
+            return Err(OidcError::Exchange(format!(
+                "HTTP {} {error}",
+                response.status
+            )));
+        }
+        let tokens: TokenResponse = serde_json::from_slice(&response.body)
+            .map_err(|error| OidcError::Exchange(format!("token response: {error}")))?;
+        let id_token = tokens.id_token.ok_or(OidcError::NoIdToken)?;
+        self.verify(&id_token, &pending.nonce, now)
+    }
+
+    /// Accepts only a compact JWS with `alg` ES256, a `kid` from the key set, a valid
+    /// signature, this issuer, this client as audience, the nonce of this login, and an
+    /// `exp` and `iat` that fit `now`.
+    ///
+    /// # Errors
+    /// `UnknownKey` or `InvalidIdToken`.
+    pub fn verify(
+        &self,
+        id_token: &str,
+        nonce: &str,
+        now: Timestamp,
+    ) -> Result<Identity, OidcError> {
+        let parts: Vec<&str> = id_token.split('.').collect();
+        let [header, payload, signature] = parts[..] else {
+            return Err(invalid("not a compact JWS"));
+        };
+        let header: Header =
+            decode_json(header).map_err(|error| invalid(format!("header: {error}")))?;
+        if header.alg != "ES256" {
+            return Err(invalid(format!("alg {:?} is not ES256", header.alg)));
+        }
+        if header.crit.is_some() {
+            return Err(invalid("crit header"));
+        }
+        let kid = header.kid.ok_or_else(|| invalid("no kid"))?;
+        let key = self.keys.get(&kid).ok_or(OidcError::UnknownKey)?;
+        let signature = URL_SAFE_NO_PAD
+            .decode(signature)
+            .map_err(|_| invalid("signature is not base64url"))?;
+        let signed = &id_token[..id_token.len() - parts[2].len() - 1];
+        UnparsedPublicKey::new(&ECDSA_P256_SHA256_FIXED, key)
+            .verify(signed.as_bytes(), &signature)
+            .map_err(|_| invalid("bad signature"))?;
+        let claims: Claims =
+            decode_json(payload).map_err(|error| invalid(format!("claims: {error}")))?;
+        self.check_claims(claims, nonce, now)
+    }
+
+    fn check_claims(
+        &self,
+        claims: Claims,
+        nonce: &str,
+        now: Timestamp,
+    ) -> Result<Identity, OidcError> {
+        if claims.iss != self.settings.issuer {
+            return Err(invalid(format!("issuer {:?}", claims.iss)));
+        }
+        let client_id = self.settings.client_id.as_str();
+        let audiences = match &claims.aud {
+            Audience::One(aud) => vec![aud.as_str()],
+            Audience::Many(auds) => auds.iter().map(String::as_str).collect(),
+        };
+        if !audiences.contains(&client_id) {
+            return Err(invalid(format!("audience {audiences:?}")));
+        }
+        let azp_ok = match claims.azp.as_deref() {
+            Some(azp) => azp == client_id,
+            None => audiences.len() == 1,
+        };
+        if !azp_ok {
+            return Err(invalid(format!("authorized party {:?}", claims.azp)));
+        }
+        let exp = Timestamp::from_second(claims.exp).map_err(|_| invalid("exp out of range"))?;
+        let iat = Timestamp::from_second(claims.iat).map_err(|_| invalid("iat out of range"))?;
+        if now >= exp + LEEWAY {
+            return Err(invalid(format!("expired at {exp}")));
+        }
+        if iat > now + LEEWAY {
+            return Err(invalid(format!("issued in the future, at {iat}")));
+        }
+        let nonce_ok = claims
+            .nonce
+            .as_deref()
+            .is_some_and(|got| constant_time_eq(got.as_bytes(), nonce.as_bytes()));
+        if !nonce_ok {
+            return Err(invalid("nonce does not match the login request"));
+        }
+        let sub = canonical_uuid(&claims.sub)
+            .ok_or_else(|| invalid(format!("sub {:?} is not a UUID", claims.sub)))?;
         Ok(Identity {
-            sub: claims.subject().as_str().to_string(),
-            name: claims
-                .name()
-                .and_then(|name| name.get(None))
-                .map(|name| name.as_str().to_string()),
-            preferred_username: claims
-                .preferred_username()
-                .map(|name| name.as_str().to_string()),
-            email: claims.email().map(|email| email.as_str().to_string()),
-            email_verified: claims.email_verified().unwrap_or(false),
+            sub,
+            name: claims.name,
+            preferred_username: claims.preferred_username,
+            email: claims.email,
+            email_verified: claims.email_verified.unwrap_or(false),
         })
     }
+}
+
+fn decode_json<T: for<'de> Deserialize<'de>>(part: &str) -> Result<T, String> {
+    let bytes = URL_SAFE_NO_PAD
+        .decode(part)
+        .map_err(|_| "not base64url".to_string())?;
+    serde_json::from_slice(&bytes).map_err(|error| error.to_string())
+}
+
+async fn get_json<T: for<'de> Deserialize<'de>>(
+    http: &dyn OidcHttp,
+    url: &str,
+) -> Result<T, OidcError> {
+    let response = http
+        .send(HttpRequest::get(url))
+        .await
+        .map_err(|error| OidcError::Discovery(format!("{url}: {}", error.0)))?;
+    if response.status != 200 {
+        return Err(OidcError::Discovery(format!(
+            "{url}: HTTP {}",
+            response.status
+        )));
+    }
+    serde_json::from_slice(&response.body)
+        .map_err(|error| OidcError::Discovery(format!("{url}: {error}")))
+}
+
+fn has_host(rest: Option<&str>) -> bool {
+    rest.is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'))
+}
+
+fn is_https(url: &str) -> bool {
+    has_host(url.strip_prefix("https://")) && !url.contains(char::is_whitespace)
+}
+
+fn check_url(name: &'static str, url: &str) -> Result<(), OidcError> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"));
+    if has_host(rest) && !url.contains(char::is_whitespace) {
+        Ok(())
+    } else {
+        Err(OidcError::Config {
+            name,
+            reason: format!("{url:?} is not an absolute http(s) URL"),
+        })
+    }
+}
+
+/// 32 random bytes, base64url without padding (43 characters).
+fn random_token() -> String {
+    let mut bytes = [0_u8; RANDOM_BYTES];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .expect("system random number generator");
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+#[must_use]
+pub fn pkce_challenge(verifier: &str) -> String {
+    URL_SAFE_NO_PAD.encode(ring::digest::digest(
+        &ring::digest::SHA256,
+        verifier.as_bytes(),
+    ))
+}
+
+/// `application/x-www-form-urlencoded`, also used for query strings.
+#[must_use]
+pub fn form_urlencode(pairs: &[(&str, &str)]) -> String {
+    pairs
+        .iter()
+        .map(|(key, value)| {
+            format!(
+                "{}={}",
+                form_urlencode_value(key),
+                form_urlencode_value(value)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn form_urlencode_value(value: &str) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
 }
 
 /// The error and its sources, joined with ": ".
@@ -233,22 +567,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn display_name_falls_back_to_username_then_subject() {
-        let mut identity = Identity {
-            sub: "uuid".to_string(),
-            name: Some("Bakker Bas".to_string()),
-            preferred_username: Some("bas".to_string()),
-            email: None,
-            email_verified: false,
-        };
-        assert_eq!(identity.display_name(), "Bakker Bas");
-        identity.name = None;
-        assert_eq!(identity.display_name(), "bas");
-        identity.preferred_username = None;
-        assert_eq!(identity.display_name(), "uuid");
-    }
 
     #[test]
     fn secrets_stay_out_of_debug_output() {
@@ -284,5 +602,48 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    #[test]
+    fn form_encoding_escapes_everything_but_unreserved_characters() {
+        assert_eq!(
+            form_urlencode(&[("scope", "openid email"), ("r", "https://a.test/b?c=d&e")]),
+            "scope=openid%20email&r=https%3A%2F%2Fa.test%2Fb%3Fc%3Dd%26e"
+        );
+        assert_eq!(form_urlencode_value("aZ09-._~"), "aZ09-._~");
+    }
+
+    #[test]
+    fn the_pkce_challenge_is_base64url_of_sha256() {
+        // `printf %s VERIFIER | openssl dgst -sha256 -binary | basenc --base64url`
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gXk-XULJE"),
+            "Og7vtWrUzkh7bdULmbt9GuE961UutEmc8TxycPkXPFY"
+        );
+    }
+
+    #[test]
+    fn random_tokens_are_32_bytes_of_base64url() {
+        let token = random_token();
+        assert_eq!(token.len(), 43);
+        assert_eq!(URL_SAFE_NO_PAD.decode(&token).expect("base64url").len(), 32);
+        assert_ne!(token, random_token());
+    }
+
+    #[test]
+    fn settings_must_be_absolute_urls_and_endpoints_https() {
+        assert!(check_url("issuer", "https://idm.test/oauth2/openid/bvw-staff").is_ok());
+        assert!(check_url("redirect_url", "http://localhost:8080/cb").is_ok());
+        for bad in [
+            "/relative",
+            "https://",
+            "https:///x",
+            "idm.test",
+            "https://a b",
+        ] {
+            assert!(check_url("issuer", bad).is_err(), "{bad}");
+        }
+        assert!(is_https("https://idm.test/token"));
+        assert!(!is_https("http://idm.test/token"));
     }
 }

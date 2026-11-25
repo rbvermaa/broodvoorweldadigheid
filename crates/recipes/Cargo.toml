@@ -6,3 +6,16 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+catalog = { path = "../catalog" }
+db = { path = "../db" }
+domain = { path = "../domain" }
+jiff.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+testkit = { path = "../testkit" }
+tokio.workspace = true

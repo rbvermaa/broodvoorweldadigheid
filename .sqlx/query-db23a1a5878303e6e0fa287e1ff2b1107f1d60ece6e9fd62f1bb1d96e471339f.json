@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE customer_login_link l\n         SET used_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n         FROM customer c\n         WHERE l.token_hash = $1 AND l.used_at IS NULL AND c.id = l.customer_id\n           AND c.erased_at IS NULL\n           AND l.expires_at > timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n         RETURNING l.customer_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "customer_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "customer_login_link",
+            "name": "customer_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "db23a1a5878303e6e0fa287e1ff2b1107f1d60ece6e9fd62f1bb1d96e471339f"
+}

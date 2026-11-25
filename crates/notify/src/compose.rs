@@ -19,6 +19,26 @@ pub struct Company {
     pub kvk: String,
 }
 
+impl Company {
+    /// The company settings row. Address and KvK number are empty until staff fill them in.
+    ///
+    /// # Errors
+    /// When the database fails.
+    pub async fn load(conn: &mut sqlx::PgConnection) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query!(
+            r#"SELECT name, coalesce(address, '') AS "address!", coalesce(kvk, '') AS "kvk!"
+            FROM company WHERE id = 1"#
+        )
+        .fetch_one(conn)
+        .await?;
+        Ok(Self {
+            name: row.name,
+            address: row.address,
+            kvk: row.kvk,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recipient {
     pub email: String,
@@ -73,6 +93,20 @@ pub struct OrderConfirmation {
     pub pickup: Pickup,
     pub lines: Vec<OrderLine>,
     pub donation: Donation,
+    /// The order's status page.
+    pub status_url: String,
+}
+
+/// F11a: an order staff placed on account for a business customer. It has no status page link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnAccountConfirmation {
+    pub to: Recipient,
+    /// The invoice email, when it is not the contact's.
+    pub cc: Option<String>,
+    pub order_number: String,
+    pub drop_date: Date,
+    pub pickup: Pickup,
+    pub lines: Vec<OrderLine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +115,14 @@ pub struct PickupReminder {
     pub order_number: String,
     pub pickup: Pickup,
     pub items: Vec<Item>,
+}
+
+/// F1, F4a: staff moved the ophaalmoment of an order; `pickup` is the new one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PickupMoved {
+    pub to: Recipient,
+    pub order_number: String,
+    pub pickup: Pickup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +172,66 @@ pub struct SubscriptionConfirmation {
     pub confirm_url: String,
 }
 
+/// A customer's magic link to sign in (spec, Security; ADR 0029).
+#[derive(Clone, PartialEq, Eq)]
+pub struct LoginLink {
+    pub to: String,
+    pub login_url: String,
+    pub valid_minutes: i64,
+}
+
+impl std::fmt::Debug for LoginLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginLink")
+            .field("to", &self.to)
+            .field("login_url", &"<redacted>")
+            .field("valid_minutes", &self.valid_minutes)
+            .finish()
+    }
+}
+
+/// The link that makes a bread vote count (F9b, ADR 0039).
+#[derive(Clone, PartialEq, Eq)]
+pub struct VoteConfirmation {
+    pub to: String,
+    pub poll: String,
+    pub choice: String,
+    pub confirm_url: String,
+}
+
+impl std::fmt::Debug for VoteConfirmation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VoteConfirmation")
+            .field("to", &self.to)
+            .field("poll", &self.poll)
+            .field("choice", &self.choice)
+            .field("confirm_url", &"<redacted>")
+            .finish()
+    }
+}
+
+/// A saved donation nobody chose a charity for went to the next drop's charity (F4d).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DonationMoved {
+    pub to: Recipient,
+    pub order_number: String,
+    pub amount: Money,
+    pub charity: String,
+    /// The drop whose charity it went to.
+    pub drop_date: Date,
+    /// The order's status page.
+    pub status_url: String,
+}
+
+/// F4f: a message from the contact form, sent to the bakery. Replies go to `email`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactMessage {
+    pub to: String,
+    pub name: String,
+    pub email: String,
+    pub message: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeError {
     #[error(transparent)]
@@ -148,6 +250,8 @@ pub enum ComposeError {
     NoLines,
     #[error("a refund must be more than zero, got {0} cents")]
     Refund(i64),
+    #[error("the contact name or message is empty or holds control characters")]
+    Contact,
 }
 
 /// The parts that differ per email; [`Composer::email`] adds the frame.
@@ -213,6 +317,10 @@ impl<'a> Composer<'a> {
                 }));
             }
         }
+        blocks.push(Block::Button(Link {
+            label: self.t("email-order-confirmation-status", &[])?,
+            url: https(&order.status_url)?,
+        }));
         blocks.push(Block::Paragraph(self.t("email-questions", &[])?));
         let parts = Parts {
             subject: self.t(
@@ -225,6 +333,39 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::OrderConfirmation, &order.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`]; also [`ComposeError::Address`] for a bad copy
+    /// address.
+    pub fn order_on_account(&self, order: &OnAccountConfirmation) -> Result<Email, ComposeError> {
+        if order.lines.is_empty() {
+            return Err(ComposeError::NoLines);
+        }
+        let cc = order.cc.as_deref().map(address).transpose()?;
+        let number = order.order_number.as_str();
+        let blocks = vec![
+            Block::Paragraph(self.t("email-on-account-intro", &[])?),
+            Block::Facts(vec![
+                self.fact("email-label-order", number.to_owned())?,
+                self.fact("email-label-drop", self.i18n.long_date(order.drop_date))?,
+                self.fact("email-label-pickup", self.moment(&order.pickup)?)?,
+                self.fact("email-label-location", self.place(&order.pickup)?)?,
+            ]),
+            Block::Lines(self.lines(&order.lines)?),
+            Block::Paragraph(self.t("email-on-account-invoice", &[])?),
+            Block::Paragraph(self.t("email-questions", &[])?),
+        ];
+        let parts = Parts {
+            subject: self.t("email-on-account-subject", &[("number", number.to_owned())])?,
+            heading: self.t("email-on-account-heading", &[])?,
+            greeting: self.greeting(order.to.name.as_deref())?,
+            blocks,
+            unsubscribe: None,
+        };
+        let mut email = self.email(EmailKind::OrderConfirmation, &order.to.email, parts)?;
+        email.cc = cc;
+        Ok(email)
     }
 
     /// # Errors
@@ -277,6 +418,32 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::PickupReminder, &reminder.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn pickup_moved(&self, moved: &PickupMoved) -> Result<Email, ComposeError> {
+        let number = moved.order_number.as_str();
+        let blocks = vec![
+            Block::Paragraph(self.t("email-pickup-moved-intro", &[("number", number.to_owned())])?),
+            Block::Facts(vec![
+                self.fact("email-label-order", number.to_owned())?,
+                self.fact("email-label-pickup", self.moment(&moved.pickup)?)?,
+                self.fact("email-label-location", self.place(&moved.pickup)?)?,
+            ]),
+            Block::Paragraph(self.t("email-pickup-moved-sorry", &[])?),
+        ];
+        let parts = Parts {
+            subject: self.t(
+                "email-pickup-moved-subject",
+                &[("number", number.to_owned())],
+            )?,
+            heading: self.t("email-pickup-moved-heading", &[])?,
+            greeting: self.greeting(moved.to.name.as_deref())?,
+            blocks,
+            unsubscribe: None,
+        };
+        self.email(EmailKind::PickupMoved, &moved.to.email, parts)
     }
 
     /// # Errors
@@ -428,7 +595,164 @@ impl<'a> Composer<'a> {
         self.email(EmailKind::SubscriptionConfirmation, &subscription.to, parts)
     }
 
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn login_link(&self, link: &LoginLink) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-login-subject", &[])?,
+            heading: self.t("email-login-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t(
+                    "email-login-intro",
+                    &[("minutes", link.valid_minutes.to_string())],
+                )?),
+                Block::Button(Link {
+                    label: self.t("email-login-button", &[])?,
+                    url: https(&link.login_url)?,
+                }),
+                Block::Paragraph(self.t("email-login-ignore", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::LoginLink, &link.to, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn donation_moved(&self, moved: &DonationMoved) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t(
+                "email-donation-moved-subject",
+                &[("charity", moved.charity.clone())],
+            )?,
+            heading: self.t("email-donation-moved-heading", &[])?,
+            greeting: self.greeting(moved.to.name.as_deref())?,
+            blocks: vec![
+                Block::Paragraph(self.t(
+                    "email-donation-moved-intro",
+                    &[
+                        ("amount", i18n::money(moved.amount.cents())),
+                        ("number", moved.order_number.clone()),
+                        ("charity", moved.charity.clone()),
+                        ("date", self.i18n.long_date(moved.drop_date)),
+                    ],
+                )?),
+                Block::Button(Link {
+                    label: self.t("email-order-confirmation-status", &[])?,
+                    url: https(&moved.status_url)?,
+                }),
+                Block::Paragraph(self.t("email-questions", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::DonationMoved, &moved.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn vote_confirmation(&self, vote: &VoteConfirmation) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-vote-subject", &[("poll", vote.poll.clone())])?,
+            heading: self.t("email-vote-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-vote-intro", &[("choice", vote.choice.clone())])?),
+                Block::Button(Link {
+                    label: self.t("email-vote-confirm", &[])?,
+                    url: https(&vote.confirm_url)?,
+                }),
+                Block::Paragraph(self.t("email-vote-ignore", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::VoteConfirmation, &vote.to, parts)
+    }
+
+    /// The last email to a customer whose data was erased (F12). No name: it is gone.
+    ///
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn account_deleted(&self, to: &str) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-account-deleted-subject", &[])?,
+            heading: self.t("email-account-deleted-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-account-deleted-intro", &[])?),
+                Block::Paragraph(self.t("email-account-deleted-orders", &[])?),
+                Block::Paragraph(self.t("email-questions", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::AccountDeleted, to, parts)
+    }
+
+    /// To the bakery, with only the company name in the footer; the sender gets no copy.
+    ///
+    /// # Errors
+    /// [`ComposeError::Address`] for a bad recipient or sender address,
+    /// [`ComposeError::Contact`] for an empty name or message or a control character in
+    /// the name, and [`ComposeError::Company`] without a company name.
+    pub fn contact_message(&self, contact: &ContactMessage) -> Result<Email, ComposeError> {
+        if !is_address(&contact.email) {
+            return Err(ComposeError::Address);
+        }
+        let name = contact.name.trim();
+        if name.is_empty() || contact.name.chars().any(char::is_control) {
+            return Err(ComposeError::Contact);
+        }
+        let message = contact.message.trim();
+        if message.is_empty() {
+            return Err(ComposeError::Contact);
+        }
+        let company = self.company.name.trim();
+        if company.is_empty() {
+            return Err(ComposeError::Company);
+        }
+        let parts = Parts {
+            subject: self.t("email-contact-subject", &[("name", name.to_owned())])?,
+            heading: self.t("email-contact-heading", &[])?,
+            greeting: self.t("email-contact-greeting", &[])?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-contact-intro", &[])?),
+                Block::Facts(vec![
+                    self.fact("email-label-name", name.to_owned())?,
+                    self.fact("email-label-email", contact.email.clone())?,
+                ]),
+                Block::Quote(
+                    message
+                        .lines()
+                        .map(|line| line.trim_end().to_owned())
+                        .collect(),
+                ),
+                Block::Paragraph(self.t("email-contact-reply", &[("name", name.to_owned())])?),
+            ],
+            unsubscribe: None,
+        };
+        let mut email = self.frame(
+            EmailKind::ContactMessage,
+            &contact.to,
+            parts,
+            company.to_owned(),
+            "email-contact-signoff",
+        )?;
+        email.reply_to = Some(contact.email.clone());
+        Ok(email)
+    }
+
     fn email(&self, kind: EmailKind, to: &str, parts: Parts) -> Result<Email, ComposeError> {
+        self.frame(kind, to, parts, self.company_line()?, "email-signoff")
+    }
+
+    fn frame(
+        &self,
+        kind: EmailKind,
+        to: &str,
+        parts: Parts,
+        company: String,
+        signoff: &str,
+    ) -> Result<Email, ComposeError> {
         let to = address(to)?;
         let reason = match parts.unsubscribe {
             Some(_) => Some(self.t("email-drop-reason", &[])?),
@@ -441,10 +765,10 @@ impl<'a> Composer<'a> {
             heading: parts.heading,
             greeting: parts.greeting,
             blocks: parts.blocks,
-            signoff: self.t("email-signoff", &[])?,
+            signoff: self.t(signoff, &[])?,
             reason,
             unsubscribe: parts.unsubscribe,
-            company: self.company_line()?,
+            company,
         };
         Ok(Email {
             kind,
@@ -453,6 +777,8 @@ impl<'a> Composer<'a> {
             text: content.text(),
             subject: content.subject,
             list_unsubscribe: None,
+            reply_to: None,
+            cc: None,
         })
     }
 
@@ -593,6 +919,12 @@ impl<'a> Composer<'a> {
         let kvk = self.t("email-footer-kvk", &[("kvk", kvk.clone())])?;
         Ok([name.clone(), address.clone(), kvk].join(" · "))
     }
+}
+
+/// Whether `value` is exactly one email address, with nothing around it.
+#[must_use]
+pub fn is_address(value: &str) -> bool {
+    lettre::Address::from_str(value).is_ok() && lettre::message::Mailbox::from_str(value).is_ok()
 }
 
 fn address(to: &str) -> Result<String, ComposeError> {

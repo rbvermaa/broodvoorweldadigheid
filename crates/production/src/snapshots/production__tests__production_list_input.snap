@@ -1,0 +1,53 @@
+---
+source: crates/production/src/tests.rs
+expression: "serde_json::to_string_pretty(&data).unwrap()"
+---
+{
+  "date": "zaterdag 31 oktober 2026",
+  "labels": {
+    "columns": [
+      "Besteld",
+      "Vriezer",
+      "SumUp",
+      "Proeverij",
+      "Overig",
+      "Bakken"
+    ],
+    "empty": "Nog niets te bakken.",
+    "product": "Product",
+    "sum": "Totaal"
+  },
+  "products": [
+    {
+      "cells": [
+        "1.204",
+        "6",
+        "0",
+        "2",
+        "0",
+        "1.212"
+      ],
+      "name": "Desem"
+    },
+    {
+      "cells": [
+        "0",
+        "0",
+        "12",
+        "0",
+        "1",
+        "13"
+      ],
+      "name": "Granola"
+    }
+  ],
+  "sum": [
+    "1.204",
+    "6",
+    "12",
+    "2",
+    "1",
+    "1.225"
+  ],
+  "title": "Productielijst"
+}

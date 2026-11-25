@@ -1,0 +1,150 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, message_id::text AS \"message_id!\", kind, to_address, subject,\n                text_body, html_body, list_unsubscribe, reply_to, cc_address, attempts,\n                coalesce(expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond',\n                    false) AS \"expired!\"\n            FROM email_outbox\n            WHERE status = 'pending'\n                AND next_attempt_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'\n            ORDER BY next_attempt_at, id\n            LIMIT 1\n            FOR UPDATE SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "message_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "to_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "to_address"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "subject",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "subject"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "text_body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "text_body"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "html_body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "html_body"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "list_unsubscribe",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "list_unsubscribe"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "reply_to",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "reply_to"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "cc_address",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "cc_address"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "email_outbox",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "expired!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "c7dc3d812124afd7dade3feafcdfeb4d28342debd4658f5aadf984aeb8467f67"
+}

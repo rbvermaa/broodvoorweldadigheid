@@ -1,5 +1,6 @@
 app-name = Brood voor Weldadigheid
 saved = Opgeslagen
+customer-erased = verwijderd
 order-thanks = Bedankt voor je bestelling, { $name }!
 order-deadline = Bestel-deadline: { $deadline }
 pickup-moment = Ophaalmoment: { $day }, { $range }
@@ -18,3 +19,5 @@ error-too-many-title = Even rustig aan
 error-too-many-text = Je hebt het te vaak geprobeerd. Wacht even en probeer het dan opnieuw.
 error-server-title = Er ging iets mis
 error-server-text = Dat ligt aan ons. Probeer het over een paar minuten opnieuw.
+site-nav-login = Inloggen
+site-nav-orders = Mijn bestellingen

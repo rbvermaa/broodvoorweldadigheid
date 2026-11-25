@@ -8,11 +8,15 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+base64.workspace = true
 db = { path = "../db" }
 domain = { path = "../domain" }
 jiff.workspace = true
-openidconnect.workspace = true
+rand.workspace = true
+ring.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 

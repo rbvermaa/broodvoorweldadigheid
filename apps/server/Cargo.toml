@@ -12,19 +12,30 @@ ai = { path = "../../crates/ai", optional = true }
 askama.workspace = true
 auth = { path = "../../crates/auth" }
 axum.workspace = true
+bakedays = { path = "../../crates/bakedays" }
 base64.workspace = true
 clap.workspace = true
+catalog = { path = "../../crates/catalog" }
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
+labels = { path = "../../crates/labels" }
+jobs = { path = "../../crates/jobs" }
 jiff.workspace = true
+notify = { path = "../../crates/notify" }
+orders = { path = "../../crates/orders" }
+payments = { path = "../../crates/payments" }
+production = { path = "../../crates/production" }
+reports = { path = "../../crates/reports" }
 rand.workspace = true
 reqwest.workspace = true
 rustls-native-certs.workspace = true
+recipes = { path = "../../crates/recipes" }
 serde.workspace = true
 sha2.workspace = true
+sqlx.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 tower-sessions.workspace = true
 tower-sessions-sqlx-store.workspace = true
 tower_governor.workspace = true
@@ -37,10 +48,9 @@ toml.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
-notify = { path = "../../crates/notify" }
 serde_json.workspace = true
 sqlx.workspace = true
-testkit = { path = "../../crates/testkit" }
+testkit = { path = "../../crates/testkit", features = ["email"] }
 tower.workspace = true
 toml.workspace = true
 

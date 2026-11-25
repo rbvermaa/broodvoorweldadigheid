@@ -36,6 +36,12 @@ impl StaffLogin {
         self.http.as_ref()
     }
 
+    /// Discovery runs again on the next login, e.g. after an ID token named a key that the
+    /// cached key set lacks.
+    pub fn forget(&self) {
+        *self.cached.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    }
+
     /// # Errors
     /// `NotSetUp` while the client secret file is missing or empty, `Provider` when
     /// discovery fails.
