@@ -585,6 +585,7 @@ async fn change(
         };
         let seen = fields.text("seen");
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        let mut moved: Option<StepEdit> = None;
         let (result, typed) = match change {
             Change::Kind(kind) => (
                 store::set_kind(&mut conn, loaded.version.id, seen, kind).await,
@@ -605,7 +606,10 @@ async fn change(
                     StepEdit::Add(step) | StepEdit::Set { step, .. } => {
                         Some((position, StepFields::named(position, step)))
                     }
-                    _ => None,
+                    _ => {
+                        moved = Some(edit.clone());
+                        None
+                    }
                 };
                 (
                     store::edit_step(&mut conn, loaded.version.id, seen, edit).await,
@@ -626,6 +630,9 @@ async fn change(
                 let reloaded = load(&state, &id, &version).await?;
                 let mut view = EditView::read(&state, &fields, &reloaded);
                 view.method.saved = true;
+                if let Some(edit) = &moved {
+                    view.open_notes = follow(&view.open_notes, edit);
+                }
                 return render_edit(&reply(StatusCode::OK), &reloaded, view).await;
             }
             Err(recipes::Error::NotFound) => return Err(not_found(&state).into()),
@@ -935,4 +942,49 @@ pub fn start_on_page(headers: &HeaderMap, uri: &axum::http::Uri) -> Option<Strin
         .filter(|p| !p.is_empty() && !p.starts_with("start=") && !p.starts_with("opgeslagen="));
     let start = own.split('&').filter(|p| p.starts_with("start="));
     Some(kept.chain(start).collect::<Vec<_>>().join("&"))
+}
+
+/// The open notes after a move or remove, so they stay with their step.
+fn follow(open: &BTreeSet<usize>, edit: &StepEdit) -> BTreeSet<usize> {
+    let swap = |a: usize, b: usize| {
+        open.iter()
+            .map(|&i| match i {
+                i if i == a => b,
+                i if i == b => a,
+                i => i,
+            })
+            .collect()
+    };
+    match *edit {
+        StepEdit::MoveUp { position } if position > 0 => swap(position - 1, position),
+        StepEdit::MoveDown { position } => swap(position, position.saturating_add(1)),
+        StepEdit::Remove { position } => open
+            .iter()
+            .filter(|&&i| i != position)
+            .map(|&i| if i > position { i - 1 } else { i })
+            .collect(),
+        _ => open.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_notes_follow_their_step() {
+        let open: BTreeSet<usize> = [0, 2].into();
+        let cases = [
+            (StepEdit::Remove { position: 0 }, vec![1]),
+            (StepEdit::Remove { position: 1 }, vec![0, 1]),
+            (StepEdit::MoveUp { position: 1 }, vec![1, 2]),
+            (StepEdit::MoveDown { position: 2 }, vec![0, 3]),
+            (StepEdit::MoveUp { position: 0 }, vec![0, 2]),
+            (StepEdit::Add(RecipeStep::default()), vec![0, 2]),
+        ];
+        for (edit, expected) in cases {
+            let after: Vec<usize> = follow(&open, &edit).into_iter().collect();
+            assert_eq!(after, expected, "{edit:?}");
+        }
+    }
 }

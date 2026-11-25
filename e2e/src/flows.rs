@@ -589,10 +589,12 @@ async fn recipe_editor(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
     .await?;
     axe(ctx, driver, "recipe steps edit").await?;
 
-    let duration = driver.find(By::Css("#stap-0-duur")).await?;
-    duration.clear().await?;
-    duration.send_keys("45").await?;
-    duration.send_keys(Key::Enter).await?;
+    set_value(driver, "#stap-0-duur", "45").await?;
+    driver
+        .find(By::Css("#stap-0-duur"))
+        .await?
+        .send_keys(Key::Enter)
+        .await?;
     wait_for("the duration saved from its cell", || async {
         let minutes: Option<i32> = sqlx::query_scalar(
             "SELECT duration_min FROM recipe_step WHERE recipe_version_id = $1 AND position = 0",

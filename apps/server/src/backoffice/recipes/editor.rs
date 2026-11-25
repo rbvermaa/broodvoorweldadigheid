@@ -859,7 +859,7 @@ pub(super) struct EditView {
     notes: Option<String>,
     pub(super) method: MethodState,
     /// The steps whose notes are open, as the page posted them.
-    open_notes: BTreeSet<usize>,
+    pub(super) open_notes: BTreeSet<usize>,
 }
 
 impl EditView {
