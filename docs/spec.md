@@ -73,7 +73,7 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F9 | Emails | Order confirmation, pickup reminder, cancellation; Dutch templates | MVP |
 | F9a | Drop alerts | Opt-in email list with confirmation by email; people sign up on the site; subscribers hear when a drop's menu is published or ordering opens; one-click unsubscribe | MVP |
 | F9b | Bread vote | The baker lists candidate breads, optionally for a specific drop; visitors vote once per confirmed email address, with an optional wish of their own; results visible to the baker and optionally on the site; the vote closes on a set date | Phase 2 |
-| F10 | Product catalogue | 14 allergens, may-contain, ingredient text, price incl. BTW, BTW rate 9% or 21%; per product whether it is sold online or only outside the system (frozen and packaged products are sold through the bakery's SumUp app) | MVP |
+| F10 | Product catalogue | 14 allergens, ingredient text, price incl. BTW, BTW rate 9% or 21%; per product whether it is sold online or only outside the system (frozen and packaged products are sold through the bakery's SumUp app). May-contain (“kan sporen bevatten van”) is one kitchen-wide list in the company settings, not per product: allergens used in the kitchen but not in every recipe (owner, 2026-11-25). Every product shows its own allergens plus that list minus what it already contains; the list has its own approval | MVP |
 | F11 | Sales report | Sales per BTW rate per day, month and quarter; CSV export; for pay-what-you-want products, the average price paid against the suggested price | MVP |
 | F11a | B2B invoice overview | Business customers (company name, KvK, BTW-id, invoice address and email) order on account in the shop or through staff. An overview per customer and period lists every uninvoiced order with prices excl. BTW and totals per BTW rate, as screen, PDF and CSV. Marking orders invoiced records the invoice number and date from the hand-made invoice, so nothing is billed twice or missed | MVP |
 | F11b | Charity payout overview | Per charity and period: donations received, refunds, and the amount to transfer, which is the full amount customers paid minus refunds, with nothing taken off for BTW, fees or costs; saved donations shown separately. Marking a transfer records date, amount and bank reference | MVP |
@@ -279,7 +279,8 @@ bakflow/
 Thirty-eight tables cover v2. Customers need no address because everything is picked up; recipes are versioned and every batch keeps its own formula.
 
 ``` text
-Company          name, kvk, btw_id, address, settings
+Company          name, kvk, btw_id, address, settings, may_contain[],
+                 may_contain_approved_by?, may_contain_approved_at?
 StaffUser        oidc_sub, name, role (owner | baker | counter)
 Customer         email, name, phone, marketing_consent, created_at
 BusinessAccount  customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,
@@ -291,7 +292,8 @@ Mixer            name, max_dough_kg
 
 Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 | 21),
                  pay_what_you_want, min_price_cents?, max_price_cents?,
-                 unit_weight_g, dough_g_per_piece, freezer_days?, recipe_id?, allergens[], may_contain[],
+                 unit_weight_g, dough_g_per_piece, freezer_days?, recipe_id?, allergens[],
+                 may_contain[] (unused since the kitchen-wide list; removed in a later release),
                  ingredient_text, allergens_approved_by?, allergens_approved_at?, packaged,
                  sold_online, estimated_cost_cents?, active
 Ingredient       name, supplier_name, allergens[], may_contain[], spec_sheet_document_id?
@@ -360,6 +362,8 @@ AuditLog         entity, entity_id, action, before, after, actor, at
 - Batch cost uses the ingredient price valid on the bake day, so old batches keep their old prices.
 
 - A product's allergen data is published only after approval. Changing its recipe or an ingredient's allergens clears the approval.
+
+- The kitchen-wide may-contain list is published only after its own approval, and any change clears it. A product can be shown with allergens, ordered or labelled only while both its own allergen data and the kitchen-wide list are approved.
 
 - A batch that swaps or adds an ingredient gets its own allergen roll-up. If it differs from the product's approved allergens, its labels are blocked until someone approves it.
 

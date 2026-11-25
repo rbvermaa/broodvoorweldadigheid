@@ -89,6 +89,11 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **Confirmation email for orders on account.** F9 sends an order confirmation, but order
   emails go out on payment (ADR 0022) and orders on account have none (ADR 0032). Send one
   when staff place the order, to the contact email or the invoice email?
+- [ ] **Ingredient may-contain and the kitchen list** (F17, ADR 0038). May-contain is now one
+  kitchen-wide list. The data model still gives each `Ingredient` a `may_contain[]` (from
+  supplier spec sheets, F21). When recipes roll up allergens, should an ingredient's
+  may-contain go into the product's own allergens, be added to the kitchen list as a
+  suggestion, or be dropped?
 - [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
   commercially without Niimbot's consent).
   **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a
