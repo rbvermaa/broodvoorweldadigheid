@@ -11,8 +11,10 @@ workspace = true
 bakedays = { path = "../bakedays" }
 catalog = { path = "../catalog" }
 csv.workspace = true
+db = { path = "../db" }
 domain = { path = "../domain" }
 i18n = { path = "../i18n" }
+jiff.workspace = true
 orders = { path = "../orders" }
 recipes = { path = "../recipes" }
 serde_json.workspace = true
@@ -23,9 +25,7 @@ typst-layout = "0.15.1"
 typst-pdf = "0.15.1"
 
 [dev-dependencies]
-db = { path = "../db" }
 insta.workspace = true
-jiff.workspace = true
 proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true

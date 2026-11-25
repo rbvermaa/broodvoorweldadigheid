@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE batch SET status = 'baked',\n            baked_at = COALESCE(baked_at, timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb3cd8f5c9d1bba9166acbfb4206c2cb9e18d9ecdd2a9d257bd1fd9d6c1abe89"
+}

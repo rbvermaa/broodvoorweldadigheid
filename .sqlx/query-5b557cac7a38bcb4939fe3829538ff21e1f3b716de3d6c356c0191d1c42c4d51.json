@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE batch SET status = 'mixed',\n            mixed_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b557cac7a38bcb4939fe3829538ff21e1f3b716de3d6c356c0191d1c42c4d51"
+}

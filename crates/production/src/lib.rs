@@ -1,8 +1,9 @@
 //! The production list (F7), the pickup list (F8) and the ingredient needs (F15): their
-//! data and their PDFs. See ADR 0016 and ADR 0041. Also lays out the B2B invoice overview
-//! (F11a) for `reports` (ADR 0034).
+//! data and their PDFs. See ADR 0016 and ADR 0041. Batches (F14a, ADR 0042). Also lays out
+//! the B2B invoice overview (F11a) for `reports` (ADR 0034).
 #![forbid(unsafe_code)]
 
+pub mod batches;
 mod error;
 mod invoice;
 pub mod needs;

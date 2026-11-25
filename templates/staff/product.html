@@ -28,6 +28,7 @@
 {% endcall %}
 </fieldset>
 {% call s::live("unit_weight", check) %}{% call f::field("number", "unit_weight", layout.t("product-unit-weight")?, value = form.unit_weight, error = errors.get("unit_weight"), required = true) %}{% endcall %}{% endcall %}
+{% call f::field("number", "dough_weight", layout.t("product-dough-weight")?, value = form.dough_value(), hint = layout.t("product-dough-weight-hint")?, error = errors.get("dough_weight")) %}{% endcall %}
 {% call f::checkbox("sold_online", layout.t("product-sold-online")?, checked = form.sold_online) %}{% endcall %}
 {% call f::checkbox("active", layout.t("product-active")?, checked = form.active) %}{% endcall %}
 <fieldset class="field-group">

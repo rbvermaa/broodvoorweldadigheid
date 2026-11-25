@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id AS \"id!\", p.name_nl AS \"name_nl!\", p.dough_g_per_piece AS \"dough_g_per_piece!\",\n            p.recipe_id,\n            r.current_version_id AS \"version_id?\",\n            EXISTS (SELECT 1 FROM recipe_line l WHERE l.recipe_version_id = r.current_version_id)\n                AS \"has_lines!\"\n        FROM product p LEFT JOIN recipe r ON r.id = p.recipe_id\n        WHERE p.id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name_nl!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "name_nl"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dough_g_per_piece!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "dough_g_per_piece"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recipe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "recipe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "version_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "current_version_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "has_lines!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "731bb0f6f656f070da0b92f249165274e25262b64f548273497a600c8864a430"
+}

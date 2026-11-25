@@ -39,6 +39,8 @@ id_type!(
     IngredientId,
     RecipeId,
     RecipeVersionId,
+    BatchId,
+    BatchLineId,
 );
 
 #[cfg(test)]
