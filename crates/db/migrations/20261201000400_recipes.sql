@@ -85,6 +85,12 @@ BEGIN
     ELSE
         version_id := NEW.recipe_version_id;
     END IF;
+    -- Wait for any freeze still in progress, so the check below sees it.
+    PERFORM 1 FROM recipe_version
+    WHERE id = version_id
+        OR (TG_OP = 'UPDATE' AND id = OLD.recipe_version_id)
+    ORDER BY id
+    FOR SHARE;
     IF EXISTS (SELECT 1 FROM recipe_version WHERE id = version_id AND frozen_at IS NOT NULL)
         OR (TG_OP = 'UPDATE' AND EXISTS (
             SELECT 1 FROM recipe_version WHERE id = OLD.recipe_version_id AND frozen_at IS NOT NULL))

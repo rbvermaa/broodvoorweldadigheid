@@ -218,8 +218,11 @@ pub async fn update(
     input: &RecipeInput,
 ) -> Result<Recipe, Error> {
     validate_recipe(input)?;
-    let current = get(conn, id).await?;
+    let mut tx = conn.begin().await?;
+    let current = get(&mut tx, id).await?;
     if current.kind != input.kind {
+        // Taken before the check, so no freeze can slip in between check and update.
+        lock_graph(&mut tx).await?;
         let frozen_use = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM recipe_line l
                 JOIN recipe_version v ON v.id = l.recipe_version_id
@@ -227,13 +230,13 @@ pub async fn update(
                 WHERE s.recipe_id = $1 AND v.frozen_at IS NOT NULL) AS "used!""#,
             id.get(),
         )
-        .fetch_one(&mut *conn)
+        .fetch_one(&mut *tx)
         .await?;
         if frozen_use {
             return Err(Error::InUse);
         }
     }
-    sqlx::query_as!(
+    let updated = sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET name = $2, kind = $3 WHERE id = $1
         RETURNING id, name, kind, current_version_id",
@@ -241,11 +244,13 @@ pub async fn update(
         input.name.trim(),
         input.kind.code(),
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(unique)?
     .ok_or(Error::NotFound)?
-    .try_into()
+    .try_into()?;
+    tx.commit().await?;
+    Ok(updated)
 }
 
 /// # Errors
@@ -479,7 +484,7 @@ fn build(
 
 /// Serialises every change to which versions use which (saving lines, freezing), so the
 /// nesting check and the freeze cascade see the graph as it will be committed.
-async fn lock_graph(conn: &mut PgConnection) -> Result<(), Error> {
+pub(crate) async fn lock_graph(conn: &mut PgConnection) -> Result<(), Error> {
     sqlx::query!("SELECT pg_advisory_xact_lock($1)", GRAPH_LOCK)
         .execute(conn)
         .await?;
@@ -544,7 +549,7 @@ pub async fn save_draft(
     lock_graph(&mut tx).await?;
     let row = sqlx::query!(
         r#"SELECT recipe_id, frozen_at IS NOT NULL AS "frozen!" FROM recipe_version
-        WHERE id = $1 FOR UPDATE"#,
+        WHERE id = $1 FOR NO KEY UPDATE"#,
         id.get(),
     )
     .fetch_optional(&mut *tx)

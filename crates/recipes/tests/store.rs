@@ -803,3 +803,82 @@ async fn current_version_products_and_sub_choices(mut conn: PoolConnection<Postg
     let versions: Vec<i32> = for_levain.iter().map(|c| c.version).collect();
     assert_eq!(versions, vec![2, 1]);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_role_change_waits_for_a_freeze_in_progress(pool: sqlx::PgPool) {
+    let clock = FakeClock::new(ts("2026-12-01T09:00:00Z"));
+    let mut setup = pool.acquire().await.unwrap();
+    let k = kitchen(&mut setup).await;
+    let (dough, v1) = recipe(&mut setup, "Desembrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut setup,
+        v1.id,
+        &draft(vec![
+            line(LinePart::Ingredient(k.flour), 100),
+            line(LinePart::Ingredient(k.water), 70),
+        ]),
+    )
+    .await
+    .unwrap();
+    drop(setup);
+
+    let mut freezer = pool.acquire().await.unwrap();
+    let mut tx = sqlx::Connection::begin(&mut *freezer).await.unwrap();
+    store::freeze(&mut tx, dough, v1.id, &clock).await.unwrap();
+
+    let other = pool.clone();
+    let water = k.water;
+    let change = tokio::spawn(async move {
+        let mut conn = other.acquire().await.unwrap();
+        ingredients::update(
+            &mut conn,
+            water,
+            &ingredient_input("Water", IngredientRole::Other),
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(
+        !change.is_finished(),
+        "the role change waits for the freeze"
+    );
+    tx.commit().await.unwrap();
+
+    let result = change.await.unwrap();
+    assert!(matches!(result, Err(Error::InUse)), "{result:?}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_line_written_during_a_freeze_is_refused(pool: sqlx::PgPool) {
+    let mut setup = pool.acquire().await.unwrap();
+    let k = kitchen(&mut setup).await;
+    let (_, v1) = recipe(&mut setup, "Desembrood", RecipeKind::Dough).await;
+    drop(setup);
+
+    let mut freezer = pool.acquire().await.unwrap();
+    let mut tx = sqlx::Connection::begin(&mut *freezer).await.unwrap();
+    sqlx::query("UPDATE recipe_version SET frozen_at = now() WHERE id = $1")
+        .bind(v1.id.get())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let other = pool.clone();
+    let (version, flour) = (v1.id.get(), k.flour.get());
+    let insert = tokio::spawn(async move {
+        sqlx::query(
+            "INSERT INTO recipe_line (recipe_version_id, position, ingredient_id, bakers_pct_x1000)
+            VALUES ($1, 0, $2, 100000)",
+        )
+        .bind(version)
+        .bind(flour)
+        .execute(&other)
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!insert.is_finished(), "the line waits for the freeze");
+    tx.commit().await.unwrap();
+
+    let refused = insert.await.unwrap().unwrap_err();
+    assert!(refused.to_string().contains("is frozen"), "{refused}");
+}

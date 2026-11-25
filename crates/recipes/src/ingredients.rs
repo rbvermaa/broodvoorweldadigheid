@@ -3,11 +3,12 @@
 use std::collections::BTreeSet;
 
 use domain::{Allergen, IngredientId};
-use sqlx::PgConnection;
+use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
 use crate::error::unique;
 use crate::formula::IngredientRole;
+use crate::recipes::lock_graph;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IngredientInput {
@@ -114,21 +115,24 @@ pub async fn update(
     input: &IngredientInput,
 ) -> Result<Ingredient, Error> {
     validate(input)?;
-    let current = get(conn, id).await?;
+    let mut tx = conn.begin().await?;
+    let current = get(&mut tx, id).await?;
     if current.role != input.role {
+        // Taken before the check, so no freeze can slip in between check and update.
+        lock_graph(&mut tx).await?;
         let frozen_use = sqlx::query_scalar!(
             r#"SELECT EXISTS (SELECT 1 FROM recipe_line l
                 JOIN recipe_version v ON v.id = l.recipe_version_id
                 WHERE l.ingredient_id = $1 AND v.frozen_at IS NOT NULL) AS "used!""#,
             id.get(),
         )
-        .fetch_one(&mut *conn)
+        .fetch_one(&mut *tx)
         .await?;
         if frozen_use {
             return Err(Error::InUse);
         }
     }
-    sqlx::query_as!(
+    let updated = sqlx::query_as!(
         Row,
         r#"UPDATE ingredient SET name = $2, label_name = $3, role = $4, supplier_name = $5,
             allergens = $6
@@ -141,11 +145,13 @@ pub async fn update(
         input.supplier_name.trim(),
         &allergens_to_db(&input.allergens),
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *tx)
     .await
     .map_err(unique)?
     .ok_or(Error::NotFound)?
-    .try_into()
+    .try_into()?;
+    tx.commit().await?;
+    Ok(updated)
 }
 
 /// # Errors

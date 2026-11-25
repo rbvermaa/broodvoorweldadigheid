@@ -351,7 +351,11 @@ async fn changes_need_the_csrf_token(pool: PgPool) {
     for path in [
         "/staff/ingredients/new".to_owned(),
         "/staff/recipes/new".to_owned(),
+        format!("/staff/ingredients/{}", k.flour.get()),
+        format!("/staff/recipes/{}", k.dough.get()),
         format!("/staff/recipes/{}/versions", k.dough.get()),
+        format!("/staff/recipes/{}/products", k.dough.get()),
+        format!("/staff/recipes/{}/products/1/remove", k.dough.get()),
         format!("{version}/edit"),
         format!("{version}/freeze"),
         format!("{version}/current"),
@@ -804,4 +808,31 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
         .post(&format!("{levain}/products"), &[("product_id", "")])
         .await;
     no_product.redirects_to(&levain);
+
+    let htmx = |fields: &[(&str, &str)]| {
+        let mut all: Vec<(&str, &str)> = vec![("_csrf", &baker.token)];
+        all.extend_from_slice(fields);
+        Request::post(&levain)
+            .header(COOKIE, &baker.cookie)
+            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("hx-request", "true")
+            .body(Body::from(Client::body(&all)))
+            .expect("request")
+    };
+    let refused = baker
+        .send(htmx(&[("name", "Desem 1:1"), ("kind", "soaker")]))
+        .await;
+    assert_eq!(refused.status, StatusCode::OK, "htmx swaps the form in");
+    refused.shows(&dutch("recipe-error-kind-frozen"));
+    let saved = baker
+        .send(htmx(&[("name", "Desem"), ("kind", "preferment")]))
+        .await;
+    assert_eq!(saved.status, StatusCode::OK);
+    assert_eq!(
+        saved
+            .headers
+            .get("hx-redirect")
+            .map(|v| v.to_str().expect("ascii")),
+        Some(format!("{levain}?opgeslagen=1").as_str())
+    );
 }
