@@ -19,8 +19,8 @@ Niimbot app) and ADR 0046 (the F17 label check).
 | Copies: product label = good pieces minus frozen pieces; freezer label = frozen pieces | One label per piece; a frozen piece gets only the freezer label, with its own best-before |
 | Label settings per product on `/staff/products/{id}/etiket` (packaged, shelf life, storage instruction, freezer period), Production permission ("labels" in docs/permissions.md). The company address on `/staff/settings` (Settings permission). Neither writes an audit entry, like the product form | Neither could be set in the back office before; a separate page keeps the product form unchanged |
 | Downloads: `…/batches/{batch}/etiketten` lists per product and kind the PNGs, the CSV and the copy count, or the reason it is refused. Each file is made anew after the check; a refused file answers 409 with the page and the reason. Production permission | Spec: downloads from the batch page, blocked with the reason |
-| Individual downloads, no ZIP | No ZIP crate in the workspace (open question) |
-| No QR code on the freezer label yet | The spec does not say what it encodes, there is no QR crate, and Typst packages are not vendored (open question) |
+| Individual downloads, no ZIP | No ZIP crate in the workspace. Owner, 2026-11-25: no ZIP |
+| No QR code on the freezer label | The spec does not say what it encodes, there is no QR crate, and Typst packages are not vendored. Owner, 2026-11-25: no QR code |
 | `LabelPrint` is not stored | A download is not a print; the official app prints, so the system cannot know |
 
 Open: the Niimbot app's import format and image limits are still to be checked with the

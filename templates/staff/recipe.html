@@ -23,6 +23,15 @@
 {% call s::csrf() %}{% endcall %}
 {% call b::button(layout.t("recipe-new-version")?, variant = "secondary", kind = "submit") %}{% endcall %}
 </form>
+<h2>{{ layout.t("recipe-label-heading")? }}</h2>
+<p>{{ details.label.now }}</p>
+<form method="post" action="{{ details.label.action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("op_etiket", layout.t("recipe-label-mode")?, details.label.modes.iter(), hint = layout.t("recipe-label-mode-hint")?, required = true) %}{% endcall %}
+{% call f::field("text", "etiketnaam", layout.t("recipe-label-name")?, value = details.label.name, hint = layout.t("recipe-label-name-hint")?, error = errors.get("etiketnaam")) %}{% endcall %}
+<p class="field-hint">{{ layout.t("recipe-label-clears")? }}</p>
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
 <h2>{{ layout.t("recipe-products")? }}</h2>
 {% if details.products.is_empty() %}
 <p>{{ layout.t("recipe-products-none")? }}</p>

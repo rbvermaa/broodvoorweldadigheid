@@ -30,19 +30,23 @@ pub struct ApprovedAllergens {
 }
 
 /// One entry of an ingredient list; an `emphasised` one holds an allergen and is bold.
+/// A compound ingredient has its own ingredients in `parts`, shown in brackets.
 pub struct ListedIngredient {
     pub name: String,
     pub emphasised: bool,
+    pub parts: Vec<ListedIngredient>,
+}
+
+fn listed_one(item: &catalog::ListedIngredient) -> ListedIngredient {
+    ListedIngredient {
+        name: item.name.clone(),
+        emphasised: item.emphasised,
+        parts: item.parts.iter().map(listed_one).collect(),
+    }
 }
 
 pub fn listed(list: &catalog::IngredientList) -> Vec<ListedIngredient> {
-    list.0
-        .iter()
-        .map(|i| ListedIngredient {
-            name: i.name.clone(),
-            emphasised: i.emphasised,
-        })
-        .collect()
+    list.0.iter().map(listed_one).collect()
 }
 
 /// Hand-entered text as one plain entry; nothing when it is empty.
@@ -53,6 +57,7 @@ fn plain(text: String) -> Vec<ListedIngredient> {
     vec![ListedIngredient {
         name: text,
         emphasised: false,
+        parts: Vec::new(),
     }]
 }
 

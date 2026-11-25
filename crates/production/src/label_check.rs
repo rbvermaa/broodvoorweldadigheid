@@ -121,6 +121,7 @@ struct BatchValues {
     allergens: Option<Vec<String>>,
     ingredient_names: Option<Vec<String>>,
     ingredient_emphasis: Option<Vec<bool>>,
+    ingredient_depth: Option<Vec<i16>>,
     allergens_approved_by: Option<i64>,
     approved_at_us: Option<i64>,
 }
@@ -132,17 +133,15 @@ fn allergens_from_db(codes: &[String]) -> Result<BTreeSet<Allergen>, Error> {
         .collect()
 }
 
-fn list_from_db(names: Vec<String>, emphasis: Vec<bool>) -> Result<IngredientList, Error> {
-    if names.len() != emphasis.len() {
-        return Err(Error::Corrupt("batch ingredient list".to_owned()));
-    }
-    Ok(IngredientList(
-        names
-            .into_iter()
-            .zip(emphasis)
-            .map(|(name, emphasised)| catalog::ListedIngredient { name, emphasised })
-            .collect(),
-    ))
+fn list_from_db(
+    names: Vec<String>,
+    emphasis: Vec<bool>,
+    depth: Option<Vec<i16>>,
+) -> Result<IngredientList, Error> {
+    IngredientList::from_db(Some(names), Some(emphasis), depth)
+        .ok()
+        .flatten()
+        .ok_or_else(|| Error::Corrupt("batch ingredient list".to_owned()))
 }
 
 /// The batch's computed values; `None` when it cannot be weighed.
@@ -178,7 +177,8 @@ pub async fn check(
     let product = catalog::products::get(&mut tx, product).await?;
     let row = sqlx::query_as!(
         BatchValues,
-        r#"SELECT allergens, ingredient_names, ingredient_emphasis, allergens_approved_by,
+        r#"SELECT allergens, ingredient_names, ingredient_emphasis, ingredient_depth,
+            allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS approved_at_us
         FROM batch WHERE id = $1"#,
         batch.get(),
@@ -190,12 +190,13 @@ pub async fn check(
             allergens: Some(allergens),
             ingredient_names: Some(names),
             ingredient_emphasis: Some(emphasis),
+            ingredient_depth: depth,
             allergens_approved_by: Some(by),
             approved_at_us: Some(at),
         } => (
             Some(ComputedAllergens {
                 allergens: allergens_from_db(&allergens)?,
-                ingredients: list_from_db(names, emphasis)?,
+                ingredients: list_from_db(names, emphasis, depth)?,
             }),
             Some(Approval {
                 by: StaffUserId::new(by),
@@ -267,15 +268,10 @@ pub async fn approve_batch(
         .iter()
         .map(|a| a.code().to_owned())
         .collect();
-    let (names, emphasis): (Vec<String>, Vec<bool>) = reviewed
-        .ingredients
-        .0
-        .iter()
-        .map(|i| (i.name.clone(), i.emphasised))
-        .unzip();
+    let (names, emphasis, depth) = reviewed.ingredients.to_db();
     sqlx::query!(
         "UPDATE batch SET allergens = $2, ingredient_names = $3, ingredient_emphasis = $4,
-            allergens_approved_by = $5,
+            ingredient_depth = $7, allergens_approved_by = $5,
             allergens_approved_at = timestamptz 'epoch' + $6::bigint * interval '1 microsecond'
         WHERE id = $1",
         batch.get(),
@@ -284,6 +280,7 @@ pub async fn approve_batch(
         &emphasis,
         by.get(),
         db::time::to_micros(clock.now()),
+        &depth,
     )
     .execute(&mut *tx)
     .await?;
@@ -295,7 +292,8 @@ pub async fn approve_batch(
             action: "label_approved",
             before: None,
             after: Some(
-                json!({ "allergens": allergens, "ingredients": names, "emphasis": emphasis }),
+                json!({ "allergens": allergens, "ingredients": names, "emphasis": emphasis,
+                    "depth": depth }),
             ),
             actor: Actor::Staff(by),
             at: clock.now(),

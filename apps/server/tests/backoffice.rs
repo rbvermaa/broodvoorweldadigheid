@@ -4195,6 +4195,26 @@ async fn the_pickup_list_shows_approved_ingredients_with_allergens_in_bold(pool:
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_pickup_list_shows_a_compound_ingredient_with_its_parts(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for change in [
+        "UPDATE product SET ingredient_names = '{tarwebloem,vulling,suiker,boter}',
+            ingredient_emphasis = '{t,f,f,t}', ingredient_depth = '{0,0,1,1}',
+            ingredient_text = 'tarwebloem, vulling (suiker, boter)'",
+        "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
+            allergens_approved_at = now()",
+    ] {
+        sqlx::query(change).execute(&pool).await.expect("update");
+    }
+    counter
+        .get(&format!("/staff/bake-days/{}/pickup-list", paid.day.get()))
+        .await
+        .shows("<strong>tarwebloem</strong>, vulling (suiker, <strong>boter</strong>)");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn the_pickup_list_warns_about_a_batch_with_other_allergens(pool: PgPool) {
     let app = app(pool.clone());
     let paid = paid_order(&app).await;

@@ -49,6 +49,6 @@ has a newer one. Nothing is renormalised to 100% flour: the percentages are alre
 the overall-formula convention of ADR 0037, and copying them gives exactly the batch's
 grams at any dough weight (property test). A batch that added flour shows a total flour
 above 100% on the new version, with the usual warning. Any batch status can be promoted,
-also before mixing. The batch page shows the button when a line differs from the
+also before mixing (owner, 2026-11-25). The batch page shows the button when a line differs from the
 recipe, and a link to the version once promoted. Production permission, as every batch
 screen.

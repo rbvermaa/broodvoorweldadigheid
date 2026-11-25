@@ -1,0 +1,16 @@
+---
+source: crates/labels/src/tests.rs
+expression: "text(&cinnamon_bun(), &T).unwrap()"
+---
+--- whole 50 x 30 mm ---
+KANEELBOL
+*Netto gewicht:* |  110 g
+*Ten minste houdbaar tot:* |  
+07-12-2026
+*Partij:* |  261205-3
+Bewaren bij kamertemperatuur.
+Brood voor Weldadigheid, Voorbeeldlaan 1, 
+1234 AB Voorbeeld
+*Ingrediënten:* |   | *tarwebloem* | , water, vulling 
+(suiker,  | *boter* | , kaneel), zout.
+Kan sporen bevatten van noten.

@@ -2060,3 +2060,29 @@ async fn a_computed_ingredient_list_shows_allergens_in_bold(pool: PgPool) {
         reply.body
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_compound_ingredient_shows_its_parts_in_brackets(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    for change in [
+        "UPDATE product SET ingredient_names = '{tarwebloem,vulling,suiker,boter,zout}',
+            ingredient_emphasis = '{t,f,f,t,f}', ingredient_depth = '{0,0,1,1,0}',
+            ingredient_text = 'tarwebloem, vulling (suiker, boter), zout'",
+        "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
+            allergens_approved_at = now()",
+    ] {
+        sqlx::query(change).execute(&mut *conn).await.unwrap();
+    }
+    let (_, reply) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    assert!(
+        reply.body.contains(
+            "<strong>tarwebloem</strong>, vulling (suiker, <strong>boter</strong>), zout"
+        ),
+        "{}",
+        reply.body
+    );
+}

@@ -42,8 +42,9 @@ change, whoever writes it, so the shop blocks (ADR 0038) until someone approves 
 | `recipe.current_version_id` changes ("In gebruik nemen") | the products of that recipe |
 | A line is added, changed or removed in a version | products whose recipe's version in use is that version or uses it as sub-recipe, at any depth |
 | An ingredient's set of allergens changes, or its label name (an empty label name means the name) | products whose version in use holds the ingredient, directly or through sub-recipes |
+| What a recipe shows on the ingredient list as sub-recipe changes: compound or merged, or the compound name (ADR 0046, amended 2026-11-25) | products whose version in use holds a version of that recipe as sub-recipe, at any depth |
 
-Not cleared: renaming a recipe or changing its kind, notes or lead time; freezing; a new
+Not cleared: renaming a recipe or changing its kind, notes or lead time, unless that changes what it shows on the ingredient list (row above); freezing; a new
 draft that is not in use; an ingredient's supplier or role; its name when it has a label
 name; versions that are not in use. A sub-recipe line points at a version, so taking
 another version of a levain into use does not change a dough that uses it. Saving a draft
@@ -81,6 +82,7 @@ batch page saves the batch's formula as the next version of its recipe, through
 | Choice | Why |
 |---|---|
 | The new version is a draft and does not become the version in use; the baker takes it into use | Same rule as any new version above. Taking it into use is where a recipe change reaches products (and their allergen approval) |
+| Any batch status can be promoted, also before mixing | Owner, 2026-11-25 |
 | Refused when the recipe already has a draft, with its number | Same rule as saving a frozen version: one draft per recipe |
 | Promoting the same batch again returns the version made the first time, also after the batch changed since | One action, no pile of versions. The batch lock (`FOR UPDATE`) and the recipe lock serialise two clicks |
 | A batch whose lines equal its version's lines is refused ("unchanged") | Nothing to save |

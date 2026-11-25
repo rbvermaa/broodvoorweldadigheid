@@ -22,8 +22,8 @@ pub use ingredients::{Ingredient, IngredientInput};
 pub use method::{Method, MethodKind, Step, StepEdit};
 pub use needs::{DoughGrams, Need, ProductRecipe, RecipeInUse, shopping_list};
 pub use recipes::{
-    DraftInput, LineEdit, LineInput, LinePart, LineRow, LinkedProduct, Promotion, Recipe,
-    RecipeInput, RecipeSummary, SubChoice, Version,
+    DraftInput, LabelSetting, LineEdit, LineInput, LinePart, LineRow, LinkedProduct, Promotion,
+    Recipe, RecipeInput, RecipeSummary, SubChoice, Version,
 };
 
 /// How many levels of sub-recipes a recipe may have below it.
