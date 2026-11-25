@@ -39,6 +39,9 @@
 <footer class="site-footer">
 {% call brand::rule() %}{% endcall %}
 <p><span class="site-footer-name">{{ layout.t("app-name")? }}</span> {{ layout.t("tagline")? }}</p>
+{%- if layout.donations_link() %}
+<p><a href="/giften">{{ layout.t("giften-title")? }}</a></p>
+{%- endif %}
 </footer>
 </body>
 </html>

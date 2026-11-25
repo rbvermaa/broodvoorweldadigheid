@@ -3586,3 +3586,162 @@ async fn an_order_on_account_is_placed_without_its_email_when_company_details_ar
         .expect("outbox");
     assert_eq!(queued, 0);
 }
+
+/// `n` more paid orders of one bread on `paid`'s drop, each from another guest.
+async fn more_orders_on(app: &App, paid: &PaidOrder, n: usize) -> Vec<orders::Order> {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    let bread: i64 = sqlx::query_scalar("SELECT product_id FROM order_line WHERE order_id = $1")
+        .bind(paid.order.id.get())
+        .fetch_one(&mut *conn)
+        .await
+        .expect("line");
+    let slot = days::list_slots(&mut conn, paid.day).await.expect("slots")[0].id;
+    let mut placed = Vec::new();
+    for i in 0..n {
+        let mut cart = orders::Cart::new(paid.day);
+        cart.set(ProductId::new(bread), 1, None).expect("cart");
+        let order = orders::checkout(
+            &mut conn,
+            app.clock.as_ref(),
+            &cart,
+            &orders::CustomerInput {
+                email: format!("gever{i}@example.org"),
+                name: format!("Gever Nummer{i}"),
+                phone: None,
+                marketing_opt_in: false,
+            },
+            slot,
+            orders::OrderedBy::Guest,
+        )
+        .await
+        .expect("order");
+        let payment = pay_at_mollie(app, &order).await;
+        orders::mark_paid(
+            &mut conn,
+            app.clock.as_ref(),
+            order.id,
+            &orders::PaymentReceived {
+                reference: payment.to_string(),
+                amount: order.total,
+            },
+        )
+        .await
+        .expect("paid");
+        placed.push(order);
+    }
+    placed
+}
+
+fn visitor(app: &App) -> Client<'_> {
+    Client {
+        app,
+        cookie: String::new(),
+        token: String::new(),
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_owner_switches_the_public_donation_page_on_and_off(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    let visitor = visitor(&app);
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+    visitor.get("/faq").await.lacks("href=\"/giften\"");
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    assert_eq!(
+        baker.get("/staff/settings").await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        baker
+            .post("/staff/settings", &[("public_donations", "ja")])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let forged = Client {
+        app: &app,
+        cookie: owner.cookie.clone(),
+        token: "verkeerd".to_owned(),
+    };
+    assert_eq!(
+        forged
+            .post("/staff/settings", &[("public_donations", "ja")])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+
+    let settings = owner.get("/staff/settings").await;
+    assert_eq!(settings.status, StatusCode::OK, "{}", settings.text);
+    settings.shows(&dutch("settings-public-donations"));
+    owner
+        .post("/staff/settings", &[("public_donations", "ja")])
+        .await
+        .redirects_to("/staff/settings?opgeslagen=1");
+    owner
+        .get("/staff/settings?opgeslagen=1")
+        .await
+        .shows("name=\"public_donations\" value=\"ja\" checked");
+
+    let page = visitor.get("/giften").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    assert_eq!(page.header("cache-control"), "private, max-age=300");
+    page.shows(&dutch("giften-title"));
+    page.shows("Voedselbank");
+    page.shows(&dutch("giften-total-hidden"));
+    page.shows(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(paid.order.total.cents()));
+    page.lacks("Test Klant");
+    page.lacks("klant@example.org");
+    visitor.get("/faq").await.shows("href=\"/giften\"");
+
+    owner
+        .post("/staff/settings", &[])
+        .await
+        .redirects_to("/staff/settings?opgeslagen=1");
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+    visitor.get("/faq").await.lacks("href=\"/giften\"");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_public_donation_page_shows_totals_only_from_five_orders(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    let more = more_orders_on(&app, &paid, 4).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    catalog::company::set_public_donations(&mut conn, true)
+        .await
+        .expect("switch on");
+    let owner = staff(&pool, "Eigenaar Eva", Role::Owner).await;
+
+    let page = visitor(&app).get("/giften").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    let total = paid.order.total.cents() + 4 * more[0].total.cents();
+    page.shows(&format!(
+        "{}: {}",
+        dutch("giften-total"),
+        i18n::money(total)
+    ));
+    page.shows("<svg class=\"chart-svg\"");
+    page.shows(&format!("<li>Voedselbank: {}</li>", i18n::money(total)));
+    page.shows(&dutch("giften-col-drop"));
+    page.lacks(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(more[0].total.cents()));
+    page.lacks(&i18n::money(paid.order.total.cents()));
+    for personal in ["Test Klant", "klant@example.org", "Gever", "@example.org"] {
+        page.lacks(personal);
+    }
+
+    orders::cancel_paid(&mut conn, app.clock.as_ref(), more[0].id, owner.id)
+        .await
+        .expect("cancel");
+    let page = visitor(&app).get("/giften").await;
+    page.shows(&dutch("giften-total-hidden"));
+    page.shows(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(total - more[0].total.cents()));
+    page.lacks("<svg class=\"chart-svg\"");
+}
