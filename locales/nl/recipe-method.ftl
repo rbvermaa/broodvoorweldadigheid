@@ -15,7 +15,6 @@ method-steps-empty = Nog geen stappen. Voeg hieronder je eerste stap toe.
 method-step-new = Nieuwe stap
 method-step-add = Stap toevoegen
 method-step-name = Naam
-method-step-duration = Duur (minuten)
 method-step-duration-label = Duur
 method-step-temperature-label = Temperatuur
 # $name: Bulk

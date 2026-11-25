@@ -1229,8 +1229,12 @@ textarea.field-input {
 }
 
 .method-notes-edit {
-  flex: 1 1 var(--size-tile);
+  flex: 1;
   min-width: 0;
+}
+
+.method-row-tools .method-step-actions {
+  flex: none;
 }
 
 .method-notes-summary {
@@ -1248,7 +1252,28 @@ textarea.field-input {
 }
 
 .method-add {
-  align-items: flex-start;
+  align-items: flex-end;
+}
+
+.method-add .field {
+  margin: 0;
+}
+
+.method-add-duration {
+  flex: none;
+  width: calc(var(--size-target) + var(--space-7));
+}
+
+.method-table .field-input-number,
+.method-add .field-input-number {
+  padding: var(--space-1) var(--space-2);
+  appearance: textfield;
+}
+
+.method-table .field-input-number::-webkit-inner-spin-button,
+.method-add .field-input-number::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
 }
 
 .method-add-name {

@@ -147,17 +147,27 @@
 <tfoot><tr><td class="method-col-time">{% call clock_time(m.end, m.end_later) %}{% endcall %}</td><th scope="row" colspan="3">{{ layout.t("method-end")? }}</th></tr></tfoot>
 </table>
 </div>
+<div>
 {%- for row in m.steps %}
 <form id="{{ row.form }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:[form={{ row.form }}]" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall -%}
 <button type="submit" class="visually-hidden" tabindex="-1">{{ layout.t("form-save")? }}</button></form>
 {%- endfor %}
+</div>
 {%- endif %}
 {%- if let Some(add) = m.add %}
 <form class="method-add" method="post" action="{{ m.add_action }}" hx-post="{{ m.add_action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
 {%- call keep(m) %}{% endcall %}
-<div class="method-add-name">{% call inline_text(add.name_field, layout.t("method-step-new")?, add.name, add.errors.get(add.name_field.as_str()), "") %}{% endcall %}</div>
-{% call f::inline_number(add.duration_field, layout.t("method-step-duration")?, value = add.duration, error = add.errors.get(add.duration_field.as_str())) %}{% endcall %}
+<div class="method-add-name field{% if !add.errors.get(add.name_field.as_str()).is_empty() %} field-invalid{% endif %}">
+<label class="field-label" for="{{ add.name_field }}">{{ layout.t("method-step-new")? }}</label>
+<input class="field-input" type="text" autocomplete="off" id="{{ add.name_field }}" name="{{ add.name_field }}" value="{{ add.name }}"{% call f::described(add.name_field, "", add.errors.get(add.name_field.as_str()), false, false) %}{% endcall %}>
+{% call f::help(add.name_field, "", add.errors.get(add.name_field.as_str())) %}{% endcall %}
+</div>
+<div class="method-add-duration field{% if !add.errors.get(add.duration_field.as_str()).is_empty() %} field-invalid{% endif %}">
+<label class="field-label" for="{{ add.duration_field }}">{{ layout.t("method-col-duration")? }}</label>
+<input class="field-input field-input-number" type="number" inputmode="numeric" id="{{ add.duration_field }}" name="{{ add.duration_field }}" value="{{ add.duration }}"{% call f::described(add.duration_field, "", add.errors.get(add.duration_field.as_str()), false, false) %}{% endcall %}>
+{% call f::help(add.duration_field, "", add.errors.get(add.duration_field.as_str())) %}{% endcall %}
+</div>
 {% call b::button(layout.t("method-step-add")?, variant = "secondary", kind = "submit", small = true) %}{% endcall %}
 </form>
 <p class="field-hint">{{ layout.t("method-add-hint")? }}</p>
