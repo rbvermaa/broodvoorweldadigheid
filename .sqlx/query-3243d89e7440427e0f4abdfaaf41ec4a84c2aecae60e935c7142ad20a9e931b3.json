@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE product SET\n            allergens_approved_by = $2,\n            allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'\n        WHERE id = $1 AND allergens @> $4 AND allergens <@ $4\n            AND ingredient_text = $5 AND allergens_recipe_rev = $6\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev,\n            packaged, sold_online, estimated_cost_cents, active",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active AND sold_online ORDER BY name_nl, id",
   "describe": {
     "columns": [
       {
@@ -209,6 +209,28 @@
       },
       {
         "ordinal": 19,
+        "name": "ingredient_names",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_names"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "ingredient_emphasis",
+        "type_info": "BoolArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_emphasis"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -219,7 +241,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 22,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -230,7 +252,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 23,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -241,7 +263,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 24,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -253,14 +275,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8",
-        "Int8",
-        "Int8",
-        "TextArray",
-        "Text",
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -282,11 +297,13 @@
       null,
       true,
       false,
+      true,
+      true,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "dc98e2c2b3ff8163a57c9da3d4834c63eac94254b12cb11c6f818a6c40f1098f"
+  "hash": "3243d89e7440427e0f4abdfaaf41ec4a84c2aecae60e935c7142ad20a9e931b3"
 }

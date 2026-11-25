@@ -3,6 +3,7 @@
 //! checks and partial updates on top (ADR 0019).
 
 pub mod bake_days;
+pub mod batch_labels;
 pub mod batches;
 pub mod business;
 pub mod charities;
@@ -44,6 +45,7 @@ use crate::state::AppState;
 // One line per feature, sorted (ADR 0044).
 const FEATURES: &[fn() -> Router<AppState>] = &[
     bake_days::routes,
+    batch_labels::routes,
     batches::routes,
     business::routes,
     charities::routes,

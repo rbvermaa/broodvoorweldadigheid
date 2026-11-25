@@ -9,7 +9,10 @@ use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
-use catalog::{AllergenInfo, Pricing, Product, ProductInput, products};
+use catalog::{
+    AllergenInfo, ComputedAllergens, IngredientList, ListedIngredient, Pricing, Product,
+    ProductInput, products,
+};
 use domain::{Allergen, Money, PayWhatYouWant, ProductId, VatRate};
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -33,6 +36,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/products/{id}/approve",
             get(approve_form).post(approve),
+        )
+        .route(
+            "/staff/products/{id}/approve-computed",
+            post(approve_computed),
         )
 }
 
@@ -304,8 +311,77 @@ struct ApprovePage<'a> {
     back: String,
     allergens: Vec<&'static str>,
     ingredient_text: String,
+    current_list: Option<Vec<ListedView>>,
     revision: i64,
     changed: bool,
+    computed: Option<ComputedView>,
+    uncomputable: bool,
+}
+
+/// One ingredient of a list; `emphasised` ones are shown in bold.
+pub struct ListedView {
+    pub name: String,
+    pub emphasised: bool,
+}
+
+pub(super) fn listed(list: &IngredientList) -> Vec<ListedView> {
+    list.0
+        .iter()
+        .map(|i| ListedView {
+            name: i.name.clone(),
+            emphasised: i.emphasised,
+        })
+        .collect()
+}
+
+/// Values computed from a recipe or batch, with what their approval form sends back.
+pub struct ComputedView {
+    pub source: String,
+    pub allergens: Vec<&'static str>,
+    pub ingredients: Vec<ListedView>,
+    pub same: bool,
+    pub action: String,
+}
+
+impl ComputedView {
+    pub(super) fn new(
+        source: String,
+        computed: &ComputedAllergens,
+        same: bool,
+        action: String,
+    ) -> Self {
+        Self {
+            source,
+            allergens: codes(&computed.allergens),
+            ingredients: listed(&computed.ingredients),
+            same,
+            action,
+        }
+    }
+}
+
+/// The values an approval form sent back; `None` when the names and marks do not pair up.
+pub(super) fn reviewed_computed(fields: &Fields) -> Option<ComputedAllergens> {
+    let names: Vec<&str> = fields.all("ingredient").collect();
+    let marks: Vec<&str> = fields.all("vet").collect();
+    if names.len() != marks.len() {
+        return None;
+    }
+    let ingredients = names
+        .into_iter()
+        .zip(marks)
+        .map(|(name, mark)| ListedIngredient {
+            name: name.to_owned(),
+            emphasised: mark == "1",
+        })
+        .collect();
+    Some(ComputedAllergens {
+        allergens: fields
+            .all("allergens")
+            .filter_map(|code| code.parse().ok())
+            .collect(),
+        ingredients: IngredientList(ingredients),
+    })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -633,6 +709,30 @@ async fn render_approve(
     changed: bool,
 ) -> Outcome {
     let info = &product.allergen_info;
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    let rolled = recipes::rollup::for_product(&mut conn, product.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
+    drop(conn);
+    let uncomputable = rolled.as_ref().is_some_and(|r| r.computed.is_none());
+    let computed = rolled.and_then(|rolled| {
+        let computed = rolled.computed?;
+        let same = computed.allergens == info.allergens
+            && product.ingredient_list.as_ref() == Some(&computed.ingredients);
+        Some(ComputedView::new(
+            t_with(
+                state,
+                "rollup-source",
+                &[
+                    ("recipe", rolled.recipe_name),
+                    ("n", rolled.version.to_string()),
+                ],
+            ),
+            &computed,
+            same,
+            format!("{}/approve-computed", product_path(product.id)),
+        ))
+    });
     Ok(pages::render(
         state,
         status,
@@ -643,10 +743,54 @@ async fn render_approve(
             back: product_path(product.id),
             allergens: codes(&info.allergens),
             ingredient_text: info.ingredient_text.clone(),
+            current_list: product.ingredient_list.as_ref().map(listed),
             revision: product.allergen_revision,
             changed,
+            computed,
+            uncomputable,
         },
     ))
+}
+
+/// Approves the values the recipe computes, when they are still what the page showed
+/// (F17). They become the product's allergens and ingredient text.
+pub async fn approve_computed(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::EditAllergens)?;
+        let product = load(&state, &id).await?;
+        let result = match reviewed_computed(&fields) {
+            Some(reviewed) => {
+                let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+                recipes::rollup::approve_product(
+                    &mut conn,
+                    product.id,
+                    &reviewed,
+                    revision(&fields),
+                    staff.0.id,
+                    state.clock.as_ref(),
+                )
+                .await
+                .map(|_| ())
+            }
+            None => Err(recipes::Error::AllergensChanged),
+        };
+        match result {
+            Ok(()) => Ok(saved(&headers, &product_path(product.id))),
+            Err(recipes::Error::AllergensChanged | recipes::Error::NotFound) => {
+                let product = load(&state, &id).await?;
+                render_approve(&state, &session, StatusCode::CONFLICT, &product, true).await
+            }
+            Err(error) => Err(fail(&state, &error).into()),
+        }
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
 }
 
 pub async fn approve_form(

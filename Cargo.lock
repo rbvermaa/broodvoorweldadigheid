@@ -3383,6 +3383,7 @@ dependencies = [
 name = "recipes"
 version = "0.1.0"
 dependencies = [
+ "catalog",
  "db",
  "domain",
  "jiff",

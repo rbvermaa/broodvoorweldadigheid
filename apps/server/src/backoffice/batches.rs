@@ -376,6 +376,7 @@ struct BatchPage<'a> {
     promotable: bool,
     promoted: Option<(String, String)>,
     promote_action: String,
+    label_links: Vec<(String, String)>,
 }
 
 /// What the baker posted, applied to the batch as far as it reads; with the errors of the
@@ -784,6 +785,16 @@ async fn render_batch(
                 }),
             promoted,
             promote_action: format!("{path}/promote"),
+            label_links: stored
+                .outputs
+                .iter()
+                .map(|o| {
+                    (
+                        super::batch_labels::path(&path, o.product_id),
+                        t_with(state, "label-check-link", &[("product", o.name.clone())]),
+                    )
+                })
+                .collect(),
         },
     ))
 }
