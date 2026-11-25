@@ -20,12 +20,12 @@ F14a: batches per bake day in `production::batches` and back-office pages under
 | Every batch screen needs the Production permission (owner and baker); counter staff get 403 | ADR 0010 |
 | The product form gets "Deeg per stuk (gram)" (`product.dough_g_per_piece`); a post without the field keeps the stored value | Batches need it, and no screen could set it before |
 | `production::batches::formulas_for_day(conn, day) -> Vec<BatchFormula>` gives per batch its recipe, version, outputs, dough weight and own formula | The seam for ingredient needs after the deadline (F15): one F15 dough per batch, grams from `DoughGrams::from_formula(&formula, dough_g)` |
+| Extra production added or changed after batches exist does not resize them: more pieces show as in no batch and get a batch by hand, fewer pieces are adjusted by hand | Owner decision 2026-11-25 (F7a) |
 
 Open:
 
 - F7a says extras can change "until the batch is mixed". Extras are not yet refused after
-  mixing; a change does not resize batches. More pieces show as in no batch, fewer pieces
-  need a manual adjustment.
+  mixing.
 - No delete for a planned batch; set its pieces to 0 instead.
 - A later save without a reason clears the stored reason on the lines it changes; the audit
   log keeps every reason.

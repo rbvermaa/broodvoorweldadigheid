@@ -8,7 +8,7 @@
 <p><a href="{{ production }}">{{ layout.t("production-title")? }}</a></p>
 <p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
 <p><a href="{{ csv }}">{{ layout.t("reports-csv")? }}</a></p>
-<p>{{ layout.t("needs-basis-recipes")? }}</p>
+<p>{{ basis }}</p>
 {% if !missing.rows.is_empty() %}
 {% call fb::alert("warning", layout.t("needs-missing-intro")?) %}{% endcall %}
 {% endif %}

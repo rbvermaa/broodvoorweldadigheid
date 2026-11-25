@@ -200,7 +200,7 @@ pub async fn production_pdf(
 async fn load_needs(state: &AppState, raw_id: &str) -> Step<IngredientNeeds> {
     let day = bake_days::load(state, raw_id).await?;
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    production::ingredient_needs(&mut conn, day.id)
+    production::ingredient_needs(&mut conn, day.id, state.clock.as_ref())
         .await
         .map_err(|e| production_error(state, &e))
 }
@@ -210,6 +210,7 @@ async fn load_needs(state: &AppState, raw_id: &str) -> Step<IngredientNeeds> {
 struct NeedsPage<'a> {
     layout: Layout<'a>,
     heading: String,
+    basis: String,
     back: String,
     production: String,
     pdf: String,
@@ -258,14 +259,7 @@ fn needs_tables(
             })
             .collect();
         doughs.push(vec![
-            Cell::text(t_with(
-                state,
-                "needs-dough-name",
-                &[
-                    ("recipe", dough.recipe.clone()),
-                    ("version", dough.version.to_string()),
-                ],
-            )),
+            Cell::text(production::needs::dough_name(&state.i18n, dough)?),
             Cell::text(products.join(", ")),
             Cell::number(weight(dough.grams.total())?),
         ]);
@@ -334,6 +328,7 @@ pub async fn needs_page(
                     "lists-needs-heading",
                     &[("date", state.i18n.long_date(needs.day.date))],
                 ),
+                basis: t(&state, needs.basis.message_id()),
                 back: day_path(needs.day.id),
                 production: production_path(&needs.day),
                 pdf: format!("{path}/pdf"),

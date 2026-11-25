@@ -152,3 +152,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   another version into use, editing the lines of the version in use and changing an
   ingredient's allergens or label name in it all clear the approval (database triggers,
   ADR 0037).
+- [x] **Extras after batches exist** (ADR 0042). F7a says extras can change until the
+  batch is mixed. Should a change resize planned batches?
+  **Answered 2026-11-25:** no, the baker adjusts batches by hand (ADR 0042).
