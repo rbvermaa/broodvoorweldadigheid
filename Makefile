@@ -12,6 +12,7 @@
 #   make smoke SMOKE_ARGS=--keep-on-failure   leave a failed stack running to inspect it
 #   make images                 build every image for ARCH, docker load it, tag it BVW_IMAGE_TAG
 #   make linux-check            run every x86_64-linux check on LINUX_BUILDER
+#   make e2e                    browser tests in a NixOS VM (x86_64-linux with kvm; LINUX_BUILDER on macOS)
 #   make image-server LINUX_STORE=ssh-ng://dev2   build one image with dev2 as the store
 #   MOLLIE_TEST_API_KEY_FILE=path make mollie-contract   contract test against Mollie test mode
 
@@ -40,7 +41,8 @@ IMAGES := server postgres kanidm caddy backup mailpit
 LINUX_NIX = $(if $(LINUX_STORE),--eval-store auto --store $(LINUX_STORE),$(if $(LINUX_BUILDER),\
 	--option builders '$(LINUX_BUILDER)' --option external-builders '[]' --option builders-use-substitutes true))
 IMAGE_BUILD = nix build --no-link --print-out-paths --print-build-logs $(LINUX_NIX) .\#packages.$(ARCH).$(1)-image
-LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid adr-numbers coverage-report coverage restore image-contents
+LINUX_CHECKS = fmt clippy nextest deny audit layers unsafe-forbid adr-numbers coverage-report coverage restore image-contents \
+	$(if $(filter x86_64-linux,$(ARCH)),e2e)
 IMAGE_CAT = $(if $(LINUX_STORE),nix store cat --store $(LINUX_STORE),cat)
 
 PG_DIR := $(CURDIR)/.pg
@@ -69,7 +71,7 @@ COMPOSE := docker compose --file deploy/compose.yaml --project-name $(COMPOSE_PR
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
 	db-down sqlx-prepare sqlx-check migrations-lock logo restore-test mollie-contract ci-deps image-contents linux-check \
-	images $(addprefix image-,$(IMAGES)) up down smoke staff-add
+	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -174,6 +176,9 @@ ci-deps: ## Build the dependency artifacts and toolchain every check shares (CI 
 
 image-contents: ## Image contents check only, for ARCH on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.$(ARCH).image-contents
+
+e2e: ## Browser tests (thirtyfour, axe-core) in a NixOS VM; x86_64-linux with kvm only
+	nix build --no-link --print-build-logs $(LINUX_NIX) .\#checks.x86_64-linux.e2e
 
 linux-check: ## Run every ARCH check (images, restore test, ...) on the Linux builder
 	nix build --no-link --print-build-logs $(LINUX_NIX) $(foreach c,$(LINUX_CHECKS),.\#checks.$(ARCH).$(c))
