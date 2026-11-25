@@ -61,15 +61,18 @@ CREATE INDEX recipe_line_sub_idx ON recipe_line (sub_recipe_version_id)
 CREATE FUNCTION refuse_frozen_version_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-    IF OLD.frozen_at IS NOT NULL AND NEW IS DISTINCT FROM OLD THEN
+    IF OLD.frozen_at IS NOT NULL AND (TG_OP = 'DELETE' OR NEW IS DISTINCT FROM OLD) THEN
         RAISE EXCEPTION 'recipe version % is frozen', OLD.id
             USING ERRCODE = 'restrict_violation';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
     END IF;
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER recipe_version_frozen BEFORE UPDATE ON recipe_version
+CREATE TRIGGER recipe_version_frozen BEFORE UPDATE OR DELETE ON recipe_version
     FOR EACH ROW EXECUTE FUNCTION refuse_frozen_version_change();
 
 CREATE FUNCTION refuse_frozen_line_change() RETURNS trigger
@@ -100,3 +103,26 @@ CREATE TRIGGER recipe_line_frozen BEFORE INSERT OR UPDATE OR DELETE ON recipe_li
     FOR EACH ROW EXECUTE FUNCTION refuse_frozen_line_change();
 
 ALTER TABLE product ADD COLUMN recipe_id bigint REFERENCES recipe (id);
+
+-- At commit, every sub-recipe of a frozen version is frozen too, whoever wrote the rows.
+CREATE FUNCTION refuse_frozen_with_draft_sub() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM recipe_version v
+        JOIN recipe_line l ON l.recipe_version_id = v.id
+        JOIN recipe_version s ON s.id = l.sub_recipe_version_id
+        WHERE v.id = NEW.id AND v.frozen_at IS NOT NULL AND s.frozen_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'frozen recipe version % uses a draft sub-recipe', NEW.id
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER recipe_version_frozen_subs AFTER UPDATE ON recipe_version
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW WHEN (NEW.frozen_at IS NOT NULL)
+    EXECUTE FUNCTION refuse_frozen_with_draft_sub();

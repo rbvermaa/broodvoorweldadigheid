@@ -16,6 +16,8 @@ pub const MAX_LEAD_TIME_HOURS: i32 = 168;
 /// The highest percentage of one line: 1000%.
 pub const MAX_LINE_PCT: Pct = Pct::from_thousandths(1_000_000);
 pub const MAX_LINES: usize = 60;
+/// Advisory lock key for [`lock_graph`]; unique among the keys the crates use.
+const GRAPH_LOCK: i64 = 0x7265_6369_7065_7331;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecipeInput {
@@ -204,16 +206,33 @@ pub async fn create(
     Ok((recipe, version))
 }
 
-/// Renames a recipe or changes its kind; versions stay as they are.
+/// Renames a recipe or changes its kind; versions stay as they are. The kind cannot
+/// change while a frozen version uses one of its versions, since the kind decides what
+/// counts as prefermented flour there.
 ///
 /// # Errors
-/// [`Error::NotFound`], [`Error::Invalid`] or [`Error::Duplicate`].
+/// [`Error::NotFound`], [`Error::Invalid`], [`Error::Duplicate`] or [`Error::InUse`].
 pub async fn update(
     conn: &mut PgConnection,
     id: RecipeId,
     input: &RecipeInput,
 ) -> Result<Recipe, Error> {
     validate_recipe(input)?;
+    let current = get(conn, id).await?;
+    if current.kind != input.kind {
+        let frozen_use = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM recipe_line l
+                JOIN recipe_version v ON v.id = l.recipe_version_id
+                JOIN recipe_version s ON s.id = l.sub_recipe_version_id
+                WHERE s.recipe_id = $1 AND v.frozen_at IS NOT NULL) AS "used!""#,
+            id.get(),
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+        if frozen_use {
+            return Err(Error::InUse);
+        }
+    }
     sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET name = $2, kind = $3 WHERE id = $1
@@ -458,6 +477,15 @@ fn build(
     Ok(Formula { lines })
 }
 
+/// Serialises every change to which versions use which (saving lines, freezing), so the
+/// nesting check and the freeze cascade see the graph as it will be committed.
+async fn lock_graph(conn: &mut PgConnection) -> Result<(), Error> {
+    sqlx::query!("SELECT pg_advisory_xact_lock($1)", GRAPH_LOCK)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 async fn lock_recipe(conn: &mut PgConnection, id: RecipeId) -> Result<(), Error> {
     sqlx::query_scalar!("SELECT id FROM recipe WHERE id = $1 FOR UPDATE", id.get())
         .fetch_optional(conn)
@@ -513,6 +541,7 @@ pub async fn save_draft(
 ) -> Result<Version, Error> {
     validate_draft(input)?;
     let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
     let row = sqlx::query!(
         r#"SELECT recipe_id, frozen_at IS NOT NULL AS "frozen!" FROM recipe_version
         WHERE id = $1 FOR UPDATE"#,
@@ -681,18 +710,13 @@ pub async fn freeze(
 ) -> Result<Version, Error> {
     let mut tx = conn.begin().await?;
     version(&mut tx, recipe_id, id).await?;
+    lock_graph(&mut tx).await?;
+    let reach = reach_of(&mut tx, id).await?;
     sqlx::query!(
-        "WITH RECURSIVE reach (version_id) AS (
-            SELECT $1::bigint
-            UNION
-            SELECT l.sub_recipe_version_id
-            FROM recipe_line l JOIN reach r ON l.recipe_version_id = r.version_id
-            WHERE l.sub_recipe_version_id IS NOT NULL
-        )
-        UPDATE recipe_version
+        "UPDATE recipe_version
         SET frozen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
-        WHERE id IN (SELECT version_id FROM reach) AND frozen_at IS NULL",
-        id.get(),
+        WHERE id = ANY($1) AND frozen_at IS NULL",
+        &reach,
         db::time::to_micros(clock.now()),
     )
     .execute(&mut *tx)
@@ -700,6 +724,23 @@ pub async fn freeze(
     let frozen = version(&mut tx, recipe_id, id).await?;
     tx.commit().await?;
     Ok(frozen)
+}
+
+/// `id` and every version below it, sorted.
+async fn reach_of(conn: &mut PgConnection, id: RecipeVersionId) -> Result<Vec<i64>, Error> {
+    Ok(sqlx::query_scalar!(
+        r#"WITH RECURSIVE reach (version_id) AS (
+            SELECT $1::bigint
+            UNION
+            SELECT l.sub_recipe_version_id
+            FROM recipe_line l JOIN reach r ON l.recipe_version_id = r.version_id
+            WHERE l.sub_recipe_version_id IS NOT NULL
+        )
+        SELECT version_id AS "version_id!" FROM reach ORDER BY version_id"#,
+        id.get(),
+    )
+    .fetch_all(conn)
+    .await?)
 }
 
 /// Makes `id` the version production uses.

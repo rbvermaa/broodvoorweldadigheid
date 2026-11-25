@@ -729,3 +729,79 @@ async fn baker_creates_a_recipe_and_links_a_product(pool: PgPool) {
     let blank = baker.post(&path, &[("name", ""), ("kind", "dough")]).await;
     assert_eq!(blank.status, StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    store::save_draft(
+        &mut conn,
+        k.dough_v1,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: Pct::HUNDRED,
+                    part: LinePart::Ingredient(k.flour),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(20_000),
+                    part: LinePart::Sub(k.levain_v1),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("dough");
+    store::freeze(&mut conn, k.dough, k.dough_v1, app.clock.as_ref())
+        .await
+        .expect("freeze");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+
+    let water = format!("/staff/ingredients/{}", k.water.get());
+    let role = baker
+        .post(&water, &[("name", "Water"), ("role", "other")])
+        .await;
+    assert_eq!(
+        role.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        role.text
+    );
+    role.shows(&dutch("ingredient-error-role-frozen"));
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        ingredients::get(&mut conn, k.water)
+            .await
+            .expect("water")
+            .role,
+        IngredientRole::Water
+    );
+    baker
+        .post(&water, &[("name", "Kraanwater"), ("role", "water")])
+        .await
+        .redirects_to(&format!("{water}?opgeslagen=1"));
+
+    let levain = format!("/staff/recipes/{}", k.levain.get());
+    let kind = baker
+        .post(&levain, &[("name", "Desem"), ("kind", "dough")])
+        .await;
+    assert_eq!(
+        kind.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        kind.text
+    );
+    kind.shows(&dutch("recipe-error-kind-frozen"));
+    baker
+        .post(&levain, &[("name", "Desem 1:1"), ("kind", "preferment")])
+        .await
+        .redirects_to(&format!("{levain}?opgeslagen=1"));
+
+    let no_product = baker
+        .post(&format!("{levain}/products"), &[("product_id", "")])
+        .await;
+    no_product.redirects_to(&levain);
+}

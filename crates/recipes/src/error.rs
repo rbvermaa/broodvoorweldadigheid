@@ -8,6 +8,9 @@ pub enum Error {
     Invalid(&'static str),
     #[error("the name is already in use")]
     Duplicate,
+    /// A frozen version uses it, and the change would alter that version's figures.
+    #[error("a frozen recipe version uses it")]
+    InUse,
     /// The recipe already has a draft; edit that one.
     #[error("recipe already has draft version {0:?}")]
     DraftExists(RecipeVersionId),

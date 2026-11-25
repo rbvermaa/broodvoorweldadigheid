@@ -412,6 +412,15 @@ async fn the_database_refuses_changes_to_frozen_versions(mut conn: PoolConnectio
         let refused = sqlx::query(sql).bind(v1.id.get()).execute(&mut *conn).await;
         assert!(refused.is_err(), "{sql}");
     }
+    let deleted = sqlx::query("DELETE FROM recipe_version WHERE id = $1")
+        .bind(v1.id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap_err();
+    assert!(
+        deleted.to_string().contains("is frozen"),
+        "the trigger refuses before any foreign key does: {deleted}"
+    );
 
     let (_, other) = recipe(&mut conn, "Spelt", RecipeKind::Dough).await;
     let moved =
@@ -421,6 +430,169 @@ async fn the_database_refuses_changes_to_frozen_versions(mut conn: PoolConnectio
             .execute(&mut *conn)
             .await;
     assert!(moved.is_err(), "a line cannot leave a frozen version");
+
+    let (concept, draft_v1) = recipe(&mut conn, "Concept", RecipeKind::Dough).await;
+    sqlx::query("UPDATE recipe SET current_version_id = NULL WHERE id = $1")
+        .bind(concept.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let deleted = sqlx::query("DELETE FROM recipe_version WHERE id = $1")
+        .bind(draft_v1.id.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(deleted.rows_affected(), 1, "a draft version can go");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_database_refuses_a_frozen_version_with_a_draft_sub(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let k = kitchen(&mut conn).await;
+    let (levain_id, levain_v1) = levain(&mut conn, &k).await;
+    let (_, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        v1.id,
+        &draft(vec![
+            line(LinePart::Ingredient(k.flour), 90),
+            line(LinePart::Sub(levain_v1.id), 20),
+        ]),
+    )
+    .await
+    .unwrap();
+
+    let mut tx = sqlx::Connection::begin(&mut *conn).await.unwrap();
+    sqlx::query("UPDATE recipe_version SET frozen_at = now() WHERE id = $1")
+        .bind(v1.id.get())
+        .execute(&mut *tx)
+        .await
+        .expect("the check waits for the commit");
+    let refused = tx.commit().await.unwrap_err();
+    assert!(
+        refused.to_string().contains("draft sub-recipe"),
+        "the sub-recipe is still a draft: {refused}"
+    );
+    assert!(
+        store::version(&mut conn, levain_id, levain_v1.id)
+            .await
+            .unwrap()
+            .frozen_at
+            .is_none()
+    );
+
+    let mut tx = sqlx::Connection::begin(&mut *conn).await.unwrap();
+    for id in [v1.id, levain_v1.id] {
+        sqlx::query("UPDATE recipe_version SET frozen_at = now() WHERE id = $1")
+            .bind(id.get())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx.commit()
+        .await
+        .expect("freezing both in one transaction is fine");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn what_a_frozen_version_counts_on_cannot_change(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-12-01T09:00:00Z"));
+    let k = kitchen(&mut conn).await;
+    let (levain_id, levain_v1) = levain(&mut conn, &k).await;
+    let rye = ingredient(&mut conn, "Roggemeel", IngredientRole::Flour).await;
+    let (_, rye_v1) = recipe(&mut conn, "Rogge", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        rye_v1.id,
+        &draft(vec![line(LinePart::Ingredient(rye), 100)]),
+    )
+    .await
+    .unwrap();
+    let draft_use = ingredients::update(
+        &mut conn,
+        rye,
+        &ingredient_input("Roggemeel", IngredientRole::Other),
+    )
+    .await;
+    assert!(draft_use.is_ok(), "only a draft uses it: {draft_use:?}");
+
+    let as_dough = RecipeInput {
+        name: "Desem".to_owned(),
+        kind: RecipeKind::Dough,
+    };
+    let as_preferment = RecipeInput {
+        name: "Desem".to_owned(),
+        kind: RecipeKind::Preferment,
+    };
+    store::update(&mut conn, levain_id, &as_dough)
+        .await
+        .expect("nothing frozen uses the levain yet");
+    store::update(&mut conn, levain_id, &as_preferment)
+        .await
+        .unwrap();
+
+    let (dough, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        v1.id,
+        &draft(vec![
+            line(LinePart::Ingredient(k.flour), 90),
+            line(LinePart::Ingredient(k.water), 60),
+            line(LinePart::Sub(levain_v1.id), 20),
+        ]),
+    )
+    .await
+    .unwrap();
+    store::freeze(&mut conn, dough, v1.id, &clock)
+        .await
+        .unwrap();
+
+    let role = ingredients::update(
+        &mut conn,
+        k.water,
+        &ingredient_input("Water", IngredientRole::Other),
+    )
+    .await;
+    assert!(matches!(role, Err(Error::InUse)), "{role:?}");
+    let renamed = ingredients::update(
+        &mut conn,
+        k.water,
+        &ingredient_input("Kraanwater", IngredientRole::Water),
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed.name, "Kraanwater", "a new name keeps the figures");
+
+    let kind = store::update(&mut conn, levain_id, &as_dough).await;
+    assert!(matches!(kind, Err(Error::InUse)), "{kind:?}");
+    let renamed = store::update(
+        &mut conn,
+        levain_id,
+        &RecipeInput {
+            name: "Desem 1:1".to_owned(),
+            kind: RecipeKind::Preferment,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(renamed.name, "Desem 1:1");
+    let top_kind = store::update(
+        &mut conn,
+        dough,
+        &RecipeInput {
+            name: "Desembrood".to_owned(),
+            kind: RecipeKind::Filling,
+        },
+    )
+    .await;
+    assert!(
+        top_kind.is_ok(),
+        "no frozen version uses the dough as a sub-recipe: {top_kind:?}"
+    );
+
+    let missing = store::update(&mut conn, RecipeId::new(999), &as_dough).await;
+    assert!(matches!(missing, Err(Error::NotFound)), "{missing:?}");
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

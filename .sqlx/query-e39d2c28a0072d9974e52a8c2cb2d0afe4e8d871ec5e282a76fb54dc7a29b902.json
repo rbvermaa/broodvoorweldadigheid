@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE recipe_version\n        SET frozen_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond'\n        WHERE id = ANY($1) AND frozen_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e39d2c28a0072d9974e52a8c2cb2d0afe4e8d871ec5e282a76fb54dc7a29b902"
+}

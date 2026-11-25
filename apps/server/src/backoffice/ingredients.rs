@@ -342,6 +342,11 @@ async fn save(
                 errors.add("name", t(&state, "ingredient-error-duplicate"));
                 refused(form, errors).await
             }
+            Err(recipes::Error::InUse) => {
+                let mut errors = Errors::default();
+                errors.add("role", t(&state, "ingredient-error-role-frozen"));
+                refused(form, errors).await
+            }
             Err(other) => Err(fail(&state, &other).into()),
         }
     };

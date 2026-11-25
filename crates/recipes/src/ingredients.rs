@@ -103,14 +103,31 @@ pub async fn create(conn: &mut PgConnection, input: &IngredientInput) -> Result<
     .try_into()
 }
 
+/// A frozen recipe version keeps its hydration, so the role of an ingredient it uses
+/// cannot change.
+///
 /// # Errors
-/// [`Error::NotFound`], [`Error::Invalid`] or [`Error::Duplicate`].
+/// [`Error::NotFound`], [`Error::Invalid`], [`Error::Duplicate`] or [`Error::InUse`].
 pub async fn update(
     conn: &mut PgConnection,
     id: IngredientId,
     input: &IngredientInput,
 ) -> Result<Ingredient, Error> {
     validate(input)?;
+    let current = get(conn, id).await?;
+    if current.role != input.role {
+        let frozen_use = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM recipe_line l
+                JOIN recipe_version v ON v.id = l.recipe_version_id
+                WHERE l.ingredient_id = $1 AND v.frozen_at IS NOT NULL) AS "used!""#,
+            id.get(),
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+        if frozen_use {
+            return Err(Error::InUse);
+        }
+    }
     sqlx::query_as!(
         Row,
         r#"UPDATE ingredient SET name = $2, label_name = $3, role = $4, supplier_name = $5,

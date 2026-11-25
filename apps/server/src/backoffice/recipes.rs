@@ -4,7 +4,7 @@ use askama::Template;
 use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Redirect, Response};
 use catalog::products as catalog_products;
 use domain::{ProductId, RecipeId, RecipeVersionId, in_bakery_time};
 use jiff::Timestamp;
@@ -424,9 +424,13 @@ async fn save_recipe(
         };
         match result {
             Ok(recipe) => Ok(saved(&headers, &recipe_path(recipe.id))),
-            Err(recipes::Error::Duplicate) => {
+            Err(error @ (recipes::Error::Duplicate | recipes::Error::InUse)) => {
                 let mut errors = Errors::default();
-                errors.add("name", t(&state, "recipe-error-duplicate"));
+                if matches!(error, recipes::Error::Duplicate) {
+                    errors.add("name", t(&state, "recipe-error-duplicate"));
+                } else {
+                    errors.add("kind", t(&state, "recipe-error-kind-frozen"));
+                }
                 render_recipe(
                     &state,
                     &session,
@@ -474,10 +478,11 @@ pub async fn link_product(
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
+        require(&state, &staff, Permission::EditAllergens)?;
         let recipe = load_recipe(&state, &id).await?;
         let path = recipe_path(recipe.id);
         let Ok(product) = fields.text("product_id").parse::<i64>() else {
-            return Ok(saved(&headers, &path));
+            return Ok(Redirect::to(&path).into_response());
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         store::link_product(&mut conn, recipe.id, ProductId::new(product))
@@ -496,6 +501,7 @@ pub async fn unlink_product(
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
+        require(&state, &staff, Permission::EditAllergens)?;
         let recipe = load_recipe(&state, &id).await?;
         let product = ProductId::new(path_id(&state, &product)?);
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;

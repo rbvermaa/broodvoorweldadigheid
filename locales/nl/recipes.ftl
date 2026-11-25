@@ -91,3 +91,5 @@ recipe-error-nesting = Een recept kan zichzelf niet bevatten, en recepten kunnen
 recipe-error-draft-exists = Er is al een concept: versie { $n }. Pas dat aan.
 recipe-error-lines = Een recept heeft hoogstens 60 regels.
 recipe-error-line-gone = Een gekozen ingrediënt of recept bestaat niet meer. Kies opnieuw.
+ingredient-error-role-frozen = Een vastgezette receptversie gebruikt dit ingrediënt. Wat het telt als kan daarom niet meer veranderen.
+recipe-error-kind-frozen = Een vastgezette receptversie gebruikt dit recept. De soort kan daarom niet meer veranderen.

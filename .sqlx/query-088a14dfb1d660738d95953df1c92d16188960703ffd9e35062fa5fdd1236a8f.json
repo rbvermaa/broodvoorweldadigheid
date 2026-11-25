@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM recipe_line l\n                JOIN recipe_version v ON v.id = l.recipe_version_id\n                WHERE l.ingredient_id = $1 AND v.frozen_at IS NOT NULL) AS \"used!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "used!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "088a14dfb1d660738d95953df1c92d16188960703ffd9e35062fa5fdd1236a8f"
+}
