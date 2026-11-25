@@ -636,6 +636,31 @@ async fn replace_lines(
     if own {
         return Err(Error::Nesting);
     }
+    // Rewriting the same lines would clear the allergen approval of the products that
+    // use this version (database trigger, ADR 0037).
+    let unchanged = sqlx::query_scalar!(
+        r#"SELECT NOT EXISTS (
+            (SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000
+                FROM recipe_line WHERE recipe_version_id = $1
+            EXCEPT ALL
+            SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[]))
+            UNION ALL
+            (SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[])
+            EXCEPT ALL
+            SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000
+                FROM recipe_line WHERE recipe_version_id = $1)
+        ) AS "unchanged!""#,
+        id.get(),
+        &positions,
+        &ingredients as &[Option<i64>],
+        &subs as &[Option<i64>],
+        &pcts,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if unchanged {
+        return Ok(());
+    }
     sqlx::query!(
         "DELETE FROM recipe_line WHERE recipe_version_id = $1",
         id.get()
@@ -757,17 +782,21 @@ pub async fn set_current(
     recipe_id: RecipeId,
     id: RecipeVersionId,
 ) -> Result<Recipe, Error> {
-    version(conn, recipe_id, id).await?;
-    sqlx::query_as!(
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    version(&mut tx, recipe_id, id).await?;
+    let recipe = sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET current_version_id = $2 WHERE id = $1
         RETURNING id, name, kind, current_version_id",
         recipe_id.get(),
         id.get(),
     )
-    .fetch_one(conn)
+    .fetch_one(&mut *tx)
     .await?
-    .try_into()
+    .try_into()?;
+    tx.commit().await?;
+    Ok(recipe)
 }
 
 /// Versions of other recipes that a line of `recipe_id` can use, by recipe name and newest
@@ -832,17 +861,20 @@ pub async fn link_product(
     recipe_id: RecipeId,
     product_id: ProductId,
 ) -> Result<(), Error> {
-    get(conn, recipe_id).await?;
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    get(&mut tx, recipe_id).await?;
     let done = sqlx::query!(
         "UPDATE product SET recipe_id = $1 WHERE id = $2",
         recipe_id.get(),
         product_id.get(),
     )
-    .execute(conn)
+    .execute(&mut *tx)
     .await?;
     if done.rows_affected() == 0 {
         return Err(Error::NotFound);
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -855,13 +887,16 @@ pub async fn unlink_product(
     recipe_id: RecipeId,
     product_id: ProductId,
 ) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
     sqlx::query!(
         "UPDATE product SET recipe_id = NULL WHERE id = $1 AND recipe_id = $2",
         product_id.get(),
         recipe_id.get(),
     )
-    .execute(conn)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

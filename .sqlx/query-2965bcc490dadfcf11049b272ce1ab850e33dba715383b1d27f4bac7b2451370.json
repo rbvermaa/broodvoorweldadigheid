@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product ORDER BY name_nl, id",
+  "query": "INSERT INTO product (\n            name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, packaged, sold_online, estimated_cost_cents, active\n        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev,\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -187,6 +187,28 @@
       },
       {
         "ordinal": 17,
+        "name": "allergens_cleared_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_cleared_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "allergens_recipe_rev",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "allergens_recipe_rev"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -197,7 +219,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 20,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -208,7 +230,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 21,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -219,7 +241,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 22,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -231,7 +253,26 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "TextArray",
+        "Text",
+        "Bool",
+        "Bool",
+        "Int8",
+        "Bool"
+      ]
     },
     "nullable": [
       false,
@@ -251,11 +292,13 @@
       false,
       true,
       null,
+      true,
+      false,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "c6d98b5e1a9713d2770b68902134d847804663f1e39c1f7afa7623b6791bb97c"
+  "hash": "2965bcc490dadfcf11049b272ce1ab850e33dba715383b1d27f4bac7b2451370"
 }

@@ -304,6 +304,7 @@ struct ApprovePage<'a> {
     back: String,
     allergens: Vec<&'static str>,
     ingredient_text: String,
+    revision: i64,
     changed: bool,
 }
 
@@ -318,7 +319,12 @@ fn product_path(id: ProductId) -> String {
 }
 
 async fn approval_view(state: &AppState, product: &Product) -> Step<ApprovalView> {
-    approval_text(state, product.approval, "product-not-approved").await
+    let missing = match product.approval_cleared {
+        None => "product-not-approved",
+        Some(catalog::ApprovalCleared::Recipe) => "product-approval-cleared-recipe",
+        Some(catalog::ApprovalCleared::Ingredient) => "product-approval-cleared-ingredient",
+    };
+    approval_text(state, product.approval, missing).await
 }
 
 /// Who approved and when, or `missing` when nobody has.
@@ -637,6 +643,7 @@ async fn render_approve(
             back: product_path(product.id),
             allergens: codes(&info.allergens),
             ingredient_text: info.ingredient_text.clone(),
+            revision: product.allergen_revision,
             changed,
         },
     ))
@@ -675,6 +682,7 @@ pub async fn approve(
             &mut conn,
             product.id,
             &reviewed,
+            revision(&fields),
             staff.0.id,
             state.clock.as_ref(),
         )
@@ -689,6 +697,11 @@ pub async fn approve(
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// A missing or broken revision never matches, so the approval is refused.
+fn revision(fields: &Fields) -> i64 {
+    fields.raw("revisie").parse().unwrap_or(-1)
 }
 
 fn reviewed(fields: &Fields) -> AllergenInfo {

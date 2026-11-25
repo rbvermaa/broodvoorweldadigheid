@@ -698,8 +698,10 @@ async fn baker_creates_a_recipe_and_links_a_product(pool: PgPool) {
     duplicate.shows(&dutch("recipe-error-duplicate"));
 
     let product: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g, dough_g_per_piece)
-        VALUES ('Roggebrood', 550, 9, 800, 900) RETURNING id",
+        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g, dough_g_per_piece,
+            allergens_approved_by, allergens_approved_at)
+        VALUES ('Roggebrood', 550, 9, 800, 900, (SELECT id FROM staff_user LIMIT 1), now())
+        RETURNING id",
     )
     .fetch_one(&pool)
     .await
@@ -712,6 +714,10 @@ async fn baker_creates_a_recipe_and_links_a_product(pool: PgPool) {
         .await
         .redirects_to(&format!("{path}?opgeslagen=1"));
     baker.get("/staff/recipes").await.shows("Roggebrood");
+    baker
+        .get(&format!("/staff/products/{product}"))
+        .await
+        .shows(&dutch("product-approval-cleared-recipe"));
     baker
         .post(&format!("{path}/products/{product}/remove"), &[])
         .await
