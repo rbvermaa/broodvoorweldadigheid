@@ -6,10 +6,12 @@ pub mod cost;
 mod error;
 pub mod formula;
 pub mod ingredients;
+pub mod method;
 pub mod needs;
 pub mod prices;
 pub mod recipes;
 pub mod rollup;
+pub mod schedule;
 
 pub use error::Error;
 pub use formula::{
@@ -17,6 +19,7 @@ pub use formula::{
     ScaleError, Scaled, SubRecipe, dough_for_sum, ingredient_totals, leaf_grams, pct_for_grams,
 };
 pub use ingredients::{Ingredient, IngredientInput};
+pub use method::{Method, MethodKind, Step, StepEdit};
 pub use needs::{DoughGrams, Need, ProductRecipe, RecipeInUse, shopping_list};
 pub use recipes::{
     DraftInput, LineEdit, LineInput, LinePart, LineRow, LinkedProduct, Promotion, Recipe,
