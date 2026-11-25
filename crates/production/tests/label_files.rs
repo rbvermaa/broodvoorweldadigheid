@@ -442,6 +442,11 @@ async fn freezer_labels_count_from_the_freeze_date_in_amsterdam(pool: PgPool) {
     );
     assert_eq!(label.label().kind, labels::Kind::Freezer { frozen_on: on });
     assert_eq!(
+        label.label().may_contain,
+        BTreeSet::from([Allergen::Milk]),
+        "the kitchen list goes on freezer labels too"
+    );
+    assert_eq!(
         label.label().best_before,
         date(2027, 3, 6),
         "freeze date plus 90 days"
