@@ -22,7 +22,7 @@ async fn an_expired_hold_frees_the_loaf_and_the_job_cancels_the_order(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, Some(1)).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -94,7 +94,7 @@ async fn the_charity_is_fixed_once_an_order_is_held(mut conn: PoolConnection<Pos
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -116,7 +116,7 @@ async fn the_audit_log_is_append_only(pool: PgPool) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -137,7 +137,7 @@ async fn a_replaced_order_frees_its_hold_and_a_late_payment_is_refunded(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, Some(1)).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -192,7 +192,7 @@ async fn a_paid_or_unknown_order_is_not_cancelled_as_pending(mut conn: PoolConne
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -240,8 +240,8 @@ async fn the_same_checkout_matches_its_order_and_any_change_does_not(
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     let loaf = product(&mut conn, &DONATION_LOAF).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    on_range(&mut conn, &shop, loaf, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
+    on_range(&mut conn, &shop, loaf, None).await;
     let lines = [(bread, 1, None), (loaf, 1, Some(800))];
     let order = order_as_guest(&mut conn, &clock, &shop, &lines)
         .await
@@ -333,7 +333,7 @@ async fn a_replacement_is_all_or_nothing(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(2), None).await;
+    on_range(&mut conn, &shop, bread, Some(2)).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -403,8 +403,8 @@ async fn a_replacement_on_another_day_is_refused(mut conn: PoolConnection<Postgr
     )
     .await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    on_range(&mut conn, &next_week, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
+    on_range(&mut conn, &next_week, bread, None).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -435,7 +435,7 @@ async fn a_staff_replacement_names_the_staff_member_in_the_audit_log(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -472,7 +472,7 @@ async fn an_order_is_no_longer_the_same_once_the_kitchen_list_lost_its_approval(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let lines = [(bread, 1, None)];
     let customer = guest("klant@example.org");
     let order = order_as_guest(&mut conn, &clock, &shop, &lines)

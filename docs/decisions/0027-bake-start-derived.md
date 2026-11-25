@@ -14,9 +14,8 @@ done before baking started.
 **No per-product lead time.** The deadline warning only follows the bakery's sourdough
 rule (ADR 0006 update: `company.sourdough_deadline_*`, default 20:00 two days before).
 The check against `bake_starts_at` minus a product's `lead_time_hours` is gone, and so is
-the lead-time field on the product form. `product.lead_time_hours` stays in the database
-and in `catalog`, unused; an edit keeps the stored value. It goes in a later release, or
-is replaced by the recipe lead time when recipes ship (F14).
+the lead-time field on the product form. `product.lead_time_hours` was dropped in ADR
+0048; `recipe_version.lead_time_hours` (F14) is information only.
 
 This replaces the per-product part of ADR 0006, the last bullet of ADR 0008
 ("`bake_starts_at` is entered per day") and the lead-time line in ADR 0019.

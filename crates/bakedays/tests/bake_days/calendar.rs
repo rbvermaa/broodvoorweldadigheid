@@ -29,8 +29,6 @@ async fn on_range(conn: &mut PgConnection, day: &BakeDay, product: ProductId, ma
     let input = BakeDayProduct {
         product_id: product,
         max_qty: max,
-        capacity_pool_id: None,
-        units_per_item: 1,
     };
     range::set_product(conn, day.id, &input).await.unwrap();
 }
@@ -47,7 +45,7 @@ async fn planned_drop_shows_date_pickup_and_normal_sale_but_no_menu(
     mut conn: PoolConnection<Postgres>,
 ) {
     let day = create_day(&mut conn, &saturday()).await;
-    let bread = product(&mut conn, "Desem", None).await;
+    let bread = product(&mut conn, "Desem").await;
     on_range(&mut conn, &day, bread, None).await;
     let slot = days::list_slots(&mut conn, day.id).await.unwrap()[0];
 
@@ -76,7 +74,7 @@ async fn planned_drop_shows_date_pickup_and_normal_sale_but_no_menu(
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn menu_appears_at_its_publish_time(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let bread = product(&mut conn, "Desem", None).await;
+    let bread = product(&mut conn, "Desem").await;
     on_range(&mut conn, &day, bread, None).await;
     let day = with_schedule(
         &mut conn,
@@ -134,7 +132,7 @@ async fn charity_is_shown_with_its_link(mut conn: PoolConnection<Postgres>) {
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn open_drop_with_nothing_left_is_sold_out(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let bread = product(&mut conn, "Desem", None).await;
+    let bread = product(&mut conn, "Desem").await;
     on_range(&mut conn, &day, bread, Some(2)).await;
     let clock = FakeClock::new(ts("2026-10-27T12:00:00Z"));
     days::open(&mut conn, &clock, day.id).await.unwrap();
@@ -168,7 +166,7 @@ async fn open_drop_with_nothing_left_is_sold_out(mut conn: PoolConnection<Postgr
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn cancelled_drop_shows_no_menu(mut conn: PoolConnection<Postgres>) {
     let day = create_day(&mut conn, &saturday()).await;
-    let bread = product(&mut conn, "Desem", None).await;
+    let bread = product(&mut conn, "Desem").await;
     on_range(&mut conn, &day, bread, None).await;
     let clock = FakeClock::new(ts("2026-10-27T12:00:00Z"));
     days::open(&mut conn, &clock, day.id).await.unwrap();
@@ -230,9 +228,9 @@ async fn products_not_sold_online_stay_off_the_menu_and_out_of_sold_out(
     mut conn: PoolConnection<Postgres>,
 ) {
     let day = create_day(&mut conn, &saturday()).await;
-    let bread = product(&mut conn, "Desem", None).await;
-    let granola = product(&mut conn, "Granola", None).await;
-    let archived = product(&mut conn, "Oud brood", None).await;
+    let bread = product(&mut conn, "Desem").await;
+    let granola = product(&mut conn, "Granola").await;
+    let archived = product(&mut conn, "Oud brood").await;
     on_range(&mut conn, &day, bread, Some(2)).await;
     on_range(&mut conn, &day, granola, None).await;
     on_range(&mut conn, &day, archived, None).await;

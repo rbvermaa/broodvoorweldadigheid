@@ -108,7 +108,8 @@ async fn transfers_pay_paid_minus_refunds_and_correct_later_refunds(
     paid_order(&mut conn, &clock, &november, &[(bread, 2, None)]).await;
     let saved = paid_order(&mut conn, &clock, &november, &[(bread, 1, None)]).await;
     sqlx::query(
-        "UPDATE donation_allocation SET status = 'saved', charity_id = NULL, choose_token = 'tok',
+        "UPDATE donation_allocation SET status = 'saved', charity_id = NULL,
+            choose_token_hash = sha256('tok'),
             choose_by = '2027-02-01T00:00:00Z' WHERE order_id = $1",
     )
     .bind(saved.id.get())

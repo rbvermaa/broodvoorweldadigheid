@@ -739,7 +739,7 @@ fn ensure_after_bake_start(day: &BakeDay, input: &PickupSlotInput) -> Result<(),
 }
 
 /// Copies a bake day to another date as a new draft: its times move by the same number of
-/// days at the same local time, and its pickup slots, pools and products come along.
+/// days at the same local time, and its pickup slots and products come along.
 /// Extra production, status and cancel message do not. An archived charity is dropped,
 /// and the result says so.
 ///
@@ -794,17 +794,8 @@ pub async fn copy_to(
         insert_slot(&mut tx, new_id, slot.location_id, &input).await?;
     }
     sqlx::query!(
-        "WITH pools AS (
-            INSERT INTO capacity_pool (bake_day_id, name, max_units)
-            SELECT $2, name, max_units FROM capacity_pool WHERE bake_day_id = $1
-            RETURNING id, name
-        )
-        INSERT INTO bake_day_product (bake_day_id, product_id, max_qty, capacity_pool_id, units_per_item)
-        SELECT $2, p.product_id, p.max_qty, new_pool.id, p.units_per_item
-        FROM bake_day_product p
-        LEFT JOIN capacity_pool old_pool ON old_pool.id = p.capacity_pool_id
-        LEFT JOIN pools new_pool ON new_pool.name = old_pool.name
-        WHERE p.bake_day_id = $1",
+        "INSERT INTO bake_day_product (bake_day_id, product_id, max_qty)
+        SELECT $2, product_id, max_qty FROM bake_day_product WHERE bake_day_id = $1",
         id.get(),
         new_id.get(),
     )

@@ -10,9 +10,6 @@ units-per-item field on a product in the range, and no pool lines on the product
 list. Editing a product on the range changes only its maximum and leaves any stored pool
 and units per item as they are. A product added to the range gets 1 unit per item.
 
-The `capacity_pool` table, `bake_day_product.capacity_pool_id` and the pool code in
-`bakedays` and `orders` stay, dormant, because migrations only add. They are removed in a
-later release. Checkout still enforces the per-product maximum under its lock. A pool that
-was already stored on a bake day (or copied from one) still limits that day, with no
-control left to change it; the pool UI was only live briefly, so we accept that until the
-removal.
+The `capacity_pool` table, `bake_day_product.capacity_pool_id` and `units_per_item`, and
+the pool code in `bakedays` and `orders` were removed in ADR 0048. Checkout enforces the
+per-product maximum under its lock.

@@ -1134,7 +1134,7 @@ fn parse_max(state: &AppState, max_qty: &str) -> Result<Option<u32>, String> {
         .ok_or_else(|| t(state, "form-error-count"))
 }
 
-/// Puts a product on the day. A product already on it keeps its capacity pool and units.
+/// Puts a product on the day, or changes its maximum when it is already on it.
 async fn put_product(
     state: &AppState,
     day: BakeDayId,
@@ -1142,19 +1142,11 @@ async fn put_product(
     max_qty: Option<u32>,
 ) -> Step<Result<(), bakedays::Error>> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    let result = match range::update_product(&mut conn, day, product, max_qty).await {
-        Err(bakedays::Error::NotFound) => {
-            let item = BakeDayProduct {
-                product_id: product,
-                max_qty,
-                capacity_pool_id: None,
-                units_per_item: 1,
-            };
-            range::set_product(&mut conn, day, &item).await
-        }
-        other => other,
+    let item = BakeDayProduct {
+        product_id: product,
+        max_qty,
     };
-    Ok(result)
+    Ok(range::set_product(&mut conn, day, &item).await)
 }
 
 pub async fn set_product(

@@ -91,7 +91,7 @@ async fn the_day_list_filters_by_status_and_location(mut conn: PoolConnection<Po
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let markt = other_location(&mut conn).await;
     let markt_slot = slot(
         &mut conn,
@@ -160,7 +160,7 @@ async fn staff_move_a_paid_order_to_another_slot_with_room(mut conn: PoolConnect
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let late = slot(
         &mut conn,
         &shop,
@@ -208,7 +208,7 @@ async fn moving_needs_an_open_order_and_a_slot_of_the_same_day(mut conn: PoolCon
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -250,7 +250,7 @@ async fn staff_mark_a_paid_order_picked_up_once(mut conn: PoolConnection<Postgre
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
@@ -291,7 +291,7 @@ async fn staff_cancel_a_pending_order_and_free_its_loaf(mut conn: PoolConnection
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, Some(1)).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -323,7 +323,7 @@ async fn staff_cannot_cancel_a_paid_order_yet(mut conn: PoolConnection<Postgres>
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let paid = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
     assert!(matches!(
         cancel_by_staff(&mut conn, &clock, paid.id, BAS).await,
@@ -360,7 +360,7 @@ async fn an_invoiced_order_keeps_its_slot_but_can_be_picked_up(mut conn: PoolCon
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let later = slot(
         &mut conn,
         &shop,
@@ -406,7 +406,7 @@ async fn staff_cannot_mark_an_order_of_a_cancelled_day_picked_up(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
     days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
         .await

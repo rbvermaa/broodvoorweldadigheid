@@ -52,7 +52,7 @@ fn refund_reason(outcome: &PaidOutcome) -> Option<RefundReason> {
 async fn bread_day(conn: &mut PgConnection, clock: &FakeClock) -> (OpenDay, domain::ProductId) {
     let shop = open_day(conn, clock, &saturday()).await;
     let bread = product(conn, &BREAD).await;
-    on_range(conn, &shop, bread, Some(1), None).await;
+    on_range(conn, &shop, bread, Some(1)).await;
     (shop, bread)
 }
 
@@ -70,7 +70,7 @@ async fn a_paid_charity_order_earmarks_the_full_amount(mut conn: PoolConnection<
     )
     .await;
     let loaf = product(&mut conn, &DONATION_LOAF).await;
-    on_range(&mut conn, &shop, loaf, None, None).await;
+    on_range(&mut conn, &shop, loaf, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(loaf, 2, Some(1250))])
         .await
         .unwrap();
@@ -188,7 +188,7 @@ async fn a_normal_sale_earmarks_nothing_and_a_wrong_amount_goes_back(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -238,7 +238,7 @@ async fn a_payment_after_the_hold_is_refunded_even_with_bread_left(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(10), None).await;
+    on_range(&mut conn, &shop, bread, Some(10)).await;
     let late = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -288,7 +288,7 @@ async fn payments_for_cancelled_days_and_orders_go_back(mut conn: PoolConnection
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let by_staff = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();

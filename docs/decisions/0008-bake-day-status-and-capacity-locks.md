@@ -30,7 +30,7 @@ closed and can never be open; a CHECK enforces this for every writer. Opening is
 once the deadline has passed. Done is refused before `bake_starts_at`. Transition
 functions take `&dyn Clock`; the jobs crate will call them at the set times.
 
-**Done or cancelled days are frozen.** Schedule, slots, charity, pools, range and extra
+**Done or cancelled days are frozen.** Schedule, slots, charity, range and extra
 production can no longer change. Spec F7a says extras change "until the batch is mixed";
 batches arrive in Phase 2, so until then the end is the day being done or cancelled.
 
@@ -41,17 +41,14 @@ runs in one transaction that:
    (transitions take `FOR UPDATE`);
 2. calls `bakedays::range::lock_capacity(conn, day, products)`, which locks the
    `bake_day_product` rows of all products it will touch `ORDER BY product_id FOR UPDATE`
-   (guarding each `max_qty`), then their `capacity_pool` rows one at a time in ascending
-   id order, `FOR UPDATE` (guarding the pools' units). The pool order is fixed in Rust,
-   not left to a query plan;
+   (guarding each `max_qty`). Capacity pools were removed (ADR 0026, 0048);
 3. reads ordered quantities and extra production, checks, writes, commits.
 
-Every writer takes all its product rows before any pool row, each set in id order, so
-two writers cannot deadlock even when their products sit in crossing pools. Under READ
-COMMITTED each statement after the locks sees the other writer's committed rows, so the
-reads in step 3 are current. Database tests race two writers for the last unit of a
-pool and for the last piece of a product without a pool, and show that a writer whose
-products sit in crossing pools waits for the lower pool without holding the higher one.
+Every writer takes its product rows in id order, so two writers cannot deadlock. Under
+READ COMMITTED each statement after the locks sees the other writer's committed rows, so
+the reads in step 3 are current. Database tests race two writers for the last piece of a
+product, and show that a writer waits for the lower product row without holding the
+higher one.
 The ordering tests are deterministic: they wait until the second session is blocked
 (`pg_blocking_pids`) instead of sleeping.
 
@@ -84,12 +81,12 @@ Smaller choices in the same change:
 
 - Extra production references the product, not the day's range. Extras of a product
   that is not on the range (granola for SumUp, say) are not limited; extras of a product
-  on the range count against its maximum and pool.
+  on the range count against its maximum.
 - Lowering an extra is always allowed, even when the day is already over capacity
-  (after shrinking a pool). Only an increase is checked.
-- Shrinking a pool (`resize_pool`), lowering a product's maximum, or moving a product
-  into a pool that is already full (`set_product`) are limit changes by staff, not
-  writes that take capacity. They are allowed; the remaining count then shows zero.
+  (after lowering a maximum). Only an increase is checked.
+- Lowering a product's maximum (`set_product`, `update_product`) is a limit change by
+  staff, not a write that takes capacity. It is allowed; the remaining count then shows
+  zero.
 - A new bake day gets one pickup slot per active window of the location on that weekday.
   The deadline is the earliest of their default deadlines. An online date with no window
   is refused; staff add a window first. A production-only day may have no window: it
@@ -99,7 +96,7 @@ Smaller choices in the same change:
   deadline (CHECKs and validation).
 - Copying a day keeps local wall-clock times: every timestamp moves by the same number
   of calendar days in Europe/Amsterdam, so a Saturday 11:00 slot stays 11:00 across a
-  clock change. Pools, range and slots are copied; extras, status and cancel message are
+  clock change. Range and slots are copied; extras, status and cancel message are
   not. An archived charity is dropped from the copy and `CopiedDay.charity_dropped`
   says so. `repeat_weekly` copies all weeks or none.
 - One pickup location has at most one bake day (not cancelled) per date. `create`,

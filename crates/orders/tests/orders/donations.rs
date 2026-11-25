@@ -34,7 +34,7 @@ async fn charity_drop(conn: &mut PgConnection, clock: &FakeClock) -> Drop {
     )
     .await;
     let bread = product(conn, &BREAD).await;
-    on_range(conn, &shop, bread, None, None).await;
+    on_range(conn, &shop, bread, None).await;
     Drop {
         shop,
         bread,
@@ -186,7 +186,7 @@ async fn checkout_choices_are_checked(mut conn: PoolConnection<Postgres>) {
     )
     .await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &normal, bread, None, None).await;
+    on_range(&mut conn, &normal, bread, None).await;
     let sale = order_as_guest(&mut conn, &clock, &normal, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -221,8 +221,8 @@ async fn a_saved_donation_stores_only_the_hash_of_its_link(mut conn: PoolConnect
         ts("2027-01-27T23:00:00Z"),
         "3 months, local midnight"
     );
-    let (plain, hash, choose_by): (Option<String>, Vec<u8>, i64) = sqlx::query_as(
-        "SELECT choose_token, choose_token_hash,
+    let (hash, choose_by): (Vec<u8>, i64) = sqlx::query_as(
+        "SELECT choose_token_hash,
             (extract(epoch FROM choose_by) * 1000000)::bigint
         FROM donation_allocation WHERE id = $1",
     )
@@ -230,7 +230,6 @@ async fn a_saved_donation_stores_only_the_hash_of_its_link(mut conn: PoolConnect
     .fetch_one(&mut *conn)
     .await
     .unwrap();
-    assert_eq!(plain, None);
     assert_eq!(
         hash,
         Sha256::digest(saved.token.as_str().as_bytes()).to_vec()

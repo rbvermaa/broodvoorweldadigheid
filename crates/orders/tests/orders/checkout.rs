@@ -26,7 +26,7 @@ async fn checkout_copies_prices_and_holds_capacity(mut conn: PoolConnection<Post
     let loaf = product(&mut conn, &DONATION_LOAF).await;
     let cookies = product(&mut conn, &COOKIES).await;
     for id in [bread, loaf, cookies] {
-        on_range(&mut conn, &shop, id, Some(10), None).await;
+        on_range(&mut conn, &shop, id, Some(10)).await;
     }
 
     let order = order_as_guest(
@@ -125,7 +125,7 @@ async fn a_guest_checkout_never_changes_an_existing_customer(mut conn: PoolConne
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let mut first = guest("Klant@Example.org");
     first.marketing_opt_in = true;
     first.phone = Some("0612345678".to_owned());
@@ -206,7 +206,7 @@ async fn web_orders_stop_at_the_deadline_but_staff_can_still_order(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(3), None).await;
+    on_range(&mut conn, &shop, bread, Some(3)).await;
     // Thursday 20:00 CET, four days after summer time ended.
     assert_eq!(shop.day.cutoff_at, Some(ts("2026-10-29T19:00:00Z")));
 
@@ -262,7 +262,7 @@ async fn the_deadline_follows_local_time_in_summer(mut conn: PoolConnection<Post
     };
     let shop = open_day(&mut conn, &clock, &summer).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     // Thursday 20:00 CEST is 18:00 UTC.
     assert_eq!(shop.day.cutoff_at, Some(ts("2026-10-22T18:00:00Z")));
     clock.set(ts("2026-10-22T17:59:59Z"));
@@ -293,7 +293,7 @@ async fn refusals(mut conn: PoolConnection<Postgres>) {
     .await;
     let off_range = product(&mut conn, &COOKIES).await;
     for id in [bread, loaf, frozen] {
-        on_range(&mut conn, &shop, id, None, None).await;
+        on_range(&mut conn, &shop, id, None).await;
     }
     let refused = async |conn: &mut sqlx::PgConnection, lines: &[_]| {
         order_as_guest(conn, &clock, &shop, lines)
@@ -454,7 +454,7 @@ async fn checkout_waits_for_the_kitchen_may_contain_approval(mut conn: PoolConne
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     sqlx::query("UPDATE company SET may_contain = '{nuts}'")
         .execute(&mut *conn)
         .await
@@ -476,7 +476,7 @@ async fn checkout_waits_for(pool: &PgPool, revoke: &'static str) -> Error {
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     drop(conn);
 
     let mut staff = pool.begin().await.unwrap();
@@ -537,7 +537,7 @@ async fn approval_changes_wait_for_a_running_checkout(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     drop(conn);
 
     let mut customer = pool.begin().await.unwrap();
@@ -593,16 +593,13 @@ async fn approval_changes_wait_for_a_running_checkout(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn sold_out_products_and_shared_pools_are_refused(mut conn: PoolConnection<Postgres>) {
+async fn sold_out_products_are_refused_counting_the_whole_cart(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     let loaf = product(&mut conn, &DONATION_LOAF).await;
-    let oven = range::create_pool(&mut conn, shop.day.id, "Oven", 5)
-        .await
-        .unwrap();
-    on_range(&mut conn, &shop, bread, Some(4), Some(oven.id)).await;
-    on_range(&mut conn, &shop, loaf, None, Some(oven.id)).await;
+    on_range(&mut conn, &shop, bread, Some(4)).await;
+    on_range(&mut conn, &shop, loaf, Some(2)).await;
 
     assert!(matches!(
         order_as_guest(&mut conn, &clock, &shop, &[(bread, 5, None)]).await,
@@ -631,7 +628,7 @@ async fn a_full_pickup_slot_takes_no_more_orders(mut conn: PoolConnection<Postgr
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     sqlx::query("UPDATE pickup_slot SET max_orders = 1 WHERE id = $1")
         .bind(shop.slot.get())
         .execute(&mut *conn)
@@ -656,7 +653,7 @@ async fn a_second_checkout_for_the_last_loaf_waits_and_then_loses(pool: PgPool) 
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, Some(1)).await;
     let day = shop.day.id;
     let slot = shop.slot;
     drop(conn);
@@ -709,7 +706,7 @@ async fn concurrent_checkouts_never_both_get_the_last_loaf(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(1), None).await;
+    on_range(&mut conn, &shop, bread, Some(1)).await;
     drop(conn);
     for round in 0..5 {
         let take = |email: &'static str| {
@@ -756,8 +753,8 @@ async fn a_full_slot_is_checked_under_its_lock_across_products(pool: PgPool) {
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
     let cookies = product(&mut conn, &COOKIES).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
-    on_range(&mut conn, &shop, cookies, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
+    on_range(&mut conn, &shop, cookies, None).await;
     sqlx::query("UPDATE pickup_slot SET max_orders = 1 WHERE id = $1")
         .bind(shop.slot.get())
         .execute(&mut *conn)
@@ -811,7 +808,7 @@ async fn order_numbers_start_again_at_new_year_in_local_time(mut conn: PoolConne
     )
     .await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let staff = OrderedBy::Staff(StaffUserId::new(1));
     let mut number_at = async |now: &str| {
         clock.set(ts(now));
@@ -847,8 +844,8 @@ async fn a_cart_that_costs_nothing_is_refused_without_a_hold(mut conn: PoolConne
     )
     .await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, sample, Some(1), None).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, sample, Some(1)).await;
+    on_range(&mut conn, &shop, bread, None).await;
 
     assert!(matches!(
         order_as_guest(&mut conn, &clock, &shop, &[(sample, 1, None)]).await,

@@ -420,7 +420,7 @@ async fn earmark(
 ) -> Result<(), Error> {
     sqlx::query!(
         "UPDATE donation_allocation SET status = 'earmarked', charity_id = $2,
-            choose_token = NULL, choose_token_hash = NULL, choose_by = NULL
+            choose_token_hash = NULL, choose_by = NULL
         WHERE id = $1",
         id,
         charity.get(),

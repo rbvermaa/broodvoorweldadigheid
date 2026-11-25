@@ -45,7 +45,7 @@ async fn the_export_holds_profile_orders_lines_payments_donations_and_logins(
     input.charity_id = Some(food_bank);
     let shop = open_day(&mut conn, &clock, &input).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let mut me = guest("sanne@example.org");
     me.phone = Some("06 1234 5678".to_owned());
     let order = checkout(
@@ -113,7 +113,7 @@ async fn erasing_keeps_the_orders_and_donations_but_nothing_that_identifies(
     input.charity_id = Some(food_bank);
     let shop = open_day(&mut conn, &clock, &input).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let mut me = guest("sanne@example.org");
     me.phone = Some("06 1234 5678".to_owned());
     me.marketing_opt_in = true;
@@ -215,12 +215,6 @@ async fn erasing_keeps_the_orders_and_donations_but_nothing_that_identifies(
     .await
     .unwrap();
     assert_eq!(amounts_after, amounts_before);
-    let plaintext: Option<String> =
-        sqlx::query_scalar("SELECT choose_token FROM donation_allocation WHERE status = 'saved'")
-            .fetch_one(&mut *conn)
-            .await
-            .unwrap();
-    assert_eq!(plaintext, None);
     for (table, sql) in [
         (
             "customer_login",
@@ -278,7 +272,7 @@ async fn an_order_still_to_pay_or_pick_up_blocks_erasing(mut conn: PoolConnectio
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = checkout(
         &mut conn,
         &clock,
@@ -398,7 +392,7 @@ async fn an_erased_customers_saved_donation_still_moves_but_without_an_email(
     input.charity_id = Some(food_bank);
     let shop = open_day(&mut conn, &clock, &input).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = checkout(
         &mut conn,
         &clock,
@@ -445,7 +439,7 @@ async fn an_erase_waits_for_a_checkout_of_the_same_customer_and_sees_its_order(p
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let first = checkout(
         &mut conn,
         &clock,

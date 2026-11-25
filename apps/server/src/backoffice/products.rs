@@ -259,7 +259,6 @@ impl ProductForm {
                     unit_weight_g,
                     dough_g_per_piece: dough_weight.unwrap_or(0),
                     freezer_days: existing.and_then(|p| p.freezer_days),
-                    lead_time_hours: existing.and_then(|p| p.lead_time_hours),
                     allergen_info: self.allergen_info(),
                     packaged: existing.is_some_and(|p| p.packaged),
                     sold_online: self.sold_online,

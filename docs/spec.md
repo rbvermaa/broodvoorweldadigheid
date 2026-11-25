@@ -292,7 +292,6 @@ PickupWindow     location_id, weekday, starts, ends, default_deadline_days_befor
 Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 | 21),
                  pay_what_you_want, min_price_cents?, max_price_cents?,
                  unit_weight_g, dough_g_per_piece, freezer_days?, recipe_id?, allergens[],
-                 may_contain[] (unused since the kitchen-wide list; removed in a later release),
                  ingredient_text, allergens_approved_by?, allergens_approved_at?, packaged,
                  sold_online, estimated_cost_cents?, active
 Ingredient       name, supplier_name, allergens[], may_contain[], spec_sheet_document_id?
@@ -329,7 +328,7 @@ ManualInvoice    customer_id, invoice_number, invoice_date, period_from, period_
 Charity          name, description, url, logo?, iban?, anbi_rsin?, archived_at?
 DropCost         bake_day_id, kind (packaging | energy | other), amount_cents, note?
 DonationAllocation  order_id, charity_id?, amount_cents,
-                 status (earmarked | saved | transferred), choose_token?, choose_by?
+                 status (earmarked | saved | transferred), choose_token_hash?, choose_by?
 CharityTransfer  charity_id, amount_cents, transferred_at, bank_reference
 
 Subscriber       email, confirmed_at?, unsubscribed_at?

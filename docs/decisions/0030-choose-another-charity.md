@@ -32,4 +32,4 @@ Follow-ups:
 - A saved donation on a drop whose charity is later archived, or with no coming charity
   drop, waits without telling anyone. The payout overview shows it as saved.
 - The home page has the hero header and so no login link.
-- `choose_token` (plaintext) can be dropped in a later release.
+- `choose_token` (plaintext) was dropped in ADR 0048.

@@ -52,7 +52,7 @@ async fn staff_order_on_account_is_confirmed_at_the_suggested_price(
     let bread = product(&mut conn, &BREAD).await;
     let loaf = product(&mut conn, &DONATION_LOAF).await;
     for id in [bread, loaf] {
-        on_range(&mut conn, &shop, id, Some(5), None).await;
+        on_range(&mut conn, &shop, id, Some(5)).await;
     }
     let customer = business(&mut conn, "inkoop@dehoek.example", true).await;
 
@@ -110,7 +110,7 @@ async fn only_business_accounts_allowed_on_account_can_order_on_account(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, Some(5), None).await;
+    on_range(&mut conn, &shop, bread, Some(5)).await;
     business(&mut conn, "dicht@dehoek.example", false).await;
 
     for email in ["dicht@dehoek.example", "nieuw@example.org"] {

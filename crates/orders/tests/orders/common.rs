@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use bakedays::{BakeDay, BakeDayProduct, NewBakeDay, Schedule, days, range};
-use domain::{CapacityPoolId, CharityId, PickupLocationId, PickupSlotId, ProductId};
+use domain::{CharityId, PickupLocationId, PickupSlotId, ProductId};
 use jiff::Timestamp;
 use orders::{Cart, CustomerInput, Error, Order, OrderedBy, checkout};
 use sqlx::{PgConnection, PgPool};
@@ -117,7 +117,6 @@ pub async fn on_range(
     shop: &OpenDay,
     product_id: ProductId,
     max_qty: Option<u32>,
-    pool: Option<CapacityPoolId>,
 ) {
     range::set_product(
         conn,
@@ -125,8 +124,6 @@ pub async fn on_range(
         &BakeDayProduct {
             product_id,
             max_qty,
-            capacity_pool_id: pool,
-            units_per_item: 1,
         },
     )
     .await

@@ -21,7 +21,7 @@ async fn a_started_payment_becomes_paid_in_place(mut conn: PoolConnection<Postgr
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -86,7 +86,7 @@ async fn a_failed_payment_is_recorded_once_and_leaves_the_order_pending(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -171,7 +171,7 @@ async fn status_tokens_find_the_order_and_nothing_else(mut conn: PoolConnection<
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let first = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -213,7 +213,7 @@ async fn slot_orders_count_live_holds_and_paid_orders(mut conn: PoolConnection<P
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -259,7 +259,7 @@ async fn canceled_and_expired_payments_are_stored_and_read_back(
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();

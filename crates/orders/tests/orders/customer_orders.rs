@@ -12,7 +12,7 @@ async fn a_customer_sees_only_their_own_orders_newest_first(mut conn: PoolConnec
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let first = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();

@@ -87,7 +87,7 @@ async fn cancelling_a_paid_order_requests_one_full_refund(mut conn: PoolConnecti
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 2).await;
 
     let cancelled = cancel_paid(&mut conn, &clock, order.id, BAS).await.unwrap();
@@ -135,7 +135,7 @@ async fn a_failed_refund_is_retried_in_place(mut conn: PoolConnection<Postgres>)
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 1).await;
     let refund = cancel_paid(&mut conn, &clock, order.id, BAS)
         .await
@@ -176,7 +176,7 @@ async fn a_refund_whose_answer_was_lost_is_not_paid_twice(mut conn: PoolConnecti
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 1).await;
     let refund = cancel_paid(&mut conn, &clock, order.id, BAS)
         .await
@@ -201,7 +201,7 @@ async fn two_sends_at_once_refund_once(pool: PgPool) {
     let mut conn = pool.acquire().await.unwrap();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 1).await;
     let refund = cancel_paid(&mut conn, clock.as_ref(), order.id, BAS)
         .await
@@ -237,7 +237,7 @@ async fn only_paid_or_confirmed_orders_on_open_days_are_cancelled_with_a_refund(
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
         .await
         .unwrap();
@@ -281,7 +281,7 @@ async fn refunds_never_exceed_an_accepted_payment(mut conn: PoolConnection<Postg
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, _) = paid(&mut conn, &clock, &shop, bread, &mollie, 1).await;
     let payment: i64 = sqlx::query_scalar("SELECT id FROM payment WHERE order_id = $1")
         .bind(order.id.get())
@@ -322,7 +322,7 @@ async fn a_sick_day_cancels_every_order_and_is_safe_to_run_again(
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (first, first_payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 1).await;
     let (second, second_payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 2).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
@@ -469,7 +469,7 @@ async fn a_refund_after_an_earlier_one_takes_the_rest_and_is_not_mistaken_for_se
     let mollie = FakePaymentProvider::new();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
-    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &shop, bread, None).await;
     let (order, payment) = paid(&mut conn, &clock, &shop, bread, &mollie, 2).await;
     // Refunded 300 earlier in Mollie's dashboard, as the provider reported it.
     mollie

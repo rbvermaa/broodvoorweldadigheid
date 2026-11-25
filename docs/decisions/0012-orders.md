@@ -79,7 +79,7 @@ serialises them) and a payment that waits on the release job.
 the drop's charity at that moment; a drop without charity creates none (F4c). The charity
 cannot have changed since checkout: `set_charity` counts the order from checkout on, and
 an order can only be paid within its hold. Choosing another charity (F4d) fills `saved`,
-`choose_token` and `choose_by` later.
+`choose_token_hash` and `choose_by` later (ADR 0030, 0048).
 
 **Customer details are kept per order.** Anyone can type any email address, so a guest
 checkout never changes an existing `customer` row: it inserts one if the email is new

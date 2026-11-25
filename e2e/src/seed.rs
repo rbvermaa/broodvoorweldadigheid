@@ -202,8 +202,6 @@ pub async fn open_drop(pool: &PgPool) -> Result<OpenDrop, Error> {
         &BakeDayProduct {
             product_id: ProductId::new(basics.product),
             max_qty: Some(10),
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await?;

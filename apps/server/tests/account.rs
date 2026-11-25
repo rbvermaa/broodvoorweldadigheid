@@ -419,8 +419,6 @@ async fn order_for(pool: &PgPool, clock: &FakeClock, email: &str) -> orders::Ord
         &bakedays::BakeDayProduct {
             product_id: bread,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await

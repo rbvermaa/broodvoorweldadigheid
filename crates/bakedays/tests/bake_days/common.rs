@@ -39,17 +39,12 @@ pub async fn create_day(conn: &mut PgConnection, input: &NewBakeDay) -> BakeDay 
     days::create(conn, input).await.unwrap()
 }
 
-pub async fn product(
-    conn: &mut PgConnection,
-    name: &str,
-    lead_time_hours: Option<i32>,
-) -> ProductId {
+pub async fn product(conn: &mut PgConnection, name: &str) -> ProductId {
     let id: i64 = sqlx::query_scalar(
-        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g, dough_g_per_piece, lead_time_hours)
-         VALUES ($1, 500, 9, 800, 900, $2) RETURNING id",
+        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g, dough_g_per_piece)
+         VALUES ($1, 500, 9, 800, 900) RETURNING id",
     )
     .bind(name)
-    .bind(lead_time_hours)
     .fetch_one(conn)
     .await
     .unwrap();
