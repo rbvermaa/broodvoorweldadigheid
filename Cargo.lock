@@ -2377,6 +2377,20 @@ dependencies = [
 [[package]]
 name = "labels"
 version = "0.1.0"
+dependencies = [
+ "csv",
+ "domain",
+ "i18n",
+ "insta",
+ "jiff",
+ "proptest",
+ "resvg",
+ "serde_json",
+ "thiserror 2.0.21",
+ "typst",
+ "typst-layout",
+ "typst-svg",
+]
 
 [[package]]
 name = "lazy_static"

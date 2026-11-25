@@ -6,3 +6,19 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+csv.workspace = true
+domain = { path = "../domain" }
+i18n = { path = "../i18n" }
+jiff.workspace = true
+resvg = { version = "0.47", default-features = false, features = ["raster-images"] }
+serde_json.workspace = true
+thiserror.workspace = true
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-svg = "0.15.1"
+
+[dev-dependencies]
+insta.workspace = true
+proptest.workspace = true

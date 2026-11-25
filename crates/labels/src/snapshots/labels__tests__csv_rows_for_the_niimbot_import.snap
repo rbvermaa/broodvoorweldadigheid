@@ -1,0 +1,7 @@
+---
+source: crates/labels/src/tests.rs
+expression: "csv.trim_start_matches('\\u{feff}').replace(\"\\r\\n\", \"\\n\")"
+---
+Bestand;Soort;Product;Ingrediënten;Kan sporen bevatten van;Netto gewicht;Ten minste houdbaar tot;Ingevroren op;Bewaren;Partij;Bedrijf;Aantal
+261205-2-product.png;Productetiket;Granola met noten;HAVERVLOKKEN, WALNOTEN, honing, zonnebloemolie;melk, sesamzaad;350 g;03-02-2027;;Droog en koel bewaren.;261205-2;Brood voor Weldadigheid, Voorbeeldlaan 1, 1234 AB Voorbeeld;24
+261205-1-vriezer.png;Vriezeretiket;Desembrood wit;TARWEBLOEM, water, zout;;800 g;05-03-2027;05-12-2026;Bewaren in de vriezer bij −18 °C.;261205-1;Brood voor Weldadigheid, Voorbeeldlaan 1, 1234 AB Voorbeeld;6

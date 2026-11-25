@@ -1,0 +1,45 @@
+---
+source: crates/labels/src/tests.rs
+expression: "sorted_json(data(&frozen_bread(), Side::Whole, &T).unwrap())"
+---
+{
+  "business": "Brood voor Weldadigheid, Voorbeeldlaan 1, 1234 AB Voorbeeld",
+  "fields": [
+    {
+      "label": "Netto gewicht:",
+      "value": "800 g"
+    },
+    {
+      "label": "Ten minste houdbaar tot:",
+      "value": "05-03-2027"
+    },
+    {
+      "label": "Ingevroren op:",
+      "value": "05-12-2026"
+    },
+    {
+      "label": "Partij:",
+      "value": "261205-1"
+    }
+  ],
+  "ingredients": [
+    {
+      "bold": true,
+      "name": "tarwebloem"
+    },
+    {
+      "bold": false,
+      "name": "water"
+    },
+    {
+      "bold": false,
+      "name": "zout"
+    }
+  ],
+  "ingredients_label": "Ingrediënten:",
+  "may_contain": null,
+  "part": "whole",
+  "product": "Desembrood wit",
+  "storage": "Bewaren in de vriezer bij −18 °C.",
+  "width_mm": 50
+}

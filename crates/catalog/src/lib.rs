@@ -4,6 +4,7 @@ pub mod charities;
 pub mod company;
 mod error;
 pub mod faq;
+pub mod label_settings;
 pub mod markdown;
 pub mod products;
 
