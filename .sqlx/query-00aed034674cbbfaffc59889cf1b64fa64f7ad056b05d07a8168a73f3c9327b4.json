@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active AND sold_online ORDER BY name_nl, id",
+  "query": "INSERT INTO product (\n            name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, packaged, sold_online, estimated_cost_cents, active\n        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -159,17 +159,6 @@
       },
       {
         "ordinal": 14,
-        "name": "may_contain",
-        "type_info": "TextArray",
-        "origin": {
-          "Table": {
-            "table": "product",
-            "name": "may_contain"
-          }
-        }
-      },
-      {
-        "ordinal": 15,
         "name": "ingredient_text",
         "type_info": "Text",
         "origin": {
@@ -180,7 +169,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "allergens_approved_by",
         "type_info": "Int8",
         "origin": {
@@ -191,13 +180,13 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "allergens_approved_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -208,7 +197,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 18,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -219,7 +208,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 19,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -230,7 +219,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -242,7 +231,26 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "TextArray",
+        "Text",
+        "Bool",
+        "Bool",
+        "Int8",
+        "Bool"
+      ]
     },
     "nullable": [
       false,
@@ -260,7 +268,6 @@
       true,
       false,
       false,
-      false,
       true,
       null,
       false,
@@ -269,5 +276,5 @@
       false
     ]
   },
-  "hash": "097be03308b0bd4ed413e4fbbc8386247b8dfbd6926c8bbf866a351fcd48e142"
+  "hash": "00aed034674cbbfaffc59889cf1b64fa64f7ad056b05d07a8168a73f3c9327b4"
 }

@@ -123,6 +123,24 @@ struct Paid {
     payment: Payment,
 }
 
+/// The tile shows the kitchen-wide may-contain list minus what the loaf contains (F10,
+/// ADR 0038): the seed approves gluten and nuts and the loaf has gluten, so the only trace
+/// is nuts.
+async fn kitchen_traces_shown(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    wait_for_text(driver, ".product-tile", &ctx.t("allergen-may-contain")?).await?;
+    let traces = driver
+        .find_all(By::Css(".product-tile .allergen-badge-may > span"))
+        .await?;
+    let mut shown = Vec::new();
+    for badge in traces {
+        shown.push(badge.text().await?);
+    }
+    if shown != [ctx.t("allergen-nuts")?] {
+        return Err(format!("kitchen traces on the tile: {shown:?}").into());
+    }
+    Ok(())
+}
+
 /// Orders `qty` loaves on `drop` as `email`, with `donation` as the donation choice if
 /// given, pays in the mock and sends the webhook. With `audit`, axe-core checks the drop
 /// and checkout pages.
@@ -138,6 +156,7 @@ async fn order_and_pay(
         .goto(ctx.url(&format!("/drops/{}", drop.day)))
         .await?;
     wait_for_text(driver, ".product-name", &drop.product_name).await?;
+    kitchen_traces_shown(ctx, driver).await?;
     if audit {
         axe(ctx, driver, "drop").await?;
     }

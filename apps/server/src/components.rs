@@ -20,9 +20,9 @@ pub struct Product {
     pub order: Option<ProductOrder>,
 }
 
-/// Allergen data the baker approved (spec: allergen approval flow). Only
-/// [`ApprovedAllergens::from_catalog`] builds it for the shop, so an unapproved
-/// declaration can never reach a tile.
+/// Allergen data the baker approved (spec: allergen approval flow): the product's own
+/// and the kitchen-wide may-contain list. Only [`ApprovedAllergens::from_catalog`] builds
+/// it for the shop, so an unapproved declaration can never reach a tile.
 pub struct ApprovedAllergens {
     contains: Vec<&'static str>,
     may_contain: Vec<&'static str>,
@@ -30,11 +30,14 @@ pub struct ApprovedAllergens {
 }
 
 impl ApprovedAllergens {
-    pub fn from_catalog(product: &catalog::Product) -> Option<Self> {
-        product.published_allergen_info().map(|info| Self {
-            contains: info.allergens.iter().map(|a| a.code()).collect(),
-            may_contain: info.may_contain.iter().map(|a| a.code()).collect(),
-            ingredients: info.ingredient_text.clone(),
+    pub fn from_catalog(
+        product: &catalog::Product,
+        kitchen: &catalog::KitchenMayContain,
+    ) -> Option<Self> {
+        product.published_allergens(kitchen).map(|shown| Self {
+            contains: shown.contains.iter().map(|a| a.code()).collect(),
+            may_contain: shown.may_contain.iter().map(|a| a.code()).collect(),
+            ingredients: shown.ingredient_text,
         })
     }
 

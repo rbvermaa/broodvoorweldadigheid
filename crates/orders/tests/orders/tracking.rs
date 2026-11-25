@@ -251,3 +251,42 @@ async fn slot_orders_count_live_holds_and_paid_orders(mut conn: PoolConnection<P
         1
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn canceled_and_expired_payments_are_stored_and_read_back(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let order = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    for (reference, status) in [
+        ("tr_c", PaymentStatus::Canceled),
+        ("tr_e", PaymentStatus::Expired),
+    ] {
+        clock.advance(SignedDuration::from_secs(60));
+        payment_started(&mut conn, &clock, order.id, reference, order.total)
+            .await
+            .unwrap();
+        clock.advance(SignedDuration::from_secs(60));
+        assert!(
+            record_payment_status(&mut conn, &clock, order.id, reference, order.total, status)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            latest_payment_status(&mut conn, order.id).await.unwrap(),
+            Some((reference.to_owned(), status))
+        );
+    }
+    assert_eq!(
+        payment_rows(&mut conn).await,
+        [
+            ("tr_c".to_owned(), "canceled".to_owned()),
+            ("tr_e".to_owned(), "expired".to_owned())
+        ]
+    );
+}

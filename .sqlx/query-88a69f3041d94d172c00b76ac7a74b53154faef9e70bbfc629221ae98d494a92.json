@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE company SET may_contain = $1\n        RETURNING may_contain, may_contain_approved_by AS approved_by,\n            (extract(epoch FROM may_contain_approved_at) * 1000000)::bigint AS approved_at_us",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "may_contain",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "may_contain"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "approved_by",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "company",
+            "name": "may_contain_approved_by"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "approved_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "88a69f3041d94d172c00b76ac7a74b53154faef9e70bbfc629221ae98d494a92"
+}

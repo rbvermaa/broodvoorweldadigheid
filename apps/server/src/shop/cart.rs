@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use bakedays::calendar::PublicDrop;
 use bakedays::capacity::Remaining;
 use bakedays::{PublicStatus, range};
-use catalog::Pricing;
+use catalog::{KitchenMayContain, Pricing};
 use domain::{BakeDayId, Money, PriceRefused, ProductId};
 use i18n::FluentArgs;
 use orders::cart::MAX_QTY;
@@ -31,11 +31,24 @@ struct CartFragment<'a> {
     cart: components::Cart,
 }
 
+/// Catalog products, and the kitchen-wide may-contain list that every product shows and
+/// needs approved before it can be ordered (F10).
+pub(crate) struct Shelf {
+    pub products: Vec<catalog::Product>,
+    pub kitchen: KitchenMayContain,
+}
+
+impl Shelf {
+    pub fn find(&self, id: ProductId) -> Option<&catalog::Product> {
+        self.products.iter().find(|p| p.id == id)
+    }
+}
+
 /// Catalog products by id; unknown ids are left out.
 pub(crate) async fn load_products(
     conn: &mut PgConnection,
     ids: impl IntoIterator<Item = ProductId>,
-) -> Result<Vec<catalog::Product>, catalog::Error> {
+) -> Result<Shelf, catalog::Error> {
     let mut products = Vec::new();
     for id in ids {
         match catalog::products::get(conn, id).await {
@@ -44,7 +57,8 @@ pub(crate) async fn load_products(
             Err(err) => return Err(err),
         }
     }
-    Ok(products)
+    let kitchen = catalog::company::kitchen_may_contain(conn).await?;
+    Ok(Shelf { products, kitchen })
 }
 
 /// The product ids a drop's public menu offers.
@@ -57,14 +71,14 @@ pub(crate) fn menu_ids(drop: &PublicDrop) -> Vec<ProductId> {
 }
 
 /// The cart panel for `day`. Prices come from the catalog of this moment; checkout
-/// prices and checks everything again. `products` holds the cart's products. A line
+/// prices and checks everything again. `shelf` holds the cart's products. A line
 /// whose product is no longer on `menu` stays visible, marked as unavailable and left
 /// out of the total, so the customer can remove it.
 pub(crate) fn view(
     state: &AppState,
     day: BakeDayId,
     cart: Option<&Cart>,
-    products: &[catalog::Product],
+    shelf: &Shelf,
     menu: &[ProductId],
     can_check_out: bool,
     message: Option<Message>,
@@ -78,13 +92,13 @@ pub(crate) fn view(
         .into_iter()
         .flat_map(Cart::lines)
     {
-        let Some(product) = products.iter().find(|p| p.id == product_id) else {
+        let Some(product) = shelf.find(product_id) else {
             continue;
         };
         let orderable = menu.contains(&product_id)
             && product.active
             && product.sold_online
-            && product.approval.is_some();
+            && product.allergens_approved(&shelf.kitchen);
         let amount_cell = if orderable {
             let unit = line.chosen_price.unwrap_or(product.pricing.price_incl());
             let amount = unit.cents().saturating_mul(i64::from(line.qty));
@@ -189,13 +203,13 @@ async fn check(
     if !menu.contains(&product) {
         return Ok(Err(msg("cart-error-unavailable", None)?));
     }
-    let products = load_products(conn, [product])
+    let shelf = load_products(conn, [product])
         .await
         .map_err(|err| Box::new(server_error(state, "cannot load products", &err)))?;
-    let Some(catalog) = products.iter().find(|p| p.id == product) else {
+    let Some(catalog) = shelf.find(product) else {
         return Ok(Err(msg("cart-error-unavailable", None)?));
     };
-    if catalog.approval.is_none() {
+    if !catalog.allergens_approved(&shelf.kitchen) {
         return Ok(Err(msg("cart-error-unavailable", None)?));
     }
     let price = match catalog.pricing {
@@ -320,8 +334,8 @@ pub async fn update(
         Ok(token) => token,
         Err(err) => return server_error(&state, "cannot read the session", &err),
     };
-    let products = match load_products(&mut conn, cart.iter().flat_map(Cart::products)).await {
-        Ok(products) => products,
+    let shelf = match load_products(&mut conn, cart.iter().flat_map(Cart::products)).await {
+        Ok(shelf) => shelf,
         Err(err) => return server_error(&state, "cannot load products", &err),
     };
     let menu = menu_ids(&drop);
@@ -329,7 +343,7 @@ pub async fn update(
         &state,
         day,
         cart.as_ref(),
-        &products,
+        &shelf,
         &menu,
         true,
         Some(message),

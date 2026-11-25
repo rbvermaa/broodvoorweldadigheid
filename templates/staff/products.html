@@ -4,6 +4,8 @@
 {% block title %}{{ layout.t("staff-nav-products")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-products")? }}</h1>
+{% if kitchen_unapproved %}{% call fb::alert("warning", layout.t("kitchen-may-contain-unapproved")?) %}{% endcall %}{% endif %}
+<p><a href="/staff/products/may-contain">{{ layout.t("kitchen-may-contain-link")? }}</a></p>
 <p><a href="/staff/products/new">{{ layout.t("product-new")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("products-empty-title")?, layout.t("products-empty-text")?) %}{% endcall %}

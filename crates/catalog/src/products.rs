@@ -5,11 +5,11 @@ use jiff::Timestamp;
 use sqlx::PgConnection;
 
 use crate::Error;
+use crate::company::KitchenMayContain;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllergenInfo {
     pub allergens: BTreeSet<Allergen>,
-    pub may_contain: BTreeSet<Allergen>,
     pub ingredient_text: String,
 }
 
@@ -77,14 +77,38 @@ pub struct Product {
     pub active: bool,
 }
 
-impl Product {
-    /// Allergen data that may be shown to customers: only once approved.
+/// What a customer sees of a product's allergens (F10): what it contains, and the
+/// kitchen-wide may-contain list without the allergens it already contains.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedAllergens {
+    pub contains: BTreeSet<Allergen>,
+    pub may_contain: BTreeSet<Allergen>,
+    pub ingredient_text: String,
+}
+
+impl PublishedAllergens {
     #[must_use]
-    pub const fn published_allergen_info(&self) -> Option<&AllergenInfo> {
-        match self.approval {
-            Some(_) => Some(&self.allergen_info),
-            None => None,
+    pub fn new(info: &AllergenInfo, kitchen: &BTreeSet<Allergen>) -> Self {
+        Self {
+            contains: info.allergens.clone(),
+            may_contain: kitchen.difference(&info.allergens).copied().collect(),
+            ingredient_text: info.ingredient_text.clone(),
         }
+    }
+}
+
+impl Product {
+    /// Both the product's allergen data and the kitchen-wide may-contain list are
+    /// approved. Only then may the product be shown with allergens or ordered.
+    #[must_use]
+    pub const fn allergens_approved(&self, kitchen: &KitchenMayContain) -> bool {
+        self.approval.is_some() && kitchen.approval.is_some()
+    }
+
+    #[must_use]
+    pub fn published_allergens(&self, kitchen: &KitchenMayContain) -> Option<PublishedAllergens> {
+        self.allergens_approved(kitchen)
+            .then(|| PublishedAllergens::new(&self.allergen_info, &kitchen.allergens))
     }
 }
 
@@ -103,7 +127,6 @@ struct Row {
     freezer_days: Option<i32>,
     lead_time_hours: Option<i32>,
     allergens: Vec<String>,
-    may_contain: Vec<String>,
     ingredient_text: String,
     allergens_approved_by: Option<i64>,
     allergens_approved_at_us: Option<i64>,
@@ -113,14 +136,14 @@ struct Row {
     active: bool,
 }
 
-fn allergens_from_db(codes: &[String]) -> Result<BTreeSet<Allergen>, Error> {
+pub(crate) fn allergens_from_db(codes: &[String]) -> Result<BTreeSet<Allergen>, Error> {
     codes
         .iter()
         .map(|code| code.parse().map_err(|e| Error::Corrupt(format!("{e}"))))
         .collect()
 }
 
-fn allergens_to_db(allergens: &BTreeSet<Allergen>) -> Vec<String> {
+pub(crate) fn allergens_to_db(allergens: &BTreeSet<Allergen>) -> Vec<String> {
     allergens.iter().map(|a| a.code().to_owned()).collect()
 }
 
@@ -166,7 +189,6 @@ impl TryFrom<Row> for Product {
             lead_time_hours: row.lead_time_hours,
             allergen_info: AllergenInfo {
                 allergens: allergens_from_db(&row.allergens)?,
-                may_contain: allergens_from_db(&row.may_contain)?,
                 ingredient_text: row.ingredient_text,
             },
             approval,
@@ -182,7 +204,6 @@ struct Validated {
     min_price_cents: Option<i64>,
     max_price_cents: Option<i64>,
     allergens: Vec<String>,
-    may_contain: Vec<String>,
 }
 
 fn validate(input: &ProductInput) -> Result<Validated, Error> {
@@ -221,7 +242,6 @@ fn validate(input: &ProductInput) -> Result<Validated, Error> {
         min_price_cents,
         max_price_cents,
         allergens: allergens_to_db(&input.allergen_info.allergens),
-        may_contain: allergens_to_db(&input.allergen_info.may_contain),
     })
 }
 
@@ -234,12 +254,12 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
         r#"INSERT INTO product (
             name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, packaged, sold_online, estimated_cost_cents, active
-        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active"#,
@@ -256,7 +276,6 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
         input.freezer_days,
         input.lead_time_hours,
         &v.allergens,
-        &v.may_contain,
         input.allergen_info.ingredient_text,
         input.packaged,
         input.sold_online,
@@ -268,8 +287,8 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
     row.try_into()
 }
 
-/// Replaces every editable field. A change to the allergens, may-contain list or
-/// ingredient text clears the allergen approval (database trigger).
+/// Replaces every editable field. A change to the allergens or ingredient text
+/// clears the allergen approval (database trigger).
 ///
 /// # Errors
 /// [`Error::NotFound`], or [`Error::Invalid`] / [`Error::Price`] when the input is refused.
@@ -285,12 +304,12 @@ pub async fn update(
             name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,
             vat_rate = $6::bigint, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,
             unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,
-            lead_time_hours = $13, allergens = $14, may_contain = $15, ingredient_text = $16,
-            packaged = $17, sold_online = $18, estimated_cost_cents = $19, active = $20
+            lead_time_hours = $13, allergens = $14, ingredient_text = $15,
+            packaged = $16, sold_online = $17, estimated_cost_cents = $18, active = $19
         WHERE id = $1
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active"#,
@@ -308,7 +327,6 @@ pub async fn update(
         input.freezer_days,
         input.lead_time_hours,
         &v.allergens,
-        &v.may_contain,
         input.allergen_info.ingredient_text,
         input.packaged,
         input.sold_online,
@@ -339,10 +357,10 @@ pub async fn approve_allergens(
             allergens_approved_by = $2,
             allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
         WHERE id = $1 AND allergens @> $4 AND allergens <@ $4
-            AND may_contain @> $5 AND may_contain <@ $5 AND ingredient_text = $6
+            AND ingredient_text = $5
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active"#,
@@ -350,7 +368,6 @@ pub async fn approve_allergens(
         by.get(),
         db::time::to_micros(clock.now()),
         &allergens_to_db(&reviewed.allergens),
-        &allergens_to_db(&reviewed.may_contain),
         reviewed.ingredient_text,
     )
     .fetch_optional(&mut *conn)
@@ -364,6 +381,23 @@ pub async fn approve_allergens(
     }
 }
 
+/// Locks the rows of `ids` `FOR SHARE`, in id order, until the caller's transaction ends,
+/// so their allergen approval cannot be cleared between a checkout's check and its commit
+/// (ADR 0008, ADR 0038). Unknown ids are skipped.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn lock_for_order(conn: &mut PgConnection, ids: &[ProductId]) -> Result<(), Error> {
+    let ids: Vec<i64> = ids.iter().map(|id| id.get()).collect();
+    sqlx::query_scalar!(
+        "SELECT id FROM product WHERE id = ANY($1) ORDER BY id FOR SHARE",
+        &ids,
+    )
+    .fetch_all(conn)
+    .await?;
+    Ok(())
+}
+
 /// # Errors
 /// [`Error::NotFound`] when there is no such product.
 pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Error> {
@@ -371,7 +405,7 @@ pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Erro
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active
@@ -393,7 +427,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active
@@ -415,7 +449,7 @@ pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active
@@ -437,7 +471,7 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens, may_contain,
+            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             packaged, sold_online, estimated_cost_cents, active
@@ -453,6 +487,26 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn may_contain_is_the_kitchen_list_minus_what_the_product_contains() {
+        let info = AllergenInfo {
+            allergens: BTreeSet::from([Allergen::CerealsContainingGluten, Allergen::Milk]),
+            ingredient_text: "TARWEbloem, MELK".to_owned(),
+        };
+        let kitchen = BTreeSet::from([Allergen::Milk, Allergen::Nuts, Allergen::SesameSeeds]);
+        let shown = PublishedAllergens::new(&info, &kitchen);
+        assert_eq!(shown.contains, info.allergens);
+        assert_eq!(
+            shown.may_contain,
+            BTreeSet::from([Allergen::Nuts, Allergen::SesameSeeds])
+        );
+        assert_eq!(shown.ingredient_text, "TARWEbloem, MELK");
+        assert_eq!(
+            PublishedAllergens::new(&info, &BTreeSet::new()).may_contain,
+            BTreeSet::new()
+        );
+    }
 
     #[test]
     fn unknown_allergen_codes_are_corrupt() {

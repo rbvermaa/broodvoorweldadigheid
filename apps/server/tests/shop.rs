@@ -291,7 +291,9 @@ async fn product(conn: &mut PgConnection, spec: &Spec<'_>) -> ProductId {
     let allergens: Vec<String> = spec.allergens.iter().map(|a| (*a).to_owned()).collect();
     let id: i64 = sqlx::query_scalar(
         "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
-            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id)
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id),
+         kitchen AS (UPDATE company SET may_contain_approved_by = (SELECT id FROM baker),
+            may_contain_approved_at = '2026-10-01T10:00:00Z' WHERE may_contain_approved_by IS NULL)
          INSERT INTO product (name_nl, description_nl, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, sold_online, allergens, ingredient_text,
@@ -538,6 +540,78 @@ async fn the_menu_shows_approved_allergens_only_and_hides_offline_products(pool:
         "{}",
         reply.body
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn every_product_shows_the_kitchen_may_contain_list_once_approved(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    for change in [
+        "UPDATE company SET may_contain = '{cereals_containing_gluten,nuts}'",
+        "UPDATE company SET may_contain_approved_by = (SELECT id FROM staff_user LIMIT 1),
+            may_contain_approved_at = now()",
+    ] {
+        sqlx::query(change).execute(&mut *conn).await.unwrap();
+    }
+
+    let (_, reply) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    let html = reply.body;
+    let may_contain = html
+        .split(&dutch("allergen-may-contain"))
+        .nth(1)
+        .expect("a may-contain list");
+    assert!(may_contain.contains(&dutch("allergen-nuts")), "{html}");
+    assert!(
+        !may_contain.contains(&dutch("allergen-cereals_containing_gluten")),
+        "what the bread contains is not repeated: {html}"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn nothing_can_be_ordered_while_the_kitchen_list_is_unapproved(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    sqlx::query("UPDATE company SET may_contain = '{nuts}'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let (_, reply) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    let html = reply.body;
+    assert!(html.contains(&dutch("product-allergens-pending")), "{html}");
+    assert!(!html.contains(&dutch("allergen-nuts")), "{html}");
+    assert!(
+        !html.contains(&format!("name=\"aantal-{}\"", bread.get())),
+        "{html}"
+    );
+    let reply = browser.add(drop.day, bread, "1", None).await;
+    assert!(
+        reply.body.contains(&dutch("cart-error-unavailable")),
+        "{}",
+        reply.body
+    );
+
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-unavailable")),
+        "{}",
+        reply.body
+    );
+    assert!(shop.mollie.created().is_empty());
+    let orders: i64 = sqlx::query_scalar(r#"SELECT count(*) FROM "order""#)
+        .fetch_one(&shop.pool)
+        .await
+        .unwrap();
+    assert_eq!(orders, 0);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

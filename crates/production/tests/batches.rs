@@ -456,7 +456,9 @@ async fn unbatched_pieces_count_paid_orders_and_not_pending_ones(pool: PgPool) {
     .unwrap();
     sqlx::query(
         "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role)
-            VALUES ('test-baker', 'Testbakker', 'baker') RETURNING id)
+            VALUES ('test-baker', 'Testbakker', 'baker') RETURNING id),
+        kitchen AS (UPDATE company SET may_contain_approved_by = (SELECT id FROM baker),
+            may_contain_approved_at = '2026-11-01T10:00:00Z')
         UPDATE product SET allergens_approved_by = (SELECT id FROM baker),
             allergens_approved_at = '2026-11-01T10:00:00Z' WHERE id = $1",
     )

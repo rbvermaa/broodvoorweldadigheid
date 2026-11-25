@@ -38,12 +38,7 @@
 {% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
 {%- endfor %}
 </fieldset>
-<fieldset class="field-group">
-<legend class="field-label">{{ layout.t("allergen-may-contain")? }}</legend>
-{%- for allergen in form.may_contain %}
-{% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
-{%- endfor %}
-</fieldset>
+<p class="field-hint">{{ layout.t("product-may-contain-kitchen")? }} <a href="/staff/products/may-contain">{{ layout.t("kitchen-may-contain-link")? }}</a></p>
 {% call f::field("textarea", "ingredient_text", layout.t("product-ingredient-text")?, value = form.ingredient_text, hint = layout.t("product-ingredient-text-hint")?) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
 </form>

@@ -107,6 +107,15 @@ Questions about the spec. The spec is only changed when the owner asks.
   **Answered 2026-11-25:** yes, when staff place the order, in the same transaction. To the
   contact email with a copy to the invoice email when that differs, with "op rekening"
   wording and no payment (ADR 0032).
+- [ ] **Ingredient may-contain and the kitchen list** (F17, ADR 0038). May-contain is now one
+  kitchen-wide list. The data model still gives each `Ingredient` a `may_contain[]` (from
+  supplier spec sheets, F21). When recipes roll up allergens, should an ingredient's
+  may-contain go into the product's own allergens, be added to the kitchen list as a
+  suggestion, or be dropped?
+- [ ] **Paying a pending order after an allergen approval is cleared** (F10, ADR 0038). An
+  order placed while its products and the kitchen list were approved can still be paid
+  after staff change them (which clears the approval). Leave it payable, let staff block
+  or cancel such pending orders, or check the approvals again at payment?
 - [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
   commercially without Niimbot's consent).
   **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a
