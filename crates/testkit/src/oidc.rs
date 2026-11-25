@@ -19,6 +19,7 @@ pub const ISSUER: &str = "https://idm.test/oauth2/openid/bvw-staff";
 pub const CLIENT_ID: &str = "bvw-staff";
 pub const CLIENT_SECRET: &str = "fake-client-secret";
 pub const KID: &str = "fake-es256";
+const ENCRYPTION_KID: &str = "fake-enc";
 pub const TOKEN_LIFETIME: SignedDuration = SignedDuration::from_mins(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +75,8 @@ pub enum Sabotage {
     /// The claims changed after signing.
     Tampered,
     UnknownKid,
+    /// Signed by the key set's encryption key, under its own `kid`.
+    EncryptionKey,
     NoKid,
     AlgNone,
     /// HMAC with the client secret, the classic key-confusion attack.
@@ -317,7 +320,7 @@ fn key_set() -> Value {
     json!({
         "keys": [
             {"kty": "EC", "crv": "P-256", "use": "sig", "alg": "ES256", "kid": KID, "x": x, "y": y},
-            {"kty": "EC", "crv": "P-256", "use": "enc", "kid": "fake-enc", "x": other_x, "y": other_y},
+            {"kty": "EC", "crv": "P-256", "use": "enc", "kid": ENCRYPTION_KID, "x": other_x, "y": other_y},
             {"kty": "RSA", "kid": "fake-rsa", "alg": "RS256", "n": "AQAB", "e": "AQAB"},
         ]
     })
@@ -403,6 +406,8 @@ fn id_token(grant: &Grant, now: Timestamp, sabotage: Option<Sabotage>) -> String
     if !is(Sabotage::NoKid) {
         let kid = if is(Sabotage::UnknownKid) {
             "rotated-away"
+        } else if is(Sabotage::EncryptionKey) {
+            ENCRYPTION_KID
         } else {
             KID
         };
@@ -420,7 +425,7 @@ fn id_token(grant: &Grant, now: Timestamp, sabotage: Option<Sabotage>) -> String
         }
         "RS256" => vec![0x5a; 256],
         _ => {
-            let pkcs8 = if is(Sabotage::ForeignSignature) {
+            let pkcs8 = if is(Sabotage::ForeignSignature) || is(Sabotage::EncryptionKey) {
                 OTHER_KEY
             } else {
                 SIGNING_KEY

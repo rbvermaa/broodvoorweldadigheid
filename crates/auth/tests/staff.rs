@@ -92,13 +92,14 @@ async fn known_staff_sign_in_and_get_their_name_refreshed(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn no_name_claim_keeps_the_stored_name(pool: PgPool) {
+async fn no_name_claim_keeps_the_stored_name_and_only_verified_email_is_stored(pool: PgPool) {
     staff::add(&pool, &new_staff("sub-1", Role::Baker))
         .await
         .expect("add");
     let nameless = Identity {
         name: None,
         email: Some("tineke@bakkerij.example".to_string()),
+        email_verified: true,
         ..identity("sub-1", "")
     };
     let signed_in = staff::sign_in(&pool, &nameless, &BootstrapOwner::default())
@@ -106,6 +107,19 @@ async fn no_name_claim_keeps_the_stored_name(pool: PgPool) {
         .expect("sign in");
     assert_eq!(signed_in.name, "Toonbank Tineke");
     assert_eq!(signed_in.email.as_deref(), Some("tineke@bakkerij.example"));
+    let unverified = Identity {
+        email: Some("iemand-anders@example.org".to_string()),
+        email_verified: false,
+        ..nameless
+    };
+    let signed_in = staff::sign_in(&pool, &unverified, &BootstrapOwner::default())
+        .await
+        .expect("sign in");
+    assert_eq!(
+        signed_in.email.as_deref(),
+        Some("tineke@bakkerij.example"),
+        "an unverified email is not stored"
+    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

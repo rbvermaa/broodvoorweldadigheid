@@ -70,6 +70,10 @@ pub enum ConfigError {
     DevStaffLoginNotLocal(SocketAddr),
     #[error("DEV_STAFF_LOGIN=true cannot be combined with TRUSTED_PROXY")]
     DevStaffLoginBehindProxy,
+    #[error("DEV_STAFF_LOGIN=true cannot be combined with OIDC_ISSUER")]
+    DevStaffLoginWithOidc,
+    #[error("BVW_BOOTSTRAP_OWNER_SUB {0:?} is not a UUID; use the person's Kanidm UUID")]
+    InvalidBootstrapOwnerSub(String),
     #[error("{0} must be set when OIDC_ISSUER is set")]
     MissingOidc(&'static str),
     #[error(
@@ -147,8 +151,17 @@ impl Config {
             return Err(ConfigError::DevStaffLoginBehindProxy);
         }
         let oidc = oidc_config(&lookup)?;
+        if dev_staff_login && oidc.is_some() {
+            return Err(ConfigError::DevStaffLoginWithOidc);
+        }
+        let bootstrap_sub = non_empty(&lookup, "BVW_BOOTSTRAP_OWNER_SUB")
+            .map(|raw| {
+                auth::identity::canonical_uuid(&raw)
+                    .ok_or(ConfigError::InvalidBootstrapOwnerSub(raw))
+            })
+            .transpose()?;
         let bootstrap_owner = BootstrapOwner {
-            sub: non_empty(&lookup, "BVW_BOOTSTRAP_OWNER_SUB"),
+            sub: bootstrap_sub,
             email: non_empty(&lookup, "BVW_BOOTSTRAP_OWNER_EMAIL"),
         };
         let public_url = lookup("PUBLIC_URL").unwrap_or_else(|| DEFAULT_PUBLIC_URL.to_string());
@@ -540,6 +553,15 @@ mod tests {
             Config::from_lookup(lookup(&loopback)),
             Err(ConfigError::DevStaffLoginBehindProxy)
         );
+        let local: Vec<_> = loopback
+            .into_iter()
+            .filter(|(key, _)| *key != "TRUSTED_PROXY")
+            .collect();
+        assert_eq!(
+            Config::from_lookup(lookup(&local)),
+            Err(ConfigError::DevStaffLoginWithOidc),
+            "not even on a developer's own machine"
+        );
     }
 
     #[test]
@@ -584,6 +606,29 @@ mod tests {
                 sub: None,
                 email: Some("eigenaar@example.org".to_string()),
             }
+        );
+    }
+
+    #[test]
+    fn the_bootstrap_sub_must_be_a_uuid_and_is_lowercased() {
+        let config = Config::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://db/bakery"),
+            (
+                "BVW_BOOTSTRAP_OWNER_SUB",
+                "0D2F1F9E-1111-2222-3333-444455556666",
+            ),
+        ]))
+        .expect("config");
+        assert_eq!(
+            config.bootstrap_owner.sub.as_deref(),
+            Some("0d2f1f9e-1111-2222-3333-444455556666")
+        );
+        assert_eq!(
+            Config::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://db/bakery"),
+                ("BVW_BOOTSTRAP_OWNER_SUB", "bas"),
+            ])),
+            Err(ConfigError::InvalidBootstrapOwnerSub("bas".to_string()))
         );
     }
 

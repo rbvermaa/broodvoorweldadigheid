@@ -172,10 +172,10 @@ kanidm-setup: ## Register the staff OAuth2 client in Kanidm; writes deploy/secre
 		> $(OIDC_DIR)/.client-secret && chmod 644 $(OIDC_DIR)/.client-secret && mv $(OIDC_DIR)/.client-secret $(OIDC_DIR)/client-secret
 	@echo "staff login is set up; next: make kanidm-person NAME=... DISPLAY_NAME=..."
 
-kanidm-person: ## Create a Kanidm person and print their sub and passkey link: NAME, DISPLAY_NAME, MAIL
-	@test -n "$(NAME)" -a -n "$(DISPLAY_NAME)" || { echo "usage: make kanidm-person NAME=bas DISPLAY_NAME=\"Bas\" [MAIL=...]"; exit 2; }
-	$(COMPOSE) exec -T kanidm cli kanidm person --url $(IDM_URL) --name '$(NAME)' \
-		--display-name '$(DISPLAY_NAME)' $(if $(MAIL),--mail '$(MAIL)')
+kanidm-person: ## Create a Kanidm person in bvw_staff and print their sub and passkey link: NAME, DISPLAY_NAME, MAIL
+	@test -n "$$NAME" -a -n "$$DISPLAY_NAME" || { echo "usage: make kanidm-person NAME=bas DISPLAY_NAME=\"Bas van 't Hof\" [MAIL=...]"; exit 2; }
+	$(COMPOSE) exec -T -e "PERSON_NAME=$$NAME" -e "PERSON_DISPLAY_NAME=$$DISPLAY_NAME" -e "PERSON_MAIL=$$MAIL" \
+		kanidm cli kanidm person --url $(IDM_URL)
 
 smoke: ## Compose smoke test against the loaded images (Gate 1); runs beside `make up`
 	$(NIX_DEV) cargo xtask compose-smoke --project $(SMOKE_PROJECT) --main-project $(COMPOSE_PROJECT) --tag $(BVW_IMAGE_TAG) --http-port $(SMOKE_HTTP_PORT) --https-port $(SMOKE_HTTPS_PORT) --subnet $(SMOKE_SUBNET) $(SMOKE_ARGS)

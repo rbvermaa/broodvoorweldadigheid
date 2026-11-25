@@ -40,11 +40,11 @@ pub enum KanidmCommand {
     Person {
         #[arg(long, default_value = DEFAULT_URL)]
         url: String,
-        #[arg(long, help = "login name, e.g. bas")]
+        #[arg(long, env = "PERSON_NAME", help = "login name, e.g. bas")]
         name: String,
-        #[arg(long)]
+        #[arg(long, env = "PERSON_DISPLAY_NAME")]
         display_name: String,
-        #[arg(long)]
+        #[arg(long, env = "PERSON_MAIL")]
         mail: Option<String>,
         #[arg(long, default_value = DEFAULT_DATA_DIR)]
         data_dir: PathBuf,
@@ -211,9 +211,15 @@ impl Admin {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    fn succeeds(&self, step: &Step) -> bool {
-        self.run(step).is_ok()
+    /// `kanidm ... get` exits 0 also when there is no such entry. A failed lookup counts as
+    /// absent; the `create` that follows then reports the real error.
+    fn found(&self, step: &Step) -> bool {
+        self.run(step).is_ok_and(|output| entry_found(&output))
     }
+}
+
+pub fn entry_found(output: &str) -> bool {
+    !output.trim().is_empty() && !output.contains("No matching entries")
 }
 
 fn describe(step: &Step) -> String {
@@ -254,10 +260,10 @@ pub fn execute(command: KanidmCommand) -> Result<String, Error> {
             data_dir,
         } => {
             let admin = Admin::login(&url, &data_dir)?;
-            if !admin.succeeds(&kanidm(&["group", "get", STAFF_GROUP])) {
+            if !admin.found(&kanidm(&["group", "get", STAFF_GROUP])) {
                 admin.run(&kanidm(&["group", "create", STAFF_GROUP]))?;
             }
-            let exists = admin.succeeds(&kanidm(&["system", "oauth2", "get", &client_id]));
+            let exists = admin.found(&kanidm(&["system", "oauth2", "get", &client_id]));
             if !exists {
                 admin.run(&kanidm(&[
                     "system",
@@ -291,10 +297,10 @@ pub fn execute(command: KanidmCommand) -> Result<String, Error> {
             data_dir,
         } => {
             let admin = Admin::login(&url, &data_dir)?;
-            if !admin.succeeds(&kanidm(&["person", "get", &name])) {
+            if !admin.found(&kanidm(&["person", "get", &name])) {
                 admin.run(&kanidm(&["person", "create", &name, &display_name]))?;
             }
-            if let Some(mail) = &mail {
+            if let Some(mail) = mail.as_deref().filter(|mail| !mail.is_empty()) {
                 admin.run(&kanidm(&["person", "update", &name, "--mail", mail]))?;
             }
             admin.run(&kanidm(&["group", "add-members", STAFF_GROUP, &name]))?;
@@ -405,6 +411,13 @@ mod tests {
                 "kanidm system oauth2 set-landing-url bvw-staff https://localhost:8443/staff",
             ]
         );
+    }
+
+    #[test]
+    fn no_matching_entries_is_not_an_entry() {
+        assert!(!entry_found("No matching entries\n"));
+        assert!(!entry_found(""));
+        assert!(entry_found("---\nclass: group\nname: bvw_staff\n"));
     }
 
     #[test]

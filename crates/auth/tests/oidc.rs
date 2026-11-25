@@ -123,16 +123,15 @@ async fn only_es256_is_accepted() {
 
 #[tokio::test]
 async fn a_kid_outside_the_key_set_is_refused() {
-    let error = login(
-        FakeUser::new(BAS, "Bas"),
-        Some(Sabotage::UnknownKid),
-        now(),
-        now(),
-    )
-    .await
-    .expect_err("unknown kid");
-    assert!(matches!(error, OidcError::UnknownKey), "{error}");
-
+    for sabotage in [Sabotage::UnknownKid, Sabotage::EncryptionKey] {
+        let error = login(FakeUser::new(BAS, "Bas"), Some(sabotage), now(), now())
+            .await
+            .expect_err("kid without an ES256 signing key");
+        assert!(
+            matches!(error, OidcError::UnknownKey),
+            "{sabotage:?}: {error}"
+        );
+    }
     let error = login(
         FakeUser::new(BAS, "Bas"),
         Some(Sabotage::NoKid),
