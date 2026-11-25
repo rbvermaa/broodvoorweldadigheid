@@ -11,6 +11,9 @@
 <p><a href="{{ back }}">{{ layout.t("batch-back")? }}</a></p>
 {% call s::status(saved) %}{% endcall %}
 {% call tb::table(facts) %}{% endcall %}
+{%- for (href, text) in label_links %}
+<p><a href="{{ href }}">{{ text }}</a></p>
+{%- endfor %}
 <div id="grams">
 {%- for message in messages %}
 {% call fb::alert(message.kind, message.text) %}{% endcall %}

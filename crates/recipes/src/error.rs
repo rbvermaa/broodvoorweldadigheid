@@ -17,6 +17,14 @@ pub enum Error {
     /// Sub-recipes nest deeper than [`crate::MAX_NESTING`], or a recipe uses itself.
     #[error("sub-recipes nest too deep or use the recipe itself")]
     Nesting,
+    /// A formula or one of its sub-recipes has no lines, so nothing can be weighed.
+    #[error("recipe has no lines to weigh")]
+    Unweighable,
+    /// The computed allergen data or the recipe changed since it was reviewed.
+    #[error("allergen data changed since it was reviewed")]
+    AllergensChanged,
+    #[error(transparent)]
+    Catalog(catalog::Error),
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
     #[error("database error: {0}")]
@@ -62,6 +70,12 @@ mod tests {
                 Error::Nesting,
                 "sub-recipes nest too deep or use the recipe itself",
             ),
+            (Error::Unweighable, "recipe has no lines to weigh"),
+            (
+                Error::AllergensChanged,
+                "allergen data changed since it was reviewed",
+            ),
+            (Error::Catalog(catalog::Error::NotFound), "not found"),
             (Error::Db(sqlx::Error::RowNotFound), "database error: "),
         ];
         for (error, text) in cases {

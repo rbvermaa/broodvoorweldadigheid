@@ -7,10 +7,34 @@
 {% block page %}
 <h1>{{ layout.t("approve-title")? }}: {{ name }}</h1>
 {% if changed %}{% call fb::alert("error", layout.t("approve-changed")?) %}{% endcall %}{% endif %}
+{% if let Some(computed) = computed %}
+<h2>{{ layout.t("rollup-title")? }}</h2>
+<p>{{ computed.source }} {{ layout.t("rollup-intro")? }}</p>
+{% if computed.allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(computed.allergens) %}{% endcall %}{% endif %}
+<p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
+{% call s::ingredient_list(computed.ingredients) %}{% endcall %}
+{% if computed.same %}{% call fb::alert("success", layout.t("rollup-same")?) %}{% endcall %}{% else %}{% call fb::alert("warning", layout.t("rollup-differs")?) %}{% endcall %}{% endif %}
+<p class="field-hint">{{ layout.t("rollup-approve-hint")? }}</p>
+<form method="post" action="{{ computed.action }}">
+{% call s::csrf() %}{% endcall %}
+{%- for code in computed.allergens.iter() %}
+<input type="hidden" name="allergens" value="{{ code }}">
+{%- endfor %}
+{%- for item in computed.ingredients.iter() %}
+<input type="hidden" name="ingredient" value="{{ item.name }}">
+<input type="hidden" name="vet" value="{% if item.emphasised %}1{% else %}0{% endif %}">
+{%- endfor %}
+<input type="hidden" name="revisie" value="{{ revision }}">
+{% call b::button(layout.t("rollup-approve")?, kind = "submit") %}{% endcall %}
+</form>
+<h2>{{ layout.t("rollup-current")? }}</h2>
+{% else if uncomputable %}
+{% call fb::alert("warning", layout.t("rollup-unweighable")?) %}{% endcall %}
+{% endif %}
 <p>{{ layout.t("approve-intro")? }}</p>
 {% if allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
-{% if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
+{% if let Some(items) = current_list %}{% call s::ingredient_list(items) %}{% endcall %}{% else if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
 {%- for code in allergens %}

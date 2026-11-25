@@ -155,3 +155,10 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Extras after batches exist** (ADR 0042). F7a says extras can change until the
   batch is mixed. Should a change resize planned batches?
   **Answered 2026-11-25:** no, the baker adjusts batches by hand (ADR 0042).
+- [ ] **Order by weight: block or warn** (F17, F18, ADR 0046). The spec says the system
+  warns before printing when a batch changes the ingredient order by weight. F17 now
+  blocks such a batch's labels until its values are approved, like any other difference,
+  and still warns after that. Keep the block, or only warn?
+- [ ] **Compound ingredients** (F17, ADR 0046). Sub-recipe ingredients are merged into the
+  dough's list ("tarwebloem" once, levain flour included). Should a filling or topping be
+  listed as a compound ingredient instead, e.g. "vulling (suiker, hazelnoot)"?

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO product (\n            name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, packaged, sold_online, estimated_cost_cents, active\n        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev,\n            packaged, sold_online, estimated_cost_cents, active",
+  "query": "INSERT INTO product (\n            name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, packaged, sold_online, estimated_cost_cents, active\n        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            packaged, sold_online, estimated_cost_cents, active",
   "describe": {
     "columns": [
       {
@@ -209,6 +209,28 @@
       },
       {
         "ordinal": 19,
+        "name": "ingredient_names",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_names"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "ingredient_emphasis",
+        "type_info": "BoolArray",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_emphasis"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -219,7 +241,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 22,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -230,7 +252,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 23,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -241,7 +263,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 24,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -294,11 +316,13 @@
       null,
       true,
       false,
+      true,
+      true,
       false,
       false,
       true,
       false
     ]
   },
-  "hash": "2965bcc490dadfcf11049b272ce1ab850e33dba715383b1d27f4bac7b2451370"
+  "hash": "fd95c14694d15a17229b2b9c87201c04d8d6b5fe8a88ebc672d8e45ec5bed1cb"
 }

@@ -6,6 +6,7 @@
 pub mod batches;
 mod error;
 mod invoice;
+pub mod label_check;
 pub mod needs;
 mod paper;
 mod pdf;

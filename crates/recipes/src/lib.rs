@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
-//! Ingredients and versioned recipes in baker's percentages (F14), and ingredient needs
-//! per bake day (F15).
+//! Ingredients and versioned recipes in baker's percentages (F14), ingredient needs
+//! per bake day (F15) and the allergen roll-up (F17).
 
 mod error;
 pub mod formula;
 pub mod ingredients;
 pub mod needs;
 pub mod recipes;
+pub mod rollup;
 
 pub use error::Error;
 pub use formula::{
