@@ -458,13 +458,13 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
     let version = version_path(k.dough, k.dough_v1);
 
-    let form = baker.get(&format!("{version}/edit")).await;
-    assert_eq!(form.status, StatusCode::OK);
-    form.shows(&dutch_with(
+    let choices = baker.htmx_get(&format!("{version}/search?q=Desem")).await;
+    assert_eq!(choices.status, StatusCode::OK);
+    choices.shows(&dutch_with(
         "recipe-sub-option-draft",
         &[("name", "Desem"), ("n", "1")],
     ));
-    form.lacks(&dutch_with(
+    choices.lacks(&dutch_with(
         "recipe-sub-option-draft",
         &[("name", "Desembrood"), ("n", "1")],
     ));
@@ -473,51 +473,43 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
     let water = format!("i{}", k.water.get());
     let salt = format!("i{}", k.salt.get());
     let levain = format!("v{}", k.levain_v1.get());
-    let saved = baker
+    for (part, pct) in [
+        (&flour, "90"),
+        (&water, "65"),
+        (&salt, "2"),
+        (&levain, "20"),
+    ] {
+        let added = baker
+            .post(
+                &format!("{version}/lines"),
+                &[("part", part), ("pct", pct), ("gewicht", "1000")],
+            )
+            .await;
+        assert_eq!(added.status, StatusCode::SEE_OTHER, "{}", added.text);
+    }
+    baker
         .post(
             &format!("{version}/edit"),
-            &[
-                ("part-0", &flour),
-                ("pct-0", "90"),
-                ("part-1", &water),
-                ("pct-1", "65"),
-                ("part-2", &salt),
-                ("pct-2", "2"),
-                ("part-3", &levain),
-                ("pct-3", "20"),
-                ("part-4", ""),
-                ("pct-4", ""),
-                ("lead_time", "36"),
-                ("notes", "Desem om 20:00 aanzetten"),
-            ],
+            &[("lead_time", "36"), ("notes", "Desem om 20:00 aanzetten")],
         )
-        .await;
-    saved.redirects_to(&format!("{version}?opgeslagen=1"));
+        .await
+        .redirects_to(&format!("{version}/edit?opgeslagen=1"));
 
-    let page = baker.get(&format!("{version}?gewicht=1770")).await;
+    let page = baker.get(&format!("{version}?gewicht=1770&open=3")).await;
     assert_eq!(page.status, StatusCode::OK);
     page.shows(&dutch_with("recipe-lines-caption", &[("grams", "1.770")]));
     page.shows(&dutch_with(
         "recipe-sub-option",
         &[("name", "Desem"), ("n", "1")],
     ));
-    for text in [
-        "<td class=\"table-number\">900</td>",
-        "<td class=\"table-number\">650</td>",
-    ] {
-        page.shows(text);
+    for grams in ["900", "650", "200", "100", "1.000", "750", "1.770"] {
+        page.shows(&format!("<td class=\"recipe-grams\">{grams}</td>"));
     }
-    page.shows("↳ Tarwebloem");
-    page.shows("<td class=\"table-number\">1.000</td>");
-    page.shows("<td class=\"table-number\">750</td>");
     page.shows("75%");
     page.shows(&dutch_with("recipe-lead-time-value", &[("hours", "36")]));
     page.shows("Desem om 20:00 aanzetten");
     page.shows(&dutch("recipe-draft-info"));
     page.lacks(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
-
-    let bad_weight = baker.get(&format!("{version}?gewicht=veel")).await;
-    bad_weight.shows(&dutch("recipe-weight-error"));
 
     baker
         .post(&format!("{version}/freeze"), &[])
@@ -534,41 +526,24 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
         "the levain inside froze too"
     );
 
-    let edit_frozen = baker.get(&format!("{version}/edit")).await;
-    edit_frozen.shows(&dutch_with("recipe-edit-frozen", &[("n", "1")]));
-    let next = baker
-        .post(
-            &format!("{version}/edit"),
-            &[
-                ("part-0", &flour),
-                ("pct-0", "100"),
-                ("part-1", &water),
-                ("pct-1", "74"),
-            ],
-        )
+    baker
+        .post(&format!("/staff/recipes/{}/versions", k.dough.get()), &[])
         .await;
-    assert_eq!(next.status, StatusCode::SEE_OTHER);
     let versions = store::versions(&mut conn, k.dough).await.expect("versions");
     assert_eq!(versions.len(), 2);
-    next.redirects_to(&format!(
-        "{}?opgeslagen=1",
-        version_path(k.dough, versions[0].id)
-    ));
+    let v2 = version_path(k.dough, versions[0].id);
+    baker
+        .post(
+            &format!("{v2}/lines/1"),
+            &[("part", &water), ("pct", "74"), ("gewicht", "1770")],
+        )
+        .await
+        .redirects_to(&format!("{v2}/edit?gewicht=1860&opgeslagen=1"));
     assert_eq!(
-        store::lines(&mut conn, k.dough_v1).await.expect("v1").len(),
-        4
+        store::lines(&mut conn, k.dough_v1).await.expect("v1")[1].pct,
+        Pct::from_thousandths(65_000)
     );
 
-    let again = baker
-        .post(
-            &format!("{version}/edit"),
-            &[("part-0", &flour), ("pct-0", "100")],
-        )
-        .await;
-    assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
-    again.shows(&dutch_with("recipe-error-draft-exists", &[("n", "2")]));
-
-    let v2 = version_path(k.dough, versions[0].id);
     baker
         .post(&format!("{v2}/current"), &[])
         .await
@@ -588,66 +563,71 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn the_edit_form_explains_what_is_wrong(pool: PgPool) {
+async fn the_editor_explains_what_is_wrong(pool: PgPool) {
     let app = app(pool.clone());
     let k = kitchen(&pool).await;
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
     let flour = format!("i{}", k.flour.get());
     let version = version_path(k.dough, k.dough_v1);
 
-    let wrong = baker
+    let nothing = baker
+        .post(&format!("{version}/lines"), &[("pct", "5")])
+        .await;
+    assert_eq!(nothing.status, StatusCode::UNPROCESSABLE_ENTITY);
+    nothing.shows(&dutch("recipe-add-error-choose"));
+    let negative = baker
         .post(
-            &format!("{version}/edit"),
-            &[
-                ("part-0", &flour),
-                ("pct-0", "-2"),
-                ("part-1", ""),
-                ("pct-1", "5"),
-                ("lead_time", "200"),
-            ],
+            &format!("{version}/lines"),
+            &[("part", &flour), ("pct", "-2")],
         )
         .await;
-    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
-    wrong.shows(&dutch("recipe-line-error-pct"));
-    wrong.shows(&dutch("recipe-line-error-part"));
-    wrong.shows(&dutch("recipe-lead-time-error"));
-    wrong.shows("value=\"-2\"");
+    assert_eq!(negative.status, StatusCode::UNPROCESSABLE_ENTITY);
+    negative.shows(&dutch("recipe-line-error-pct"));
+    negative.shows("value=\"-2\"");
+    let first_by_grams = baker
+        .post(
+            &format!("{version}/lines"),
+            &[("part", &flour), ("gram", "500")],
+        )
+        .await;
+    first_by_grams.shows(&dutch("recipe-add-error-first-pct"));
+    let unknown = baker
+        .post(
+            &format!("{version}/lines"),
+            &[("part", "i999"), ("pct", "5")],
+        )
+        .await;
+    unknown.shows(&dutch("recipe-error-line-gone"));
 
     let levain_path = version_path(k.levain, k.levain_v1);
-    let dough_v1 = format!("v{}", k.dough_v1.get());
     baker
         .post(
-            &format!("{version}/edit"),
-            &[
-                ("part-0", &flour),
-                ("pct-0", "90"),
-                ("part-1", &format!("v{}", k.levain_v1.get())),
-                ("pct-1", "20"),
-            ],
+            &format!("{version}/lines"),
+            &[("part", &format!("v{}", k.levain_v1.get())), ("pct", "20")],
         )
-        .await
-        .redirects_to(&format!("{version}?opgeslagen=1"));
+        .await;
     let looped = baker
         .post(
-            &format!("{levain_path}/edit"),
-            &[
-                ("part-0", &flour),
-                ("pct-0", "100"),
-                ("part-1", &dough_v1),
-                ("pct-1", "10"),
-            ],
+            &format!("{levain_path}/lines"),
+            &[("part", &format!("v{}", k.dough_v1.get())), ("pct", "10")],
         )
         .await;
     assert_eq!(looped.status, StatusCode::UNPROCESSABLE_ENTITY);
     looped.shows(&dutch("recipe-error-nesting"));
 
-    let empty = baker.get(&levain_path).await;
-    empty.shows("100%");
-    let (leeg_id, leeg_v1) = recipe(&pool, "Leeg", RecipeKind::Dough).await;
-    let leeg = baker.get(&version_path(leeg_id, leeg_v1)).await;
-    leeg.shows(&dutch("recipe-no-lines"));
+    baker.get(&levain_path).await.shows("100%");
     assert_eq!(
         baker.get(&version_path(k.levain, k.dough_v1)).await.status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        baker
+            .post(
+                &format!("{}/lines", version_path(k.levain, k.dough_v1)),
+                &[("pct", "1")]
+            )
+            .await
+            .status,
         StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -844,30 +824,553 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn too_many_lines_come_back_without_rows_that_would_be_lost(pool: PgPool) {
+async fn a_recipe_holds_at_most_sixty_lines(pool: PgPool) {
     let app = app(pool.clone());
     let k = kitchen(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    store::save_draft(
+        &mut conn,
+        k.dough_v1,
+        &DraftInput {
+            lines: vec![line(LinePart::Ingredient(k.flour), 1_000); store::MAX_LINES],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("full");
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
-    let flour = format!("i{}", k.flour.get());
-    let names: Vec<(String, String)> = (0..64)
-        .map(|i| (format!("part-{i}"), format!("pct-{i}")))
-        .collect();
-    let mut fields: Vec<(&str, &str)> = Vec::new();
-    for (part, pct) in &names {
-        fields.push((part, &flour));
-        fields.push((pct, "1"));
-    }
     let reply = baker
         .post(
-            &format!("{}/edit", version_path(k.dough, k.dough_v1)),
-            &fields,
+            &format!("{}/lines", version_path(k.dough, k.dough_v1)),
+            &[("part", &format!("i{}", k.salt.get())), ("pct", "1")],
         )
         .await;
     assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
     reply.shows(&dutch("recipe-error-lines"));
-    reply.shows("\"part-63\"");
-    assert!(
-        !reply.text.contains("\"part-64\""),
-        "every row on the page is read back on the next save"
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await.len(),
+        store::MAX_LINES
     );
+}
+
+impl Client<'_> {
+    async fn htmx_get(&self, path: &str) -> Reply {
+        self.send(
+            Request::get(path)
+                .header(COOKIE, &self.cookie)
+                .header("hx-request", "true")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+    }
+
+    async fn htmx_post(&self, path: &str, fields: &[(&str, &str)]) -> Reply {
+        let mut all: Vec<(&str, &str)> = vec![("_csrf", &self.token)];
+        all.extend_from_slice(fields);
+        self.send(
+            Request::post(path)
+                .header(COOKIE, &self.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header("hx-request", "true")
+                .body(Body::from(Self::body(&all)))
+                .expect("request"),
+        )
+        .await
+    }
+}
+
+impl Reply {
+    fn replace_url(&self) -> &str {
+        self.headers
+            .get("hx-replace-url")
+            .map(|v| v.to_str().expect("ascii"))
+            .unwrap_or_default()
+    }
+}
+
+/// The dough of `kitchen` as flour 90%, water 65%, salt 2% and levain 20% (1:1), so all
+/// flour is 100% and a dough of 1770 g has 1000 g flour.
+async fn desembrood(pool: &PgPool, k: &Kitchen) {
+    let mut conn = pool.acquire().await.expect("conn");
+    store::save_draft(
+        &mut conn,
+        k.dough_v1,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: Pct::from_thousandths(90_000),
+                    part: LinePart::Ingredient(k.flour),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(65_000),
+                    part: LinePart::Ingredient(k.water),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(2_000),
+                    part: LinePart::Ingredient(k.salt),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(20_000),
+                    part: LinePart::Sub(k.levain_v1),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("dough");
+}
+
+async fn stored_lines(pool: &PgPool, version: RecipeVersionId) -> Vec<LineInput> {
+    let mut conn = pool.acquire().await.expect("conn");
+    store::lines(&mut conn, version).await.expect("lines")
+}
+
+fn line(part: LinePart, thousandths: u32) -> LineInput {
+    LineInput {
+        pct: Pct::from_thousandths(thousandths),
+        part,
+    }
+}
+
+/// A grams cell of the recipe table, as an input or as text.
+fn grams_input(id: &str, value: &str) -> String {
+    format!("id=\"{id}\" name=\"gram\" value=\"{value}\"")
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_recipe_table_scales_live_without_saving(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let product: i64 = sqlx::query_scalar(
+        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g, dough_g_per_piece,
+            recipe_id)
+        VALUES ('Desembrood', 550, 9, 800, 885, $1) RETURNING id",
+    )
+    .bind(k.dough.get())
+    .fetch_one(&pool)
+    .await
+    .expect("product");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+
+    let page = baker.htmx_get(&format!("{version}?gewicht=1770")).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows("<td class=\"recipe-grams\">900</td>");
+    page.shows("<td class=\"recipe-grams\">650</td>");
+    page.shows("<td class=\"recipe-grams\">200</td>");
+    page.shows("<td class=\"recipe-grams\">1.770</td>");
+    page.shows(&dutch("recipe-hydration"));
+    page.shows("75%");
+    page.lacks("name=\"gram\"");
+
+    let pieces = baker
+        .htmx_get(&format!("{version}?stuks=4&product={product}&open=3"))
+        .await;
+    pieces.shows("<td class=\"recipe-grams\">3.540</td>");
+    pieces.shows("<td class=\"recipe-grams\">400</td>");
+    pieces.shows("Tarwebloem");
+    pieces.shows("value=\"3\" checked");
+
+    let wrong = baker.get(&format!("{version}?gewicht=veel")).await;
+    wrong.shows(&dutch("recipe-weight-error"));
+    let wrong = baker.get(&format!("{version}?stuks=veel")).await;
+    wrong.shows(&dutch("recipe-pieces-error"));
+
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 4);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_draft_line_is_edited_by_percent_or_by_grams(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let water = format!("i{}", k.water.get());
+    let salt = format!("i{}", k.salt.get());
+
+    let edit = baker.get(&format!("{version}/edit?gewicht=1770")).await;
+    assert_eq!(edit.status, StatusCode::OK);
+    edit.shows(&grams_input("gram-2", "20"));
+    edit.shows("id=\"pct-2\" name=\"pct\" value=\"2\"");
+    assert_eq!(
+        edit.text.matches(&format!("id=\"{}\"", "add-part")).count(),
+        0,
+        "no fixed blank rows"
+    );
+    assert_eq!(edit.text.matches("id=\"add-q\"").count(), 1);
+
+    let by_pct = baker
+        .htmx_post(
+            &format!("{version}/lines/1"),
+            &[("part", &water), ("pct", "70"), ("gewicht", "1770")],
+        )
+        .await;
+    assert_eq!(by_pct.status, StatusCode::OK, "{}", by_pct.text);
+    by_pct.shows(&grams_input("gram-1", "700"));
+    by_pct.shows(&grams_input("gram-0", "900"));
+    by_pct.shows("<td class=\"recipe-grams\">1.820</td>");
+    assert_eq!(by_pct.replace_url(), format!("{version}/edit?gewicht=1820"));
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[1].pct.thousandths(),
+        70_000
+    );
+
+    let by_grams = baker
+        .htmx_post(
+            &format!("{version}/lines/2"),
+            &[("part", &salt), ("gram", "22"), ("gewicht", "1820")],
+        )
+        .await;
+    assert_eq!(by_grams.status, StatusCode::OK, "{}", by_grams.text);
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[2].pct.thousandths(),
+        2_200
+    );
+    by_grams.shows(&grams_input("gram-2", "22"));
+    by_grams.shows(&grams_input("gram-0", "900"));
+    assert_eq!(
+        by_grams.replace_url(),
+        format!("{version}/edit?gewicht=1822")
+    );
+
+    let plain = baker
+        .post(
+            &format!("{version}/lines/2"),
+            &[("part", &salt), ("pct", "2"), ("gewicht", "1822")],
+        )
+        .await;
+    plain.redirects_to(&format!("{version}/edit?gewicht=1820&opgeslagen=1"));
+
+    for (field, value, error) in [
+        ("pct", "0", "recipe-line-error-pct"),
+        ("pct", "abc", "recipe-line-error-pct"),
+        ("gram", "0", "recipe-line-error-grams"),
+        ("gram", "-3", "recipe-line-error-grams"),
+    ] {
+        let refused = baker
+            .htmx_post(
+                &format!("{version}/lines/2"),
+                &[("part", &salt), (field, value), ("gewicht", "1820")],
+            )
+            .await;
+        assert_eq!(refused.status, StatusCode::OK);
+        refused.shows(&dutch(error));
+    }
+    let stale = baker
+        .htmx_post(
+            &format!("{version}/lines/1"),
+            &[("part", &salt), ("pct", "3"), ("gewicht", "1820")],
+        )
+        .await;
+    stale.shows(&dutch("recipe-error-line-gone"));
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[2].pct.thousandths(),
+        2_000
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn lines_are_added_from_the_list_or_as_a_new_ingredient_and_removed(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let salt = format!("i{}", k.salt.get());
+
+    let found = baker.htmx_get(&format!("{version}/search?q=zout")).await;
+    assert_eq!(found.status, StatusCode::OK);
+    found.shows(&format!("name=\"part\" value=\"{salt}\""));
+    found.shows(&dutch_with("recipe-add-new", &[("name", "zout")]));
+    let levain = baker.htmx_get(&format!("{version}/search?q=des")).await;
+    levain.shows(&format!("value=\"v{}\"", k.levain_v1.get()));
+    levain.lacks(&format!("value=\"v{}\"", k.dough_v1.get()));
+    let exact = baker.htmx_get(&format!("{version}/search?q=Zeezout")).await;
+    exact.lacks(&dutch_with("recipe-add-new", &[("name", "Zeezout")]));
+
+    let added = baker
+        .htmx_post(
+            &format!("{version}/lines"),
+            &[
+                ("gewicht", "1770"),
+                ("q", "zee"),
+                ("part", &salt),
+                ("pct", "1"),
+            ],
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.text);
+    added.shows(&grams_input("gram-4", "10"));
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[4],
+        line(LinePart::Ingredient(k.salt), 1_000)
+    );
+
+    let typed = baker
+        .post(
+            &format!("{version}/lines"),
+            &[("gewicht", "1780"), ("q", "zeezout"), ("gram", "20")],
+        )
+        .await;
+    typed.redirects_to(&format!("{version}/edit?gewicht=1800&opgeslagen=1"));
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[5].pct.thousandths(),
+        2_000
+    );
+
+    let unknown = baker
+        .htmx_post(
+            &format!("{version}/lines"),
+            &[("gewicht", "1800"), ("q", "Spelt"), ("pct", "5")],
+        )
+        .await;
+    unknown.shows(&dutch("recipe-add-error-choose"));
+    let no_role = baker
+        .htmx_post(
+            &format!("{version}/lines"),
+            &[
+                ("gewicht", "1800"),
+                ("q", "Spelt"),
+                ("pct", "5"),
+                ("new", "1"),
+            ],
+        )
+        .await;
+    no_role.shows(&dutch("ingredient-error-role"));
+    no_role.shows("value=\"Spelt\"");
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(ingredients::list(&mut conn).await.expect("list").len(), 3);
+
+    let created = baker
+        .htmx_post(
+            &format!("{version}/lines"),
+            &[
+                ("gewicht", "1800"),
+                ("q", "Speltbloem"),
+                ("pct", "10"),
+                ("new", "1"),
+                ("role", "flour"),
+                ("allergen_cereals_containing_gluten", "ja"),
+            ],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::OK, "{}", created.text);
+    created.shows("Speltbloem");
+    let spelt = ingredients::list(&mut conn)
+        .await
+        .expect("list")
+        .into_iter()
+        .find(|i| i.name == "Speltbloem")
+        .expect("created");
+    assert_eq!(spelt.role, IngredientRole::Flour);
+    assert!(
+        spelt
+            .allergens
+            .contains(&domain::Allergen::CerealsContainingGluten)
+    );
+    assert_eq!(
+        stored_lines(&pool, k.dough_v1).await[6],
+        line(LinePart::Ingredient(spelt.id), 10_000)
+    );
+    let duplicate = baker
+        .htmx_post(
+            &format!("{version}/lines"),
+            &[
+                ("gewicht", "1900"),
+                ("q", "speltbloem"),
+                ("pct", "1"),
+                ("new", "1"),
+                ("role", "flour"),
+            ],
+        )
+        .await;
+    duplicate.shows(&dutch("ingredient-error-duplicate"));
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 7);
+
+    let removed = baker
+        .htmx_post(
+            &format!("{version}/lines/6/remove"),
+            &[
+                ("part", &format!("i{}", spelt.id.get())),
+                ("gewicht", "1900"),
+            ],
+        )
+        .await;
+    assert_eq!(removed.status, StatusCode::OK, "{}", removed.text);
+    assert_eq!(
+        removed.replace_url(),
+        format!("{version}/edit?gewicht=1800")
+    );
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 6);
+    let gone = baker
+        .htmx_post(
+            &format!("{version}/lines/6/remove"),
+            &[
+                ("part", &format!("i{}", spelt.id.get())),
+                ("gewicht", "1800"),
+            ],
+        )
+        .await;
+    gone.shows(&dutch("recipe-error-line-gone"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn warnings_sit_on_the_line_they_are_about(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let page = baker.get(&format!("{version}?gewicht=1770")).await;
+    page.shows(&dutch_with(
+        "recipe-warning-sub-draft",
+        &[("name", "Desem"), ("n", "1")],
+    ));
+    let flour = format!("i{}", k.flour.get());
+    baker
+        .htmx_post(
+            &format!("{version}/lines/0"),
+            &[("part", &flour), ("pct", "100"), ("gewicht", "1770")],
+        )
+        .await
+        .shows(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
+    let tiny = baker.get(&format!("{version}?gewicht=10")).await;
+    tiny.shows(&dutch("recipe-warning-zero"));
+    let (empty, empty_v1) = recipe(&pool, "Leeg", RecipeKind::Dough).await;
+    baker
+        .get(&version_path(empty, empty_v1))
+        .await
+        .shows(&dutch("recipe-no-lines"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_frozen_version_is_read_only_and_opens_a_new_draft(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    store::freeze(&mut conn, k.dough, k.dough_v1, app.clock.as_ref())
+        .await
+        .expect("freeze");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let salt = format!("i{}", k.salt.get());
+
+    let page = baker.get(&version).await;
+    page.shows(&dutch("recipe-edit-new-version"));
+    page.lacks("<input id=\"gram-");
+    baker
+        .get(&format!("{version}/edit"))
+        .await
+        .redirects_to(&version);
+    for (path, fields) in [
+        (
+            format!("{version}/lines/2"),
+            vec![("part", salt.as_str()), ("pct", "3")],
+        ),
+        (
+            format!("{version}/lines"),
+            vec![("part", salt.as_str()), ("pct", "3")],
+        ),
+        (
+            format!("{version}/lines/2/remove"),
+            vec![("part", salt.as_str())],
+        ),
+        (format!("{version}/edit"), vec![("lead_time", "3")]),
+    ] {
+        let refused = baker.post(&path, &fields).await;
+        assert_eq!(refused.status, StatusCode::CONFLICT, "{path}");
+        refused.shows(&dutch("recipe-error-frozen"));
+    }
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 4);
+    let versions = store::versions(&mut conn, k.dough).await.expect("versions");
+    assert_eq!(versions.len(), 1);
+
+    let opened = baker
+        .post(&format!("/staff/recipes/{}/versions", k.dough.get()), &[])
+        .await;
+    let draft = store::versions(&mut conn, k.dough).await.expect("versions")[0].id;
+    opened.redirects_to(&format!(
+        "{}/edit?opgeslagen=1",
+        version_path(k.dough, draft)
+    ));
+    assert_eq!(stored_lines(&pool, draft).await.len(), 4);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn draft_details_save_without_touching_the_lines(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    baker
+        .post(
+            &format!("{version}/edit"),
+            &[("lead_time", "36"), ("notes", "Desem om 20:00 aanzetten")],
+        )
+        .await
+        .redirects_to(&format!("{version}/edit?opgeslagen=1"));
+    let page = baker.get(&version).await;
+    page.shows(&dutch_with("recipe-lead-time-value", &[("hours", "36")]));
+    page.shows("Desem om 20:00 aanzetten");
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 4);
+    let wrong = baker
+        .post(&format!("{version}/edit"), &[("lead_time", "200")])
+        .await;
+    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
+    wrong.shows(&dutch("recipe-lead-time-error"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn line_edits_need_production_and_the_csrf_token(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    let salt = format!("i{}", k.salt.get());
+    let fields = [
+        ("part", salt.as_str()),
+        ("pct", "3"),
+        ("q", "Rogge"),
+        ("new", "1"),
+        ("role", "flour"),
+    ];
+    let paths = [
+        format!("{version}/lines"),
+        format!("{version}/lines/2"),
+        format!("{version}/lines/2/remove"),
+    ];
+    for path in &paths {
+        assert_eq!(
+            counter.post(path, &fields).await.status,
+            StatusCode::FORBIDDEN,
+            "{path}"
+        );
+        assert_eq!(
+            baker.post_raw(path, &fields).await.status,
+            StatusCode::FORBIDDEN,
+            "{path}"
+        );
+    }
+    assert_eq!(
+        counter
+            .get(&format!("{version}/search?q=zout"))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    let lines = stored_lines(&pool, k.dough_v1).await;
+    assert_eq!(lines.len(), 4);
+    assert_eq!(lines[2].pct.thousandths(), 2_000);
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(ingredients::list(&mut conn).await.expect("list").len(), 3);
 }

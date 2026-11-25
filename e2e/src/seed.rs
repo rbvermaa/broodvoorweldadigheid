@@ -213,3 +213,64 @@ pub async fn open_drop(pool: &PgPool) -> Result<OpenDrop, Error> {
         owner: basics.owner,
     })
 }
+
+/// A straight dough of its own: flour 100%, water 65%, salt 2%, as a draft, plus seeds to
+/// add by name.
+pub struct Recipe {
+    pub owner: i64,
+    pub version: i64,
+    pub path: String,
+    pub seeds: i64,
+    pub seeds_name: String,
+}
+
+/// [`Recipe`], with names of its own so runs do not collide.
+///
+/// # Errors
+/// When the database refuses a step.
+pub async fn recipe(pool: &PgPool) -> Result<Recipe, Error> {
+    let basics = basics(pool).await?;
+    let mut conn = pool.acquire().await?;
+    let tag = unique();
+    let flour = ingredient(&mut conn, &format!("Bloem {tag}"), "flour").await?;
+    let water = ingredient(&mut conn, &format!("Water {tag}"), "water").await?;
+    let salt = ingredient(&mut conn, &format!("Zout {tag}"), "other").await?;
+    let seeds_name = format!("Pitten {tag}");
+    let seeds = ingredient(&mut conn, &seeds_name, "other").await?;
+    let (recipe, version): (i64, i64) = sqlx::query_as(
+        "WITH r AS (INSERT INTO recipe (name, kind) VALUES ($1, 'dough') RETURNING id),
+         v AS (INSERT INTO recipe_version (recipe_id, version) SELECT id, 1 FROM r RETURNING id)
+         SELECT r.id, v.id FROM r, v",
+    )
+    .bind(format!("Brood {tag}"))
+    .fetch_one(&mut *conn)
+    .await?;
+    sqlx::query(
+        "INSERT INTO recipe_line (recipe_version_id, position, ingredient_id, bakers_pct_x1000)
+         VALUES ($1, 0, $2, 100000), ($1, 1, $3, 65000), ($1, 2, $4, 2000)",
+    )
+    .bind(version)
+    .bind(flour)
+    .bind(water)
+    .bind(salt)
+    .execute(&mut *conn)
+    .await?;
+    Ok(Recipe {
+        owner: basics.owner,
+        version,
+        path: format!("/staff/recipes/{recipe}/versions/{version}"),
+        seeds,
+        seeds_name,
+    })
+}
+
+async fn ingredient(conn: &mut PgConnection, name: &str, role: &str) -> Result<i64, Error> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO ingredient (name, label_name, role, supplier_name, allergens)
+         VALUES ($1, '', $2, '', '{}') RETURNING id",
+    )
+    .bind(name)
+    .bind(role)
+    .fetch_one(conn)
+    .await?)
+}

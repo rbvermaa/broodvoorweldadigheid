@@ -1,27 +1,26 @@
 {% extends "staff/layout.html" %}
 {% import "components/button.html" as b %}
-{% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/recipe.html" as r %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
 <h1>{{ heading }}</h1>
-<p><a href="{{ back }}">{{ layout.t("recipe-versions")? }}</a></p>
-{% if let Some(note) = frozen_note %}{% call fb::alert("info", note) %}{% endcall %}{% endif %}
-{% if has_errors %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
-{% if let Some(error) = form_error %}{% call fb::alert("error", error) %}{% endcall %}{% endif %}
-<form method="post" action="{{ action }}">
+<p><a href="{{ back }}">{{ layout.t("recipe-done")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+<div class="recipe-page">
+<div class="recipe-main">
+<p class="field-hint recipe-hint">{{ layout.t("recipe-edit-hint")? }}</p>
+{% call r::editor(editor) %}{% endcall %}
+</div>
+<div class="recipe-side">
+<h2>{{ layout.t("recipe-details")? }}</h2>
+<form method="post" action="{{ details_action }}">
 {% call s::csrf() %}{% endcall %}
-<p class="field-hint">{{ layout.t("recipe-edit-hint")? }}</p>
-{%- for row in rows %}
-<fieldset class="field-group">
-<legend class="field-label">{{ row.legend }}</legend>
-{% call f::select(row.part_field, layout.t("recipe-line-part")?, row.options.iter(), error = row.part_error) %}{% endcall %}
-{% call f::field("text", row.pct_field, layout.t("recipe-line-pct")?, value = row.pct, error = row.pct_error) %}{% endcall %}
-</fieldset>
-{%- endfor %}
 {% call f::field("number", "lead_time", layout.t("recipe-lead-time")?, value = lead_time, hint = layout.t("recipe-lead-time-hint")?, error = lead_time_error) %}{% endcall %}
 {% call f::field("textarea", "notes", layout.t("recipe-notes")?, value = notes) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
 </form>
+</div>
+</div>
 {% endblock %}

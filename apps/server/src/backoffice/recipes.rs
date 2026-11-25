@@ -1,5 +1,7 @@
 //! Recipes, their versions and the scaled formula for a dough weight (F14).
 
+mod editor;
+
 use askama::Template;
 use auth::Permission;
 use axum::Router;
@@ -10,15 +12,11 @@ use axum::routing::{get, post};
 use catalog::products as catalog_products;
 use domain::{ProductId, RecipeId, RecipeVersionId, in_bakery_time};
 use jiff::Timestamp;
-use recipes::recipes::{self as store, MAX_LEAD_TIME_HOURS, MAX_LINES};
-use recipes::{
-    DraftInput, Ingredient, LineInput, LinePart, Part, Pct, Recipe, RecipeInput, RecipeKind,
-    ScaleError, Scaled, SubChoice, Version, ingredient_totals, ingredients,
-};
-use serde::Deserialize;
+use recipes::recipes as store;
+use recipes::{Pct, Recipe, RecipeInput, RecipeKind, Version};
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields, parse_pct, pct_value};
+use super::form::{Errors, Fields, pct_value};
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
     saved, t, t_with,
@@ -39,10 +37,29 @@ pub fn routes() -> Router<AppState> {
             "/staff/recipes/{id}/products/{product}/remove",
             post(unlink_product),
         )
-        .route("/staff/recipes/{id}/versions/{version}", get(version_page))
+        .route(
+            "/staff/recipes/{id}/versions/{version}",
+            get(editor::version_page),
+        )
         .route(
             "/staff/recipes/{id}/versions/{version}/edit",
-            get(edit_form).post(save_draft),
+            get(editor::edit_page).post(editor::save_details),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/lines",
+            post(editor::add_line),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/lines/{position}",
+            post(editor::set_line),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/lines/{position}/remove",
+            post(editor::remove_line),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/search",
+            get(editor::search),
         )
         .route(
             "/staff/recipes/{id}/versions/{version}/freeze",
@@ -56,13 +73,6 @@ pub fn routes() -> Router<AppState> {
 
 const LIST: &str = "/staff/recipes";
 const NEW: &str = "/staff/recipes/new";
-/// Empty line rows below the existing ones on the edit form.
-const BLANK_ROWS: usize = 3;
-/// Line rows the edit form shows and reads back; one more than fits, so too many is refused
-/// rather than cut off.
-const FORM_ROWS: usize = MAX_LINES + BLANK_ROWS + 1;
-const DEFAULT_WEIGHT_G: u64 = 1000;
-const MAX_WEIGHT_G: u64 = 1_000_000;
 
 const fn kind_label(kind: RecipeKind) -> &'static str {
     match kind {
@@ -544,37 +554,9 @@ pub async fn unlink_product(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
-#[derive(Debug, Default, Deserialize)]
-pub struct VersionQuery {
-    gewicht: Option<String>,
-    opgeslagen: Option<String>,
-}
-
 pub struct Message {
     pub kind: &'static str,
     pub text: String,
-}
-
-#[derive(Template)]
-#[template(path = "staff/recipe_version.html")]
-struct VersionPage<'a> {
-    layout: Layout<'a>,
-    heading: String,
-    back: String,
-    saved: bool,
-    frozen: bool,
-    status: String,
-    edit: String,
-    freeze: String,
-    current: Option<String>,
-    new_version: String,
-    facts: Table,
-    messages: Vec<Message>,
-    weight: String,
-    weight_error: String,
-    lines: Option<Table>,
-    totals: Option<Table>,
-    notes: String,
 }
 
 fn grams_text(grams: u64) -> String {
@@ -587,193 +569,6 @@ fn sub_label(state: &AppState, name: &str, version: i32) -> String {
         "recipe-sub-option",
         &[("name", name.to_owned()), ("n", version.to_string())],
     )
-}
-
-fn flatten(state: &AppState, scaled: &[Scaled<'_>], depth: usize, rows: &mut Vec<Vec<Cell>>) {
-    for line in scaled {
-        let name = match &line.line.part {
-            Part::Ingredient(ingredient) => ingredient.name.clone(),
-            Part::Sub(sub) => sub_label(state, &sub.name, sub.version),
-        };
-        rows.push(vec![
-            Cell::text(format!("{}{name}", "↳ ".repeat(depth))),
-            Cell::number(pct_text(line.line.pct)),
-            Cell::number(grams_text(line.grams)),
-        ]);
-        flatten(state, &line.lines, depth + 1, rows);
-    }
-}
-
-pub async fn version_page(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    Path((id, version)): Path<(String, String)>,
-    Query(query): Query<VersionQuery>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::Production)?;
-        let (recipe, version) = load_version(&state, &id, &version).await?;
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let formula = store::formula(&mut conn, version.id)
-            .await
-            .map_err(|e| fail(&state, &e))?;
-        let raw_weight = query.gewicht.unwrap_or_default();
-        let (grams, weight_error) = if raw_weight.trim().is_empty() {
-            (DEFAULT_WEIGHT_G, String::new())
-        } else {
-            match raw_weight.trim().parse::<u64>() {
-                Ok(g) if (1..=MAX_WEIGHT_G).contains(&g) => (g, String::new()),
-                _ => (DEFAULT_WEIGHT_G, t(&state, "recipe-weight-error")),
-            }
-        };
-        let mut messages = Vec::new();
-        let none = || t(&state, "recipe-none");
-        let analysis = formula.analysis();
-        let (lines, totals) = match formula.scale(grams) {
-            Ok(scaled) => {
-                let mut rows = Vec::new();
-                flatten(&state, &scaled, 0, &mut rows);
-                let totals = ingredient_totals(&scaled)
-                    .into_iter()
-                    .map(|(ingredient, grams)| {
-                        vec![
-                            Cell::text(ingredient.name.clone()),
-                            Cell::number(grams_text(grams)),
-                        ]
-                    })
-                    .collect();
-                (
-                    Some(Table {
-                        id: "regels".to_owned(),
-                        caption: t_with(
-                            &state,
-                            "recipe-lines-caption",
-                            &[("grams", grams_text(grams))],
-                        ),
-                        head: vec![
-                            Cell::text(t(&state, "recipe-line-part")),
-                            Cell::number(t(&state, "recipe-line-pct")),
-                            Cell::number(t(&state, "recipe-line-grams")),
-                        ],
-                        rows,
-                    }),
-                    Some(Table {
-                        id: "totalen".to_owned(),
-                        caption: t(&state, "recipe-totals-caption"),
-                        head: vec![
-                            Cell::text(t(&state, "recipe-line-part")),
-                            Cell::number(t(&state, "recipe-line-grams")),
-                        ],
-                        rows: totals,
-                    }),
-                )
-            }
-            Err(ScaleError::Empty(None)) => {
-                messages.push(Message {
-                    kind: "info",
-                    text: t(&state, "recipe-no-lines"),
-                });
-                (None, None)
-            }
-            Err(ScaleError::Empty(Some(_))) => {
-                messages.push(Message {
-                    kind: "warning",
-                    text: t(&state, "recipe-empty-sub"),
-                });
-                (None, None)
-            }
-        };
-        let analysis = analysis.ok();
-        if let Some(a) = analysis.filter(|a| a.total_flour != Pct::HUNDRED) {
-            messages.push(Message {
-                kind: "warning",
-                text: t_with(
-                    &state,
-                    "recipe-flour-off",
-                    &[("pct", pct_text(a.total_flour))],
-                ),
-            });
-        }
-        let pct_or_none = |pct: Option<Pct>| pct.map_or_else(none, pct_text);
-        let facts = Table {
-            id: "kenmerken".to_owned(),
-            caption: t_with(
-                &state,
-                "recipe-version-number",
-                &[("n", version.version.to_string())],
-            ),
-            head: vec![
-                Cell::text(t(&state, "recipe-status")),
-                Cell::text(status_text(&state, &version)),
-            ],
-            rows: vec![
-                vec![
-                    Cell::text(t(&state, "recipe-hydration")),
-                    Cell::text(pct_or_none(analysis.and_then(|a| a.hydration))),
-                ],
-                vec![
-                    Cell::text(t(&state, "recipe-total-flour")),
-                    Cell::text(pct_or_none(analysis.map(|a| a.total_flour))),
-                ],
-                vec![
-                    Cell::text(t(&state, "recipe-prefermented-flour")),
-                    Cell::text(pct_or_none(analysis.and_then(|a| a.prefermented_flour))),
-                ],
-                vec![
-                    Cell::text(t(&state, "recipe-lead-time")),
-                    Cell::text(version.lead_time_hours.map_or_else(none, |hours| {
-                        t_with(
-                            &state,
-                            "recipe-lead-time-value",
-                            &[("hours", hours.to_string())],
-                        )
-                    })),
-                ],
-            ],
-        };
-        let path = version_path(recipe.id, version.id);
-        let status = match version.frozen_at {
-            Some(at) => t_with(&state, "recipe-frozen-info", &[("date", date_text(at))]),
-            None => t(&state, "recipe-draft-info"),
-        };
-        Ok(pages::render(
-            &state,
-            StatusCode::OK,
-            &VersionPage {
-                layout: layout(&state, &session).await?,
-                heading: t_with(
-                    &state,
-                    "recipe-version-title",
-                    &[
-                        ("name", recipe.name.clone()),
-                        ("n", version.version.to_string()),
-                    ],
-                ),
-                back: recipe_path(recipe.id),
-                saved: query.opgeslagen.is_some(),
-                frozen: version.is_frozen(),
-                status,
-                edit: format!("{path}/edit"),
-                freeze: format!("{path}/freeze"),
-                current: (recipe.current_version_id != Some(version.id))
-                    .then(|| format!("{path}/current")),
-                new_version: format!("{}/versions", recipe_path(recipe.id)),
-                facts,
-                messages,
-                weight: if weight_error.is_empty() {
-                    grams.to_string()
-                } else {
-                    raw_weight
-                },
-                weight_error,
-                lines,
-                totals,
-                notes: version.notes.clone(),
-            },
-        ))
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
 }
 
 pub async fn freeze(
@@ -808,361 +603,6 @@ pub async fn make_current(
             .await
             .map_err(|e| recipe_error(&state, &e))?;
         Ok(saved(&headers, &version_path(recipe.id, version.id)))
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-/// One line on the edit form, as typed.
-pub struct LineForm {
-    pub legend: String,
-    pub part_field: String,
-    pub pct_field: String,
-    pub options: Vec<SelectOption>,
-    pub pct: String,
-    pub part_error: String,
-    pub pct_error: String,
-}
-
-#[derive(Template)]
-#[template(path = "staff/recipe_edit.html")]
-struct EditPage<'a> {
-    layout: Layout<'a>,
-    heading: String,
-    back: String,
-    action: String,
-    frozen_note: Option<String>,
-    form_error: Option<String>,
-    has_errors: bool,
-    rows: Vec<LineForm>,
-    lead_time: String,
-    lead_time_error: String,
-    notes: String,
-}
-
-fn part_value(part: LinePart) -> String {
-    match part {
-        LinePart::Ingredient(id) => format!("i{}", id.get()),
-        LinePart::Sub(id) => format!("v{}", id.get()),
-    }
-}
-
-/// The choices of the part select: ingredients first, then versions of other recipes.
-struct Choices {
-    ingredients: Vec<Ingredient>,
-    subs: Vec<SubChoice>,
-}
-
-impl Choices {
-    fn options(&self, state: &AppState, selected: &str) -> Vec<SelectOption> {
-        let ingredients = self.ingredients.iter().map(|i| {
-            let value = part_value(LinePart::Ingredient(i.id));
-            SelectOption {
-                selected: value == selected,
-                value,
-                label: i.name.clone(),
-            }
-        });
-        let subs = self.subs.iter().map(|s| {
-            let value = part_value(LinePart::Sub(s.version_id));
-            let id = if s.frozen {
-                "recipe-sub-option"
-            } else {
-                "recipe-sub-option-draft"
-            };
-            SelectOption {
-                selected: value == selected,
-                value,
-                label: t_with(
-                    state,
-                    id,
-                    &[
-                        ("name", s.recipe_name.clone()),
-                        ("n", s.version.to_string()),
-                    ],
-                ),
-            }
-        });
-        ingredients.chain(subs).collect()
-    }
-
-    fn parse(&self, value: &str) -> Option<LinePart> {
-        self.ingredients
-            .iter()
-            .map(|i| LinePart::Ingredient(i.id))
-            .chain(self.subs.iter().map(|s| LinePart::Sub(s.version_id)))
-            .find(|part| part_value(*part) == value)
-    }
-}
-
-async fn choices(state: &AppState, recipe: RecipeId) -> Step<Choices> {
-    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    Ok(Choices {
-        ingredients: ingredients::list(&mut conn)
-            .await
-            .map_err(|e| fail(state, &e))?,
-        subs: store::sub_choices(&mut conn, recipe)
-            .await
-            .map_err(|e| fail(state, &e))?,
-    })
-}
-
-/// A posted or stored line before checking: the part's select value and the percentage.
-struct RawLine {
-    part: String,
-    pct: String,
-}
-
-struct EditState {
-    lines: Vec<RawLine>,
-    lead_time: String,
-    notes: String,
-    line_errors: Vec<(String, String)>,
-    lead_time_error: String,
-    form_error: Option<String>,
-}
-
-async fn render_edit(
-    state: &AppState,
-    session: &Session,
-    status: StatusCode,
-    recipe: &Recipe,
-    version: &Version,
-    choices: &Choices,
-    edit: EditState,
-) -> Outcome {
-    let blanks = (0..BLANK_ROWS).map(|_| RawLine {
-        part: String::new(),
-        pct: String::new(),
-    });
-    let rows = edit
-        .lines
-        .into_iter()
-        .chain(blanks)
-        .take(FORM_ROWS)
-        .enumerate()
-        .map(|(index, line)| {
-            let (part_error, pct_error) = edit.line_errors.get(index).cloned().unwrap_or_default();
-            LineForm {
-                legend: t_with(state, "recipe-line", &[("n", (index + 1).to_string())]),
-                part_field: format!("part-{index}"),
-                pct_field: format!("pct-{index}"),
-                options: choices.options(state, &line.part),
-                pct: line.pct,
-                part_error,
-                pct_error,
-            }
-        })
-        .collect();
-    let path = version_path(recipe.id, version.id);
-    let has_errors = edit.form_error.is_some()
-        || !edit.lead_time_error.is_empty()
-        || edit
-            .line_errors
-            .iter()
-            .any(|(part, pct)| !part.is_empty() || !pct.is_empty());
-    Ok(pages::render(
-        state,
-        status,
-        &EditPage {
-            layout: layout(state, session).await?,
-            heading: t_with(
-                state,
-                "recipe-edit-title",
-                &[
-                    ("name", recipe.name.clone()),
-                    ("n", version.version.to_string()),
-                ],
-            ),
-            back: path.clone(),
-            action: format!("{path}/edit"),
-            frozen_note: version.is_frozen().then(|| {
-                t_with(
-                    state,
-                    "recipe-edit-frozen",
-                    &[("n", version.version.to_string())],
-                )
-            }),
-            form_error: edit.form_error,
-            has_errors,
-            rows,
-            lead_time: edit.lead_time,
-            lead_time_error: edit.lead_time_error,
-            notes: edit.notes,
-        },
-    ))
-}
-
-pub async fn edit_form(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    Path((id, version)): Path<(String, String)>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::Production)?;
-        let (recipe, version) = load_version(&state, &id, &version).await?;
-        let choices = choices(&state, recipe.id).await?;
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let lines = store::lines(&mut conn, version.id)
-            .await
-            .map_err(|e| fail(&state, &e))?
-            .into_iter()
-            .map(|line| RawLine {
-                part: part_value(line.part),
-                pct: pct_value(line.pct),
-            })
-            .collect();
-        let edit = EditState {
-            lines,
-            lead_time: version
-                .lead_time_hours
-                .map(|h| h.to_string())
-                .unwrap_or_default(),
-            notes: version.notes.clone(),
-            line_errors: Vec::new(),
-            lead_time_error: String::new(),
-            form_error: None,
-        };
-        render_edit(
-            &state,
-            &session,
-            StatusCode::OK,
-            &recipe,
-            &version,
-            &choices,
-            edit,
-        )
-        .await
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-fn posted_lines(fields: &Fields) -> Vec<RawLine> {
-    (0..FORM_ROWS)
-        .map(|index| RawLine {
-            part: fields.text(&format!("part-{index}")).to_owned(),
-            pct: fields.text(&format!("pct-{index}")).to_owned(),
-        })
-        .filter(|line| !line.part.is_empty() || !line.pct.is_empty())
-        .collect()
-}
-
-fn check_lines(
-    state: &AppState,
-    choices: &Choices,
-    lines: &[RawLine],
-) -> (Vec<LineInput>, Vec<(String, String)>) {
-    let mut inputs = Vec::new();
-    let mut errors = Vec::new();
-    for line in lines {
-        let part = choices.parse(&line.part);
-        let pct =
-            parse_pct(&line.pct).filter(|pct| pct.thousandths() > 0 && *pct <= store::MAX_LINE_PCT);
-        let part_error = if part.is_none() {
-            t(state, "recipe-line-error-part")
-        } else {
-            String::new()
-        };
-        let pct_error = if pct.is_none() {
-            t(state, "recipe-line-error-pct")
-        } else {
-            String::new()
-        };
-        if let (Some(part), Some(pct)) = (part, pct) {
-            inputs.push(LineInput { pct, part });
-        }
-        errors.push((part_error, pct_error));
-    }
-    (inputs, errors)
-}
-
-pub async fn save_draft(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    headers: HeaderMap,
-    Path((id, version)): Path<(String, String)>,
-    Form(fields): Form<Fields>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::Production)?;
-        let (recipe, version) = load_version(&state, &id, &version).await?;
-        let choices = choices(&state, recipe.id).await?;
-        let lines = posted_lines(&fields);
-        let (inputs, line_errors) = check_lines(&state, &choices, &lines);
-        let lead_time = fields.text("lead_time").to_owned();
-        let lead_time_hours = if lead_time.is_empty() {
-            Ok(None)
-        } else {
-            lead_time
-                .parse::<i32>()
-                .ok()
-                .filter(|h| (0..=MAX_LEAD_TIME_HOURS).contains(h))
-                .map(Some)
-                .ok_or(())
-        };
-        let mut edit = EditState {
-            lead_time_error: if lead_time_hours.is_err() {
-                t(&state, "recipe-lead-time-error")
-            } else {
-                String::new()
-            },
-            form_error: (lines.len() > MAX_LINES).then(|| t(&state, "recipe-error-lines")),
-            lines,
-            lead_time,
-            notes: fields.raw("notes").trim().replace("\r\n", "\n"),
-            line_errors,
-        };
-        let refused = edit.form_error.is_some()
-            || inputs.len() != edit.lines.len()
-            || lead_time_hours.is_err();
-        if refused {
-            return render_edit(
-                &state,
-                &session,
-                invalid_status(&headers),
-                &recipe,
-                &version,
-                &choices,
-                edit,
-            )
-            .await;
-        }
-        let input = DraftInput {
-            lines: inputs,
-            lead_time_hours: lead_time_hours.unwrap_or_default(),
-            notes: edit.notes.clone(),
-        };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let message = match store::save_draft(&mut conn, version.id, &input).await {
-            Ok(saved_version) => {
-                return Ok(saved(&headers, &version_path(recipe.id, saved_version.id)));
-            }
-            Err(recipes::Error::Nesting) => t(&state, "recipe-error-nesting"),
-            Err(recipes::Error::Invalid("line")) => t(&state, "recipe-error-line-gone"),
-            Err(recipes::Error::DraftExists(draft)) => {
-                let draft = store::version(&mut conn, recipe.id, draft)
-                    .await
-                    .map_err(|e| fail(&state, &e))?;
-                t_with(
-                    &state,
-                    "recipe-error-draft-exists",
-                    &[("n", draft.version.to_string())],
-                )
-            }
-            Err(other) => return Err(fail(&state, &other).into()),
-        };
-        edit.form_error = Some(message);
-        render_edit(
-            &state,
-            &session,
-            invalid_status(&headers),
-            &recipe,
-            &version,
-            &choices,
-            edit,
-        )
-        .await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
