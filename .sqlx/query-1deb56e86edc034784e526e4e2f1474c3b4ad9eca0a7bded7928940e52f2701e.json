@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active ORDER BY name_nl, id",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            ingredient_depth,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active AND sold_online ORDER BY name_nl, id",
   "describe": {
     "columns": [
       {
@@ -220,12 +220,23 @@
       },
       {
         "ordinal": 20,
+        "name": "ingredient_depth",
+        "type_info": "Int2Array",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_depth"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "has_recipe!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -236,7 +247,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -247,7 +258,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -258,7 +269,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -293,6 +304,7 @@
       false,
       true,
       true,
+      true,
       null,
       false,
       false,
@@ -300,5 +312,5 @@
       false
     ]
   },
-  "hash": "7606b52b5aacce7013dd81ba7456adb41efb14b2e2b711e80fa498c884e09ec8"
+  "hash": "1deb56e86edc034784e526e4e2f1474c3b4ad9eca0a7bded7928940e52f2701e"
 }

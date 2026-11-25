@@ -36,10 +36,7 @@ fn listed(items: &[(&str, bool)]) -> IngredientList {
     IngredientList(
         items
             .iter()
-            .map(|&(name, emphasised)| ListedIngredient {
-                name: name.to_owned(),
-                emphasised,
-            })
+            .map(|&(name, emphasised)| ListedIngredient::plain(name.to_owned(), emphasised))
             .collect(),
     )
 }

@@ -13,7 +13,7 @@ use catalog::products as catalog_products;
 use domain::{ProductId, RecipeId, RecipeVersionId, in_bakery_time};
 use jiff::Timestamp;
 use recipes::recipes as store;
-use recipes::{Pct, Recipe, RecipeInput, RecipeKind, Version};
+use recipes::{LabelSetting, Pct, Recipe, RecipeInput, RecipeKind, Version};
 use tower_sessions::Session;
 
 use super::form::{Errors, Fields, pct_value};
@@ -32,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/staff/recipes/new", get(new_form).post(create))
         .route("/staff/recipes/{id}", get(show).post(update))
         .route("/staff/recipes/{id}/versions", post(new_version))
+        .route("/staff/recipes/{id}/etiket", post(set_label))
         .route("/staff/recipes/{id}/products", post(link_product))
         .route(
             "/staff/recipes/{id}/products/{product}/remove",
@@ -187,6 +188,8 @@ pub async fn list(
 pub struct RecipeForm {
     pub name: String,
     pub kind: String,
+    /// A refused label setting, shown again instead of the stored one.
+    pub label: Option<LabelSetting>,
 }
 
 impl RecipeForm {
@@ -194,6 +197,7 @@ impl RecipeForm {
         Self {
             name: fields.text("name").to_owned(),
             kind: fields.text("kind").to_owned(),
+            label: None,
         }
     }
 
@@ -239,6 +243,46 @@ pub struct RecipeDetails {
     pub products: Vec<ProductRow>,
     pub link_action: String,
     pub product_options: Vec<SelectOption>,
+    pub label: LabelForm,
+}
+
+/// How the recipe shows on the ingredient list of recipes that use it (F17).
+pub struct LabelForm {
+    pub action: String,
+    pub modes: Vec<SelectOption>,
+    pub name: String,
+    /// What the ingredient list shows now.
+    pub now: String,
+}
+
+const LABEL_MODES: [(&str, Option<bool>, &str); 3] = [
+    ("soort", None, "recipe-label-mode-kind"),
+    ("samengesteld", Some(true), "recipe-label-mode-compound"),
+    ("los", Some(false), "recipe-label-mode-merged"),
+];
+
+/// `shown` is what the form holds: the stored setting, or the one posted when it was refused.
+fn label_form(state: &AppState, recipe: &Recipe, shown: &LabelSetting, path: &str) -> LabelForm {
+    LabelForm {
+        action: format!("{path}/etiket"),
+        modes: LABEL_MODES
+            .iter()
+            .map(|&(value, compound, label)| SelectOption {
+                value: value.to_owned(),
+                label: t(state, label),
+                selected: compound == shown.compound,
+            })
+            .collect(),
+        name: shown.name.clone(),
+        now: match recipe.compound_name() {
+            Some(name) => t_with(
+                state,
+                "recipe-label-now-compound",
+                &[("name", name.to_owned())],
+            ),
+            None => t(state, "recipe-label-now-merged"),
+        },
+    }
 }
 
 #[derive(Template)]
@@ -254,7 +298,11 @@ struct RecipePage<'a> {
     details: Option<RecipeDetails>,
 }
 
-async fn details(state: &AppState, recipe: &Recipe) -> Step<RecipeDetails> {
+async fn details(
+    state: &AppState,
+    recipe: &Recipe,
+    posted_label: Option<&LabelSetting>,
+) -> Step<RecipeDetails> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let versions = store::versions(&mut conn, recipe.id)
         .await
@@ -315,6 +363,7 @@ async fn details(state: &AppState, recipe: &Recipe) -> Step<RecipeDetails> {
                 selected: false,
             })
             .collect(),
+        label: label_form(state, recipe, posted_label.unwrap_or(&recipe.label), &path),
     })
 }
 
@@ -338,7 +387,7 @@ async fn render_recipe(
         Some(r) => (
             r.name.clone(),
             recipe_path(r.id),
-            Some(details(state, r).await?),
+            Some(details(state, r, form.label.as_ref()).await?),
         ),
         None => (t(state, "recipe-new"), NEW.to_owned(), None),
     };
@@ -364,6 +413,7 @@ pub async fn new_form(State(state): State<AppState>, staff: Staff, session: Sess
         let form = RecipeForm {
             name: String::new(),
             kind: RecipeKind::Dough.code().to_owned(),
+            label: None,
         };
         render_recipe(
             &state,
@@ -392,6 +442,7 @@ pub async fn show(
         let form = RecipeForm {
             name: recipe.name.clone(),
             kind: recipe.kind.code().to_owned(),
+            label: None,
         };
         render_recipe(
             &state,
@@ -506,6 +557,58 @@ pub async fn new_version(
             &headers,
             &format!("{}/edit", version_path(recipe.id, draft.id)),
         ))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// Sets how the recipe shows on the ingredient list of recipes that use it (F17). It
+/// changes their products' allergen data, so it needs EditAllergens as well.
+pub async fn set_label(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Production)?;
+        require(&state, &staff, Permission::EditAllergens)?;
+        let recipe = load_recipe(&state, &id).await?;
+        let Some(&(_, compound, _)) = LABEL_MODES
+            .iter()
+            .find(|(value, _, _)| *value == fields.text("op_etiket"))
+        else {
+            return Ok(Redirect::to(&recipe_path(recipe.id)).into_response());
+        };
+        let setting = LabelSetting {
+            compound,
+            name: fields.text("etiketnaam").to_owned(),
+        };
+        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
+        match store::set_label(&mut conn, recipe.id, &setting).await {
+            Ok(updated) => Ok(saved(&headers, &recipe_path(updated.id))),
+            Err(recipes::Error::Invalid(_)) => {
+                let mut errors = Errors::default();
+                errors.add("etiketnaam", t(&state, "recipe-error-label-name"));
+                let form = RecipeForm {
+                    name: recipe.name.clone(),
+                    kind: recipe.kind.code().to_owned(),
+                    label: Some(setting),
+                };
+                render_recipe(
+                    &state,
+                    &session,
+                    invalid_status(&headers),
+                    Some(&recipe),
+                    form,
+                    errors,
+                    false,
+                )
+                .await
+            }
+            Err(other) => Err(recipe_error(&state, &other)),
+        }
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

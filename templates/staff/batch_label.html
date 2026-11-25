@@ -23,9 +23,10 @@
 {%- for code in computed.allergens.iter() %}
 <input type="hidden" name="allergens" value="{{ code }}">
 {%- endfor %}
-{%- for item in computed.ingredients.iter() %}
-<input type="hidden" name="ingredient" value="{{ item.name }}">
-<input type="hidden" name="vet" value="{% if item.emphasised %}1{% else %}0{% endif %}">
+{%- for entry in computed.entries.iter() %}
+<input type="hidden" name="ingredient" value="{{ entry.name }}">
+<input type="hidden" name="vet" value="{% if entry.emphasised %}1{% else %}0{% endif %}">
+<input type="hidden" name="diepte" value="{{ entry.depth }}">
 {%- endfor %}
 {% call b::button(layout.t("label-check-approve")?, kind = "submit") %}{% endcall %}
 </form>

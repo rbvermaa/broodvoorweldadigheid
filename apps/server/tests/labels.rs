@@ -317,10 +317,7 @@ async fn bakery(app: &App) -> Bakery {
         .await
         .expect("product")
         .allergen_revision;
-    let listed = |name: &str, emphasised| ListedIngredient {
-        name: name.to_owned(),
-        emphasised,
-    };
+    let listed = |name: &str, emphasised| ListedIngredient::plain(name.to_owned(), emphasised);
     rollup::approve_product(
         &mut conn,
         bread,

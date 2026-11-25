@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE recipe SET current_version_id = $2 WHERE id = $1\n        RETURNING id, name, kind, current_version_id",
+  "query": "UPDATE recipe SET label_compound = $2, label_name = $3 WHERE id = $1\n        RETURNING id, name, kind, current_version_id, label_compound, label_name",
   "describe": {
     "columns": [
       {
@@ -46,20 +46,45 @@
             "name": "current_version_id"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "label_compound",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_compound"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "label_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_name"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
-        "Int8"
+        "Bool",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      true
+      true,
+      true,
+      false
     ]
   },
-  "hash": "371c0b39d605a99f614394c0aaf0adf35cf6aa6c85f4b5e896e4422b7aa122a3"
+  "hash": "14596514a70261a194c541f16f1ce576dbfbf66854e358605b6ffffee472b0cc"
 }

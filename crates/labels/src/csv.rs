@@ -3,7 +3,7 @@
 use i18n::{Translator, numeric_date};
 
 use crate::data::{allergen_names, business, net_weight, storage};
-use crate::{Error, Kind, Label};
+use crate::{Error, Ingredient, Kind, Label};
 
 /// One label design and how many to print of it.
 #[derive(Debug, Clone, Copy)]
@@ -30,16 +30,20 @@ const COLUMNS: [&str; 12] = [
 ];
 
 /// A text field cannot be bold, so ingredients with an allergen are in capitals, which
-/// EU 1169/2011 also accepts as emphasis.
-fn ingredients(label: &Label) -> String {
-    label
-        .ingredients
+/// EU 1169/2011 also accepts as emphasis. A compound's parts go in brackets.
+fn ingredients(items: &[Ingredient]) -> String {
+    items
         .iter()
         .map(|i| {
-            if i.bold {
+            let name = if i.bold {
                 i.name.to_uppercase()
             } else {
                 i.name.clone()
+            };
+            if i.parts.is_empty() {
+                name
+            } else {
+                format!("{name} ({})", ingredients(&i.parts))
             }
         })
         .collect::<Vec<_>>()
@@ -75,7 +79,7 @@ pub fn csv(rows: &[CsvRow<'_>], t: &Translator) -> Result<String, Error> {
                 row.file.to_owned(),
                 kind,
                 label.product.clone(),
-                ingredients(label),
+                ingredients(&label.ingredients),
                 allergen_names(label, t)?.join(", "),
                 net_weight(label, t)?,
                 numeric_date(label.best_before),

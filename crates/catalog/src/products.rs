@@ -162,6 +162,7 @@ struct Row {
     allergens_recipe_rev: i64,
     ingredient_names: Option<Vec<String>>,
     ingredient_emphasis: Option<Vec<bool>>,
+    ingredient_depth: Option<Vec<i16>>,
     has_recipe: bool,
     packaged: bool,
     sold_online: bool,
@@ -226,6 +227,7 @@ impl TryFrom<Row> for Product {
             ingredient_list: IngredientList::from_db(
                 row.ingredient_names,
                 row.ingredient_emphasis,
+                row.ingredient_depth,
             )?,
             has_recipe: row.has_recipe,
             approval,
@@ -300,6 +302,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         input.name_nl.trim(),
@@ -347,7 +350,9 @@ pub async fn update(
             ingredient_names = CASE WHEN allergens @> $13 AND allergens <@ $13
                 AND ingredient_text = $14 THEN ingredient_names END,
             ingredient_emphasis = CASE WHEN allergens @> $13 AND allergens <@ $13
-                AND ingredient_text = $14 THEN ingredient_emphasis END
+                AND ingredient_text = $14 THEN ingredient_emphasis END,
+            ingredient_depth = CASE WHEN allergens @> $13 AND allergens <@ $13
+                AND ingredient_text = $14 THEN ingredient_depth END
         WHERE id = $1
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
@@ -355,6 +360,7 @@ pub async fn update(
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
@@ -424,6 +430,7 @@ async fn approve_stored(
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
@@ -463,10 +470,10 @@ pub async fn approve_computed(
     clock: &dyn Clock,
 ) -> Result<Product, Error> {
     let mut tx = conn.begin().await?;
-    let (names, emphasis) = computed.ingredients.to_db();
+    let (names, emphasis, depth) = computed.ingredients.to_db();
     let stored = sqlx::query!(
         "UPDATE product SET allergens = $2, ingredient_text = $3, ingredient_names = $4,
-            ingredient_emphasis = $5
+            ingredient_emphasis = $5, ingredient_depth = $7
         WHERE id = $1 AND allergens_recipe_rev = $6 AND recipe_id IS NOT NULL",
         id.get(),
         &allergens_to_db(&computed.allergens),
@@ -474,6 +481,7 @@ pub async fn approve_computed(
         &names,
         &emphasis,
         revision,
+        &depth,
     )
     .execute(&mut *tx)
     .await?;
@@ -518,6 +526,7 @@ pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Erro
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE id = $1"#,
@@ -542,6 +551,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active ORDER BY name_nl, id"#,
@@ -566,6 +576,7 @@ pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product ORDER BY name_nl, id"#,
@@ -590,6 +601,7 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
+            ingredient_depth,
             recipe_id IS NOT NULL AS "has_recipe!",
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active AND sold_online ORDER BY name_nl, id"#,

@@ -423,6 +423,7 @@ async fn a_stale_or_tampered_computed_approval_is_refused(pool: PgPool) {
             &[
                 ("ingredient", "water"),
                 ("vet", "0"),
+                ("diepte", "0"),
                 ("revisie", &page.hidden("revisie")[0]),
             ],
         )
@@ -600,7 +601,7 @@ async fn a_batch_approval_of_old_values_is_refused(pool: PgPool) {
     let stale = baker
         .post(
             &format!("{label}/approve"),
-            &[("ingredient", "tarwebloem"), ("vet", "1")],
+            &[("ingredient", "tarwebloem"), ("vet", "1"), ("diepte", "0")],
         )
         .await;
     assert_eq!(stale.status, StatusCode::CONFLICT);
@@ -642,4 +643,193 @@ async fn a_product_with_a_recipe_has_no_hand_approval(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(product.approval, None);
+}
+
+/// A cinnamon filling (60 sugar, 40 butter) in the bakery's bread at 20% of the flour.
+async fn with_filling(pool: &PgPool) -> domain::RecipeId {
+    let sugar = ingredient(pool, "Suiker", IngredientRole::Other, &[]).await;
+    let butter = ingredient(pool, "Boter", IngredientRole::Other, &[Allergen::Milk]).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let (filling, version) = store::create(
+        &mut conn,
+        &RecipeInput {
+            name: "Kaneelvulling".to_owned(),
+            kind: RecipeKind::Filling,
+        },
+    )
+    .await
+    .expect("recipe");
+    let line = |pct: u32, part| LineInput {
+        pct: Pct::from_thousandths(pct * 1000),
+        part,
+    };
+    store::save_draft(
+        &mut conn,
+        version.id,
+        &DraftInput {
+            lines: vec![
+                line(60, LinePart::Ingredient(sugar)),
+                line(40, LinePart::Ingredient(butter)),
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("filling");
+    let bread: i64 =
+        sqlx::query_scalar("SELECT current_version_id FROM recipe WHERE name = 'Desembrood'")
+            .fetch_one(&mut *conn)
+            .await
+            .expect("bread version");
+    let bread = domain::RecipeVersionId::new(bread);
+    let mut lines = store::lines(&mut conn, bread).await.expect("lines");
+    lines.push(line(20, LinePart::Sub(version.id)));
+    store::save_draft(
+        &mut conn,
+        bread,
+        &DraftInput {
+            lines,
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("bread");
+    filling.id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_filling_is_approved_and_labelled_as_a_compound_ingredient(pool: PgPool) {
+    let app = app(pool.clone());
+    let b = bakery(&pool).await;
+    let filling = with_filling(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    owner
+        .post("/staff/products/may-contain/approve", &[])
+        .await
+        .redirects_to("/staff/products/may-contain?opgeslagen=1");
+    let path = product_path(b.bread);
+    let page = baker.get(&format!("{path}/approve")).await;
+    page.shows(
+        "<strong>tarwebloem</strong>, water, Kaneelvulling (suiker, <strong>boter</strong>), zout",
+    );
+    assert_eq!(page.hidden("diepte"), ["0", "0", "0", "1", "1", "0"]);
+    baker
+        .post_shown(&page, &format!("{path}/approve-computed"))
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+    let product = products::get(&mut pool.acquire().await.unwrap(), b.bread)
+        .await
+        .unwrap();
+    assert!(product.approval.is_some());
+    assert_eq!(
+        product.allergen_info.ingredient_text,
+        "tarwebloem, water, Kaneelvulling (suiker, boter), zout"
+    );
+
+    let recipe = format!("/staff/recipes/{}", filling.get());
+    let shown = baker.get(&recipe).await;
+    shown.shows(&dutch("recipe-label-heading"));
+    shown.shows(&dutch_with(
+        "recipe-label-now-compound",
+        &[("name", "Kaneelvulling")],
+    ));
+    baker
+        .post(
+            &format!("{recipe}/etiket"),
+            &[("op_etiket", "samengesteld"), ("etiketnaam", "vulling")],
+        )
+        .await
+        .redirects_to(&format!("{recipe}?opgeslagen=1"));
+    let cleared = products::get(&mut pool.acquire().await.unwrap(), b.bread)
+        .await
+        .unwrap();
+    assert_eq!(cleared.approval, None, "the setting changed the list");
+    let page = baker.get(&format!("{path}/approve")).await;
+    page.shows("water, vulling (suiker, <strong>boter</strong>), zout");
+    baker
+        .post_shown(&page, &format!("{path}/approve-computed"))
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
+
+    let id = batch(&pool, &b, &app.clock).await;
+    let label = label_path(&b, id);
+    baker
+        .get(&label)
+        .await
+        .shows(&dutch("label-check-ok-product"));
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        let stored = batches::get(&mut conn, id).await.unwrap();
+        let sub = stored.lines.last().unwrap().id;
+        batches::adjust(
+            &mut conn,
+            id,
+            &Adjustment {
+                lines: vec![(sub, Pct::from_thousandths(200_000))],
+                pieces: vec![],
+                reason: None,
+            },
+            orders::audit::Actor::System("test"),
+            app.clock.as_ref(),
+        )
+        .await
+        .unwrap();
+    }
+    let blocked = baker.get(&label).await;
+    blocked.shows(&dutch("label-check-differs"));
+    blocked.shows("vulling (suiker, <strong>boter</strong>), <strong>tarwebloem</strong>");
+    baker
+        .post_shown(&blocked, &format!("{label}/approve"))
+        .await
+        .redirects_to(&format!("{label}?opgeslagen=1"));
+    let mut conn = pool.acquire().await.unwrap();
+    let content = label_check::label_allowed(&mut conn, id, b.bread)
+        .await
+        .unwrap();
+    assert_eq!(content.source, label_check::LabelSource::Batch);
+    assert!(content.order_changed);
+    assert_eq!(
+        content.ingredients.text(),
+        "vulling (suiker, boter), tarwebloem, water, zout"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_compound_setting_needs_allergen_rights_and_a_short_name(pool: PgPool) {
+    let app = app(pool.clone());
+    bakery(&pool).await;
+    let filling = with_filling(&pool).await;
+    let recipe = format!("/staff/recipes/{}", filling.get());
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let refused = counter
+        .post(&format!("{recipe}/etiket"), &[("op_etiket", "los")])
+        .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN);
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let long = "v".repeat(81);
+    let reply = baker
+        .post(
+            &format!("{recipe}/etiket"),
+            &[("op_etiket", "samengesteld"), ("etiketnaam", &long)],
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    reply.shows(&dutch("recipe-error-label-name"));
+    reply.shows(&format!("value=\"{long}\""));
+    reply.shows("value=\"samengesteld\" selected");
+    baker
+        .post(&format!("{recipe}/etiket"), &[("op_etiket", "los")])
+        .await
+        .redirects_to(&format!("{recipe}?opgeslagen=1"));
+    baker
+        .get(&recipe)
+        .await
+        .shows(&dutch("recipe-label-now-merged"));
+    let mut conn = pool.acquire().await.unwrap();
+    let stored = store::get(&mut conn, filling).await.unwrap();
+    assert_eq!(stored.label.compound, Some(false));
 }

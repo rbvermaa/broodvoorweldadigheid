@@ -66,10 +66,7 @@ fn listed(items: &[(&str, bool)]) -> IngredientList {
     IngredientList(
         items
             .iter()
-            .map(|&(name, emphasised)| ListedIngredient {
-                name: name.to_owned(),
-                emphasised,
-            })
+            .map(|&(name, emphasised)| ListedIngredient::plain(name.to_owned(), emphasised))
             .collect(),
     )
 }
@@ -103,7 +100,7 @@ fn a_levain_merges_into_the_dough_by_weight() {
             leaf(SALT, 2),
         ],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(computed.allergens, BTreeSet::from([GLUTEN]));
     assert_eq!(
         computed.ingredients,
@@ -121,7 +118,7 @@ fn heavier_sub_recipe_ingredients_move_ahead() {
             sub(10, 60, vec![leaf(FLOUR, 20), leaf(WATER, 100)]),
         ],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("Water", false), ("tarwebloem", true)])
@@ -147,7 +144,7 @@ fn allergens_come_from_any_depth() {
             ),
         ],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(computed.allergens, BTreeSet::from([Allergen::SesameSeeds]));
     assert_eq!(
         computed.ingredients,
@@ -161,7 +158,7 @@ fn ingredients_with_the_same_label_name_are_one_entry() {
     let formula = Formula {
         lines: vec![leaf(FLOUR, 30), leaf(WATER, 50), leaf(FLOUR_Y, 30)],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("tarwebloem", true), ("Water", false)])
@@ -178,7 +175,7 @@ fn a_line_at_zero_percent_is_left_out_with_its_allergens() {
             sub(10, 0, vec![leaf(SESAME, 100)]),
         ],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(computed.allergens, BTreeSet::from([GLUTEN]));
     assert_eq!(
         computed.ingredients,
@@ -191,7 +188,7 @@ fn ties_keep_the_order_of_the_recipe() {
     let formula = Formula {
         lines: vec![leaf(SALT, 10), leaf(WATER, 10), leaf(FLOUR, 10)],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("zout", false), ("Water", false), ("tarwebloem", true)])
@@ -204,14 +201,14 @@ fn an_unknown_ingredient_or_an_empty_sub_recipe_is_an_error() {
         lines: vec![leaf(99, 100)],
     };
     assert!(matches!(
-        rollup::compute(&unknown, &bakery()),
+        rollup::compute(&unknown, &bakery(), &rollup::CompoundNames::new()),
         Err(Error::Corrupt(_))
     ));
     let empty = Formula {
         lines: vec![leaf(FLOUR, 100), sub(10, 20, vec![])],
     };
     assert!(matches!(
-        rollup::compute(&empty, &bakery()),
+        rollup::compute(&empty, &bakery(), &rollup::CompoundNames::new()),
         Err(Error::Unweighable)
     ));
 }
@@ -277,7 +274,7 @@ proptest! {
         formula in formula_strategy(),
         book in ingredients_strategy(),
     ) {
-        let computed = rollup::compute(&formula, &book).unwrap();
+        let computed = rollup::compute(&formula, &book, &rollup::CompoundNames::new()).unwrap();
         let mut ids = Vec::new();
         used(&formula.lines, &mut ids);
         let mut union = BTreeSet::new();
@@ -308,7 +305,7 @@ proptest! {
                 .collect(),
         );
         let formula = Formula { lines: order.iter().map(|&id| leaf(id, percent)).collect() };
-        let computed = rollup::compute(&formula, &distinct).unwrap();
+        let computed = rollup::compute(&formula, &distinct, &rollup::CompoundNames::new()).unwrap();
         let names: Vec<String> = computed.ingredients.0.iter().map(|i| i.name.clone()).collect();
         let expected: Vec<String> = order.iter().map(|id| format!("i{id}")).collect();
         prop_assert_eq!(names, expected);
@@ -324,7 +321,7 @@ proptest! {
         let formula = Formula {
             lines: percents.iter().zip(1..).map(|(&p, id)| leaf(id, p)).collect(),
         };
-        let computed = rollup::compute(&formula, &distinct).unwrap();
+        let computed = rollup::compute(&formula, &distinct, &rollup::CompoundNames::new()).unwrap();
         let mut expected: Vec<(u32, i64)> = percents.iter().copied().zip(1..).collect();
         expected.sort_by_key(|e| std::cmp::Reverse(e.0));
         let expected: Vec<String> = expected.iter().map(|(_, id)| format!("i{id}")).collect();
@@ -645,7 +642,7 @@ fn an_empty_sub_recipe_at_zero_percent_is_left_out() {
     let formula = Formula {
         lines: vec![leaf(FLOUR, 100), leaf(WATER, 70), sub(10, 0, vec![])],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("tarwebloem", true), ("Water", false)])
@@ -670,7 +667,7 @@ fn equal_weights_through_a_sub_recipe_are_a_tie() {
             leaf(SALT, 2),
         ],
     };
-    let computed = rollup::compute(&formula, &bakery()).unwrap();
+    let computed = rollup::compute(&formula, &bakery(), &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("tarwebloem", true), ("Water", false), ("zout", false)])
@@ -740,7 +737,7 @@ fn label_names_merge_whatever_their_case() {
     let formula = Formula {
         lines: vec![leaf(FLOUR, 30), leaf(WATER, 50), leaf(FLOUR_Y, 30)],
     };
-    let computed = rollup::compute(&formula, &book).unwrap();
+    let computed = rollup::compute(&formula, &book, &rollup::CompoundNames::new()).unwrap();
     assert_eq!(
         computed.ingredients,
         listed(&[("Tarwebloem", true), ("Water", false)])

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE batch SET allergens = $2, ingredient_names = $3, ingredient_emphasis = $4,\n            ingredient_depth = $7, allergens_approved_by = $5,\n            allergens_approved_at = timestamptz 'epoch' + $6::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray",
+        "TextArray",
+        "BoolArray",
+        "Int8",
+        "Int8",
+        "Int2Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4bbd08a28c0c6cc9beb7c3e02afea827e1148513bfe6345743814e80be830b8d"
+}

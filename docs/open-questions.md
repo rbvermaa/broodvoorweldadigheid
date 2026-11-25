@@ -154,30 +154,43 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Extras after batches exist** (ADR 0042). F7a says extras can change until the
   batch is mixed. Should a change resize planned batches?
   **Answered 2026-11-25:** no, the baker adjusts batches by hand (ADR 0042).
-- [ ] **Order by weight: block or warn** (F17, F18, ADR 0046). The spec says the system
+- [x] **Order by weight: block or warn** (F17, F18, ADR 0046). The spec says the system
   warns before printing when a batch changes the ingredient order by weight. F17 now
   blocks such a batch's labels until its values are approved, like any other difference,
   and still warns after that. Keep the block, or only warn?
-- [ ] **Compound ingredients** (F17, ADR 0046). Sub-recipe ingredients are merged into the
+  **Owner, 2026-11-25:** keep the block; the warning stays after approval (ADR 0046).
+- [x] **Compound ingredients** (F17, ADR 0046). Sub-recipe ingredients are merged into the
   dough's list ("tarwebloem" once, levain flour included). Should a filling or topping be
   listed as a compound ingredient instead, e.g. "vulling (suiker, hazelnoot)"?
-- [ ] **Standard prices for the cost variance** (ADR 0045). F16 compares a batch with its
+  **Owner, 2026-11-25:** yes. Fillings and toppings show as a compound ingredient with
+  their own ingredients in brackets; levain, soaker and other sub-recipes stay merged. A
+  setting per recipe overrides the kind and names the compound (ADR 0046).
+- [x] **Standard prices for the cost variance** (ADR 0045). F16 compares a batch with its
   recipe version at "current ingredient prices" (spec, Cost table). The price part of an
   old batch's variance then moves whenever a price changes. Keep today's prices as the
   standard, or fix a standard date per product (for example when its selling price was
   set)?
+  **Owner, 2026-11-25:** keep today's prices as the standard (ADR 0045).
 - [ ] **Label rolls** (F18, F18a, ADR 0047). Labels are 50 mm wide and 30, 40, 50, 70 or
   100 mm long, the shortest that fits. Which Niimbot rolls does the bakery have? Lengths
   without a roll should go from the list.
-- [ ] **Freezer label QR code** (F18a, ADR 0047). The spec asks for "a small QR code for
+- [x] **Freezer label QR code** (F18a, ADR 0047). The spec asks for "a small QR code for
   staff" but not what it encodes (batch code? a link to the batch page?). There is no QR
   crate in the workspace. Left out until both are decided.
-- [ ] **ZIP of all label files** (F18, F18a, ADR 0047). No ZIP crate in the workspace, so
+  **Owner, 2026-11-25:** no QR code on freezer labels (ADR 0047).
+- [x] **ZIP of all label files** (F18, F18a, ADR 0047). No ZIP crate in the workspace, so
   each PNG and CSV is its own download. Add a ZIP crate?
+  **Owner, 2026-11-25:** no ZIP; each file stays its own download (ADR 0047).
 - [ ] **Niimbot import check** (ADR 0024, ADR 0047). Does the official app import the CSV
   (semicolons, UTF-8 with BOM) and print the 591-pixel-wide PNGs at their size? Needs a
   test print by the owner.
-- [ ] **Shop allergens for a drop with a differing batch** (F17, ADR 0046). The shop shows
+- [x] **Shop allergens for a drop with a differing batch** (F17, ADR 0046). The shop shows
   the product's approved allergens. When a batch of that day adds an allergen (for example
   sesame) and is approved for its labels, the shop does not show it; the pickup list warns.
   Should the shop block or show the batch's allergens for that drop?
+  **Owner, 2026-11-25:** neither; no email to customers either. The pickup-list warning is
+  enough (ADR 0046).
+- [x] **Promoting a batch at any status** (F14b, ADR 0037, ADR 0042). A batch can be saved
+  as a new recipe version before mixing as well as after baking. Restrict it to baked
+  batches?
+  **Owner, 2026-11-25:** no, any status (ADR 0037, ADR 0042).

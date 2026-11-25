@@ -10,8 +10,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use catalog::{
-    AllergenInfo, ComputedAllergens, IngredientList, ListedIngredient, Pricing, Product,
-    ProductInput, products,
+    AllergenInfo, ComputedAllergens, FlatEntry, IngredientList, Pricing, Product, ProductInput,
+    products,
 };
 use domain::{Allergen, Money, PayWhatYouWant, ProductId, VatRate};
 use serde::Deserialize;
@@ -323,6 +323,8 @@ pub struct ComputedView {
     pub source: String,
     pub allergens: Vec<&'static str>,
     pub ingredients: Vec<Listed>,
+    /// The list in pre-order for the form's hidden fields.
+    pub entries: Vec<FlatEntry>,
     pub same: bool,
     pub action: String,
 }
@@ -338,33 +340,40 @@ impl ComputedView {
             source,
             allergens: codes(&computed.allergens),
             ingredients: listed(&computed.ingredients),
+            entries: computed.ingredients.flat(),
             same,
             action,
         }
     }
 }
 
-/// The values an approval form sent back; `None` when the names and marks do not pair up.
+/// The values an approval form sent back; `None` when the names, marks and depths do not
+/// form a list.
 pub(super) fn reviewed_computed(fields: &Fields) -> Option<ComputedAllergens> {
     let names: Vec<&str> = fields.all("ingredient").collect();
     let marks: Vec<&str> = fields.all("vet").collect();
-    if names.len() != marks.len() {
+    let depths: Vec<&str> = fields.all("diepte").collect();
+    if names.len() != marks.len() || names.len() != depths.len() {
         return None;
     }
-    let ingredients = names
+    let entries = names
         .into_iter()
         .zip(marks)
-        .map(|(name, mark)| ListedIngredient {
-            name: name.to_owned(),
-            emphasised: mark == "1",
+        .zip(depths)
+        .map(|((name, mark), depth)| {
+            Some(FlatEntry {
+                name: name.to_owned(),
+                emphasised: mark == "1",
+                depth: depth.parse().ok()?,
+            })
         })
-        .collect();
+        .collect::<Option<Vec<_>>>()?;
     Some(ComputedAllergens {
         allergens: fields
             .all("allergens")
             .filter_map(|code| code.parse().ok())
             .collect(),
-        ingredients: IngredientList(ingredients),
+        ingredients: IngredientList::from_flat(entries)?,
     })
 }
 

@@ -625,10 +625,10 @@ async fn a_recipe_change_says_why_until_the_next_approval(mut conn: PoolConnecti
 
     let computed = catalog::ComputedAllergens {
         allergens: cleared.allergen_info.allergens.clone(),
-        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient {
-            name: "tarwebloem".to_owned(),
-            emphasised: true,
-        }]),
+        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient::plain(
+            "tarwebloem".to_owned(),
+            true,
+        )]),
     };
     let again = products::approve_computed(
         &mut conn,
@@ -685,10 +685,10 @@ async fn a_product_with_a_recipe_takes_only_computed_values(mut conn: PoolConnec
 
     let computed = catalog::ComputedAllergens {
         allergens: BTreeSet::from([Allergen::CerealsContainingGluten]),
-        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient {
-            name: "tarwebloem".to_owned(),
-            emphasised: true,
-        }]),
+        ingredients: catalog::IngredientList(vec![catalog::ListedIngredient::plain(
+            "tarwebloem".to_owned(),
+            true,
+        )]),
     };
     let approved = products::approve_computed(
         &mut conn,

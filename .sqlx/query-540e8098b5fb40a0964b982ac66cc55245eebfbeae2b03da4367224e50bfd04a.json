@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE product SET\n            name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,\n            vat_rate = $6::bigint, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,\n            unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,\n            allergens = $13, ingredient_text = $14,\n            packaged = $15, sold_online = $16, estimated_cost_cents = $17, active = $18,\n            ingredient_names = CASE WHEN allergens @> $13 AND allergens <@ $13\n                AND ingredient_text = $14 THEN ingredient_names END,\n            ingredient_emphasis = CASE WHEN allergens @> $13 AND allergens <@ $13\n                AND ingredient_text = $14 THEN ingredient_emphasis END\n        WHERE id = $1\n        RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            ingredient_depth,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE active ORDER BY name_nl, id",
   "describe": {
     "columns": [
       {
@@ -220,12 +220,23 @@
       },
       {
         "ordinal": 20,
+        "name": "ingredient_depth",
+        "type_info": "Int2Array",
+        "origin": {
+          "Table": {
+            "table": "product",
+            "name": "ingredient_depth"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "has_recipe!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -236,7 +247,7 @@
         }
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -247,7 +258,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -258,7 +269,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -270,26 +281,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Int8",
-        "Int8",
-        "Bool",
-        "Int8",
-        "Int8",
-        "Int4",
-        "Int4",
-        "Int4",
-        "TextArray",
-        "Text",
-        "Bool",
-        "Bool",
-        "Int8",
-        "Bool"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -312,6 +304,7 @@
       false,
       true,
       true,
+      true,
       null,
       false,
       false,
@@ -319,5 +312,5 @@
       false
     ]
   },
-  "hash": "1798433a038e60da9e46c0677995cb6440016330bd4112ab49932348d5de079a"
+  "hash": "540e8098b5fb40a0964b982ac66cc55245eebfbeae2b03da4367224e50bfd04a"
 }
