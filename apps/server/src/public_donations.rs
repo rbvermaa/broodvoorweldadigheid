@@ -28,7 +28,7 @@ pub const FRESH: Duration = Duration::from_secs(30);
 
 /// Browsers may keep the page this long. `private`: the header differs for signed-in
 /// customers, so no shared cache may keep it.
-const CACHE: &str = "private, max-age=300";
+const CACHE: &str = "private, max-age=60";
 
 pub fn routes() -> Router<AppState> {
     Router::new().route(PATH, get(page))

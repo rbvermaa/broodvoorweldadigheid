@@ -3689,7 +3689,7 @@ async fn the_owner_switches_the_public_donation_page_on_and_off(pool: PgPool) {
 
     let page = visitor.get("/giften").await;
     assert_eq!(page.status, StatusCode::OK, "{}", page.text);
-    assert_eq!(page.header("cache-control"), "private, max-age=300");
+    assert_eq!(page.header("cache-control"), "private, max-age=60");
     page.shows(&dutch("giften-title"));
     page.shows("Voedselbank");
     page.shows(&dutch("giften-total-hidden"));
