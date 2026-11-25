@@ -1,6 +1,7 @@
 {% extends "staff/layout.html" %}
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
+{% import "components/layout.html" as l %}
 {% import "components/product.html" as p %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -13,6 +14,7 @@
 <section>
 <h2>{{ slot.heading }}</h2>
 {% if slot.orders.is_empty() %}<p>{{ layout.t("pickup-list-empty")? }}</p>{% endif %}
+{% call l::card_grid() %}
 {%- for order in slot.orders %}
 <article id="{{ order.anchor }}">
 <h3>{% if order.erased %}<span class="field-hint">{{ order.name }}</span>{% else %}{{ order.name }}{% endif %}</h3>
@@ -35,6 +37,7 @@
 </form>
 </article>
 {%- endfor %}
+{% endcall %}
 </section>
 {%- endfor %}
 {% if !allergens.is_empty() %}

@@ -1,0 +1,33 @@
+{# Layout wrappers. Each adds a div around what the call wraps; on a phone the content
+   stays one column, as without it. #}
+
+{# form_grid: from md, short fields sit side by side. Textareas, checkboxes, fieldsets,
+   alerts and text take a full row; a button sits next to the last field when it fits. #}
+{% macro form_grid() %}
+<div class="form-grid">
+{{ caller() }}
+</div>
+{% endmacro %}
+
+{# choice_grid: from md, a list of checkboxes in columns. #}
+{% macro choice_grid() %}
+<div class="choice-grid">
+{{ caller() }}
+</div>
+{% endmacro %}
+
+{# card_grid: from md, each child becomes a bordered card in a wrapping row. #}
+{% macro card_grid() %}
+<div class="card-grid">
+{{ caller() }}
+</div>
+{% endmacro %}
+
+{# split: from lg, two children side by side: one fills the row, the other is a sticky side
+   column such as the cart. The side column is the last child, or the first (on the
+   left) with aside_first, so a phone shows it first. #}
+{% macro split(aside_first = false) %}
+<div class="split{% if aside_first %} split-aside-first{% endif %}">
+{{ caller() }}
+</div>
+{% endmacro %}

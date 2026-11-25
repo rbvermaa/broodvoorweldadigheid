@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -17,6 +18,7 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% if new %}
 {% call f::field("email", "contact_email", layout.t("b2b-contact-email")?, value = form.contact_email, hint = layout.t("b2b-contact-email-hint")?, error = errors.get("contact_email"), required = true) %}{% endcall %}
 {% call f::field("text", "contact_name", layout.t("b2b-contact-name")?, value = form.contact_name, error = errors.get("contact_name"), required = true) %}{% endcall %}
@@ -30,5 +32,6 @@
 {% call f::field("email", "invoice_email", layout.t("b2b-invoice-email")?, value = form.invoice_email, error = errors.get("invoice_email"), required = true) %}{% endcall %}
 {% call f::checkbox("on_account_allowed", layout.t("b2b-on-account")?, checked = form.on_account_allowed) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endblock %}

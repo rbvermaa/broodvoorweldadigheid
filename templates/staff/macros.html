@@ -1,6 +1,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 
 {% macro csrf() %}
 {%- if let Some(token) = layout.csrf_token() %}<input type="hidden" name="_csrf" value="{{ token }}">{% endif -%}
@@ -22,9 +23,11 @@
 {# The period above a report: backoffice::reports::PeriodForm. #}
 {% macro period(form) %}
 <form method="get" action="{{ form.action }}">
+{% call l::form_grid() %}
 {% call f::field("date", "van", layout.t("reports-from")?, value = form.from, error = form.errors.get("van")) %}{% endcall %}
 {% call f::field("date", "tot", layout.t("reports-to")?, value = form.to, error = form.errors.get("tot")) %}{% endcall %}
 {% if !form.granularities.is_empty() %}{% call f::select("per", layout.t("reports-per")?, form.granularities) %}{% endcall %}{% endif %}
 {% call b::button(layout.t("reports-show")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endmacro %}

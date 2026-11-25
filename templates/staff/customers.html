@@ -3,6 +3,7 @@
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as t %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("staff-nav-customers")? }}{% endblock %}
@@ -12,8 +13,10 @@
 <p>{{ layout.t("staff-customers-intro")? }}</p>
 <form method="post" action="/staff/customers">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::field("email", "email", layout.t("staff-customers-email")?, value = email, required = true) %}{% endcall %}
 {% call b::button(layout.t("staff-customers-search")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% if searched %}
 {% if let Some(found) = found %}

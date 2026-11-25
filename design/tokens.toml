@@ -80,13 +80,18 @@ thick = "2px"
 stamp = "2.5px"
 rule = "3px"
 
-# Fixed sizes: icons, touch targets (WCAG 2.2 target size), the reading width and the logo.
+# Fixed sizes: icons, touch targets (WCAG 2.2 target size), the reading width, the page
+# width from the lg breakpoint, the staff sidebar, the side column (cart) and the logo.
 [size]
 icon = "1.25rem"
 icon-lg = "2.5rem"
 target = "2.75rem"
 tile = "16rem"
+tile-max = "24rem"
 content = "48rem"
+page = "80rem"
+sidebar = "14rem"
+aside = "22rem"
 logo-hero = "13.125rem"
 logo-header = "2.75rem"
 

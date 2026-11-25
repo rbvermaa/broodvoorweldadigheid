@@ -3,12 +3,15 @@
 {% import "components/product.html" as p %}
 {% import "components/cart.html" as c %}
 {% import "components/feedback.html" as fb %}
+{% import "components/layout.html" as l %}
 {% block title %}{{ drop.date }}{% endblock %}
 {% block content %}
 <p><a href="/drops">{{ layout.t("drop-back")? }}</a></p>
 <h1>{{ drop.date }}</h1>
 {% call dr::drop_facts(drop) %}{% endcall %}
 <h2>{{ layout.t("drop-menu")? }}</h2>
+{% call l::split() %}
+<div>
 {%- if let Some(products) = menu %}
 {%- if !orderable %}
 {% call fb::alert("info", layout.t("drop-not-open")?) %}{% endcall %}
@@ -21,5 +24,7 @@
 {%- else %}
 <p>{{ layout.t("drop-menu-later")? }}</p>
 {%- endif %}
+</div>
 {% call c::cart_panel(cart) %}{% endcall %}
+{% endcall %}
 {% endblock %}

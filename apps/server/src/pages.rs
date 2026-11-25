@@ -32,6 +32,13 @@ impl<T: Whole + ?Sized> Whole for &T {
 tokio::task_local! {
     static SIGNED_IN: bool;
     static DONATIONS_LINK: bool;
+    static REQUEST_PATH: String;
+}
+
+/// Tells the pages of this request their own path, for the staff menu.
+pub async fn request_path(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_owned();
+    REQUEST_PATH.scope(path, next.run(request)).await
 }
 
 /// Tells the pages of this request whether a customer is signed in, for the site header.
@@ -70,6 +77,7 @@ pub struct Layout<'a> {
     csrf_token: Option<String>,
     signed_in: bool,
     donations_link: bool,
+    path: String,
 }
 
 impl<'a> Layout<'a> {
@@ -79,6 +87,7 @@ impl<'a> Layout<'a> {
             csrf_token: None,
             signed_in: SIGNED_IN.try_with(|signed_in| *signed_in).unwrap_or(false),
             donations_link: DONATIONS_LINK.try_with(|on| *on).unwrap_or(false),
+            path: REQUEST_PATH.try_with(Clone::clone).unwrap_or_default(),
         }
     }
 
@@ -136,6 +145,11 @@ impl<'a> Layout<'a> {
 
     pub fn csrf_token(&self) -> Option<&str> {
         self.csrf_token.as_deref()
+    }
+
+    /// Whether the staff menu entry at `entry` holds this page.
+    pub fn nav_current(&self, entry: &str) -> bool {
+        crate::backoffice::nav::current(&self.path) == Some(entry)
     }
 
     /// Whether the site header links to "Mijn bestellingen" instead of the login page.

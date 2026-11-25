@@ -3,6 +3,7 @@
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
@@ -12,12 +13,14 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call s::live("name", check) %}{% call f::field("text", "name", layout.t("charity-name")?, value = form.name, error = errors.get("name"), required = true) %}{% endcall %}{% endcall %}
 {% call f::field("textarea", "description", layout.t("charity-description")?, value = form.description) %}{% endcall %}
 {% call s::live("url", check) %}{% call f::field("url", "url", layout.t("charity-url")?, value = form.url, hint = layout.t("charity-url-hint")?, error = errors.get("url"), required = true) %}{% endcall %}{% endcall %}
 {% call f::field("text", "iban", layout.t("charity-iban")?, value = form.iban) %}{% endcall %}
 {% call f::field("text", "anbi_rsin", layout.t("charity-anbi")?, value = form.anbi_rsin) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% if let Some((action, text)) = archive %}
 <h2>{{ layout.t("charity-archive")? }}</h2>

@@ -99,6 +99,7 @@ pub fn router(state: AppState) -> Router {
 fn sessioned(routes: Router<AppState>, state: &AppState) -> Router<AppState> {
     routes
         .layer(middleware::from_fn(pages::header_login))
+        .layer(middleware::from_fn(pages::request_path))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             pages::footer_donations,

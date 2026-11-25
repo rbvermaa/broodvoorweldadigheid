@@ -38,6 +38,22 @@ pub fn entries() -> Vec<Entry> {
     entries
 }
 
+/// The entry whose section holds `path`: the longest entry path that equals it or is a
+/// parent of it, so `/staff` marks only the staff home.
+pub fn current(path: &str) -> Option<&'static str> {
+    ENTRIES
+        .iter()
+        .map(|entry| entry.path)
+        .filter(|candidate| {
+            path == *candidate
+                || (*candidate != "/staff"
+                    && path
+                        .strip_prefix(candidate)
+                        .is_some_and(|rest| rest.starts_with('/')))
+        })
+        .max_by_key(|candidate| candidate.len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,5 +66,19 @@ mod tests {
             orders.windows(2).all(|pair| pair[0] < pair[1]),
             "{orders:?}"
         );
+    }
+
+    #[test]
+    fn the_current_entry_is_the_section_of_the_path() {
+        assert_eq!(current("/staff"), Some("/staff"));
+        assert_eq!(current("/staff/bake-days"), Some("/staff/bake-days"));
+        assert_eq!(
+            current("/staff/bake-days/7/batches/2"),
+            Some("/staff/bake-days")
+        );
+        assert_eq!(current("/staff/reports/donations"), Some("/staff/reports"));
+        assert_eq!(current("/staff/bake-daysx"), None);
+        assert_eq!(current("/staff/login"), None);
+        assert_eq!(current("/drops/1"), None);
     }
 }
