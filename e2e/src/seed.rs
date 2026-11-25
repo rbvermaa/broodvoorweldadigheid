@@ -30,8 +30,9 @@ pub fn customer_email(flow: &str) -> String {
 }
 
 /// What the back office needs to plan a drop: a pickup location of its own with a
-/// window on every weekday, so every date is free, a product with approved allergens, a
-/// charity and an owner to sign in as.
+/// window on every weekday, so every date is free, a product with approved allergens, an
+/// approved kitchen may-contain list (gluten and nuts), a charity and an owner to sign in
+/// as.
 #[derive(Debug, Clone)]
 pub struct Basics {
     pub location: i64,
@@ -100,6 +101,21 @@ pub async fn customer(pool: &PgPool, email: &str) -> Result<i64, Error> {
     .await?)
 }
 
+/// Sets the kitchen-wide may-contain list to gluten and nuts and approves it as `owner`
+/// (F10, ADR 0038); without an approved list the shop takes no orders. Gluten is in the
+/// seeded loaf, so the shop shows only nuts as a trace. Two statements: changing the list
+/// clears its approval.
+async fn kitchen_may_contain(conn: &mut PgConnection, owner: i64) -> Result<(), Error> {
+    sqlx::query("UPDATE company SET may_contain = ARRAY['cereals_containing_gluten', 'nuts']")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("UPDATE company SET may_contain_approved_by = $1, may_contain_approved_at = now()")
+        .bind(owner)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
 /// Fills a migrated database with what [`Basics`] lists, plus the company details for
 /// order emails. Safe to run again: every run adds its own location, product and charity.
 ///
@@ -116,6 +132,7 @@ pub async fn basics(pool: &PgPool) -> Result<Basics, Error> {
     )
     .fetch_one(&mut *conn)
     .await?;
+    kitchen_may_contain(&mut conn, owner).await?;
     let product_name = format!("Desem {tag}");
     let product: i64 = sqlx::query_scalar(
         "INSERT INTO product (name_nl, description_nl, price_incl_cents, vat_rate,
