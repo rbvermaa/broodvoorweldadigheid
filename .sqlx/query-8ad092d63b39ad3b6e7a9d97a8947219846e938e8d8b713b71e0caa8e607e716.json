@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT o.id, o.number_year, o.number_seq, o.customer_name, c.email, o.status,\n            o.cancel_reason, o.total_cents, o.pickup_slot_id,\n            (SELECT coalesce(sum(qty), 0) FROM order_line WHERE order_id = o.id)::bigint\n                AS \"pieces!\",\n            (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\",\n            (extract(epoch FROM s.ends_at) * 1000000)::bigint AS \"ends_us!\",\n            l.name AS location\n        FROM \"order\" o\n        JOIN customer c ON c.id = o.customer_id\n        JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        JOIN pickup_location l ON l.id = s.location_id\n        WHERE o.bake_day_id = $1\n            AND ($2::text IS NULL OR o.status = $2)\n            AND ($3::bigint IS NULL OR s.location_id = $3)\n        ORDER BY s.starts_at, o.number_year, o.number_seq",
+  "query": "SELECT o.id, o.number_year, o.number_seq, o.customer_name,\n            c.erased_at IS NOT NULL AS \"customer_erased!\", c.email, o.status,\n            o.cancel_reason, o.total_cents, o.pickup_slot_id,\n            (SELECT coalesce(sum(qty), 0) FROM order_line WHERE order_id = o.id)::bigint\n                AS \"pieces!\",\n            (extract(epoch FROM s.starts_at) * 1000000)::bigint AS \"starts_us!\",\n            (extract(epoch FROM s.ends_at) * 1000000)::bigint AS \"ends_us!\",\n            l.name AS location\n        FROM \"order\" o\n        JOIN customer c ON c.id = o.customer_id\n        JOIN pickup_slot s ON s.id = o.pickup_slot_id\n        JOIN pickup_location l ON l.id = s.location_id\n        WHERE o.bake_day_id = $1\n            AND ($2::text IS NULL OR o.status = $2)\n            AND ($3::bigint IS NULL OR s.location_id = $3)\n        ORDER BY s.starts_at, o.number_year, o.number_seq",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,12 @@
       },
       {
         "ordinal": 4,
+        "name": "customer_erased!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
         "name": "email",
         "type_info": "Text",
         "origin": {
@@ -59,7 +65,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -70,7 +76,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "cancel_reason",
         "type_info": "Text",
         "origin": {
@@ -81,7 +87,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "total_cents",
         "type_info": "Int8",
         "origin": {
@@ -92,7 +98,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "pickup_slot_id",
         "type_info": "Int8",
         "origin": {
@@ -103,25 +109,25 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "pieces!",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "starts_us!",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "ends_us!",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "location",
         "type_info": "Text",
         "origin": {
@@ -144,6 +150,7 @@
       false,
       false,
       false,
+      null,
       false,
       false,
       true,
@@ -155,5 +162,5 @@
       false
     ]
   },
-  "hash": "2f06805f50fd92f175ed4fe8cbd0a4679ca903f0d96ecd746712cbaa802b408e"
+  "hash": "8ad092d63b39ad3b6e7a9d97a8947219846e938e8d8b713b71e0caa8e607e716"
 }

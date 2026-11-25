@@ -113,6 +113,23 @@ pub fn order_path(id: OrderId) -> String {
     format!("/staff/orders/{}", id.get())
 }
 
+/// How staff see a customer's name or address; an erased customer (F12) shows a label.
+pub fn customer_name(state: &AppState, erased: bool, text: &str) -> String {
+    if erased {
+        t(state, "customer-erased")
+    } else {
+        text.to_owned()
+    }
+}
+
+pub fn customer_cell(state: &AppState, erased: bool, text: &str) -> Cell {
+    if erased {
+        Cell::muted(t(state, "customer-erased"))
+    } else {
+        Cell::text(text)
+    }
+}
+
 fn day_orders_path(day: &BakeDay) -> String {
     format!("{}/orders", day_path(day.id))
 }
@@ -258,7 +275,7 @@ pub async fn list(
                     .unwrap_or_default();
                 vec![
                     Cell::link(o.number.to_string(), order_path(o.id)),
-                    Cell::text(o.customer_name.clone()),
+                    customer_cell(&state, o.customer_erased, &o.customer_name),
                     Cell::text(format!("{range}, {}", o.location)),
                     Cell::number(o.pieces.to_string()),
                     Cell::number(i18n::money(o.total.cents())),
@@ -325,7 +342,7 @@ struct DetailPage<'a> {
     back: String,
     saved: bool,
     problem: String,
-    facts: Vec<(String, String)>,
+    facts: Vec<(String, Cell)>,
     lines: Table,
     payments: Table,
     refunds: Table,
@@ -439,21 +456,24 @@ async fn render(
     let mut facts = vec![
         (
             t(state, "staff-order-status"),
-            t(state, status_text(order.status)),
+            Cell::text(t(state, status_text(order.status))),
         ),
         (
             t(state, "staff-order-customer"),
-            order.customer_name.clone(),
+            customer_cell(state, order.customer_erased, &order.customer_name),
         ),
-        (t(state, "staff-order-email"), details.email.clone()),
+        (
+            t(state, "staff-order-email"),
+            customer_cell(state, order.customer_erased, &details.email),
+        ),
     ];
     if let Some(phone) = &order.customer_phone {
-        facts.push((t(state, "staff-order-phone"), phone.clone()));
+        facts.push((t(state, "staff-order-phone"), Cell::text(phone.clone())));
     }
-    facts.push((t(state, "staff-order-pickup"), pickup));
+    facts.push((t(state, "staff-order-pickup"), Cell::text(pickup)));
     facts.push((
         t(state, "staff-order-total"),
-        i18n::money(order.total.cents()),
+        Cell::text(i18n::money(order.total.cents())),
     ));
 
     let lines = Table {
@@ -563,7 +583,10 @@ async fn render(
     };
     let who = [
         ("number", number.clone()),
-        ("name", order.customer_name.clone()),
+        (
+            "name",
+            customer_name(state, order.customer_erased, &order.customer_name),
+        ),
     ];
     let mut actions = Vec::new();
     if open && day.status != bakedays::BakeDayStatus::Cancelled && role.can(Permission::PickupList)

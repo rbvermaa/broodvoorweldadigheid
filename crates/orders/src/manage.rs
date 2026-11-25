@@ -27,6 +27,8 @@ pub struct DayOrder {
     pub id: OrderId,
     pub number: order::OrderNumber,
     pub customer_name: String,
+    /// The customer was erased (F12); `customer_name` is then a placeholder.
+    pub customer_erased: bool,
     pub email: String,
     pub status: OrderStatus,
     pub cancel_reason: Option<CancelReason>,
@@ -48,7 +50,8 @@ pub async fn day_orders(
     filter: &OrderFilter,
 ) -> Result<Vec<DayOrder>, Error> {
     let rows = sqlx::query!(
-        r#"SELECT o.id, o.number_year, o.number_seq, o.customer_name, c.email, o.status,
+        r#"SELECT o.id, o.number_year, o.number_seq, o.customer_name,
+            c.erased_at IS NOT NULL AS "customer_erased!", c.email, o.status,
             o.cancel_reason, o.total_cents, o.pickup_slot_id,
             (SELECT coalesce(sum(qty), 0) FROM order_line WHERE order_id = o.id)::bigint
                 AS "pieces!",
@@ -78,6 +81,7 @@ pub async fn day_orders(
                     seq: row.number_seq,
                 },
                 customer_name: row.customer_name,
+                customer_erased: row.customer_erased,
                 email: row.email,
                 status: OrderStatus::parse(&row.status)?,
                 cancel_reason: row

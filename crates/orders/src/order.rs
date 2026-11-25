@@ -108,6 +108,8 @@ pub struct Order {
     pub customer_id: CustomerId,
     /// As entered for this order; the pickup list (F8) shows these.
     pub customer_name: String,
+    /// The customer was erased (F12); `customer_name` is then a placeholder.
+    pub customer_erased: bool,
     pub customer_phone: Option<String>,
     /// The customer asked for drop alerts; F9a confirms by email before subscribing.
     pub marketing_opt_in: bool,
@@ -155,6 +157,7 @@ struct Row {
     customer_id: i64,
     customer_name: String,
     customer_phone: Option<String>,
+    customer_erased: bool,
     marketing_opt_in: bool,
     bake_day_id: i64,
     pickup_slot_id: i64,
@@ -198,6 +201,7 @@ fn order_from_row(row: Row, lines: Vec<OrderLine>) -> Result<Order, Error> {
         customer_id: CustomerId::new(row.customer_id),
         customer_name: row.customer_name,
         customer_phone: row.customer_phone,
+        customer_erased: row.customer_erased,
         marketing_opt_in: row.marketing_opt_in,
         bake_day_id: BakeDayId::new(row.bake_day_id),
         pickup_slot_id: PickupSlotId::new(row.pickup_slot_id),
@@ -225,6 +229,8 @@ pub async fn get(conn: &mut PgConnection, id: OrderId) -> Result<Order, Error> {
     let row = sqlx::query_as!(
         Row,
         r#"SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,
+            (SELECT erased_at IS NOT NULL FROM customer c WHERE c.id = "order".customer_id)
+                AS "customer_erased!",
             marketing_opt_in, bake_day_id, pickup_slot_id,
             channel, payment_mode, status, cancel_reason, total_cents,
             (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,
@@ -259,6 +265,8 @@ pub async fn list_firm(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<Or
     let rows = sqlx::query_as!(
         Row,
         r#"SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,
+            (SELECT erased_at IS NOT NULL FROM customer c WHERE c.id = "order".customer_id)
+                AS "customer_erased!",
             marketing_opt_in, bake_day_id, pickup_slot_id,
             channel, payment_mode, status, cancel_reason, total_cents,
             (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,

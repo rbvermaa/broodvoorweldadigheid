@@ -153,10 +153,11 @@ pub async fn production_page(
 }
 
 /// Typst is CPU work, so it runs off the async workers.
-async fn pdf_response<T, F>(state: &AppState, list: T, file: String, render: F) -> Outcome
+pub async fn pdf_response<T, E, F>(state: &AppState, list: T, file: String, render: F) -> Outcome
 where
     T: Send + 'static,
-    F: FnOnce(&T, &i18n::Translator) -> Result<Vec<u8>, production::Error> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce(&T, &i18n::Translator) -> Result<Vec<u8>, E> + Send + 'static,
 {
     let i18n = state.i18n.clone();
     let bytes = tokio::task::spawn_blocking(move || render(&list, &i18n))
@@ -192,6 +193,7 @@ pub async fn production_pdf(
 pub struct OrderCard {
     pub anchor: String,
     pub name: String,
+    pub erased: bool,
     pub number: String,
     pub link: String,
     pub phone: String,
@@ -243,7 +245,8 @@ fn card(state: &AppState, list: &str, order: &PickupOrder, answer: Option<&Answe
     let phone = order.customer_phone.clone().unwrap_or_default();
     OrderCard {
         anchor: format!("bestelling-{n}"),
-        name: order.customer_name.clone(),
+        name: super::orders::customer_name(state, order.customer_erased, &order.customer_name),
+        erased: order.customer_erased,
         number: order.number.to_string(),
         link: super::orders::order_path(order.order_id),
         phone_href: phone

@@ -255,6 +255,10 @@ pub fn routes() -> Router<AppState> {
             get(business::invoice_csv),
         )
         .route(
+            "/staff/business-accounts/{id}/invoice.pdf",
+            get(business::invoice_pdf),
+        )
+        .route(
             "/staff/business-accounts/{id}/invoices",
             post(business::mark_invoiced),
         )
