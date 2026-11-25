@@ -186,15 +186,16 @@ pub(crate) fn plan(
 
 /// The doughs a day's needs are summed from (ADR 0041). Before the order deadline, or
 /// while the day has no batches: the recipe version each product uses, scaled to its
-/// pieces. After it: one [`Dough`] per batch from the batch's own lines, and the recipe
-/// versions for the pieces still in no batch.
+/// pieces. After it, or at once on a day without a deadline: one [`Dough`] per batch with
+/// pieces, from the batch's own lines, and the recipe versions for the pieces still in no
+/// batch.
 async fn doughs(
     conn: &mut PgConnection,
     day: &BakeDay,
     products: &[ProductTotal],
     clock: &dyn Clock,
 ) -> Result<(Basis, Plan), Error> {
-    let passed = day.cutoff_at.is_some_and(|cutoff| cutoff <= clock.now());
+    let passed = day.cutoff_at.is_none_or(|cutoff| cutoff <= clock.now());
     let made = if passed {
         batches::formulas_for_day(&mut *conn, day.id).await?
     } else {
@@ -210,6 +211,7 @@ async fn doughs(
         let products: Vec<DoughProduct> = batch
             .outputs
             .iter()
+            .filter(|output| output.planned_pieces > 0)
             .map(|output| DoughProduct {
                 product_id: output.product_id,
                 name: output.name.clone(),
@@ -217,6 +219,9 @@ async fn doughs(
                 dough_g_per_piece: output.dough_g_per_piece,
             })
             .collect();
+        if products.is_empty() {
+            continue;
+        }
         for product in &products {
             *batched.entry(product.product_id).or_default() += product.pieces;
         }

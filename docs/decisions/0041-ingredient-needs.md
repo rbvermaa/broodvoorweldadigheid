@@ -25,10 +25,12 @@ exactly the sum of its parts, and all totals together are exactly the day's doug
 
 **After the deadline: batches.** The spec says: before cutoff from recipe versions, after
 cutoff from batch lines. `production::needs::doughs` takes the injected clock. Once the
-day's order deadline has passed and the day has batches (F14a, ADR 0042), it returns one
+day's order deadline has passed (at once for a production-only day without one) and the
+day has batches (F14a, ADR 0042), it returns one
 `Dough` per batch from `production::batches::formulas_for_day`: the batch's recipe and
 version, its outputs as products, and `DoughGrams::from_formula(&formula, dough_g)`, so
-the baker's adjusted percentages count. Pieces still in no batch (to bake minus planned
+the baker's adjusted percentages count. Outputs with 0 planned pieces, the stand-in for
+deleting a batch, add nothing. Pieces still in no batch (to bake minus planned
 pieces in batches, per product) are added from the recipe version in use, so nothing is
 dropped. Before the deadline, or without batches, it is the recipe path above.
 `IngredientNeeds.basis` says which; the screen and PDF show `needs-basis-recipes` or

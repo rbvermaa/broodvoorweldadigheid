@@ -825,3 +825,90 @@ async fn after_the_deadline_a_day_without_batches_uses_the_recipes(
     let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
     assert_eq!(needs.basis, Basis::Recipes);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_batch_with_no_pieces_adds_nothing(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let shop = shop(&mut conn, &clock, "2026-10-31").await;
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let (recipe_id, _) = recipe(
+        &mut conn,
+        "Wit",
+        RecipeKind::Dough,
+        &[(LinePart::Ingredient(flour), 100)],
+    )
+    .await;
+    let wit = product(&mut conn, "Wit", true).await;
+    store::link_product(&mut conn, recipe_id, wit)
+        .await
+        .unwrap();
+    let id = batches::start_manual(&mut conn, shop.day, wit, 3, Actor::Staff(BAKER), &clock)
+        .await
+        .unwrap();
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            pieces: vec![(wit, 0)],
+            ..Adjustment::default()
+        },
+        Actor::Staff(BAKER),
+        &clock,
+    )
+    .await
+    .unwrap();
+    let day = days::get(&mut conn, shop.day).await.unwrap();
+    clock.set(day.cutoff_at.expect("deadline"));
+    let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
+    assert_eq!(needs.basis, Basis::Batches);
+    assert!(needs.doughs.is_empty(), "{:?}", needs.doughs);
+    assert!(needs.ingredients.is_empty());
+    assert!(needs.missing.is_empty());
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_day_without_a_deadline_takes_its_batches_at_once(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let day = days::create(
+        &mut conn,
+        &NewBakeDay {
+            date: "2026-10-31".parse().unwrap(),
+            location_id: DE_PROEF,
+            online_ordering: false,
+            charity_id: None,
+        },
+    )
+    .await
+    .unwrap();
+    days::update_schedule(
+        &mut conn,
+        day.id,
+        &Schedule {
+            online_ordering: false,
+            menu_publish_at: None,
+            opens_at: None,
+            cutoff_at: None,
+        },
+    )
+    .await
+    .unwrap();
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let (recipe_id, _) = recipe(
+        &mut conn,
+        "Wit",
+        RecipeKind::Dough,
+        &[(LinePart::Ingredient(flour), 100)],
+    )
+    .await;
+    let wit = product(&mut conn, "Wit", false).await;
+    store::link_product(&mut conn, recipe_id, wit)
+        .await
+        .unwrap();
+    batches::start_manual(&mut conn, day.id, wit, 2, Actor::Staff(BAKER), &clock)
+        .await
+        .unwrap();
+    let needs = ingredient_needs(&mut conn, day.id, &clock).await.unwrap();
+    assert_eq!(needs.day.cutoff_at, None);
+    assert_eq!(needs.basis, Basis::Batches);
+    assert_eq!(needs.ingredients[0].grams, 1800);
+}
