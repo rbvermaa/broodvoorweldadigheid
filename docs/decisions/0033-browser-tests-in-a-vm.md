@@ -1,6 +1,6 @@
 # 0033 Browser tests in a NixOS VM without the Python test driver
 
-Status: proposed, 2026-11-24
+Status: accepted, 2026-11-25 (owner approved the HTTP exception for e2e)
 
 "Testing and quality": browser tests (thirtyfour) inside a NixOS VM test, with axe-core.
 The crate is `e2e/`; the VM is `nix/e2e-vm.nix`, run by `make e2e` and the `e2e` CI job.
