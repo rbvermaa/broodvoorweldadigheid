@@ -16,10 +16,11 @@ pub enum EmailKind {
     DonationMoved,
     PickupMoved,
     AccountDeleted,
+    VoteConfirmation,
 }
 
 impl EmailKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::OrderConfirmation,
         Self::PickupReminder,
         Self::OrderCancelled,
@@ -31,6 +32,7 @@ impl EmailKind {
         Self::DonationMoved,
         Self::PickupMoved,
         Self::AccountDeleted,
+        Self::VoteConfirmation,
     ];
 
     /// The value stored in `email_outbox.kind`.
@@ -48,6 +50,7 @@ impl EmailKind {
             Self::DonationMoved => "donation_moved",
             Self::PickupMoved => "pickup_moved",
             Self::AccountDeleted => "account_deleted",
+            Self::VoteConfirmation => "vote_confirmation",
         }
     }
 

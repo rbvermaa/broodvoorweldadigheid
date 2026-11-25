@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM vote WHERE lower(email) = lower($1) AND confirmed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f32e5629990e70ace7a0a168cc1a3e99c2ee0b89d442cf70351cf3a9dcc57d1d"
+}

@@ -14,4 +14,6 @@ pub enum Error {
     Outbox(#[from] notify::OutboxError),
     #[error(transparent)]
     Customers(#[from] auth::customer::Error),
+    #[error(transparent)]
+    Polls(#[from] notify::polls::PollError),
 }

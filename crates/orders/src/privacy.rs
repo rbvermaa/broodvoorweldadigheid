@@ -32,6 +32,8 @@ pub struct CustomerData {
     pub login_links: Vec<LoginLinkRecord>,
     /// The drop-alert subscription of the same address, filled in by the caller.
     pub drop_alerts: Option<DropAlertsRecord>,
+    /// Bread votes cast with the same address (F9b), filled in by the caller.
+    pub votes: Vec<VoteRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -113,6 +115,15 @@ pub struct DropAlertsRecord {
     pub unsubscribed_at: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VoteRecord {
+    pub poll: String,
+    pub choice: String,
+    pub wish: Option<String>,
+    pub voted_at: String,
+    pub confirmed_at: Option<String>,
+}
+
 impl CustomerData {
     /// # Errors
     /// [`Error::Corrupt`] if it cannot be written as JSON.
@@ -150,7 +161,7 @@ fn maybe_time(micros: Option<i64>) -> Result<Option<String>, Error> {
     micros.map(time).transpose()
 }
 
-/// Everything stored about `customer`, except the drop-alert subscription.
+/// Everything stored about `customer`, except the drop-alert subscription and the votes.
 ///
 /// # Errors
 /// [`Error::NotFound`] for an unknown or erased customer; otherwise [`Error::Db`] or
@@ -320,6 +331,7 @@ pub async fn export(conn: &mut PgConnection, customer: CustomerId) -> Result<Cus
         logins,
         login_links,
         drop_alerts: None,
+        votes: Vec::new(),
     })
 }
 

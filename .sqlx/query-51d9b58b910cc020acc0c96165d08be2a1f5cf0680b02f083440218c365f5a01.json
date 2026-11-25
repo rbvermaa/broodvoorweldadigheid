@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vote SET email = NULL, wish = NULL, confirm_token_hash = NULL,\n            confirm_expires_at = NULL, confirm_sent_at = NULL\n        WHERE lower(email) = lower($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51d9b58b910cc020acc0c96165d08be2a1f5cf0680b02f083440218c365f5a01"
+}
