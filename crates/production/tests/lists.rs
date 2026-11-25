@@ -10,7 +10,10 @@ use domain::{
     RecipeVersionId, StaffUserId,
 };
 use jiff::Timestamp;
+use orders::audit::Actor;
 use orders::{Cart, CustomerInput, Order, OrderedBy, Orders, PaymentReceived};
+use production::batches::{self, Adjustment};
+use production::needs::Basis;
 use production::{
     IngredientNeeds, PickupList, ProductionList, ingredient_needs, pickup_list, production_list,
 };
@@ -531,9 +534,13 @@ fn needs_table(needs: &IngredientNeeds) -> String {
             .iter()
             .map(|p| format!("{}x {} à {} g", p.pieces, p.name, p.dough_g_per_piece))
             .collect();
+        let batch = dough
+            .batch
+            .map(|code| format!("batch {code} "))
+            .unwrap_or_default();
         writeln!(
             out,
-            "dough {} v{} {} g: {}",
+            "dough {batch}{} v{} {} g: {}",
             dough.recipe,
             dough.version,
             dough.grams.total(),
@@ -655,7 +662,7 @@ async fn ingredient_needs_scale_the_recipe_in_use_for_orders_and_extras(
     extra(&mut conn, &clock, &shop, granola, 12, Purpose::SumUp).await;
     extra(&mut conn, &clock, &shop, rogge, 1, Purpose::Other).await;
 
-    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
     // Desem: 6 × 900 g + 2 × 450 g = 6300 g at 177%; the levain line gets 712 g.
     insta::assert_snapshot!(needs_table(&needs), @r"
     2026-10-31
@@ -672,7 +679,7 @@ async fn ingredient_needs_scale_the_recipe_in_use_for_orders_and_extras(
     let total: u64 = needs.ingredients.iter().map(|n| n.grams).sum();
     assert_eq!(total, 6300);
     assert!(matches!(
-        ingredient_needs(&mut conn, BakeDayId::new(999_999)).await,
+        ingredient_needs(&mut conn, BakeDayId::new(999_999), &clock).await,
         Err(production::Error::BakeDays(bakedays::Error::NotFound))
     ));
 }
@@ -723,14 +730,14 @@ async fn ingredient_needs_follow_the_version_in_use(mut conn: PoolConnection<Pos
         .unwrap();
     extra(&mut conn, &clock, &shop, wit, 2, Purpose::Freezer).await;
 
-    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
     assert_eq!(needs.doughs[0].version, 1);
     assert_eq!(needs.ingredients[1].grams, 800);
 
     store::set_current(&mut conn, recipe_id, second.id)
         .await
         .unwrap();
-    let needs = ingredient_needs(&mut conn, shop.day).await.unwrap();
+    let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
     assert_eq!(needs.doughs[0].version, 2);
     assert_eq!(
         needs
@@ -740,4 +747,81 @@ async fn ingredient_needs_follow_the_version_in_use(mut conn: PoolConnection<Pos
             .collect::<Vec<_>>(),
         vec![("Tarwebloem", 1200), ("Water", 600)]
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn after_the_deadline_ingredient_needs_come_from_the_batches(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let shop = shop(&mut conn, &clock, "2026-10-31").await;
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let water = ingredient(&mut conn, "Water", IngredientRole::Water).await;
+    let (recipe_id, _) = recipe(
+        &mut conn,
+        "Wit",
+        RecipeKind::Dough,
+        &[
+            (LinePart::Ingredient(flour), 100),
+            (LinePart::Ingredient(water), 80),
+        ],
+    )
+    .await;
+    let wit = product(&mut conn, "Wit", true).await;
+    store::link_product(&mut conn, recipe_id, wit)
+        .await
+        .unwrap();
+    extra(&mut conn, &clock, &shop, wit, 5, Purpose::Freezer).await;
+    let id = batches::start_manual(&mut conn, shop.day, wit, 3, Actor::Staff(BAKER), &clock)
+        .await
+        .unwrap();
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    batches::adjust(
+        &mut conn,
+        id,
+        &Adjustment {
+            lines: vec![(batch.lines[1].id, pct(70))],
+            ..Adjustment::default()
+        },
+        Actor::Staff(BAKER),
+        &clock,
+    )
+    .await
+    .unwrap();
+
+    let before = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
+    assert_eq!(before.basis, Basis::Recipes);
+    insta::assert_snapshot!(needs_table(&before), @r"
+    2026-10-31
+    Tarwebloem: 2500 g [(0, 2500)]
+    Water: 2000 g [(0, 2000)]
+    dough Wit v1 4500 g: 5x Wit à 900 g
+    ");
+
+    let cutoff = before.day.cutoff_at.expect("deadline");
+    clock.set(cutoff);
+    let after = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
+    assert_eq!(after.basis, Basis::Batches);
+    // The batch: 2700 g at 170%; the 2 pieces in no batch still come from the recipe.
+    insta::assert_snapshot!(needs_table(&after), @r"
+    2026-10-31
+    Tarwebloem: 2588 g [(0, 1588), (1, 1000)]
+    Water: 1912 g [(0, 1112), (1, 800)]
+    dough batch 261031-1 Wit v1 2700 g: 3x Wit à 900 g
+    dough Wit v1 1800 g: 2x Wit à 900 g
+    ");
+    let total: u64 = after.ingredients.iter().map(|n| n.grams).sum();
+    assert_eq!(total, 5 * 900);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn after_the_deadline_a_day_without_batches_uses_the_recipes(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
+    let shop = shop(&mut conn, &clock, "2026-10-31").await;
+    let day = days::get(&mut conn, shop.day).await.unwrap();
+    clock.set(day.cutoff_at.expect("deadline"));
+    let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
+    assert_eq!(needs.basis, Basis::Recipes);
 }

@@ -23,11 +23,14 @@ exactly the sum of its parts, and all totals together are exactly the day's doug
 | The pure part lives in `recipes::needs` (`DoughGrams`, `shopping_list`); reading pieces and grouping lives in `production::needs` | The spec puts ingredient needs in `recipes`, and only `production` sees both orders and recipes |
 | CSV uses the accountant format of ADR 0017, with `csv` in `production`; products left out follow the ingredients as "Niet meegeteld (…)" rows with an empty gram cell | Same format staff already open in Excel, and the CSV never looks complete when it is not |
 
-**Seam for batches.** The spec says: before cutoff from recipe versions, after cutoff from
-batch lines. Batches are built separately (F14a), so only the recipe-version path exists.
-The seam is `production::needs::doughs`: it returns the doughs a day's needs are summed
-from, each a `Dough` with its `DoughGrams`. The batch path plugs in there: after cutoff
-it returns one `Dough` per batch, with `DoughGrams` from the batch lines, and products
-from the batch outputs. `shopping_list`, the screen, PDF and CSV stay as they are. It
-will need a clock to compare with the cutoff, and a second basis text next to
-`needs-basis-recipes`. Until then the list uses recipe versions after cutoff too.
+**After the deadline: batches.** The spec says: before cutoff from recipe versions, after
+cutoff from batch lines. `production::needs::doughs` takes the injected clock. Once the
+day's order deadline has passed and the day has batches (F14a, ADR 0042), it returns one
+`Dough` per batch from `production::batches::formulas_for_day`: the batch's recipe and
+version, its outputs as products, and `DoughGrams::from_formula(&formula, dough_g)`, so
+the baker's adjusted percentages count. Pieces still in no batch (to bake minus planned
+pieces in batches, per product) are added from the recipe version in use, so nothing is
+dropped. Before the deadline, or without batches, it is the recipe path above.
+`IngredientNeeds.basis` says which; the screen and PDF show `needs-basis-recipes` or
+`needs-basis-batches`, and a batch dough is named with its code (`needs-dough-batch`).
+`shopping_list` and the CSV stay as they are.

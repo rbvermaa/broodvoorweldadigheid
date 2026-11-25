@@ -6,6 +6,7 @@ use i18n::{Amsterdam, FluentArgs, Translator, decimal};
 use orders::{OrderStatus, PaymentMode};
 use serde_json::{Value, json};
 
+use crate::needs::dough_name;
 use crate::{Error, IngredientNeeds, PickupList, PickupOrder, ProductionList, weight};
 
 fn count(n: u64) -> String {
@@ -137,9 +138,6 @@ pub(crate) fn needs(needs: &IngredientNeeds, t: &Translator) -> Result<Value, Er
     }
     let mut doughs = Vec::with_capacity(needs.doughs.len());
     for dough in &needs.doughs {
-        let mut args = FluentArgs::new();
-        args.set("recipe", dough.recipe.as_str());
-        args.set("version", dough.version.to_string());
         let mut products = Vec::with_capacity(dough.products.len());
         for product in &dough.products {
             let mut args = FluentArgs::new();
@@ -148,7 +146,7 @@ pub(crate) fn needs(needs: &IngredientNeeds, t: &Translator) -> Result<Value, Er
             products.push(t.t("needs-dough-product", Some(&args))?);
         }
         doughs.push(json!({
-            "name": t.t("needs-dough-name", Some(&args))?,
+            "name": dough_name(t, dough)?,
             "products": products.join(", "),
             "amount": weight(t, dough.grams.total())?,
         }));
@@ -165,7 +163,7 @@ pub(crate) fn needs(needs: &IngredientNeeds, t: &Translator) -> Result<Value, Er
     Ok(json!({
         "title": t.t("needs-title", None)?,
         "date": t.long_date(needs.day.date),
-        "basis": t.t("needs-basis-recipes", None)?,
+        "basis": t.t(needs.basis.message_id(), None)?,
         "labels": {
             "ingredient": t.t("needs-ingredient", None)?,
             "amount": t.t("needs-amount", None)?,
