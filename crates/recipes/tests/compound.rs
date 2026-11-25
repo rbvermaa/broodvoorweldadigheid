@@ -775,6 +775,11 @@ async fn the_stored_list_keeps_its_structure(mut conn: PoolConnection<Postgres>)
         .execute(&mut *conn)
         .await;
     assert!(refused.is_err(), "one depth per entry");
+    let deeper = sqlx::query("UPDATE product SET ingredient_depth = '{0,0,0,1,2}' WHERE id = $1")
+        .bind(k.bun.get())
+        .execute(&mut *conn)
+        .await;
+    assert!(deeper.is_err(), "brackets nest one level");
     sqlx::query("UPDATE product SET ingredient_depth = '{0,0,0,0,0}' WHERE id = $1")
         .bind(k.bun.get())
         .execute(&mut *conn)

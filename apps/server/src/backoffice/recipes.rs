@@ -188,6 +188,8 @@ pub async fn list(
 pub struct RecipeForm {
     pub name: String,
     pub kind: String,
+    /// A refused label setting, shown again instead of the stored one.
+    pub label: Option<LabelSetting>,
 }
 
 impl RecipeForm {
@@ -195,6 +197,7 @@ impl RecipeForm {
         Self {
             name: fields.text("name").to_owned(),
             kind: fields.text("kind").to_owned(),
+            label: None,
         }
     }
 
@@ -258,7 +261,8 @@ const LABEL_MODES: [(&str, Option<bool>, &str); 3] = [
     ("los", Some(false), "recipe-label-mode-merged"),
 ];
 
-fn label_form(state: &AppState, recipe: &Recipe, path: &str) -> LabelForm {
+/// `shown` is what the form holds: the stored setting, or the one posted when it was refused.
+fn label_form(state: &AppState, recipe: &Recipe, shown: &LabelSetting, path: &str) -> LabelForm {
     LabelForm {
         action: format!("{path}/etiket"),
         modes: LABEL_MODES
@@ -266,10 +270,10 @@ fn label_form(state: &AppState, recipe: &Recipe, path: &str) -> LabelForm {
             .map(|&(value, compound, label)| SelectOption {
                 value: value.to_owned(),
                 label: t(state, label),
-                selected: compound == recipe.label.compound,
+                selected: compound == shown.compound,
             })
             .collect(),
-        name: recipe.label.name.clone(),
+        name: shown.name.clone(),
         now: match recipe.compound_name() {
             Some(name) => t_with(
                 state,
@@ -294,7 +298,11 @@ struct RecipePage<'a> {
     details: Option<RecipeDetails>,
 }
 
-async fn details(state: &AppState, recipe: &Recipe) -> Step<RecipeDetails> {
+async fn details(
+    state: &AppState,
+    recipe: &Recipe,
+    posted_label: Option<&LabelSetting>,
+) -> Step<RecipeDetails> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let versions = store::versions(&mut conn, recipe.id)
         .await
@@ -355,7 +363,7 @@ async fn details(state: &AppState, recipe: &Recipe) -> Step<RecipeDetails> {
                 selected: false,
             })
             .collect(),
-        label: label_form(state, recipe, &path),
+        label: label_form(state, recipe, posted_label.unwrap_or(&recipe.label), &path),
     })
 }
 
@@ -379,7 +387,7 @@ async fn render_recipe(
         Some(r) => (
             r.name.clone(),
             recipe_path(r.id),
-            Some(details(state, r).await?),
+            Some(details(state, r, form.label.as_ref()).await?),
         ),
         None => (t(state, "recipe-new"), NEW.to_owned(), None),
     };
@@ -405,6 +413,7 @@ pub async fn new_form(State(state): State<AppState>, staff: Staff, session: Sess
         let form = RecipeForm {
             name: String::new(),
             kind: RecipeKind::Dough.code().to_owned(),
+            label: None,
         };
         render_recipe(
             &state,
@@ -433,6 +442,7 @@ pub async fn show(
         let form = RecipeForm {
             name: recipe.name.clone(),
             kind: recipe.kind.code().to_owned(),
+            label: None,
         };
         render_recipe(
             &state,
@@ -584,6 +594,7 @@ pub async fn set_label(
                 let form = RecipeForm {
                     name: recipe.name.clone(),
                     kind: recipe.kind.code().to_owned(),
+                    label: Some(setting),
                 };
                 render_recipe(
                     &state,

@@ -819,6 +819,8 @@ async fn the_compound_setting_needs_allergen_rights_and_a_short_name(pool: PgPoo
         .await;
     assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
     reply.shows(&dutch("recipe-error-label-name"));
+    reply.shows(&format!("value=\"{long}\""));
+    reply.shows("value=\"samengesteld\" selected");
     baker
         .post(&format!("{recipe}/etiket"), &[("op_etiket", "los")])
         .await

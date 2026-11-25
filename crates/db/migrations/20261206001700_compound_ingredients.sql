@@ -52,6 +52,7 @@ ALTER TABLE product
     ADD CONSTRAINT product_ingredient_depth_complete CHECK (
         (ingredient_depth IS NULL OR ingredient_names IS NOT NULL)
         AND cardinality(ingredient_depth) = cardinality(ingredient_names)
+        AND ingredient_depth <@ ARRAY[0, 1]::smallint[]
     );
 
 ALTER TABLE batch
@@ -59,6 +60,7 @@ ALTER TABLE batch
     ADD CONSTRAINT batch_ingredient_depth_complete CHECK (
         (ingredient_depth IS NULL OR ingredient_names IS NOT NULL)
         AND cardinality(ingredient_depth) = cardinality(ingredient_names)
+        AND ingredient_depth <@ ARRAY[0, 1]::smallint[]
     );
 
 CREATE OR REPLACE FUNCTION product_ingredient_list_clears_approval() RETURNS trigger
