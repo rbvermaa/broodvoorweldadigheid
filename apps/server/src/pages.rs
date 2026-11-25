@@ -147,9 +147,16 @@ impl<'a> Layout<'a> {
         self.csrf_token.as_deref()
     }
 
-    /// Whether the staff menu entry at `entry` holds this page.
-    pub fn nav_current(&self, entry: &str) -> bool {
-        crate::backoffice::nav::current(&self.path) == Some(entry)
+    /// The `aria-current` value of the staff menu entry at `entry`: `page` on that page,
+    /// `true` on a page in its section, empty elsewhere.
+    pub fn nav_current(&self, entry: &str) -> &'static str {
+        if crate::backoffice::nav::current(&self.path) != Some(entry) {
+            ""
+        } else if self.path == entry {
+            "page"
+        } else {
+            "true"
+        }
     }
 
     /// Whether the site header links to "Mijn bestellingen" instead of the login page.

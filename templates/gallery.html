@@ -151,9 +151,7 @@
 <article><h3>{{ layout.t("gallery-long-word")? }}</h3><p>{{ layout.t("gallery-product-desc")? }}</p></article>
 <article><h3>{{ layout.t("gallery-product-short")? }}</h3><p>{{ layout.t("gallery-product-ingredients")? }}</p></article>
 {% endcall %}
-{%- for cart in carts.iter().take(1) %}
-{% call c::cart_panel(cart) %}{% endcall %}
-{%- endfor %}
+{% call fb::empty_state(layout.t("gallery-empty-title")?, layout.t("gallery-empty-text")?) %}{% endcall %}
 {% endcall %}
 </section>
 

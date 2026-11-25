@@ -140,8 +140,6 @@ a {
   list-style: none;
 }
 
-/* From lg the page widens to size-page; running text keeps the reading width, and the
-   staff menu becomes a sidebar. Phones keep the single column above. */
 @media (min-width: 64rem) {
   .site-header,
   .site-main,
@@ -165,8 +163,6 @@ a {
   }
 
   .staff-sidebar {
-    position: sticky;
-    top: var(--space-4);
     flex: none;
     width: var(--size-sidebar);
   }
@@ -193,7 +189,7 @@ a {
     text-decoration: underline;
   }
 
-  .staff-nav a[aria-current="page"] {
+  .staff-nav a[aria-current] {
     background: var(--color-ink);
     color: var(--color-paper);
   }

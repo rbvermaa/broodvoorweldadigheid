@@ -7,7 +7,7 @@
 <h2 class="visually-hidden" id="staff-nav-title">{{ layout.t("staff-nav-label")? }}</h2>
 <ul class="staff-nav">
 {% for entry in crate::backoffice::nav::entries() -%}
-<li><a href="{{ entry.path }}"{% if layout.nav_current(entry.path) %} aria-current="page"{% endif %}>{{ layout.t(entry.label)? }}</a></li>
+<li><a href="{{ entry.path }}"{% let current = layout.nav_current(entry.path) %}{% if !current.is_empty() %} aria-current="{{ current }}"{% endif %}>{{ layout.t(entry.label)? }}</a></li>
 {% endfor -%}
 </ul>
 </nav>

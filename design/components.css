@@ -34,8 +34,6 @@
   hyphens: auto;
 }
 
-/* Cells break only between words, so a narrow screen scrolls the table instead of
-   squeezing a column to one letter. */
 .table td,
 .table th {
   overflow-wrap: break-word;
@@ -748,7 +746,11 @@ textarea.field-input {
     max-width: var(--size-tile-max);
   }
 
-  .form-grid > :is(fieldset, p, h2, h3, ul, .alert, .field-check, .form-grid, .choice-grid, [role="status"]),
+  .form-grid > :is(fieldset, p, h2, h3, ul, .alert, .field-check, .form-grid, .choice-grid, [role="status"]) {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
   .form-grid > :has(textarea, .field-check, fieldset) {
     flex-basis: 100%;
     max-width: none;
@@ -815,8 +817,6 @@ textarea.field-input {
 
   .split:not(.split-aside-first) > :last-child,
   .split-aside-first > :first-child {
-    position: sticky;
-    top: var(--space-4);
     flex: none;
     width: var(--size-aside);
   }

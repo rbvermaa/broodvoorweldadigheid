@@ -733,7 +733,7 @@ expression: without_asset_hashes(&gallery_html(&state))
 
 <section class="gallery-section" aria-labelledby="gallery-layout">
 <h2 id="gallery-layout">Indeling</h2>
-<p>Op een breed scherm staan keuzes, kaarten en het mandje naast elkaar. Op een telefoon onder elkaar.</p>
+<p>Op een breed scherm staan keuzes, kaarten en een zijkolom naast elkaar. Op een telefoon onder elkaar.</p>
 
 <div class="choice-grid">
 
@@ -783,40 +783,11 @@ expression: without_asset_hashes(&gallery_html(&state))
 </div>
 
 
-<section class="cart" id="mandje" aria-labelledby="mandje-titel">
-<h2 class="cart-title" id="mandje-titel"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="m15 11-1 9" /><path d="m19 11-4-7" /><path d="M2 11h20" /><path d="m3.5 11 1.6 7.4a2 2 0 0 0 2 1.6h9.8a2 2 0 0 0 2-1.6l1.7-7.4" /><path d="M4.5 15.5h15" /><path d="m5 11 4-7" /><path d="m9 11 1 9" /></svg>Je mandje</h2>
-<div role="status">
-
-<div class="alert alert-success" role="status"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Gelukt"><circle cx="12" cy="12" r="10" /><path d="m16 9-5.5 5.5L8 12" /></svg><p class="alert-text">Je bestelling is geplaatst.</p>
+<div class="empty-state">
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+<p class="empty-state-title">Nog geen bestellingen</p>
+<p class="empty-state-text">Zodra iemand bestelt, zie je de bestelling hier.</p>
 </div>
-
-</div>
-
-<div class="table-wrap" role="region" aria-labelledby="mandje-voorbeeld-caption" tabindex="0">
-<table class="table">
-<caption class="table-caption" id="mandje-voorbeeld-caption">Bestellingen voor de bakdag</caption>
-<thead><tr><th scope="col">Product</th><th scope="col" class="table-number">Aantal</th><th scope="col" class="table-number">Totaal</th></tr></thead>
-<tbody>
-<tr><td>Zuurdesemvolkorenbrood met zonnebloempitten</td><td class="table-number">2</td><td class="table-number">€ 13,00</td></tr>
-</tbody>
-</table>
-</div>
-
-<p class="cart-total"><span>Totaal</span>
-<span class="price">€ 13,00</span>
-</p>
-<div class="cart-actions">
-<form method="post" action="/gallery" hx-post="/gallery" hx-target="#mandje" hx-swap="outerHTML">
-<input type="hidden" name="_csrf" value="test-token">
-<input type="hidden" name="product" value="1">
-<input type="hidden" name="aantal-1" value="0">
-
-<button type="submit" class="button button-secondary"><span class="button-label">Weghalen: Desem wit</span></button>
-
-</form>
-</div>
-<a class="button button-primary" href="/gallery">Afrekenen</a>
-</section>
 
 
 </div>

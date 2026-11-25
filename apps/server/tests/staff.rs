@@ -610,9 +610,9 @@ async fn the_staff_menu_marks_the_section_of_the_page(pool: PgPool) {
     let deeper = get_with(&app, "/staff/bake-days/new", Some(&cookie)).await;
     assert_eq!(deeper.status, StatusCode::OK, "{}", deeper.body);
     let menu = staff_menu(&deeper.body);
-    assert_eq!(menu.matches("aria-current=\"page\"").count(), 1, "{menu}");
+    assert_eq!(menu.matches("aria-current").count(), 1, "{menu}");
     assert!(
-        menu.contains("<a href=\"/staff/bake-days\" aria-current=\"page\">"),
+        menu.contains("<a href=\"/staff/bake-days\" aria-current=\"true\">"),
         "{menu}"
     );
 }
