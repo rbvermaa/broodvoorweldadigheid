@@ -82,42 +82,83 @@ struct Sum {
     parts: Vec<usize>,
 }
 
-/// Which amounts may be shown. Below [`MIN_ORDERS`] an amount is hidden. Then, while the
-/// hidden amounts of a sum hold 1 to `MIN_ORDERS - 1` orders, that sum's shown amount
-/// with the fewest orders is hidden too, so no small amount can be worked out by
-/// subtracting shown ones.
-fn suppress(orders: &[usize], sums: &[Sum]) -> Vec<bool> {
-    let mut shown: Vec<bool> = orders.iter().map(|&n| n >= MIN_ORDERS).collect();
+impl Sum {
+    fn members(&self) -> impl Iterator<Item = usize> + '_ {
+        std::iter::once(self.head).chain(self.parts.iter().copied())
+    }
+}
+
+/// What a visitor can work out: starting from the shown amounts, any sum with one
+/// unknown member gives it away. Returns the sum that gives away an amount of 1 to
+/// `MIN_ORDERS - 1` orders, if any.
+fn reveals(orders: &[usize], sums: &[Sum], shown: &[bool]) -> Option<usize> {
+    let mut known = shown.to_vec();
     loop {
-        let mut changed = false;
-        for sum in sums {
-            let mut hidden: usize = sum
-                .parts
-                .iter()
-                .filter(|&&i| !shown[i])
-                .map(|&i| orders[i])
-                .sum();
-            if hidden == 0 && !shown[sum.head] {
-                hidden = orders[sum.head];
-            }
-            if hidden == 0 || hidden >= MIN_ORDERS {
-                continue;
-            }
-            if let Some(&next) = sum
-                .parts
-                .iter()
-                .chain(std::iter::once(&sum.head))
-                .filter(|&&i| shown[i])
-                .min_by_key(|&&i| (orders[i], i))
-            {
-                shown[next] = false;
-                changed = true;
+        let mut progress = false;
+        for (s, sum) in sums.iter().enumerate() {
+            let mut unknown = sum.members().filter(|&i| !known[i]);
+            if let (Some(i), None) = (unknown.next(), unknown.next()) {
+                if (1..MIN_ORDERS).contains(&orders[i]) {
+                    return Some(s);
+                }
+                known[i] = true;
+                progress = true;
             }
         }
-        if !changed {
-            return shown;
+        if !progress {
+            return None;
         }
     }
+}
+
+/// Which amounts may be shown. Below [`MIN_ORDERS`] an amount is hidden. Then, while a
+/// visitor could still work out a small amount by adding and subtracting shown ones
+/// ([`reveals`]), the shown amount with the fewest orders in the sum that gives it away
+/// is hidden too.
+fn suppress(orders: &[usize], sums: &[Sum]) -> Vec<bool> {
+    let mut shown: Vec<bool> = orders.iter().map(|&n| n >= MIN_ORDERS).collect();
+    while let Some(s) = reveals(orders, sums, &shown) {
+        let smallest = |cells: &mut dyn Iterator<Item = usize>| {
+            cells.filter(|&i| shown[i]).min_by_key(|&i| (orders[i], i))
+        };
+        let next = smallest(&mut sums[s].members()).or_else(|| smallest(&mut (0..orders.len())));
+        let Some(next) = next else {
+            return shown;
+        };
+        shown[next] = false;
+    }
+    shown
+}
+
+/// The sums on the page, for cells laid out as: the total, one per drop, one per charity,
+/// then "Nog te verdelen" when `cells` has room for it. A charity is taken as the sum of
+/// its drops; a charity without drops of its own forms no sum.
+fn page_sums(drops: &[CharityId], charities: &[CharityId], cells: usize) -> Vec<Sum> {
+    let first_drop = 1;
+    let first_charity = first_drop + drops.len();
+    let mut sums: Vec<Sum> = charities
+        .iter()
+        .enumerate()
+        .map(|(c, charity)| Sum {
+            head: first_charity + c,
+            parts: drops
+                .iter()
+                .enumerate()
+                .filter(|(_, d)| *d == charity)
+                .map(|(i, _)| first_drop + i)
+                .collect(),
+        })
+        .filter(|sum| !sum.parts.is_empty())
+        .collect();
+    sums.push(Sum {
+        head: 0,
+        parts: (first_drop..first_charity).collect(),
+    });
+    sums.push(Sum {
+        head: 0,
+        parts: (first_charity..cells).collect(),
+    });
+    sums
 }
 
 fn amount(shown: bool, money: Money) -> Amount {
@@ -170,28 +211,11 @@ pub(crate) fn summarize(facts: &[DonationFact]) -> Result<PublicDonations, Error
         orders.push(saved_orders);
     }
 
-    // Per charity first: hiding inside one charity usually also settles the totals.
-    let mut sums: Vec<Sum> = charities
-        .iter()
-        .enumerate()
-        .map(|(c, charity)| Sum {
-            head: first_charity + c,
-            parts: drops
-                .iter()
-                .enumerate()
-                .filter(|(_, d)| d.charity == charity.charity)
-                .map(|(i, _)| first_drop + i)
-                .collect(),
-        })
-        .collect();
-    sums.push(Sum {
-        head: 0,
-        parts: (first_drop..first_charity).collect(),
-    });
-    sums.push(Sum {
-        head: 0,
-        parts: (first_charity..orders.len()).collect(),
-    });
+    let sums = page_sums(
+        &drops.iter().map(|d| d.charity).collect::<Vec<_>>(),
+        &charities.iter().map(|c| c.charity).collect::<Vec<_>>(),
+        orders.len(),
+    );
     let shown = suppress(&orders, &sums);
 
     let mut public_drops = drops
@@ -269,6 +293,47 @@ mod tests {
     }
 
     #[test]
+    fn amounts_hidden_for_cover_cannot_be_worked_out_either() {
+        let mut facts = Vec::new();
+        let mut id = 0;
+        for (drop, charity, orders) in [(1, 1, 10), (2, 2, 6), (3, 3, 1), (4, 2, 7)] {
+            for _ in 0..orders {
+                id += 1;
+                let mut fact = on_drop(id, drop, Some(charity), 100);
+                fact.drop_charity = Some(CharityId::new(charity));
+                facts.push(fact);
+            }
+        }
+        let public = summarize(&facts).unwrap();
+        let drops: Vec<(i64, Amount)> = public
+            .drops
+            .iter()
+            .map(|d| (d.bake_day_id.get(), d.amount))
+            .collect();
+        let charities: Vec<Amount> = public.charities.iter().map(|c| c.amount).collect();
+        let mut orders = vec![24];
+        orders.extend([10, 6, 1, 7]);
+        orders.extend([10, 13, 1]);
+        let mut visible = vec![public.total != Amount::Hidden];
+        visible.extend(drops.iter().rev().map(|(_, a)| *a != Amount::Hidden));
+        visible.extend(charities.iter().map(|a| *a != Amount::Hidden));
+        let ids = |n: i64| CharityId::new(n);
+        let sums = page_sums(
+            &[ids(1), ids(2), ids(3), ids(2)],
+            &[ids(1), ids(2), ids(3)],
+            orders.len(),
+        );
+        assert_eq!(visible.len(), orders.len());
+        assert_eq!(
+            reveals(&orders, &sums, &visible),
+            None,
+            "{drops:?} {charities:?}"
+        );
+        assert_eq!(drops[1], (3, Amount::Hidden));
+        assert_eq!(public.total, shown(2400));
+    }
+
+    #[test]
     fn a_charity_total_cannot_give_away_its_small_drop() {
         let mut facts: Vec<DonationFact> = (1..=10).map(|i| on_drop(i, 1, Some(1), 500)).collect();
         facts.push(on_drop(11, 3, Some(1), 700));
@@ -294,7 +359,11 @@ mod tests {
         facts[0].refunded = Money::from_cents(200);
         facts.push(on_drop(7, 2, Some(2), 900));
         let public = summarize(&facts).unwrap();
-        assert_eq!(public.total, shown(3700));
+        assert_eq!(
+            public.total,
+            Amount::Hidden,
+            "with both drops hidden, the total minus charity 1 would give drop 2 away"
+        );
         assert_eq!(
             public.drops.iter().map(|d| d.amount).collect::<Vec<_>>(),
             [Amount::Hidden, Amount::Hidden],
@@ -306,7 +375,7 @@ mod tests {
                 .iter()
                 .map(|c| c.amount)
                 .collect::<Vec<_>>(),
-            [Amount::Hidden, Amount::Hidden]
+            [shown(2800), Amount::Hidden]
         );
         assert_eq!(public.unassigned, None);
 
@@ -355,9 +424,9 @@ mod tests {
         assert_eq!(
             public.charities[0].amount,
             Amount::Hidden,
-            "else the total minus the charity would give the one saved donation away"
+            "else the drop minus the charity would give the one saved donation away"
         );
-        assert_eq!(public.total, shown(3300));
+        assert_eq!(public.total, Amount::Hidden, "the total is the drop");
     }
 
     fn arb_fact() -> impl Strategy<Value = DonationFact> {
@@ -379,7 +448,40 @@ mod tests {
 
     proptest! {
         #[test]
-        fn shown_amounts_match_the_owner_report_and_hide_small_groups(
+        fn no_small_amount_can_be_worked_out(
+            drops in prop::collection::vec((0_usize..4, 0_usize..12, 0_usize..3), 0..8),
+        ) {
+            let charity_ids: Vec<CharityId> = (1..=4).map(CharityId::new).collect();
+            let drop_charities: Vec<CharityId> =
+                drops.iter().map(|&(c, _, _)| charity_ids[c]).collect();
+            let charities: Vec<CharityId> = charity_ids
+                .iter()
+                .copied()
+                .filter(|c| drop_charities.contains(c))
+                .collect();
+            let saved: usize = drops.iter().map(|&(_, _, m)| m).sum();
+            let mut orders = vec![drops.iter().map(|&(_, n, m)| n + m).sum::<usize>()];
+            orders.extend(drops.iter().map(|&(_, n, m)| n + m));
+            orders.extend(charities.iter().map(|c| {
+                drops
+                    .iter()
+                    .filter(|&&(d, _, _)| charity_ids[d] == *c)
+                    .map(|&(_, n, _)| n)
+                    .sum::<usize>()
+            }));
+            if saved > 0 {
+                orders.push(saved);
+            }
+            let sums = page_sums(&drop_charities, &charities, orders.len());
+            let shown = suppress(&orders, &sums);
+            prop_assert_eq!(reveals(&orders, &sums, &shown), None);
+            for (i, &s) in shown.iter().enumerate() {
+                prop_assert!(!s || orders[i] >= MIN_ORDERS);
+            }
+        }
+
+        #[test]
+        fn shown_amounts_match_the_owner_report(
             facts in prop::collection::vec(arb_fact(), 0..60)
         ) {
             let mut seen = BTreeSet::new();
@@ -406,34 +508,10 @@ mod tests {
                 }
             }
             let drop_orders = givers(&facts, |f| Some(f.bake_day_id)).unwrap();
-            let hidden: usize = public
-                .drops
-                .iter()
-                .filter(|d| d.amount == Amount::Hidden)
-                .map(|d| drop_orders[&d.bake_day_id].len())
-                .sum();
-            if public.total == Amount::Hidden {
-                prop_assert!(public.drops.iter().all(|d| d.amount == Amount::Hidden));
-                prop_assert!(public.charities.iter().all(|c| c.amount == Amount::Hidden));
-            } else {
-                prop_assert!(hidden == 0 || hidden >= MIN_ORDERS);
-            }
             for d in &public.drops {
                 if matches!(d.amount, Amount::Shown(_)) {
                     prop_assert!(drop_orders[&d.bake_day_id].len() >= MIN_ORDERS);
                 }
-            }
-            for c in &public.charities {
-                let of_charity: Vec<&PublicDrop> =
-                    public.drops.iter().filter(|d| d.charity == c.charity).collect();
-                let hidden: usize = of_charity
-                    .iter()
-                    .filter(|d| d.amount == Amount::Hidden)
-                    .map(|d| drop_orders[&d.bake_day_id].len())
-                    .sum();
-                let all_hidden = c.amount == Amount::Hidden
-                    && of_charity.iter().all(|d| d.amount == Amount::Hidden);
-                prop_assert!(hidden == 0 || hidden >= MIN_ORDERS || all_hidden);
             }
         }
     }
