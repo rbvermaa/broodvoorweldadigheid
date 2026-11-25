@@ -398,3 +398,28 @@ async fn an_invoiced_order_keeps_its_slot_but_can_be_picked_up(mut conn: PoolCon
         .unwrap();
     assert_eq!(picked.status, OrderStatus::PickedUp);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn staff_cannot_mark_an_order_of_a_cancelled_day_picked_up(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let order = paid_order(&mut conn, &clock, &shop, bread, "tr_1").await;
+    days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
+        .await
+        .unwrap();
+    assert!(matches!(
+        mark_picked_up(&mut conn, &clock, order.id, BAS).await,
+        Err(Error::DayFinal)
+    ));
+    assert_eq!(
+        orders::order::get(&mut conn, order.id)
+            .await
+            .unwrap()
+            .status,
+        OrderStatus::Paid
+    );
+}

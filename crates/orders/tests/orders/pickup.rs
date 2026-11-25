@@ -248,3 +248,49 @@ async fn a_pickup_on_a_cancelled_day_cannot_be_undone(mut conn: PoolConnection<P
         OrderStatus::PickedUp
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_paid_orders_on_a_live_day_await_pickup(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let order = paid_order(&mut conn, &clock, &shop).await;
+    let cookies = product(&mut conn, &COOKIES).await;
+    on_range(&mut conn, &shop, cookies, None, None).await;
+    let pending = order_as_guest(&mut conn, &clock, &shop, &[(cookies, 1, None)])
+        .await
+        .unwrap();
+    let starts = bakedays::days::list_slots(&mut conn, shop.day.id)
+        .await
+        .unwrap()[0]
+        .starts_at;
+
+    assert_eq!(
+        orders::lock_awaiting_pickup(&mut conn, order.id)
+            .await
+            .unwrap(),
+        Some(starts)
+    );
+    assert_eq!(
+        orders::lock_awaiting_pickup(&mut conn, pending.id)
+            .await
+            .unwrap(),
+        None,
+        "a pending order does not await pickup"
+    );
+    assert_eq!(
+        orders::lock_awaiting_pickup(&mut conn, domain::OrderId::new(999_999))
+            .await
+            .unwrap(),
+        None
+    );
+    bakedays::days::cancel(&mut conn, &clock, shop.day.id, "Ziek")
+        .await
+        .unwrap();
+    assert_eq!(
+        orders::lock_awaiting_pickup(&mut conn, order.id)
+            .await
+            .unwrap(),
+        None,
+        "nothing awaits pickup on a cancelled day"
+    );
+}

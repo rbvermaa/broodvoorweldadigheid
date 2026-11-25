@@ -388,3 +388,122 @@ async fn a_replacement_is_all_or_nothing(mut conn: PoolConnection<Postgres>) {
         Err(Error::NotReplaceable)
     ));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_replacement_on_another_day_is_refused(mut conn: PoolConnection<Postgres>) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let next_week = open_day(
+        &mut conn,
+        &clock,
+        &bakedays::NewBakeDay {
+            date: "2026-11-07".parse().unwrap(),
+            ..saturday()
+        },
+    )
+    .await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    on_range(&mut conn, &next_week, bread, None, None).await;
+    let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        checkout_replacing(
+            &mut conn,
+            &clock,
+            &cart(&next_week, &[(bread, 1, None)]),
+            &guest("klant@example.org"),
+            next_week.slot,
+            OrderedBy::Guest,
+            held.id,
+        )
+        .await,
+        Err(Error::NotReplaceable)
+    ));
+    assert_eq!(
+        orders::order::get(&mut conn, held.id).await.unwrap().status,
+        OrderStatus::PendingPayment
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_staff_replacement_names_the_staff_member_in_the_audit_log(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let held = order_as_guest(&mut conn, &clock, &shop, &[(bread, 1, None)])
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO staff_user (id, oidc_sub, name, role) OVERRIDING SYSTEM VALUE
+         VALUES (42, 'staff-42', 'Bas', 'baker')",
+    )
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    checkout_replacing(
+        &mut conn,
+        &clock,
+        &cart(&shop, &[(bread, 2, None)]),
+        &guest("klant@example.org"),
+        shop.slot,
+        OrderedBy::Staff(domain::StaffUserId::new(42)),
+        held.id,
+    )
+    .await
+    .unwrap();
+    let history = audit::history(&mut conn, "order", held.id.get())
+        .await
+        .unwrap();
+    let last = history.last().unwrap();
+    assert_eq!(last.actor, "staff:42");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_order_is_no_longer_the_same_once_the_kitchen_list_lost_its_approval(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = wednesday();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    let lines = [(bread, 1, None)];
+    let customer = guest("klant@example.org");
+    let order = order_as_guest(&mut conn, &clock, &shop, &lines)
+        .await
+        .unwrap();
+    assert!(
+        same_as_order(
+            &mut conn,
+            &order,
+            &cart(&shop, &lines),
+            &customer,
+            shop.slot
+        )
+        .await
+        .unwrap()
+    );
+
+    sqlx::query("UPDATE company SET may_contain = '{nuts}'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert!(
+        !same_as_order(
+            &mut conn,
+            &order,
+            &cart(&shop, &lines),
+            &customer,
+            shop.slot
+        )
+        .await
+        .unwrap(),
+        "the cart can no longer be priced, so it is not the same order"
+    );
+}
