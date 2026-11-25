@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE company SET public_donations = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84af8a5aaab04850bff5407b1269cecabd83531b0c6195aef35823f74185a462"
+}

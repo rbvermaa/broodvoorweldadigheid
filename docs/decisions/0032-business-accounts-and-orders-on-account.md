@@ -28,9 +28,7 @@ Not in this slice:
   form sent back after a mistake (such as a used invoice number) show the orders
   uninvoiced at that moment, so an order placed in between can appear in them. The owner
   sees it in the table above the form; a snapshot of the shown set would need storage.
-- The overview as PDF (F11a asks screen, PDF and CSV). The PDFs live in the
-  `production` crate (Typst, ADR 0016); the overview needs a template there or a shared
-  PDF crate.
+- The overview as PDF (F11a asks screen, PDF and CSV): done in ADR 0034.
 - Ordering on account in the shop by a signed-in business customer, and business
   customers seeing their invoices. Both go through the customer login.
 - KvK numbers are checked in both the form and the `reports` crate; BTW-ids only for

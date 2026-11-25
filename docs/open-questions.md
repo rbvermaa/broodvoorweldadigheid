@@ -18,6 +18,9 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
   It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
   SMTP avoids it: lettre verifies with `rustls-native-certs` (ADR 0014).
+- [ ] **Public donation page threshold** (F11d, ADR 0040). Amounts on `/giften` show only
+  with at least 5 orders behind them. Is 5 right for the owner, and should the page show
+  all-time totals only, or also per year?
 - [ ] **advisory-db freshness.** cargo-audit is only as fresh as the pinned advisory-db.
   The weekly dependency-update job (spec, "Nightly and weekly") should bump it.
 - [ ] **Partial refund by amount on a mixed-rate order.** How is it split across BTW
@@ -47,6 +50,15 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [x] **Bread vote data model** (F9b, ADR 0039). The spec has `Vote.subscriber_id`; the
+  code stores the voter's email on the vote instead, so voting never puts anyone on the
+  drop-alert list. Update the spec to `Vote poll_id, poll_option_id, email, wish?,
+  confirmed_at?, created_at`?
+  **Spec updated 2026-11-25:** the data model lists `email` and `confirmed_at` on Vote.
+- [ ] **Voters without an account** (F9b, F12). Their votes are only in the export and
+  erase of a customer with the same address. How long may a confirmed vote keep its
+  address: blank it some time after the poll closes, or add "erase by address" for the
+  owner?
 - [x] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?

@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 bakedays = { path = "../bakedays" }
 catalog = { path = "../catalog" }
+csv.workspace = true
 db = { path = "../db" }
 domain = { path = "../domain" }
 i18n = { path = "../i18n" }
@@ -25,5 +26,6 @@ typst-pdf = "0.15.1"
 
 [dev-dependencies]
 insta.workspace = true
+proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true

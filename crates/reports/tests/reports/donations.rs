@@ -74,3 +74,66 @@ async fn drops_and_charities_report_the_same_money(mut conn: PoolConnection<Post
         "{text}"
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_public_totals_are_the_owner_reports_minus_requested_refunds(
+    mut conn: PoolConnection<Postgres>,
+) {
+    use domain::StaffUserId;
+    use reports::public::{self, Amount};
+
+    let clock = FakeClock::new(ts("2026-10-20T10:00:00Z"));
+    let food_bank = charity(&mut conn, "Voedselbank").await;
+    let drop = drop_on(&mut conn, &clock, "2026-10-31", Some(food_bank)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    sell(&mut conn, &drop, &[bread]).await;
+    let mut paid = Vec::new();
+    for _ in 0..6 {
+        paid.push(paid_order(&mut conn, &clock, &drop, &[(bread, 1, None)]).await);
+    }
+    orders::cancel_paid(&mut conn, &clock, paid[0].id, StaffUserId::new(1))
+        .await
+        .unwrap();
+
+    let oct = Period::new(date("2026-10-01"), date("2026-10-31")).unwrap();
+    let owner = donations::drops(&mut conn, oct).await.unwrap();
+    let net = owner[0].net().unwrap();
+    assert_eq!(net.cents(), 5 * 545, "the requested refund already counts");
+    let charities = donations::charities(&mut conn, oct, Granularity::Month)
+        .await
+        .unwrap();
+
+    let page = public::donations(&mut conn).await.unwrap();
+    assert!(
+        page.drops.is_empty(),
+        "a drop still taking orders is left out"
+    );
+    assert_eq!(page.total, Amount::Hidden);
+    bakedays::days::close(&mut conn, &clock, drop.day)
+        .await
+        .unwrap();
+
+    let page = public::donations(&mut conn).await.unwrap();
+    assert_eq!(page.total, Amount::Shown(net));
+    assert_eq!(page.drops.len(), 1);
+    assert_eq!(page.drops[0].charity, food_bank);
+    assert_eq!(page.drops[0].amount, Amount::Shown(net));
+    assert_eq!(page.charities.len(), 1);
+    assert_eq!(
+        page.charities[0].amount,
+        Amount::Shown(charities[0].all_time)
+    );
+    assert_eq!(page.unassigned, None);
+
+    orders::cancel_paid(&mut conn, &clock, paid[1].id, StaffUserId::new(1))
+        .await
+        .unwrap();
+    let page = public::donations(&mut conn).await.unwrap();
+    assert_eq!(
+        page.total,
+        Amount::Hidden,
+        "four orders still give something"
+    );
+    assert_eq!(page.drops[0].amount, Amount::Hidden);
+    assert_eq!(page.charities[0].amount, Amount::Hidden);
+}

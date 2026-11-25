@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,\n            marketing_opt_in, bake_day_id, pickup_slot_id,\n            channel, payment_mode, status, cancel_reason, total_cents,\n            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,\n            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\"\n        FROM \"order\" WHERE id = $1",
+  "query": "SELECT id, number_year, number_seq, customer_id, customer_name, customer_phone,\n            (SELECT erased_at IS NOT NULL FROM customer c WHERE c.id = \"order\".customer_id)\n                AS \"customer_erased!\",\n            marketing_opt_in, bake_day_id, pickup_slot_id,\n            channel, payment_mode, status, cancel_reason, total_cents,\n            (extract(epoch FROM hold_expires_at) * 1000000)::bigint AS hold_expires_at_us,\n            (extract(epoch FROM paid_at) * 1000000)::bigint AS paid_at_us,\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_at_us!\"\n        FROM \"order\" WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,12 @@
       },
       {
         "ordinal": 6,
+        "name": "customer_erased!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
         "name": "marketing_opt_in",
         "type_info": "Bool",
         "origin": {
@@ -81,7 +87,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "bake_day_id",
         "type_info": "Int8",
         "origin": {
@@ -92,7 +98,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "pickup_slot_id",
         "type_info": "Int8",
         "origin": {
@@ -103,7 +109,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "channel",
         "type_info": "Text",
         "origin": {
@@ -114,7 +120,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "payment_mode",
         "type_info": "Text",
         "origin": {
@@ -125,7 +131,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -136,7 +142,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "cancel_reason",
         "type_info": "Text",
         "origin": {
@@ -147,7 +153,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "total_cents",
         "type_info": "Int8",
         "origin": {
@@ -158,19 +164,19 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "hold_expires_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "paid_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "created_at_us!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -188,6 +194,7 @@
       false,
       false,
       true,
+      null,
       false,
       false,
       false,
@@ -201,5 +208,5 @@
       null
     ]
   },
-  "hash": "4a3c20e92a1cc09e588604c4ea3a3139d351800d53775e677a3feb4ad7e60afc"
+  "hash": "5a64932ce6a375a09ba9fbb87a0958d8158c587cdfb6eee7dc072832bf0e6055"
 }

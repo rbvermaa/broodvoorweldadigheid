@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t(title)? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t(title)? }}</h1>
+{% call fb::alert(kind, layout.t(text)?) %}{% endcall %}
+{%- if let Some(href) = back %}
+<p><a href="{{ href }}">{{ layout.t("votes-to-poll")? }}</a></p>
+{%- else %}
+<p><a href="/stemmen">{{ layout.t("votes-title")? }}</a></p>
+{%- endif %}
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "components/button.html" as b %}
+{% import "components/chart.html" as c %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1>
+{%- if !drop.is_empty() %}
+<p>{{ drop }}</p>
+{%- endif %}
+<p>{{ when }}</p>
+{%- if open %}
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}" novalidate>
+{%- if let Some(token) = layout.csrf_token() %}
+<input type="hidden" name="_csrf" value="{{ token }}">
+{%- endif %}
+{% call f::select("keuze", layout.t("votes-choice")?, options, error = errors.choice, required = true) %}{% endcall %}
+{%- if signed_in %}
+<p>{{ layout.t("votes-signed-in")? }}</p>
+{%- else %}
+{% call f::field("email", "email", layout.t("votes-email")?, value = email, hint = layout.t("votes-email-hint")?, error = errors.email, required = true) %}{% endcall %}
+{%- endif %}
+{% call f::field("textarea", "wens", layout.t("votes-wish")?, value = wish, hint = layout.t("votes-wish-hint")?, error = errors.wish) %}{% endcall %}
+{% call b::button(layout.t("votes-submit")?, kind = "submit") %}{% endcall %}
+</form>
+{%- else %}
+{% call fb::alert("info", layout.t("votes-closed")?) %}{% endcall %}
+{%- endif %}
+{%- if let Some(chart) = chart %}
+<h2>{{ layout.t("votes-results")? }}</h2>
+{% call c::bar_chart(chart) %}{% endcall %}
+{%- endif %}
+<p><a href="/stemmen">{{ layout.t("votes-title")? }}</a></p>
+{% endblock %}

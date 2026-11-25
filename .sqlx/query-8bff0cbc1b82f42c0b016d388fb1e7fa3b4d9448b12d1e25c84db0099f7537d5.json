@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vote SET poll_option_id = $2, wish = $3, confirm_token_hash = $4,\n            confirm_expires_at = timestamptz 'epoch' + $5::bigint * interval '1 microsecond',\n            confirm_sent_at = timestamptz 'epoch' + $6::bigint * interval '1 microsecond'\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Bytea",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8bff0cbc1b82f42c0b016d388fb1e7fa3b4d9448b12d1e25c84db0099f7537d5"
+}

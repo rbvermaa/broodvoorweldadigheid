@@ -1,6 +1,6 @@
 //! The back office screens: products and allergen approval (F10), pickup locations
 //! (F4a), charities (F4g), bake days (F1, F3, F4c), extra production (F7a), and the
-//! production (F7) and pickup (F8) lists.
+//! production (F7) and pickup (F8) lists, and the ingredient needs (F15).
 #![forbid(unsafe_code)]
 
 mod support;
@@ -2752,6 +2752,162 @@ async fn the_production_list_adds_extras_to_orders_on_screen_and_as_pdf(pool: Pg
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn ingredient_needs_show_as_a_shopping_list_with_pdf_and_csv(pool: PgPool) {
+    use recipes::{
+        DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, Pct, RecipeInput,
+        RecipeKind, ingredients, recipes as store,
+    };
+
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let bread = paid.order.lines[0].product_id;
+    let mut conn = pool.acquire().await.expect("conn");
+    let granola = products::create(
+        &mut conn,
+        &ProductInput {
+            name_nl: "Granola".to_owned(),
+            ..sourdough()
+        },
+    )
+    .await
+    .expect("product")
+    .id;
+    for (product, qty) in [(bread, 3), (granola, 4)] {
+        extras::add(
+            &mut conn,
+            paid.day,
+            product,
+            &ExtraInput {
+                qty,
+                purpose: Purpose::Freezer,
+                note: None,
+            },
+            &bakedays::NoOrders,
+        )
+        .await
+        .expect("extra");
+    }
+    let mut ingredient = async |name: &str, role| {
+        ingredients::create(
+            &mut conn,
+            &IngredientInput {
+                name: name.to_owned(),
+                label_name: String::new(),
+                role,
+                supplier_name: String::new(),
+                allergens: std::collections::BTreeSet::new(),
+            },
+        )
+        .await
+        .expect("ingredient")
+        .id
+    };
+    let flour = ingredient("Tarwebloem", IngredientRole::Flour).await;
+    let water = ingredient("Water", IngredientRole::Water).await;
+    let (recipe, version) = store::create(
+        &mut conn,
+        &RecipeInput {
+            name: "Wit".to_owned(),
+            kind: RecipeKind::Dough,
+        },
+    )
+    .await
+    .expect("recipe");
+    store::save_draft(
+        &mut conn,
+        version.id,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: Pct::from_thousandths(100_000),
+                    part: LinePart::Ingredient(flour),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(80_000),
+                    part: LinePart::Ingredient(water),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("lines");
+    store::link_product(&mut conn, recipe.id, bread)
+        .await
+        .expect("link");
+    drop(conn);
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let day = format!("/staff/bake-days/{}", paid.day.get());
+    let path = format!("{day}/ingredients");
+    // 2 ordered + 3 extra × 900 g = 4500 g at 180%.
+    let page = baker.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("needs-title"));
+    page.shows("<td>Tarwebloem</td><td class=\"table-number\">2,500 kg</td>");
+    page.shows("<td>Water</td><td class=\"table-number\">2,000 kg</td>");
+    page.shows("4,500 kg");
+    page.shows(&dutch_with(
+        "needs-dough-name",
+        &[("recipe", "Wit"), ("version", "1")],
+    ));
+    page.shows(&dutch("needs-missing"));
+    page.shows("<td>Granola</td><td class=\"table-number\">4</td>");
+    page.shows(&dutch("needs-reason-no-recipe"));
+    page.shows(&format!("href=\"{path}/pdf\""));
+    page.shows(&format!("href=\"{path}/csv\""));
+    page.shows(&format!("href=\"{day}/production\""));
+
+    let pdf = baker.get(&format!("{path}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"boodschappenlijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+
+    let csv = baker.get(&format!("{path}/csv")).await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
+    assert_eq!(
+        csv.header("content-disposition"),
+        "attachment; filename=\"boodschappenlijst-2026-12-05.csv\""
+    );
+    assert!(
+        csv.text.contains("Tarwebloem;2500\r\nWater;2000\r\n"),
+        "{}",
+        csv.text
+    );
+    assert!(csv.text.contains("Granola, 4 stuks"), "{}", csv.text);
+
+    baker.get(&day).await.shows(&format!("href=\"{path}\""));
+    baker
+        .get(&format!("{day}/production"))
+        .await
+        .shows(&format!("href=\"{path}\""));
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for url in [path.clone(), format!("{path}/pdf"), format!("{path}/csv")] {
+        assert_eq!(
+            counter.get(&url).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    assert_eq!(owner.get(&path).await.status, StatusCode::OK);
+    for url in [
+        "/staff/bake-days/999999/ingredients",
+        "/staff/bake-days/999999/ingredients/pdf",
+        "/staff/bake-days/999999/ingredients/csv",
+    ] {
+        assert_eq!(baker.get(url).await.status, StatusCode::NOT_FOUND, "{url}");
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn the_counter_ticks_off_pickups_on_the_pickup_list_and_can_undo(pool: PgPool) {
     let app = app(pool.clone());
     let paid = paid_order(&app).await;
@@ -3296,10 +3452,13 @@ async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
     let account = business_account(&owner).await;
     let invoice = format!("{account}/invoice");
     let csv = format!("{account}/invoice.csv");
-    assert_eq!(
-        owner.get(&format!("{csv}?van=gisteren")).await.status,
-        StatusCode::BAD_REQUEST
-    );
+    let pdf = format!("{account}/invoice.pdf");
+    for download in [&csv, &pdf] {
+        assert_eq!(
+            owner.get(&format!("{download}?van=gisteren")).await.status,
+            StatusCode::BAD_REQUEST
+        );
+    }
     let list = baker.get("/staff/business-accounts").await;
     assert_eq!(list.status, StatusCode::OK);
     list.shows(&format!("href=\"{account}/order\""));
@@ -3318,6 +3477,7 @@ async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
         account.as_str(),
         invoice.as_str(),
         csv.as_str(),
+        pdf.as_str(),
     ] {
         for who in [&baker, &counter] {
             assert_eq!(who.get(url).await.status, StatusCode::FORBIDDEN, "{url}");
@@ -3495,6 +3655,19 @@ async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
     csv.shows("Desembrood wit;2;5,96;9%;11,93;1,07;13,00");
 
+    overview.shows(&format!(
+        "href=\"{account}/invoice.pdf?van=2026-12-01&tot=2026-12-31\""
+    ));
+    let pdf = owner
+        .get(&format!(
+            "{account}/invoice.pdf?van=2026-12-01&tot=2026-12-31"
+        ))
+        .await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(pdf.header("cache-control"), "private, no-store");
+    assert!(pdf.text.starts_with("%PDF-"));
+
     let mark = format!("{account}/invoices");
     let id = order_id.to_string();
     let fields = |number: &'static str| {
@@ -3614,4 +3787,176 @@ async fn the_product_form_sets_the_dough_per_piece(pool: PgPool) {
         .get(&format!("/staff/products/{}", product.id.get()))
         .await;
     page.shows("value=\"900\"");
+}
+
+/// `n` more paid orders of one bread on `paid`'s drop, each from another guest.
+async fn more_orders_on(app: &App, paid: &PaidOrder, n: usize) -> Vec<orders::Order> {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    let bread: i64 = sqlx::query_scalar("SELECT product_id FROM order_line WHERE order_id = $1")
+        .bind(paid.order.id.get())
+        .fetch_one(&mut *conn)
+        .await
+        .expect("line");
+    let slot = days::list_slots(&mut conn, paid.day).await.expect("slots")[0].id;
+    let mut placed = Vec::new();
+    for i in 0..n {
+        let mut cart = orders::Cart::new(paid.day);
+        cart.set(ProductId::new(bread), 1, None).expect("cart");
+        let order = orders::checkout(
+            &mut conn,
+            app.clock.as_ref(),
+            &cart,
+            &orders::CustomerInput {
+                email: format!("gever{i}@example.org"),
+                name: format!("Gever Nummer{i}"),
+                phone: None,
+                marketing_opt_in: false,
+            },
+            slot,
+            orders::OrderedBy::Guest,
+        )
+        .await
+        .expect("order");
+        let payment = pay_at_mollie(app, &order).await;
+        orders::mark_paid(
+            &mut conn,
+            app.clock.as_ref(),
+            order.id,
+            &orders::PaymentReceived {
+                reference: payment.to_string(),
+                amount: order.total,
+            },
+        )
+        .await
+        .expect("paid");
+        placed.push(order);
+    }
+    placed
+}
+
+async fn close_day(app: &App, day: BakeDayId) {
+    let mut conn = app.pool.acquire().await.expect("conn");
+    days::close(&mut conn, app.clock.as_ref(), day)
+        .await
+        .expect("close");
+}
+
+fn visitor(app: &App) -> Client<'_> {
+    Client {
+        app,
+        cookie: String::new(),
+        token: String::new(),
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_owner_switches_the_public_donation_page_on_and_off(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    close_day(&app, paid.day).await;
+    let visitor = visitor(&app);
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+    visitor.get("/faq").await.lacks("href=\"/giften\"");
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    assert_eq!(
+        baker.get("/staff/settings").await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        baker
+            .post("/staff/settings", &[("public_donations", "ja")])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let forged = Client {
+        app: &app,
+        cookie: owner.cookie.clone(),
+        token: "verkeerd".to_owned(),
+    };
+    assert_eq!(
+        forged
+            .post("/staff/settings", &[("public_donations", "ja")])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+
+    let settings = owner.get("/staff/settings").await;
+    assert_eq!(settings.status, StatusCode::OK, "{}", settings.text);
+    settings.shows(&dutch("settings-public-donations"));
+    owner
+        .post("/staff/settings", &[("public_donations", "ja")])
+        .await
+        .redirects_to("/staff/settings?opgeslagen=1");
+    owner
+        .get("/staff/settings?opgeslagen=1")
+        .await
+        .shows("name=\"public_donations\" value=\"ja\" checked");
+
+    let page = visitor.get("/giften").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    assert_eq!(page.header("cache-control"), "private, max-age=60");
+    page.shows(&dutch("giften-title"));
+    page.shows("Voedselbank");
+    page.shows(&dutch("giften-total-hidden"));
+    page.shows(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(paid.order.total.cents()));
+    page.lacks("Test Klant");
+    page.lacks("klant@example.org");
+    visitor.get("/faq").await.shows("href=\"/giften\"");
+
+    owner
+        .post("/staff/settings", &[])
+        .await
+        .redirects_to("/staff/settings?opgeslagen=1");
+    assert_eq!(visitor.get("/giften").await.status, StatusCode::NOT_FOUND);
+    visitor.get("/faq").await.lacks("href=\"/giften\"");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_public_donation_page_shows_totals_only_from_five_orders(pool: PgPool) {
+    let app = app(pool.clone());
+    let (_, paid) = charity_order(&app).await;
+    let more = more_orders_on(&app, &paid, 4).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    catalog::company::set_public_donations(&mut conn, true)
+        .await
+        .expect("switch on");
+    let owner = staff(&pool, "Eigenaar Eva", Role::Owner).await;
+
+    let open = visitor(&app).get("/giften").await;
+    open.shows(&dutch("giften-empty-title"));
+    open.lacks("Voedselbank");
+    close_day(&app, paid.day).await;
+
+    let page = visitor(&app).get("/giften").await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    let total = paid.order.total.cents() + 4 * more[0].total.cents();
+    page.shows(&format!(
+        "{}: {}",
+        dutch("giften-total"),
+        i18n::money(total)
+    ));
+    page.shows("<svg class=\"chart-svg\"");
+    page.shows(&format!("<li>Voedselbank: {}</li>", i18n::money(total)));
+    page.shows(&dutch("giften-col-drop"));
+    page.lacks(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(more[0].total.cents()));
+    page.lacks(&i18n::money(paid.order.total.cents()));
+    for personal in ["Test Klant", "klant@example.org", "Gever", "@example.org"] {
+        page.lacks(personal);
+    }
+
+    orders::cancel_paid(&mut conn, app.clock.as_ref(), more[0].id, owner.id)
+        .await
+        .expect("cancel");
+    let page = visitor(&app).get("/giften").await;
+    page.shows(&dutch("giften-total-hidden"));
+    page.shows(&dutch("giften-hidden"));
+    page.lacks(&i18n::money(total - more[0].total.cents()));
+    page.lacks("<svg class=\"chart-svg\"");
 }

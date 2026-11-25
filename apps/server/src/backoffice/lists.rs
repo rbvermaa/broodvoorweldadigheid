@@ -1,4 +1,5 @@
-//! The production list (F7) and the pickup list (F8) of a bake day, on screen and as PDF.
+//! The production list (F7), the ingredient needs (F15) and the pickup list (F8) of a bake
+//! day, on screen and as PDF.
 //! Ticking off on the pickup list uses the same action as the order page (ADR 0016).
 
 use askama::Template;
@@ -12,7 +13,7 @@ use bakedays::{BakeDay, Purpose};
 use domain::OrderId;
 use orders::manage;
 use orders::{OrderStatus, PaymentMode};
-use production::{PickupList, PickupOrder, ProductionList};
+use production::{IngredientNeeds, PickupList, PickupOrder, ProductionList};
 use tower_sessions::Session;
 
 use super::bake_days::{self, day_path};
@@ -27,6 +28,10 @@ use crate::state::AppState;
 
 fn production_path(day: &BakeDay) -> String {
     format!("{}/production", day_path(day.id))
+}
+
+fn needs_path(day: &BakeDay) -> String {
+    format!("{}/ingredients", day_path(day.id))
 }
 
 fn pickup_path(day: &BakeDay) -> String {
@@ -70,6 +75,7 @@ struct ProductionPage<'a> {
     heading: String,
     back: String,
     pdf: String,
+    needs: String,
     table: Table,
 }
 
@@ -145,6 +151,7 @@ pub async fn production_page(
                 ),
                 back: day_path(list.day.id),
                 pdf: format!("{path}/pdf"),
+                needs: needs_path(&list.day),
                 table: production_table(&state, &list),
             },
         ))
@@ -153,10 +160,11 @@ pub async fn production_page(
 }
 
 /// Typst is CPU work, so it runs off the async workers.
-async fn pdf_response<T, F>(state: &AppState, list: T, file: String, render: F) -> Outcome
+pub async fn pdf_response<T, E, F>(state: &AppState, list: T, file: String, render: F) -> Outcome
 where
     T: Send + 'static,
-    F: FnOnce(&T, &i18n::Translator) -> Result<Vec<u8>, production::Error> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce(&T, &i18n::Translator) -> Result<Vec<u8>, E> + Send + 'static,
 {
     let i18n = state.i18n.clone();
     let bytes = tokio::task::spawn_blocking(move || render(&list, &i18n))
@@ -189,9 +197,192 @@ pub async fn production_pdf(
     run.await.unwrap_or_else(Rejection::into_response)
 }
 
+async fn load_needs(state: &AppState, raw_id: &str) -> Step<IngredientNeeds> {
+    let day = bake_days::load(state, raw_id).await?;
+    let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
+    production::ingredient_needs(&mut conn, day.id)
+        .await
+        .map_err(|e| production_error(state, &e))
+}
+
+#[derive(Template)]
+#[template(path = "staff/ingredient_needs.html")]
+struct NeedsPage<'a> {
+    layout: Layout<'a>,
+    heading: String,
+    back: String,
+    production: String,
+    pdf: String,
+    csv: String,
+    ingredients: Table,
+    doughs: Table,
+    missing: Table,
+}
+
+struct NeedsTables {
+    ingredients: Table,
+    doughs: Table,
+    missing: Table,
+}
+
+fn needs_tables(
+    state: &AppState,
+    needs: &IngredientNeeds,
+) -> Result<NeedsTables, production::Error> {
+    let weight = |grams| production::weight(&state.i18n, grams);
+    let mut ingredients = Vec::with_capacity(needs.ingredients.len() + 1);
+    for need in &needs.ingredients {
+        ingredients.push(vec![
+            Cell::text(need.ingredient.name.clone()),
+            Cell::number(weight(need.grams)?),
+        ]);
+    }
+    if !ingredients.is_empty() {
+        let sum = needs.ingredients.iter().map(|need| need.grams).sum();
+        ingredients.push(vec![
+            Cell::text(t(state, "needs-sum")),
+            Cell::number(weight(sum)?),
+        ]);
+    }
+    let mut doughs = Vec::with_capacity(needs.doughs.len());
+    for dough in &needs.doughs {
+        let products: Vec<String> = dough
+            .products
+            .iter()
+            .map(|p| {
+                t_with(
+                    state,
+                    "needs-dough-product",
+                    &[("pieces", count(p.pieces)), ("product", p.name.clone())],
+                )
+            })
+            .collect();
+        doughs.push(vec![
+            Cell::text(t_with(
+                state,
+                "needs-dough-name",
+                &[
+                    ("recipe", dough.recipe.clone()),
+                    ("version", dough.version.to_string()),
+                ],
+            )),
+            Cell::text(products.join(", ")),
+            Cell::number(weight(dough.grams.total())?),
+        ]);
+    }
+    let missing = needs
+        .missing
+        .iter()
+        .map(|m| {
+            vec![
+                Cell::text(m.name.clone()),
+                Cell::number(count(m.pieces)),
+                Cell::text(t(state, m.reason.message_id())),
+            ]
+        })
+        .collect();
+    Ok(NeedsTables {
+        ingredients: Table {
+            id: "boodschappen".to_owned(),
+            caption: t(state, "needs-title"),
+            head: vec![
+                Cell::text(t(state, "needs-ingredient")),
+                Cell::number(t(state, "needs-amount")),
+            ],
+            rows: ingredients,
+        },
+        doughs: Table {
+            id: "degen".to_owned(),
+            caption: t(state, "needs-doughs"),
+            head: vec![
+                Cell::text(t(state, "needs-recipe")),
+                Cell::text(t(state, "needs-products")),
+                Cell::number(t(state, "needs-amount")),
+            ],
+            rows: doughs,
+        },
+        missing: Table {
+            id: "geen-recept".to_owned(),
+            caption: t(state, "needs-missing"),
+            head: vec![
+                Cell::text(t(state, "needs-product")),
+                Cell::number(t(state, "needs-pieces")),
+                Cell::text(t(state, "needs-reason")),
+            ],
+            rows: missing,
+        },
+    })
+}
+
+pub async fn needs_page(
+    State(state): State<AppState>,
+    staff: Staff,
+    Path(id): Path<String>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Production)?;
+        let needs = load_needs(&state, &id).await?;
+        let tables = needs_tables(&state, &needs).map_err(|e| fail(&state, &e))?;
+        let path = needs_path(&needs.day);
+        Ok(pages::render(
+            &state,
+            StatusCode::OK,
+            &NeedsPage {
+                layout: Layout::new(&state),
+                heading: t_with(
+                    &state,
+                    "lists-needs-heading",
+                    &[("date", state.i18n.long_date(needs.day.date))],
+                ),
+                back: day_path(needs.day.id),
+                production: production_path(&needs.day),
+                pdf: format!("{path}/pdf"),
+                csv: format!("{path}/csv"),
+                ingredients: tables.ingredients,
+                doughs: tables.doughs,
+                missing: tables.missing,
+            },
+        ))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+pub async fn needs_pdf(
+    State(state): State<AppState>,
+    staff: Staff,
+    Path(id): Path<String>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Production)?;
+        let needs = load_needs(&state, &id).await?;
+        let file = format!("boodschappenlijst-{}.pdf", needs.day.date);
+        pdf_response(&state, needs, file, production::ingredient_needs_pdf).await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+pub async fn needs_csv(
+    State(state): State<AppState>,
+    staff: Staff,
+    Path(id): Path<String>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Production)?;
+        let needs = load_needs(&state, &id).await?;
+        let body =
+            production::ingredient_needs_csv(&needs, &state.i18n).map_err(|e| fail(&state, &e))?;
+        Ok(super::reports::csv_response(
+            &format!("boodschappenlijst-{}.csv", needs.day.date),
+            body,
+        ))
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
 pub struct OrderCard {
     pub anchor: String,
     pub name: String,
+    pub erased: bool,
     pub number: String,
     pub link: String,
     pub phone: String,
@@ -243,7 +434,8 @@ fn card(state: &AppState, list: &str, order: &PickupOrder, answer: Option<&Answe
     let phone = order.customer_phone.clone().unwrap_or_default();
     OrderCard {
         anchor: format!("bestelling-{n}"),
-        name: order.customer_name.clone(),
+        name: super::orders::customer_name(state, order.customer_erased, &order.customer_name),
+        erased: order.customer_erased,
         number: order.number.to_string(),
         link: super::orders::order_path(order.order_id),
         phone_href: phone

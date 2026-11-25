@@ -37,7 +37,10 @@
         .map(o => (
           tick(o.picked_up),
           o.number,
-          if o.phone == "" { strong(o.name) } else { stack(spacing: 4pt, strong(o.name), o.phone) },
+          {
+            let name = if o.erased { emph(o.name) } else { strong(o.name) }
+            if o.phone == "" { name } else { stack(spacing: 4pt, name, o.phone) }
+          },
           stack(spacing: 4pt, ..o.lines),
           o.status,
         ))
