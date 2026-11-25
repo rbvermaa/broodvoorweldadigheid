@@ -150,3 +150,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   ingredient's allergens change. Clear it now already, or wait for F17?
   **Status: block and ask.** The owner has been asked; the answer is pending. Until then
   nothing computed from recipes is published or printed.
+- [x] **Extras after batches exist** (ADR 0042). F7a says extras can change until the
+  batch is mixed. Should a change resize planned batches?
+  **Answered 2026-11-25:** no, the baker adjusts batches by hand (ADR 0042).

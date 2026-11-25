@@ -4,17 +4,19 @@ use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
 use bakedays::BakeDay;
-use domain::{BakeDayId, ProductId, RecipeVersionId};
+use domain::{BakeDayId, Clock, ProductId, RecipeVersionId};
 use i18n::{FluentArgs, Translator};
 use recipes::{DoughGrams, Formula, Need, ProductRecipe};
 use sqlx::PgConnection;
 
+use crate::batches::{self, BatchCode};
 use crate::{Error, ProductTotal, paper, pdf};
 
 /// What a bake day needs of each ingredient, with the doughs it comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IngredientNeeds {
     pub day: BakeDay,
+    pub basis: Basis,
     /// By name; each [`Need::parts`] index points into `doughs`.
     pub ingredients: Vec<Need>,
     pub doughs: Vec<Dough>,
@@ -22,9 +24,31 @@ pub struct IngredientNeeds {
     pub missing: Vec<Missing>,
 }
 
+/// Where the doughs come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    /// The recipe version each product uses, scaled to its pieces.
+    Recipes,
+    /// After the order deadline: one dough per batch (F14a), from its own lines, plus the
+    /// recipe versions for pieces in no batch yet.
+    Batches,
+}
+
+impl Basis {
+    #[must_use]
+    pub const fn message_id(self) -> &'static str {
+        match self {
+            Self::Recipes => "needs-basis-recipes",
+            Self::Batches => "needs-basis-batches",
+        }
+    }
+}
+
 /// One dough: a recipe version made in one weight for one or more products.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dough {
+    /// The batch this dough is, after the deadline; `None` for a recipe version.
+    pub batch: Option<BatchCode>,
     pub recipe: String,
     pub version: i32,
     pub products: Vec<DoughProduct>,
@@ -131,6 +155,7 @@ pub(crate) fn plan(
             .and_then(|formula| DoughGrams::from_formula(formula, target).ok())
         {
             Some(grams) => doughs.push(Dough {
+                batch: None,
                 recipe: recipe.to_owned(),
                 version,
                 products,
@@ -159,10 +184,87 @@ pub(crate) fn plan(
     Plan { doughs, missing }
 }
 
-/// The doughs a day's needs are summed from: today the recipe version each product uses,
-/// scaled to its pieces. This is the seam for batches (F14a): after cutoff it is to
-/// return one [`Dough`] per batch, with [`DoughGrams`] from the batch lines (ADR 0041).
-async fn doughs(conn: &mut PgConnection, products: &[ProductTotal]) -> Result<Plan, Error> {
+/// The doughs a day's needs are summed from (ADR 0041). Before the order deadline, or
+/// while the day has no batches: the recipe version each product uses, scaled to its
+/// pieces. After it, or at once on a day without a deadline: one [`Dough`] per batch with
+/// pieces, from the batch's own lines, and the recipe versions for the pieces still in no
+/// batch.
+async fn doughs(
+    conn: &mut PgConnection,
+    day: &BakeDay,
+    products: &[ProductTotal],
+    clock: &dyn Clock,
+) -> Result<(Basis, Plan), Error> {
+    let passed = day.cutoff_at.is_none_or(|cutoff| cutoff <= clock.now());
+    let made = if passed {
+        batches::formulas_for_day(&mut *conn, day.id).await?
+    } else {
+        Vec::new()
+    };
+    if made.is_empty() {
+        return Ok((Basis::Recipes, recipe_doughs(conn, products).await?));
+    }
+    let mut batched: HashMap<ProductId, u64> = HashMap::new();
+    let mut doughs = Vec::with_capacity(made.len());
+    let mut missing = Vec::new();
+    for batch in made {
+        let products: Vec<DoughProduct> = batch
+            .outputs
+            .iter()
+            .filter(|output| output.planned_pieces > 0)
+            .map(|output| DoughProduct {
+                product_id: output.product_id,
+                name: output.name.clone(),
+                pieces: u64::from(output.planned_pieces),
+                dough_g_per_piece: output.dough_g_per_piece,
+            })
+            .collect();
+        if products.is_empty() {
+            continue;
+        }
+        for product in &products {
+            *batched.entry(product.product_id).or_default() += product.pieces;
+        }
+        match DoughGrams::from_formula(&batch.formula, batch.dough_g) {
+            Ok(grams) => doughs.push(Dough {
+                batch: Some(batch.code),
+                recipe: batch.recipe_name,
+                version: batch.version,
+                products,
+                grams,
+            }),
+            Err(_) => missing.extend(products.into_iter().map(|p| Missing {
+                product_id: p.product_id,
+                name: p.name,
+                pieces: p.pieces,
+                reason: MissingReason::EmptyRecipe,
+            })),
+        }
+    }
+    let rest: Vec<ProductTotal> = products
+        .iter()
+        .map(|product| ProductTotal {
+            product_id: product.product_id,
+            name: product.name.clone(),
+            ordered: product
+                .to_bake()
+                .saturating_sub(batched.get(&product.product_id).copied().unwrap_or(0)),
+            extras: crate::Extras::default(),
+        })
+        .collect();
+    let unbatched = recipe_doughs(conn, &rest).await?;
+    doughs.extend(unbatched.doughs);
+    missing.extend(unbatched.missing);
+    missing.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.product_id.cmp(&b.product_id))
+    });
+    Ok((Basis::Batches, Plan { doughs, missing }))
+}
+
+async fn recipe_doughs(conn: &mut PgConnection, products: &[ProductTotal]) -> Result<Plan, Error> {
     let ids: Vec<ProductId> = products.iter().map(|p| p.product_id).collect();
     let recipes = recipes::needs::product_recipes(&mut *conn, &ids).await?;
     let mut formulas = HashMap::new();
@@ -178,7 +280,8 @@ async fn doughs(conn: &mut PgConnection, products: &[ProductTotal]) -> Result<Pl
 }
 
 /// The ingredient needs of a bake day: orders (paid, confirmed, picked up) plus extra
-/// production, as on the production list. All reads see one snapshot of the database,
+/// production, as on the production list. After the order deadline they come from the
+/// day's batches; see [`Basis`]. All reads see one snapshot of the database,
 /// so call it outside a transaction.
 ///
 /// # Errors
@@ -187,18 +290,39 @@ async fn doughs(conn: &mut PgConnection, products: &[ProductTotal]) -> Result<Pl
 pub async fn ingredient_needs(
     conn: &mut PgConnection,
     day: BakeDayId,
+    clock: &dyn Clock,
 ) -> Result<IngredientNeeds, Error> {
     let mut tx = crate::snapshot(conn).await?;
     let list = crate::production::totals(&mut tx, day).await?;
-    let Plan { doughs, missing } = doughs(&mut tx, &list.products).await?;
+    let (basis, Plan { doughs, missing }) =
+        doughs(&mut tx, &list.day, &list.products, clock).await?;
     tx.commit().await?;
     let ingredients = recipes::shopping_list(doughs.iter().map(|d| &d.grams));
     Ok(IngredientNeeds {
         day: list.day,
+        basis,
         ingredients,
         doughs,
         missing,
     })
+}
+
+/// A dough's name: its recipe and version, with the batch code for a batch.
+///
+/// # Errors
+/// [`Error::I18n`].
+pub fn dough_name(t: &Translator, dough: &Dough) -> Result<String, Error> {
+    let mut args = FluentArgs::new();
+    args.set("recipe", dough.recipe.as_str());
+    args.set("version", dough.version.to_string());
+    let id = match dough.batch {
+        Some(code) => {
+            args.set("code", code.to_string());
+            "needs-dough-batch"
+        }
+        None => "needs-dough-name",
+    };
+    Ok(t.t(id, Some(&args))?)
 }
 
 /// `850 g` below a kilogram, `12,345 kg` from there: always exact to the gram.

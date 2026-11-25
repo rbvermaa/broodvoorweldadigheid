@@ -29,6 +29,7 @@ pickup-list-status-picked-up = Opgehaald
 # Ingredient needs (F15), on screen, on paper and as CSV
 needs-title = Boodschappenlijst
 needs-basis-recipes = Berekend uit de receptversies die in gebruik zijn, voor bestellingen en extra productie.
+needs-basis-batches = Berekend uit de batches van deze bakdag. Stuks die nog niet in een batch zitten, tellen mee met de receptversie die in gebruik is.
 needs-ingredient = Ingrediënt
 needs-amount = Hoeveelheid
 needs-sum = Totaal
@@ -38,6 +39,8 @@ needs-recipe = Recept
 needs-products = Producten
 # $recipe: Desem, $version: 3
 needs-dough-name = { $recipe } (versie { $version })
+# $code: 261031-2, $recipe: Desem, $version: 3
+needs-dough-batch = Batch { $code }: { $recipe } (versie { $version })
 # $pieces is preformatted: 12
 needs-dough-product = { $pieces }× { $product }
 needs-missing = Geen recept

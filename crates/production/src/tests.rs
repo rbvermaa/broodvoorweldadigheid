@@ -3,6 +3,7 @@ use domain::{BakeDayId, OrderId, PickupLocationId, PickupSlotId, ProductId};
 use i18n::Translator;
 use orders::{OrderNumber, OrderStatus, PaymentMode};
 
+use crate::needs::Basis;
 use crate::{
     Dough, DoughProduct, Extras, IngredientNeeds, Missing, MissingReason, PickupLine, PickupList,
     PickupOrder, ProductTotal, ProductionList, SlotPickups, paper, pdf,
@@ -243,6 +244,7 @@ fn ingredient_needs() -> IngredientNeeds {
     let salt = ingredient(3, "Zeezout", IngredientRole::Other);
     let doughs = vec![
         Dough {
+            batch: None,
             recipe: "Desem".to_owned(),
             version: 3,
             products: vec![
@@ -268,6 +270,7 @@ fn ingredient_needs() -> IngredientNeeds {
             },
         },
         Dough {
+            batch: None,
             recipe: "Spelt".to_owned(),
             version: 1,
             products: vec![DoughProduct {
@@ -283,6 +286,7 @@ fn ingredient_needs() -> IngredientNeeds {
     ];
     IngredientNeeds {
         day: day(),
+        basis: Basis::Recipes,
         ingredients: recipes::shopping_list(doughs.iter().map(|d| &d.grams)),
         doughs,
         missing: vec![Missing {
@@ -327,6 +331,26 @@ fn empty_ingredient_needs_say_so_and_the_pdf_is_stable() {
         first,
         crate::ingredient_needs_pdf(&ingredient_needs(), &t).unwrap()
     );
+}
+
+#[test]
+fn needs_after_the_deadline_name_their_batches() {
+    let mut needs = ingredient_needs();
+    needs.basis = Basis::Batches;
+    needs.doughs[0].batch = Some(crate::batches::BatchCode {
+        date: jiff::civil::date(2026, 10, 31),
+        mix_no: 2,
+    });
+    let data = paper::needs(&needs, &dutch()).unwrap();
+    assert_eq!(
+        data["basis"],
+        dutch().t("needs-basis-batches", None).unwrap()
+    );
+    assert_eq!(
+        data["doughs"][0]["name"],
+        "Batch 261031-2: Desem (versie 3)"
+    );
+    assert_eq!(data["doughs"][1]["name"], "Spelt (versie 1)");
 }
 
 #[test]
