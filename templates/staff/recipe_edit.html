@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/field.html" as f %}
 {% import "components/layout.html" as l %}
+{% import "components/method.html" as m %}
 {% import "components/recipe.html" as r %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -12,6 +13,7 @@
 <div>
 <p class="field-hint recipe-hint">{{ layout.t("recipe-edit-hint")? }}</p>
 {% call r::editor(editor) %}{% endcall %}
+{% call m::method_editor(method) %}{% endcall %}
 </div>
 <div>
 <h2>{{ layout.t("recipe-details")? }}</h2>

@@ -4,6 +4,7 @@
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
 {% import "components/layout.html" as l %}
+{% import "components/method.html" as m %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -22,6 +23,7 @@
 {% if let Some(lines) = lines %}{% call tb::table(lines) %}{% endcall %}{% endif %}
 {% if let Some(totals) = totals %}{% call tb::table(totals) %}{% endcall %}{% endif %}
 </div>
+{% call m::method(method) %}{% endcall %}
 {% if editable %}
 <h2>{{ layout.t("batch-adjust-title")? }}</h2>
 <p class="field-hint">{{ layout.t("batch-adjust-hint")? }}</p>

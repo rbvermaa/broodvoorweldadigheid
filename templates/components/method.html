@@ -1,0 +1,161 @@
+{# The instructions of a recipe version (ADR 0049). method: backoffice::recipes::method::
+   MethodView, read-only: free text as paragraphs, or steps with the clock time each starts
+   from a start time that only lives in the URL. method_editor: MethodEditor, the same on a
+   draft as a free text or one form per step; every change swaps #werkwijze through htmx. #}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
+
+{% macro lines(items) %}
+{%- for line in items.iter() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor -%}
+{% endmacro %}
+
+{% macro clock_time(text, later) %}
+<span class="method-time">{{ text }}{% if !later.is_empty() %} <span class="method-later">{{ later }}</span>{% endif %}</span>
+{% endmacro %}
+
+{% macro method(m) %}
+{%- if m.shown() %}
+<section id="werkwijze" class="method" aria-labelledby="werkwijze-titel">
+<h2 id="werkwijze-titel">{{ layout.t("method-title")? }}</h2>
+{%- for p in m.paragraphs %}
+<p class="method-text">{% call lines(p) %}{% endcall %}</p>
+{%- endfor %}
+{%- if let Some(s) = m.schedule %}
+{%- if m.form.is_empty() %}
+<form id="start-formulier" class="method-start" method="get" action="{{ m.page }}" hx-get="{{ m.page }}" hx-trigger="change" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML" hx-replace-url="true">
+{%- else %}
+<div class="method-start" hx-get="{{ m.page }}" hx-trigger="change" hx-include="#start, #{{ m.form }}" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML" hx-replace-url="true">
+{%- endif %}
+<div class="field{% if !s.start_error.is_empty() %} field-invalid{% endif %}">
+<label class="field-label" for="start">{{ layout.t("method-start")? }}</label>
+{% call f::help("start", s.start_hint, s.start_error) %}{% endcall %}
+<input class="field-input" type="time" id="start" name="start" value="{{ s.start }}"{% if !m.form.is_empty() %} form="{{ m.form }}"{% endif %}{% call f::described("start", s.start_hint, s.start_error, false, false) %}{% endcall %}>
+</div>
+<button type="submit" class="button button-secondary"{% if !m.form.is_empty() %} form="{{ m.form }}"{% endif %}><span class="button-label">{{ layout.t("method-show")? }}</span></button>
+{%- if m.form.is_empty() %}
+</form>
+{%- else %}
+</div>
+{%- endif %}
+<ol class="method-steps">
+{%- for step in s.steps %}
+<li class="method-step">
+{% call clock_time(step.time, step.later) %}{% endcall %}
+<div class="method-body">
+<span class="method-name">{{ step.name }}</span>
+{%- if !step.facts.is_empty() %}
+<span class="method-facts">{% for fact in step.facts %}<span class="method-fact">{{ layout.icon_labelled(fact.icon, fact.label.as_str())? }}{{ fact.text }}</span>{% endfor %}</span>
+{%- endif %}
+{%- if !step.notes.is_empty() %}
+<p class="method-notes">{% call lines(step.notes) %}{% endcall %}</p>
+{%- endif %}
+</div>
+</li>
+{%- endfor %}
+</ol>
+<div class="method-step method-end">
+{% call clock_time(s.end, s.end_later) %}{% endcall %}
+<div class="method-body">
+<span class="method-name">{{ layout.t("method-end")? }}</span>
+{%- if !s.untimed.is_empty() %}
+<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ s.untimed }}</span></span>
+{%- endif %}
+</div>
+</div>
+{%- endif %}
+</section>
+{%- endif %}
+{% endmacro %}
+
+{% macro csrf() %}
+{%- if let Some(token) = layout.csrf_token() %}<input type="hidden" name="_csrf" value="{{ token }}">{% endif -%}
+{% endmacro %}
+
+{% macro keep(m) %}
+{%- call csrf() %}{% endcall -%}
+<input type="hidden" name="seen" value="{{ m.stamp }}"><input type="hidden" name="gewicht" value="{{ m.grams }}">
+{%- endmacro %}
+
+{% macro step_fields(s, hint) %}
+{% call l::form_grid() %}
+{% call f::field("text", s.name_field, layout.t("method-step-name")?, value = s.name, hint = hint, error = s.errors.get(s.name_field.as_str()), required = true) %}{% endcall %}
+{% call f::field("number", s.duration_field, layout.t("method-step-duration")?, value = s.duration, error = s.errors.get(s.duration_field.as_str())) %}{% endcall %}
+{% call f::field("number", s.temperature_field, layout.t("method-step-temperature")?, value = s.temperature, error = s.errors.get(s.temperature_field.as_str())) %}{% endcall %}
+{% call f::field("textarea", s.notes_field, layout.t("method-step-notes")?, value = s.notes, error = s.errors.get(s.notes_field.as_str())) %}{% endcall %}
+{% endcall %}
+{% endmacro %}
+
+{% macro icon_button(m, action, icon, label) %}
+<button type="submit" class="method-icon-button" formaction="{{ action }}" hx-post="{{ action }}" hx-sync="closest form:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">{{ layout.icon_labelled(icon, label.as_str())? }}</button>
+{% endmacro %}
+
+{% macro method_editor(m) %}
+<section id="werkwijze" class="method" aria-labelledby="werkwijze-titel">
+<h2 id="werkwijze-titel">{{ layout.t("method-title")? }}</h2>
+<div class="recipe-status" role="status">{% if m.saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
+{%- if let Some(notice) = m.notice %}
+{% call fb::alert(notice.kind, notice.text) %}{% endcall %}
+{%- endif %}
+{%- if m.kind == "none" %}
+<p class="field-hint">{{ layout.t("method-none-hint")? }}</p>
+{%- else if m.kind == "text" %}
+<form class="method-form" method="post" action="{{ m.text_action }}" hx-post="{{ m.text_action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+{%- call keep(m) %}{% endcall %}
+{% call f::field("textarea", "tekst", layout.t("method-text-label")?, value = m.text, hint = layout.t("method-text-hint")?, error = m.text_error) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{%- else %}
+{%- if m.steps.is_empty() %}
+<p class="field-hint">{{ layout.t("method-steps-empty")? }}</p>
+{%- endif %}
+<ol class="method-edit-steps">
+{%- for row in m.steps %}
+<li class="method-edit-step">
+<form method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+{%- call keep(m) %}{% endcall %}
+<h3 class="method-edit-title">{{ row.title }}</h3>
+{% call step_fields(row.fields, "") %}{% endcall %}
+<div class="method-step-actions">
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{%- if !row.up.is_empty() %}{% call icon_button(m, row.up, "chevron-up", row.up_label) %}{% endcall %}{% endif %}
+{%- if !row.down.is_empty() %}{% call icon_button(m, row.down, "chevron-down", row.down_label) %}{% endcall %}{% endif %}
+{% call icon_button(m, row.remove, "trash-2", row.remove_label) %}{% endcall %}
+</div>
+</form>
+</li>
+{%- endfor %}
+</ol>
+{%- if let Some(add) = m.add %}
+<form class="recipe-add" method="post" action="{{ m.add_action }}" hx-post="{{ m.add_action }}" hx-sync="this:drop" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML">
+{%- call keep(m) %}{% endcall %}
+<h3 class="method-edit-title">{{ layout.t("method-step-new")? }}</h3>
+{% call step_fields(add, layout.t("method-step-name-hint")?) %}{% endcall %}
+{% call b::button(layout.t("method-step-add")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{%- else %}
+<p class="field-hint">{{ layout.t("method-error-steps")? }}</p>
+{%- endif %}
+{%- endif %}
+{% call l::cluster() %}
+{%- for sw in m.switches %}
+{%- if m.asks %}
+{% call b::button(sw.label, variant = "secondary", opens = sw.dialog) %}{% endcall %}
+{%- else %}
+<form method="post" action="{{ m.kind_action }}">
+{%- call keep(m) %}{% endcall %}
+<input type="hidden" name="kind" value="{{ sw.kind }}">
+{% call b::button(sw.label, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{%- endif %}
+{%- endfor %}
+{% endcall %}
+{%- if m.asks %}
+{%- for sw in m.switches %}
+{% call d::confirm_dialog(sw.dialog, sw.label, sw.text, sw.confirm, m.kind_action) %}<input type="hidden" name="kind" value="{{ sw.kind }}"><input type="hidden" name="seen" value="{{ m.stamp }}"><input type="hidden" name="gewicht" value="{{ m.grams }}">{% endcall %}
+{%- endfor %}
+{%- endif %}
+</section>
+{% endmacro %}

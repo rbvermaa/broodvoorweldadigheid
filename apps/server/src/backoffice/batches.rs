@@ -9,14 +9,16 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use bakedays::BakeDay;
-use domain::{BatchId, IngredientId, ProductId};
+use domain::{BatchId, IngredientId, ProductId, in_bakery_time};
 use orders::audit::Actor;
 use production::batches::{self, Actual, Adjustment, Batch, LineRef, Status};
+use recipes::schedule::default_start;
 use recipes::{Part, Pct, ScaleError, Scaled, ingredient_totals, ingredients};
 use tower_sessions::Session;
 
 use super::bake_days::{self, day_path};
 use super::form::{Errors, Fields, parse_count, parse_pct, pct_value};
+use super::recipes::method::{MethodView, Shown, load_view};
 use super::recipes::{Message, version_path};
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
@@ -377,6 +379,7 @@ struct BatchPage<'a> {
     promoted: Option<(String, String)>,
     promote_action: String,
     label_links: Vec<(String, String)>,
+    method: MethodView,
 }
 
 /// What the baker posted, applied to the batch as far as it reads; with the errors of the
@@ -548,6 +551,8 @@ async fn grams(
 enum BatchAnswer {
     Plain {
         saved: bool,
+        /// The page's query, for the start time of the instructions.
+        query: Fields,
     },
     Adjust(Posted),
     Add {
@@ -707,8 +712,12 @@ async fn render_batch(
     let mut actuals = (Vec::new(), String::new());
     let mut adjusting = None;
     let mut refused = None;
+    let mut query = Fields::default();
     match answer {
-        BatchAnswer::Plain { saved: s } => saved = s,
+        BatchAnswer::Plain { saved: s, query: q } => {
+            saved = s;
+            query = q;
+        }
         BatchAnswer::Adjust(posted) => adjusting = Some(posted),
         BatchAnswer::Add { form, errors } => add = (form, errors),
         BatchAnswer::Actuals { raw, error } => actuals = (raw, error),
@@ -745,6 +754,21 @@ async fn render_batch(
             selected: i.id.get().to_string() == add.ingredient,
         })
         .collect();
+    let base = stored.mixed_at.map_or_else(
+        || default_start(&state.clock.now_in_bakery()),
+        in_bakery_time,
+    );
+    let method = load_view(
+        state,
+        stored.recipe_version_id,
+        &query,
+        &Shown {
+            page: path.clone(),
+            form: "",
+            base: &base,
+        },
+    )
+    .await?;
     let code = stored.code.to_string();
     Ok(pages::render(
         state,
@@ -785,6 +809,7 @@ async fn render_batch(
                 }),
             promoted,
             promote_action: format!("{path}/promote"),
+            method,
             label_links: stored
                 .outputs
                 .iter()
@@ -822,12 +847,14 @@ pub async fn batch_page(
     session: Session,
     Path((id, batch)): Path<(String, String)>,
     Query(flash): Query<Flash>,
+    Query(query): Query<Fields>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
         let (day, batch) = load_batch(&state, &id, &batch).await?;
         let answer = BatchAnswer::Plain {
             saved: flash.saved(),
+            query,
         };
         render_batch(&state, &session, StatusCode::OK, &day, batch, answer).await
     };
@@ -883,7 +910,10 @@ async fn locked_answer(
         status,
         day,
         batch,
-        BatchAnswer::Plain { saved: false },
+        BatchAnswer::Plain {
+            saved: false,
+            query: Fields::default(),
+        },
     )
     .await
 }
