@@ -88,11 +88,16 @@ impl Sum {
     }
 }
 
-/// What a visitor can work out: starting from the shown amounts, any sum with one
-/// unknown member gives it away. Returns the sum that gives away an amount of 1 to
-/// `MIN_ORDERS - 1` orders, if any.
+/// What a visitor can work out: starting from the shown amounts and the empty ones (a
+/// cancelled drop is public, so its zero is known), any sum with one unknown member gives
+/// it away. Returns the sum that gives away an amount of 1 to `MIN_ORDERS - 1` orders,
+/// if any.
 fn reveals(orders: &[usize], sums: &[Sum], shown: &[bool]) -> Option<usize> {
-    let mut known = shown.to_vec();
+    let mut known: Vec<bool> = shown
+        .iter()
+        .zip(orders)
+        .map(|(&s, &n)| s || n == 0)
+        .collect();
     loop {
         let mut progress = false;
         for (s, sum) in sums.iter().enumerate() {
@@ -334,6 +339,25 @@ mod tests {
     }
 
     #[test]
+    fn a_fully_refunded_drop_is_no_cover() {
+        let mut facts: Vec<DonationFact> = (1..=5).map(|i| on_drop(i, 1, Some(1), 500)).collect();
+        facts.push(on_drop(6, 3, Some(1), 700));
+        let mut cancelled = on_drop(7, 5, Some(1), 900);
+        cancelled.refunded = cancelled.amount;
+        facts.push(cancelled);
+        let public = summarize(&facts).unwrap();
+        let shown_amounts: Vec<Amount> = std::iter::once(public.total)
+            .chain(public.drops.iter().map(|d| d.amount))
+            .chain(public.charities.iter().map(|c| c.amount))
+            .filter(|a| *a != Amount::Hidden)
+            .collect();
+        assert!(
+            !(shown_amounts.contains(&shown(3200)) && shown_amounts.contains(&shown(2500))),
+            "€32 and €25 together give the €7 away: {public:?}"
+        );
+    }
+
+    #[test]
     fn a_charity_total_cannot_give_away_its_small_drop() {
         let mut facts: Vec<DonationFact> = (1..=10).map(|i| on_drop(i, 1, Some(1), 500)).collect();
         facts.push(on_drop(11, 3, Some(1), 700));
@@ -474,7 +498,10 @@ mod tests {
             }
             let sums = page_sums(&drop_charities, &charities, orders.len());
             let shown = suppress(&orders, &sums);
-            prop_assert_eq!(reveals(&orders, &sums, &shown), None);
+            prop_assert!(
+                reveals(&orders, &sums, &shown).is_none() || !shown.contains(&true),
+                "a small amount can be worked out from what is shown"
+            );
             for (i, &s) in shown.iter().enumerate() {
                 prop_assert!(!s || orders[i] >= MIN_ORDERS);
             }
