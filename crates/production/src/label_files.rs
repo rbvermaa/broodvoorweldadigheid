@@ -113,6 +113,14 @@ struct Output {
     frozen: Option<Frozen>,
 }
 
+fn label_ingredient(listed: catalog::ListedIngredient) -> labels::Ingredient {
+    labels::Ingredient {
+        name: listed.name,
+        bold: listed.emphasised,
+        parts: listed.parts.into_iter().map(label_ingredient).collect(),
+    }
+}
+
 fn count(value: i32) -> Result<u32, Error> {
     u32::try_from(value).map_err(|_| Error::Corrupt(format!("{value} pieces")))
 }
@@ -312,10 +320,7 @@ pub async fn label(
                 .ingredients
                 .0
                 .into_iter()
-                .map(|i| labels::Ingredient {
-                    name: i.name,
-                    bold: i.emphasised,
-                })
+                .map(label_ingredient)
                 .collect(),
             may_contain: content.may_contain,
             net_weight_g: u32::try_from(stored.unit_weight_g)

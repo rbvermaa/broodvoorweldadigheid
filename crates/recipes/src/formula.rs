@@ -94,6 +94,14 @@ impl RecipeKind {
             Self::Topping => "topping",
         }
     }
+
+    /// Whether a sub-recipe of this kind shows on an ingredient list as a compound
+    /// ingredient unless its recipe says otherwise (ADR 0046): fillings and toppings do;
+    /// a levain, soaker or dough merges into the list.
+    #[must_use]
+    pub const fn compound_by_default(self) -> bool {
+        matches!(self, Self::Filling | Self::Topping)
+    }
 }
 
 impl FromStr for RecipeKind {

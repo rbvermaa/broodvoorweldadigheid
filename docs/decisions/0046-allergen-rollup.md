@@ -11,7 +11,7 @@ own lines:
 
 | Choice | Why |
 |---|---|
-| Sub-recipe ingredients are merged into the dough, not listed as a compound ingredient with its components in brackets | The spec does not say. EU 1169/2011 allows both; for a levain of flour and water, listing "tarwebloem" once at its full weight is what bakeries print and reads best |
+| Sub-recipe ingredients are merged into the dough, not listed as a compound ingredient with its components in brackets. Amended 2026-11-25: fillings and toppings are compound ingredients (see "Compound ingredients" below) | The spec does not say. EU 1169/2011 allows both; for a levain of flour and water, listing "tarwebloem" once at its full weight is what bakeries print and reads best |
 | Order: descending weight in the final dough, sub-recipes included. Equal weights keep the order in which the recipe first uses them | EU 1169/2011 art. 18. Weights are exact fractions of the dough on one common denominator, so equal weights through a sub-recipe stay a tie. When that does not fit in 128 bits, whole units of a 10^12 g dough (ADR 0037 rounding) decide |
 | Each entry uses the ingredient's label name (its name when empty). Label names that differ only in case are one entry with their weights added, under the spelling the recipe uses first | Two mills of "tarwebloem" are one ingredient on a label |
 | A line at 0% is left out, with everything below it, before anything is weighed | That is how a batch swaps an ingredient (ADR 0042) |
@@ -56,8 +56,33 @@ the batch does not make the product. Each batch approval writes an audit entry.
 | The pickup list also warns per product about each batch of the day whose computed values differ from the product's approved ones, and shows that batch's values | The counter must not hand out bread with an allergen the product declaration lacks |
 | A migration takes away the hand approval of products that have a recipe but no stored list | Otherwise hand-typed data would stay published for them |
 
+**Compound ingredients (amended 2026-11-25).** Owner: a filling or topping shows on the
+ingredient list as a compound ingredient, e.g. "…, vulling (suiker, kaneel, boter), …".
+Levain, soaker and other sub-recipes stay merged as above.
+
+| Choice | Why |
+|---|---|
+| Per recipe "Op het etiket": volgens de soort (default), als samengesteld ingrediënt, or los in de lijst, plus a label name (`recipe.label_compound`, NULL = by kind; `recipe.label_name`, empty = the recipe's name). By kind, filling and topping are compound; dough, preferment and soaker merge | The kinds already say what a sub-recipe is (ADR 0037). The override covers a dough used as filling or a topping that reads better merged. The name lets "Kaneelvulling" print as "vulling" |
+| The setting counts only where the recipe is a sub-recipe. A product made from the recipe itself lists its ingredients as usual | A jar of filling is not "vulling (…)" |
+| A compound is one entry under its name, placed by the sum of its ingredients' weights in the final dough; inside the brackets its ingredients by descending weight, merged by label name as at the top. Ties keep the order of first use | EU 1169/2011 art. 18 orders a compound by its own weight and lists its ingredients in brackets |
+| An ingredient in the dough and in the filling is listed in both places | Each list names what is in that part |
+| Brackets nest one level. A compound inside a compound merges into the outer one's brackets; a compound inside a merged sub-recipe (a topping in a soaker) still shows as a compound | A second level of brackets is hard to read on a 50 mm label and EU law does not need it |
+| Compounds with names that differ only in case are one entry | As for ingredients |
+| The compound name is never bold; allergen marks sit on the ingredients inside. The allergens stay the union of every ingredient, so they are the same with or without compounds (property test) | Spec: allergens emphasised in the ingredient list |
+| Storage: `catalog::IngredientList` holds `ListedIngredient { name, emphasised, parts }`. Product and batch store the list in pre-order with a third array `ingredient_depth` (0 or 1); NULL is a list stored before, every entry at depth 0. Approval forms post the same three fields back (`ingredient`, `vet`, `diepte`) | Additive migration; the existing arrays keep their meaning |
+| Shown everywhere the list is: shop tiles, pickup list, approve pages (`components/product.html` `ingredient_text`), the label PNG (Typst) and the CSV ("vulling (suiker, BOTER, kaneel)", allergens in capitals as before). The product's `ingredient_text` holds the same text with brackets | One structure, one way of reading it |
+| Changing what the setting shows (compound or not, the effective name, the kind when it decides, the recipe name when the label name is empty) clears the allergen approval of products whose version in use holds a version of that recipe as sub-recipe, at any depth. A trigger on `recipe` compares `recipe_compound_name()` before and after. The recipe's own products keep theirs | Same rule as ADR 0037's triggers: a change in the computed list never stays approved. A rename with a label name set, or a kind change that keeps the outcome, changes nothing |
+| The page needs EditAllergens as well as Production | Same as linking a product to a recipe |
+| The migration clears the approval of products that use a filling or topping, so the new list is approved by hand | Their approved list was the merged one |
+| A batch compares the nested structure. Another order inside the brackets, or moving the compound, is an order change: it blocks until approved and warns, as above | Owner (Q4): keep the block |
+
+**Owner decisions (2026-11-25).**
+
+| Question | Decision |
+|---|---|
+| Should customers get an email, or the shop change, when a day's batch adds an allergen? | No. The pickup-list warning is enough; the shop keeps the product's approved data |
+| Order by weight: block or warn? | Keep the block until approved; warn after that |
+
 Open:
 
 - The pickup list PDF does not show allergens yet.
-- The shop shows the product's approved data, not a day's differing batch (docs/open-questions.md).
-- Whether the order by weight should block or only warn (docs/open-questions.md).

@@ -4,7 +4,7 @@
 use i18n::{FluentArgs, Translator, decimal, numeric_date};
 use serde_json::{Value, json};
 
-use crate::{Error, Kind, Label, Side, WIDTH_MM};
+use crate::{Error, Ingredient, Kind, Label, Side, WIDTH_MM};
 
 pub(crate) fn allergen_names(label: &Label, t: &Translator) -> Result<Vec<String>, Error> {
     label
@@ -43,6 +43,11 @@ pub(crate) fn business(label: &Label, t: &Translator) -> Result<String, Error> {
     Ok(t.t("labels-business", Some(&args))?)
 }
 
+fn ingredient(item: &Ingredient) -> Value {
+    let parts: Vec<Value> = item.parts.iter().map(ingredient).collect();
+    json!({ "name": item.name, "bold": item.bold, "parts": parts })
+}
+
 /// The template's input for one side of `label`. Tests snapshot it.
 ///
 /// # Errors
@@ -59,11 +64,7 @@ pub fn data(label: &Label, side: Side, t: &Translator) -> Result<Value, Error> {
         fields.push(field("labels-frozen-on", numeric_date(frozen_on))?);
     }
     fields.push(field("labels-batch", label.batch_code.clone())?);
-    let ingredients: Vec<Value> = label
-        .ingredients
-        .iter()
-        .map(|i| json!({ "name": i.name, "bold": i.bold }))
-        .collect();
+    let ingredients: Vec<Value> = label.ingredients.iter().map(ingredient).collect();
     Ok(json!({
         "part": side.part(),
         "width_mm": WIDTH_MM,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, kind, current_version_id FROM recipe WHERE id = $1",
+  "query": "SELECT id, name, kind, current_version_id, label_compound, label_name FROM recipe",
   "describe": {
     "columns": [
       {
@@ -46,19 +46,41 @@
             "name": "current_version_id"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "label_compound",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_compound"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "label_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_name"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
       false,
       false,
-      true
+      true,
+      true,
+      false
     ]
   },
-  "hash": "054aa07758139be9d059386601eb6cabf78154ab5f0ad46f7b2eeb37df7da05e"
+  "hash": "78f36654d47ae6c1035de21a0b56f2faf58d5a372441ea670e5fc3c7bfd088f3"
 }

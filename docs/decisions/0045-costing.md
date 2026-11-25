@@ -57,8 +57,8 @@ report over a period would go in `reports`.
 Open:
 
 - Standard prices are "today's", so the price part of an old batch's variance moves when
-  prices change. A fixed standard date (for example when the selling price was set) would
-  need its own setting.
+  prices change. Owner, 2026-11-25: keep today's prices as the standard; no fixed
+  standard date.
 - A backdated price changes the cost of batches already baked on or after that date.
   Allowed for now, so a late invoice can be entered.
 - F11e uses the version in use now for the standard fallback, not the version in use on

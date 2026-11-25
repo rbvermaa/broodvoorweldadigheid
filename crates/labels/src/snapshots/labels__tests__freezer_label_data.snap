@@ -25,15 +25,18 @@ expression: "sorted_json(data(&frozen_bread(), Side::Whole, &T).unwrap())"
   "ingredients": [
     {
       "bold": true,
-      "name": "tarwebloem"
+      "name": "tarwebloem",
+      "parts": []
     },
     {
       "bold": false,
-      "name": "water"
+      "name": "water",
+      "parts": []
     },
     {
       "bold": false,
-      "name": "zout"
+      "name": "zout",
+      "parts": []
     }
   ],
   "ingredients_label": "Ingrediënten:",

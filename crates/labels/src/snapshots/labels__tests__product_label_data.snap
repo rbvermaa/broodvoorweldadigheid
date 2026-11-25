@@ -21,19 +21,23 @@ expression: "sorted_json(data(&granola(), Side::Whole, &T).unwrap())"
   "ingredients": [
     {
       "bold": true,
-      "name": "havervlokken"
+      "name": "havervlokken",
+      "parts": []
     },
     {
       "bold": true,
-      "name": "walnoten"
+      "name": "walnoten",
+      "parts": []
     },
     {
       "bold": false,
-      "name": "honing"
+      "name": "honing",
+      "parts": []
     },
     {
       "bold": false,
-      "name": "zonnebloemolie"
+      "name": "zonnebloemolie",
+      "parts": []
     }
   ],
   "ingredients_label": "Ingrediënten:",

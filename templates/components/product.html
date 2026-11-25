@@ -9,9 +9,10 @@
 <li class="allergen-badge{% if may_contain %} allergen-badge-may{% endif %}">{{ layout.allergen_icon(code)? }}<span>{{ layout.allergen(code)? }}</span></li>
 {% endmacro %}
 
-{# items: components::ListedIngredient. Allergen entries in bold, as on labels (F17). #}
+{# items: components::ListedIngredient. Allergen entries in bold, as on labels (F17).
+   A compound ingredient's parts follow in brackets; lists nest one level. #}
 {% macro ingredient_text(items) %}
-{%- for item in items.iter() %}{% if item.emphasised %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}{% if !loop.last %}, {% endif %}{% endfor -%}
+{%- for item in items.iter() %}{% if item.emphasised %}<strong>{{ item.name }}</strong>{% else %}{{ item.name }}{% endif %}{% if !item.parts.is_empty() %} ({% for part in item.parts.iter() %}{% if part.emphasised %}<strong>{{ part.name }}</strong>{% else %}{{ part.name }}{% endif %}{% if !loop.last %}, {% endif %}{% endfor %}){% endif %}{% if !loop.last %}, {% endif %}{% endfor -%}
 {% endmacro %}
 
 {# codes: domain allergen codes. may_contain: true for the "may contain traces" list. #}

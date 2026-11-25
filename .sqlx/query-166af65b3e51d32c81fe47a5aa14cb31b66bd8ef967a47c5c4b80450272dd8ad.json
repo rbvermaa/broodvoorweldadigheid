@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT r.id, r.name, r.kind, r.current_version_id, v.version AS \"current_version?\",\n            coalesce(array_agg(p.name_nl ORDER BY p.name_nl) FILTER (WHERE p.id IS NOT NULL),\n                '{}') AS \"products!\"\n        FROM recipe r\n        LEFT JOIN recipe_version v ON v.id = r.current_version_id\n        LEFT JOIN product p ON p.recipe_id = r.id\n        GROUP BY r.id, v.version\n        ORDER BY lower(r.name), r.id",
+  "query": "UPDATE recipe SET current_version_id = $2 WHERE id = $1\n        RETURNING id, name, kind, current_version_id, label_compound, label_name",
   "describe": {
     "columns": [
       {
@@ -49,33 +49,41 @@
       },
       {
         "ordinal": 4,
-        "name": "current_version?",
-        "type_info": "Int4",
+        "name": "label_compound",
+        "type_info": "Bool",
         "origin": {
           "Table": {
-            "table": "recipe_version",
-            "name": "version"
+            "table": "recipe",
+            "name": "label_compound"
           }
         }
       },
       {
         "ordinal": 5,
-        "name": "products!",
-        "type_info": "TextArray",
-        "origin": "Expression"
+        "name": "label_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_name"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
     },
     "nullable": [
       false,
       false,
       false,
       true,
-      false,
-      null
+      true,
+      false
     ]
   },
-  "hash": "99353c32879f0d0e8ee442375ed097371bf8c0aa6be4a7d9acd76c3da2a4ce04"
+  "hash": "166af65b3e51d32c81fe47a5aa14cb31b66bd8ef967a47c5c4b80450272dd8ad"
 }

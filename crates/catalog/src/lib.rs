@@ -13,7 +13,9 @@ pub use charities::{Charity, CharityInput};
 pub use company::{KitchenMayContain, SourdoughDeadline};
 pub use error::Error;
 pub use faq::{Faq, FaqId, FaqInput};
-pub use ingredient_list::{ComputedAllergens, Difference, IngredientList, ListedIngredient};
+pub use ingredient_list::{
+    ComputedAllergens, Difference, FlatEntry, IngredientList, ListedIngredient,
+};
 pub use products::{
     AllergenInfo, Approval, ApprovalCleared, Pricing, Product, ProductInput, PublishedAllergens,
 };

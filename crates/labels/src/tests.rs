@@ -13,6 +13,15 @@ fn ingredient(name: &str, bold: bool) -> Ingredient {
     Ingredient {
         name: name.to_owned(),
         bold,
+        parts: Vec::new(),
+    }
+}
+
+fn compound(name: &str, parts: Vec<Ingredient>) -> Ingredient {
+    Ingredient {
+        name: name.to_owned(),
+        bold: false,
+        parts,
     }
 }
 
@@ -247,4 +256,79 @@ fn a_word_too_long_for_the_width_is_refused_not_cut_off() {
 #[test]
 fn drawing_errors_keep_their_message() {
     assert!(matches!(png::draw_error("bad svg"), Error::Draw(m) if m == "bad svg"));
+}
+
+fn cinnamon_bun() -> Label {
+    Label {
+        kind: Kind::Product {
+            storage: "Bewaren bij kamertemperatuur.".to_owned(),
+        },
+        product: "Kaneelbol".to_owned(),
+        ingredients: vec![
+            ingredient("tarwebloem", true),
+            ingredient("water", false),
+            compound(
+                "vulling",
+                vec![
+                    ingredient("suiker", false),
+                    ingredient("boter", true),
+                    ingredient("kaneel", false),
+                ],
+            ),
+            ingredient("zout", false),
+        ],
+        may_contain: BTreeSet::from([Allergen::Nuts]),
+        net_weight_g: 110,
+        best_before: date(2026, 12, 7),
+        batch_code: "261205-3".to_owned(),
+        business: business(),
+    }
+}
+
+#[test]
+fn a_compound_ingredient_label_text() {
+    insta::assert_snapshot!(text(&cinnamon_bun(), &T).unwrap());
+}
+
+#[test]
+fn a_compound_ingredient_in_the_csv_keeps_capitals_inside_the_brackets() {
+    let bun = cinnamon_bun();
+    let csv = csv(
+        &[CsvRow {
+            label: &bun,
+            copies: 12,
+            file: "261205-3-product.png",
+        }],
+        &T,
+    )
+    .unwrap();
+    assert!(
+        csv.contains(";TARWEBLOEM, water, vulling (suiker, BOTER, kaneel), zout;"),
+        "{csv}"
+    );
+    let data = data(&bun, Side::Whole, &T).unwrap();
+    assert_eq!(data["ingredients"][2]["name"], "vulling");
+    assert_eq!(data["ingredients"][2]["bold"], false);
+    assert_eq!(data["ingredients"][2]["parts"][1]["bold"], true);
+}
+
+/// Draws every sample label; with `LABEL_SAMPLES` set to a directory, also writes the
+/// PNGs there for a look by eye.
+#[test]
+fn sample_labels_render() {
+    let samples = [
+        ("granola", granola()),
+        ("vriezer-desembrood", frozen_bread()),
+        ("kaneelbol-vulling", cinnamon_bun()),
+    ];
+    let out = std::env::var_os("LABEL_SAMPLES").map(std::path::PathBuf::from);
+    for (name, label) in samples {
+        for png in render(&label, &T).unwrap() {
+            assert_eq!(png_size(&png.bytes), png.size.pixels());
+            if let Some(dir) = &out {
+                let file = dir.join(format!("{name}-{}.png", png.side.part()));
+                std::fs::write(file, &png.bytes).unwrap();
+            }
+        }
+    }
 }

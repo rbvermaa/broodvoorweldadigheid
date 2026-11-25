@@ -53,8 +53,10 @@ const fn dots(mm: u32) -> u32 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ingredient {
     pub name: String,
-    /// Holds one of the 14 allergens: printed in bold.
+    /// Holds one of the 14 allergens: printed in bold. Never set on a compound ingredient.
     pub bold: bool,
+    /// A compound ingredient's own ingredients, printed in brackets after its name.
+    pub parts: Vec<Ingredient>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

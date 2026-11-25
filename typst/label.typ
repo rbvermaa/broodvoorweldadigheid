@@ -21,8 +21,15 @@
   par(data.business)
 }
 
+#let name(i) = if i.bold { strong(i.name) } else { i.name }
+#let ingredient(i) = if i.parts.len() == 0 {
+  name(i)
+} else {
+  [#name(i) (#i.parts.map(name).join(", "))]
+}
+
 #let back = {
-  par[#strong(data.ingredients_label) #data.ingredients.map(i => if i.bold { strong(i.name) } else { i.name }).join(", ").]
+  par[#strong(data.ingredients_label) #data.ingredients.map(ingredient).join(", ").]
   if data.may_contain != none {
     par(data.may_contain)
   }

@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, name, kind, current_version_id, label_compound, label_name\n        FROM recipe WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "current_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "current_version_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "label_compound",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_compound"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "label_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "label_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "d885eb6a1d6415f93a4865927c7b1d6a4d7151168e243d027a06329d620ecfbf"
+}

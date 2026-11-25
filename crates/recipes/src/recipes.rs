@@ -32,6 +32,38 @@ pub struct Recipe {
     pub kind: RecipeKind,
     /// The version production uses.
     pub current_version_id: Option<RecipeVersionId>,
+    pub label: LabelSetting,
+}
+
+/// How a recipe shows on the ingredient list of a recipe that uses it (F17, ADR 0046).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LabelSetting {
+    /// As a compound ingredient with its own ingredients in brackets, or merged into the
+    /// list; `None` follows [`RecipeKind::compound_by_default`].
+    pub compound: Option<bool>,
+    /// The compound ingredient's name; empty means the recipe's name.
+    pub name: String,
+}
+
+/// The longest label name, in characters.
+pub const MAX_LABEL_NAME: usize = 80;
+
+impl Recipe {
+    /// The name this recipe has on an ingredient list as a compound ingredient; `None`
+    /// when its ingredients merge into the list. Same rule as the database's
+    /// `recipe_compound_name`.
+    #[must_use]
+    pub fn compound_name(&self) -> Option<&str> {
+        let name = if self.label.name.is_empty() {
+            &self.name
+        } else {
+            &self.label.name
+        };
+        self.label
+            .compound
+            .unwrap_or_else(|| self.kind.compound_by_default())
+            .then_some(name.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,6 +137,8 @@ struct RecipeRow {
     name: String,
     kind: String,
     current_version_id: Option<i64>,
+    label_compound: Option<bool>,
+    label_name: String,
 }
 
 impl TryFrom<RecipeRow> for Recipe {
@@ -116,6 +150,10 @@ impl TryFrom<RecipeRow> for Recipe {
             name: row.name,
             kind: row.kind.parse()?,
             current_version_id: row.current_version_id.map(RecipeVersionId::new),
+            label: LabelSetting {
+                compound: row.label_compound,
+                name: row.label_name,
+            },
         })
     }
 }
@@ -243,7 +281,7 @@ pub async fn update(
     let updated = sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET name = $2, kind = $3 WHERE id = $1
-        RETURNING id, name, kind, current_version_id",
+        RETURNING id, name, kind, current_version_id, label_compound, label_name",
         id.get(),
         input.name.trim(),
         input.kind.code(),
@@ -262,7 +300,8 @@ pub async fn update(
 pub async fn get(conn: &mut PgConnection, id: RecipeId) -> Result<Recipe, Error> {
     sqlx::query_as!(
         RecipeRow,
-        "SELECT id, name, kind, current_version_id FROM recipe WHERE id = $1",
+        "SELECT id, name, kind, current_version_id, label_compound, label_name
+        FROM recipe WHERE id = $1",
         id.get(),
     )
     .fetch_optional(conn)
@@ -271,13 +310,67 @@ pub async fn get(conn: &mut PgConnection, id: RecipeId) -> Result<Recipe, Error>
     .try_into()
 }
 
+/// Sets how the recipe shows on the ingredient list of recipes that use it. A change in
+/// what that list shows clears the allergen approval of their products (trigger).
+///
+/// # Errors
+/// [`Error::NotFound`], or [`Error::Invalid`] for a label name over [`MAX_LABEL_NAME`].
+pub async fn set_label(
+    conn: &mut PgConnection,
+    id: RecipeId,
+    setting: &LabelSetting,
+) -> Result<Recipe, Error> {
+    let name = setting.name.trim();
+    if name.chars().count() > MAX_LABEL_NAME {
+        return Err(Error::Invalid("label_name"));
+    }
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    let updated = sqlx::query_as!(
+        RecipeRow,
+        "UPDATE recipe SET label_compound = $2, label_name = $3 WHERE id = $1
+        RETURNING id, name, kind, current_version_id, label_compound, label_name",
+        id.get(),
+        setting.compound,
+        name,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?
+    .try_into()?;
+    tx.commit().await?;
+    Ok(updated)
+}
+
+/// The compound ingredient name of every recipe that shows as one (F17).
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn compound_names(conn: &mut PgConnection) -> Result<HashMap<RecipeId, String>, Error> {
+    let rows = sqlx::query_as!(
+        RecipeRow,
+        "SELECT id, name, kind, current_version_id, label_compound, label_name FROM recipe",
+    )
+    .fetch_all(conn)
+    .await?;
+    let mut names = HashMap::new();
+    for row in rows {
+        let recipe = Recipe::try_from(row)?;
+        if let Some(name) = recipe.compound_name() {
+            names.insert(recipe.id, name.to_owned());
+        }
+    }
+    Ok(names)
+}
+
 /// Every recipe by name, with its current version number and the products made from it.
 ///
 /// # Errors
 /// [`Error::Db`] or [`Error::Corrupt`].
 pub async fn list(conn: &mut PgConnection) -> Result<Vec<RecipeSummary>, Error> {
     let rows = sqlx::query!(
-        r#"SELECT r.id, r.name, r.kind, r.current_version_id, v.version AS "current_version?",
+        r#"SELECT r.id, r.name, r.kind, r.current_version_id, r.label_compound, r.label_name,
+            v.version AS "current_version?",
             coalesce(array_agg(p.name_nl ORDER BY p.name_nl) FILTER (WHERE p.id IS NOT NULL),
                 '{}') AS "products!"
         FROM recipe r
@@ -296,6 +389,8 @@ pub async fn list(conn: &mut PgConnection) -> Result<Vec<RecipeSummary>, Error> 
                     name: row.name,
                     kind: row.kind,
                     current_version_id: row.current_version_id,
+                    label_compound: row.label_compound,
+                    label_name: row.label_name,
                 }
                 .try_into()?,
                 current_version: row.current_version,
@@ -1055,7 +1150,7 @@ pub async fn set_current(
     let recipe = sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET current_version_id = $2 WHERE id = $1
-        RETURNING id, name, kind, current_version_id",
+        RETURNING id, name, kind, current_version_id, label_compound, label_name",
         recipe_id.get(),
         id.get(),
     )
