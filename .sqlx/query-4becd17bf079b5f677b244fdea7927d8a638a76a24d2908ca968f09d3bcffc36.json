@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT on_account_allowed FROM business_account WHERE customer_id = $1\n                FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "on_account_allowed",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "business_account",
+            "name": "on_account_allowed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4becd17bf079b5f677b244fdea7927d8a638a76a24d2908ca968f09d3bcffc36"
+}

@@ -255,9 +255,18 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoLlvmCovExtraArgs = "--workspace --all-features --remap-path-prefix --lcov --summary-only --output-path $out";
+              # One process per test, as in the nextest check. Under `cargo test` every
+              # #[sqlx::test] in a binary shares one 20-connection master pool, and tests
+              # that hold a connection while the app waits for another deadlock until the
+              # 30 s acquire timeout.
+              cargoLlvmCovCommand = "nextest";
+              NEXTEST_SHOW_PROGRESS = "counter";
+              cargoLlvmCovExtraArgs = "--workspace --all-features --no-tests=pass --remap-path-prefix --lcov --summary-only --output-path $out";
               TZDIR = "${pkgs.tzdata}/share/zoneinfo";
-              nativeBuildInputs = postgres.packages ++ [ pkgs.rustic ];
+              nativeBuildInputs = postgres.packages ++ [
+                pkgs.rustic
+                pkgs.cargo-nextest
+              ];
               preBuild = postgres.start;
               postBuild = postgres.stop;
               __darwinAllowLocalNetworking = true;

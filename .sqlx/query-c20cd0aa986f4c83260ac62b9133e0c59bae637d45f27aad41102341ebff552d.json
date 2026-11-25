@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,\n            on_account_allowed\n        FROM business_account WHERE customer_id = $1",
+  "query": "SELECT a.id, a.customer_id, c.email, a.company_name, a.kvk, a.btw_id,\n            a.invoice_address, a.invoice_email, a.on_account_allowed\n        FROM business_account a JOIN customer c ON c.id = a.customer_id\n        ORDER BY lower(a.company_name), a.id",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "customer",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "company_name",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "kvk",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "btw_id",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "invoice_address",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "invoice_email",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "on_account_allowed",
         "type_info": "Bool",
         "origin": {
@@ -93,11 +104,10 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -108,5 +118,5 @@
       false
     ]
   },
-  "hash": "2e18e943ac0d6bbd94a9ff6b512222a31f3d4f6694e727599fa24b4a709cfd03"
+  "hash": "c20cd0aa986f4c83260ac62b9133e0c59bae637d45f27aad41102341ebff552d"
 }

@@ -3192,3 +3192,347 @@ async fn the_contribution_shows_what_the_bakery_covers(pool: PgPool) {
         &[("amount", &i18n::money(27))],
     ));
 }
+
+/// An open drop on Saturday 5 December with the approved sourdough (€ 6,50, 9%) on its range.
+async fn open_drop(app: &App) -> (BakeDayId, ProductId) {
+    let pool = &app.pool;
+    let day = saturday(pool).await;
+    let bread = product(pool).await;
+    let approver = staff(pool, "Keurder Karin", Role::Owner).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    products::approve_allergens(
+        &mut conn,
+        bread,
+        &sourdough().allergen_info,
+        approver.id,
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("approve");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(10),
+            capacity_pool_id: None,
+            units_per_item: 1,
+        },
+    )
+    .await
+    .expect("range");
+    let stored = days::get(&mut conn, day).await.expect("day");
+    days::update_schedule(
+        &mut conn,
+        day,
+        &Schedule {
+            online_ordering: true,
+            menu_publish_at: None,
+            opens_at: Some(ts("2026-11-20T08:00:00Z")),
+            cutoff_at: stored.cutoff_at,
+        },
+    )
+    .await
+    .expect("schedule");
+    days::open(&mut conn, app.clock.as_ref(), day)
+        .await
+        .expect("open");
+    (day, bread)
+}
+
+fn business_form<'a>(extra: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut fields = vec![
+        ("contact_email", "inkoop@dehoek.example"),
+        ("contact_name", "Inkoop De Hoek"),
+        ("company_name", "Café De Hoek"),
+        ("kvk", "12345678"),
+        ("btw_id", "NL123456789B01"),
+        ("invoice_address", "Dorpsstraat 1, 8382 AA Frederiksoord"),
+        ("invoice_email", "factuur@dehoek.example"),
+        ("on_account_allowed", "ja"),
+    ];
+    fields.retain(|(name, _)| !extra.iter().any(|(other, _)| other == name));
+    fields.extend_from_slice(extra);
+    fields
+}
+
+/// Opens the account through the form and returns its page.
+async fn business_account(owner: &Client<'_>) -> String {
+    let reply = owner
+        .post("/staff/business-accounts/new", &business_form(&[]))
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
+    reply
+        .header(LOCATION.as_str())
+        .trim_end_matches("?opgeslagen=1")
+        .to_owned()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn only_the_owner_manages_business_accounts_and_invoices(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+
+    let without_token = owner
+        .send(
+            Request::post("/staff/business-accounts/new")
+                .header(COOKIE, &owner.cookie)
+                .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from("company_name=X"))
+                .expect("request"),
+        )
+        .await;
+    assert_eq!(without_token.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        baker
+            .post("/staff/business-accounts/new", &business_form(&[]))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+
+    let account = business_account(&owner).await;
+    let invoice = format!("{account}/invoice");
+    let csv = format!("{account}/invoice.csv");
+    assert_eq!(
+        owner.get(&format!("{csv}?van=gisteren")).await.status,
+        StatusCode::BAD_REQUEST
+    );
+    let list = baker.get("/staff/business-accounts").await;
+    assert_eq!(list.status, StatusCode::OK);
+    list.shows(&format!("href=\"{account}/order\""));
+    list.lacks(&format!("href=\"{account}\""));
+    list.lacks("href=\"/staff/business-accounts/new\"");
+    assert_eq!(
+        counter.get("/staff/business-accounts").await.status,
+        StatusCode::FORBIDDEN
+    );
+    owner
+        .get("/staff/business-accounts")
+        .await
+        .shows(&format!("href=\"{account}/invoice\""));
+    for url in [
+        "/staff/business-accounts/new",
+        account.as_str(),
+        invoice.as_str(),
+        csv.as_str(),
+    ] {
+        for who in [&baker, &counter] {
+            assert_eq!(who.get(url).await.status, StatusCode::FORBIDDEN, "{url}");
+        }
+        assert_eq!(owner.get(url).await.status, StatusCode::OK, "{url}");
+    }
+    for url in [account.clone(), format!("{account}/invoices")] {
+        assert_eq!(
+            baker.post(&url, &business_form(&[])).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+    let order = format!("{account}/order");
+    assert_eq!(baker.get(&order).await.status, StatusCode::OK);
+    assert_eq!(counter.get(&order).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        counter.post(&order, &[]).await.status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn wrong_business_account_input_gets_dutch_messages(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let reply = owner
+        .post(
+            "/staff/business-accounts/new",
+            &business_form(&[
+                ("kvk", "1234"),
+                ("invoice_email", "geen mail"),
+                ("company_name", " "),
+            ]),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    reply.shows(&dutch("b2b-error-kvk"));
+    reply.shows(&dutch("b2b-error-email"));
+    reply.shows(&dutch("b2b-error-required"));
+
+    business_account(&owner).await;
+    let again = owner
+        .post("/staff/business-accounts/new", &business_form(&[]))
+        .await;
+    assert_eq!(again.status, StatusCode::UNPROCESSABLE_ENTITY);
+    again.shows(&dutch("b2b-error-exists"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
+    let app = app(pool.clone());
+    let (day, bread) = open_drop(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let account = business_account(&owner).await;
+    owner
+        .get("/staff/business-accounts")
+        .await
+        .shows("Café De Hoek");
+
+    let order_page = format!("{account}/order");
+    let form = baker.get(&format!("{order_page}?dag={}", day.get())).await;
+    assert_eq!(form.status, StatusCode::OK, "{}", form.text);
+    form.shows("Desembrood wit");
+    let mut conn = pool.acquire().await.expect("conn");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    drop(conn);
+    let day_id = day.get().to_string();
+    let slot_id = slot.get().to_string();
+    let pieces = format!("qty_{}", bread.get());
+    let bread_id = bread.get().to_string();
+
+    let empty = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "0"),
+            ],
+        )
+        .await;
+    assert_eq!(empty.status, StatusCode::UNPROCESSABLE_ENTITY);
+    empty.shows(&dutch("b2b-error-empty"));
+    let gone = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", "999999"),
+                ("qty_999999", "1"),
+            ],
+        )
+        .await;
+    assert_eq!(gone.status, StatusCode::UNPROCESSABLE_ENTITY);
+    gone.shows(&dutch("b2b-error-product"));
+    let too_many = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "11"),
+            ],
+        )
+        .await;
+    assert_eq!(too_many.status, StatusCode::UNPROCESSABLE_ENTITY);
+    too_many.shows(&dutch_with(
+        "b2b-error-capacity",
+        &[("product", "Desembrood wit"), ("n", "10")],
+    ));
+
+    let placed = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "2"),
+            ],
+        )
+        .await;
+    assert_eq!(placed.status, StatusCode::SEE_OTHER, "{}", placed.text);
+    let order_id: i64 = sqlx::query_scalar(
+        r#"SELECT id FROM "order" WHERE payment_mode = 'on_account' AND status = 'confirmed'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("order on account");
+    placed.redirects_to(&format!("/staff/orders/{order_id}?opgeslagen=1"));
+    let order = stored_order(&pool, domain::OrderId::new(order_id)).await;
+    assert_eq!(order.total, Money::from_cents(1300));
+
+    let overview = owner
+        .get(&format!("{account}/invoice?van=2026-12-01&tot=2026-12-31"))
+        .await;
+    assert_eq!(overview.status, StatusCode::OK, "{}", overview.text);
+    overview.shows(&order.number.to_string());
+    overview.shows(&i18n::money(1193));
+    overview.shows(&i18n::money(107));
+    overview.shows(&i18n::money(1300));
+    overview.shows(&format!(
+        "href=\"{account}/invoice.csv?van=2026-12-01&tot=2026-12-31\""
+    ));
+    let november = owner
+        .get(&format!("{account}/invoice?van=2026-11-01&tot=2026-11-30"))
+        .await;
+    november.lacks(&order.number.to_string());
+    november.shows(&dutch("b2b-invoice-none"));
+
+    let csv = owner
+        .get(&format!(
+            "{account}/invoice.csv?van=2026-12-01&tot=2026-12-31"
+        ))
+        .await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
+    csv.shows("Desembrood wit;2;5,96;9%;11,93;1,07;13,00");
+
+    let mark = format!("{account}/invoices");
+    let id = order_id.to_string();
+    let fields = |number: &'static str| {
+        vec![
+            ("van", "2026-12-01"),
+            ("tot", "2026-12-31"),
+            ("invoice_number", number),
+            ("invoice_date", "2026-12-06"),
+        ]
+    };
+    let mut without_number = fields("");
+    without_number.push(("order", &id));
+    let refused = owner.post(&mark, &without_number).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("b2b-error-number"));
+
+    let mut good = fields("2026-F001");
+    good.push(("order", &id));
+    owner.post(&mark, &good).await.redirects_to(&format!(
+        "{account}/invoice?van=2026-12-01&tot=2026-12-31&opgeslagen=1"
+    ));
+    let after = owner
+        .get(&format!("{account}/invoice?van=2026-12-01&tot=2026-12-31"))
+        .await;
+    after.shows(&dutch("b2b-invoice-none"));
+    after.shows("2026-F001");
+    let twice = owner.post(&mark, &good).await;
+    assert_eq!(twice.status, StatusCode::UNPROCESSABLE_ENTITY);
+    twice.shows(&dutch("b2b-error-changed"));
+
+    let closed = owner
+        .post(
+            &account,
+            &business_form(&[])
+                .into_iter()
+                .filter(|(name, _)| *name != "on_account_allowed")
+                .collect::<Vec<_>>(),
+        )
+        .await;
+    assert_eq!(closed.status, StatusCode::SEE_OTHER, "{}", closed.text);
+    let refused = baker
+        .post(
+            &order_page,
+            &[
+                ("dag", &day_id),
+                ("slot", &slot_id),
+                ("product", &bread_id),
+                (&pieces, "1"),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("b2b-error-not-on-account"));
+}

@@ -4,8 +4,8 @@ use db::time::{from_epoch_days, to_epoch_days, to_micros};
 use domain::{BusinessAccountId, Clock, CustomerId, Line, Money, OrderId, VatRate, VatTotals};
 use i18n::Translator;
 use jiff::civil::Date;
-use orders::OrderNumber;
 use orders::audit::{self, Actor, Entry};
+use orders::{CustomerInput, OrderNumber};
 use sqlx::{Acquire, PgConnection};
 
 use crate::csv_out::{self, Csv};
@@ -27,6 +27,8 @@ pub struct NewBusinessAccount {
 pub struct BusinessAccount {
     pub id: BusinessAccountId,
     pub customer_id: CustomerId,
+    /// The customer's email, which orders on account are placed under.
+    pub contact_email: String,
     pub company_name: String,
     pub kvk: String,
     pub btw_id: Option<String>,
@@ -52,47 +54,32 @@ pub async fn create_account(
     conn: &mut PgConnection,
     input: &NewBusinessAccount,
 ) -> Result<BusinessAccount, Error> {
-    let company_name = required(&input.company_name, "company name")?;
-    let kvk = required(&input.kvk, "KvK number")?;
-    if kvk.len() != 8 || !kvk.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(Error::Invalid("KvK number"));
+    let details = AccountDetails {
+        company_name: input.company_name.clone(),
+        kvk: input.kvk.clone(),
+        btw_id: input.btw_id.clone(),
+        invoice_address: input.invoice_address.clone(),
+        invoice_email: input.invoice_email.clone(),
+        on_account_allowed: input.on_account_allowed,
     }
-    let btw_id = input
-        .btw_id
-        .as_deref()
-        .map(|id| required(id, "BTW-id"))
-        .transpose()?;
-    let invoice_address = required(&input.invoice_address, "invoice address")?;
-    let invoice_email = required(&input.invoice_email, "invoice email")?.to_lowercase();
-    if !invoice_email.contains('@') {
-        return Err(Error::Invalid("invoice email"));
-    }
-    let id = sqlx::query_scalar!(
+    .checked()?;
+    sqlx::query_scalar!(
         "INSERT INTO business_account (customer_id, company_name, kvk, btw_id, invoice_address,
             invoice_email, on_account_allowed)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (customer_id) DO NOTHING RETURNING id",
         input.customer_id.get(),
-        company_name,
-        kvk,
-        btw_id,
-        invoice_address,
-        invoice_email,
-        input.on_account_allowed,
+        details.company_name,
+        details.kvk,
+        details.btw_id,
+        details.invoice_address,
+        details.invoice_email,
+        details.on_account_allowed,
     )
-    .fetch_optional(conn)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or(Error::Invalid("customer already has a business account"))?;
-    Ok(BusinessAccount {
-        id: BusinessAccountId::new(id),
-        customer_id: input.customer_id,
-        company_name,
-        kvk,
-        btw_id,
-        invoice_address,
-        invoice_email,
-        on_account_allowed: input.on_account_allowed,
-    })
+    account(conn, input.customer_id).await
 }
 
 /// # Errors
@@ -102,9 +89,10 @@ pub async fn account(
     customer: CustomerId,
 ) -> Result<BusinessAccount, Error> {
     let row = sqlx::query!(
-        "SELECT id, customer_id, company_name, kvk, btw_id, invoice_address, invoice_email,
-            on_account_allowed
-        FROM business_account WHERE customer_id = $1",
+        "SELECT a.id, a.customer_id, c.email, a.company_name, a.kvk, a.btw_id,
+            a.invoice_address, a.invoice_email, a.on_account_allowed
+        FROM business_account a JOIN customer c ON c.id = a.customer_id
+        WHERE a.customer_id = $1",
         customer.get(),
     )
     .fetch_optional(conn)
@@ -113,6 +101,7 @@ pub async fn account(
     Ok(BusinessAccount {
         id: BusinessAccountId::new(row.id),
         customer_id: CustomerId::new(row.customer_id),
+        contact_email: row.email,
         company_name: row.company_name,
         kvk: row.kvk,
         btw_id: row.btw_id,
@@ -120,6 +109,314 @@ pub async fn account(
         invoice_email: row.invoice_email,
         on_account_allowed: row.on_account_allowed,
     })
+}
+
+/// What the owner fills in for a business account.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountDetails {
+    pub company_name: String,
+    /// Eight digits.
+    pub kvk: String,
+    pub btw_id: Option<String>,
+    pub invoice_address: String,
+    pub invoice_email: String,
+    pub on_account_allowed: bool,
+}
+
+/// The person who orders for the business; they become the account's customer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Contact {
+    pub email: String,
+    pub name: String,
+}
+
+impl AccountDetails {
+    fn checked(&self) -> Result<Self, Error> {
+        let kvk = required(&self.kvk, "KvK number")?;
+        if kvk.len() != 8 || !kvk.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(Error::Invalid("KvK number"));
+        }
+        Ok(Self {
+            company_name: required(&self.company_name, "company name")?,
+            kvk,
+            btw_id: self
+                .btw_id
+                .as_deref()
+                .map(|id| required(id, "BTW-id"))
+                .transpose()?,
+            invoice_address: required(&self.invoice_address, "invoice address")?,
+            invoice_email: email(&self.invoice_email, "invoice email")?,
+            on_account_allowed: self.on_account_allowed,
+        })
+    }
+
+    fn snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "company_name": self.company_name,
+            "kvk": self.kvk,
+            "btw_id": self.btw_id,
+            "invoice_address": self.invoice_address,
+            "invoice_email": self.invoice_email,
+            "on_account_allowed": self.on_account_allowed,
+        })
+    }
+}
+
+impl BusinessAccount {
+    fn details(&self) -> AccountDetails {
+        AccountDetails {
+            company_name: self.company_name.clone(),
+            kvk: self.kvk.clone(),
+            btw_id: self.btw_id.clone(),
+            invoice_address: self.invoice_address.clone(),
+            invoice_email: self.invoice_email.clone(),
+            on_account_allowed: self.on_account_allowed,
+        }
+    }
+}
+
+/// Orders on account carry the contact email and the company name, so both must pass
+/// checkout's customer check.
+fn orderable(email: &str, name: &str) -> Result<(), Error> {
+    let as_customer = |name: &str| CustomerInput {
+        email: email.to_owned(),
+        name: name.to_owned(),
+        phone: None,
+        marketing_opt_in: false,
+    };
+    orders::check_customer(&as_customer(name)).map_err(|e| match e {
+        orders::Error::Invalid("email") => Error::Invalid("contact email"),
+        _ => Error::Invalid("company name"),
+    })
+}
+
+fn email(text: &str, what: &'static str) -> Result<String, Error> {
+    let email = required(text, what)?.to_lowercase();
+    if !email.contains('@') || email.chars().any(char::is_whitespace) {
+        return Err(Error::Invalid(what));
+    }
+    Ok(email)
+}
+
+/// Opens a business account for the contact's customer, created when the email is new.
+/// An existing customer is linked as they are, never changed. Writes an audit entry.
+///
+/// # Errors
+/// [`Error::Invalid`] for a wrong field or a customer that already has an account;
+/// [`Error::Db`].
+pub async fn open_account(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    actor: Actor,
+    contact: &Contact,
+    details: &AccountDetails,
+) -> Result<BusinessAccount, Error> {
+    let contact_email = email(&contact.email, "contact email")?;
+    let contact_name = required(&contact.name, "contact name")?;
+    let details = details.checked()?;
+    orderable(&contact_email, &contact_name).map_err(|e| match e {
+        Error::Invalid("company name") => Error::Invalid("contact name"),
+        other => other,
+    })?;
+    orderable(&contact_email, &details.company_name)?;
+    let now = clock.now();
+    let mut tx = conn.begin().await?;
+    let created = sqlx::query_scalar!(
+        "INSERT INTO customer (email, name, created_at)
+        VALUES ($1, $2, timestamptz 'epoch' + $3::bigint * interval '1 microsecond')
+        ON CONFLICT (email) DO NOTHING RETURNING id",
+        contact_email,
+        contact_name,
+        to_micros(now),
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let customer_id = match created {
+        Some(id) => id,
+        None => {
+            // FOR SHARE waits for an erase (F12) of this customer; the erase changes the
+            // email, so the row no longer matches and the account is refused.
+            sqlx::query_scalar!(
+                "SELECT id FROM customer WHERE email = $1 AND erased_at IS NULL FOR SHARE",
+                contact_email,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(Error::Invalid("contact email"))?
+        }
+    };
+    let account = create_account(
+        &mut tx,
+        &NewBusinessAccount {
+            customer_id: CustomerId::new(customer_id),
+            company_name: details.company_name.clone(),
+            kvk: details.kvk.clone(),
+            btw_id: details.btw_id.clone(),
+            invoice_address: details.invoice_address.clone(),
+            invoice_email: details.invoice_email.clone(),
+            on_account_allowed: details.on_account_allowed,
+        },
+    )
+    .await?;
+    let mut after = details.snapshot();
+    after["customer_id"] = customer_id.into();
+    audit::record(
+        &mut tx,
+        &Entry {
+            entity: "business_account",
+            entity_id: account.id.get(),
+            action: "created",
+            before: None,
+            after: Some(after),
+            actor,
+            at: now,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(account)
+}
+
+/// Changes an account's details, with an audit entry of before and after. Orders already
+/// placed keep their name; invoices already made are not affected.
+///
+/// # Errors
+/// [`Error::Invalid`] for a wrong field; [`Error::NotFound`]; [`Error::Db`].
+pub async fn update_account(
+    conn: &mut PgConnection,
+    clock: &dyn Clock,
+    actor: Actor,
+    id: BusinessAccountId,
+    details: &AccountDetails,
+) -> Result<BusinessAccount, Error> {
+    let details = details.checked()?;
+    let mut tx = conn.begin().await?;
+    let before = sqlx::query_scalar!(
+        "SELECT customer_id FROM business_account WHERE id = $1 FOR UPDATE",
+        id.get(),
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::NotFound)?;
+    let before = account(&mut tx, CustomerId::new(before)).await?;
+    orderable(&before.contact_email, &details.company_name)?;
+    sqlx::query!(
+        "UPDATE business_account SET company_name = $2, kvk = $3, btw_id = $4,
+            invoice_address = $5, invoice_email = $6, on_account_allowed = $7
+        WHERE id = $1",
+        id.get(),
+        details.company_name,
+        details.kvk,
+        details.btw_id,
+        details.invoice_address,
+        details.invoice_email,
+        details.on_account_allowed,
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit::record(
+        &mut tx,
+        &Entry {
+            entity: "business_account",
+            entity_id: id.get(),
+            action: "changed",
+            before: Some(before.details().snapshot()),
+            after: Some(details.snapshot()),
+            actor,
+            at: clock.now(),
+        },
+    )
+    .await?;
+    let changed = account(&mut tx, before.customer_id).await?;
+    tx.commit().await?;
+    Ok(changed)
+}
+
+/// # Errors
+/// [`Error::NotFound`]; [`Error::Db`].
+pub async fn account_by_id(
+    conn: &mut PgConnection,
+    id: BusinessAccountId,
+) -> Result<BusinessAccount, Error> {
+    let customer = sqlx::query_scalar!(
+        "SELECT customer_id FROM business_account WHERE id = $1",
+        id.get(),
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(Error::NotFound)?;
+    account(conn, CustomerId::new(customer)).await
+}
+
+/// Every business account, by company name.
+///
+/// # Errors
+/// [`Error::Db`].
+pub async fn list_accounts(conn: &mut PgConnection) -> Result<Vec<BusinessAccount>, Error> {
+    Ok(sqlx::query!(
+        "SELECT a.id, a.customer_id, c.email, a.company_name, a.kvk, a.btw_id,
+            a.invoice_address, a.invoice_email, a.on_account_allowed
+        FROM business_account a JOIN customer c ON c.id = a.customer_id
+        ORDER BY lower(a.company_name), a.id",
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| BusinessAccount {
+        id: BusinessAccountId::new(row.id),
+        customer_id: CustomerId::new(row.customer_id),
+        contact_email: row.email,
+        company_name: row.company_name,
+        kvk: row.kvk,
+        btw_id: row.btw_id,
+        invoice_address: row.invoice_address,
+        invoice_email: row.invoice_email,
+        on_account_allowed: row.on_account_allowed,
+    })
+    .collect())
+}
+
+/// An invoice recorded for a customer, with the number of orders it covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordedInvoice {
+    pub invoice_number: String,
+    pub invoice_date: Date,
+    pub period: Period,
+    pub total: Money,
+    pub orders: u32,
+}
+
+/// The customer's recorded invoices, newest first.
+///
+/// # Errors
+/// [`Error::Db`] or [`Error::Corrupt`].
+pub async fn invoices_of(
+    conn: &mut PgConnection,
+    customer: CustomerId,
+) -> Result<Vec<RecordedInvoice>, Error> {
+    sqlx::query!(
+        r#"SELECT i.invoice_number, (i.invoice_date - date 'epoch') AS "invoice_day!",
+            (i.period_from - date 'epoch') AS "from_day!",
+            (i.period_to - date 'epoch') AS "to_day!", i.total_cents,
+            (SELECT count(*) FROM "order" o WHERE o.manual_invoice_id = i.id) AS "orders!"
+        FROM manual_invoice i WHERE i.customer_id = $1
+        ORDER BY i.invoice_date DESC, i.id DESC"#,
+        customer.get(),
+    )
+    .fetch_all(conn)
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(RecordedInvoice {
+            invoice_number: row.invoice_number,
+            invoice_date: from_epoch_days(row.invoice_day)?,
+            period: Period::new(from_epoch_days(row.from_day)?, from_epoch_days(row.to_day)?)?,
+            total: Money::from_cents(row.total_cents),
+            orders: u32::try_from(row.orders)
+                .map_err(|_| Error::Corrupt("invoice order count".into()))?,
+        })
+    })
+    .collect()
 }
 
 /// One order line with its price excluding BTW. `net` and `vat` split the line total

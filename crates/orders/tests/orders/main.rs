@@ -6,6 +6,7 @@ mod customer_orders;
 mod donations;
 mod holds;
 mod manage;
+mod on_account;
 mod payment;
 mod pickup;
 mod privacy;

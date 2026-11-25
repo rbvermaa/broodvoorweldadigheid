@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.invoice_number, (i.invoice_date - date 'epoch') AS \"invoice_day!\",\n            (i.period_from - date 'epoch') AS \"from_day!\",\n            (i.period_to - date 'epoch') AS \"to_day!\", i.total_cents,\n            (SELECT count(*) FROM \"order\" o WHERE o.manual_invoice_id = i.id) AS \"orders!\"\n        FROM manual_invoice i WHERE i.customer_id = $1\n        ORDER BY i.invoice_date DESC, i.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "invoice_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "manual_invoice",
+            "name": "invoice_number"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "invoice_day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "from_day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "to_day!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "manual_invoice",
+            "name": "total_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "orders!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      false,
+      null
+    ]
+  },
+  "hash": "8af585d01ab512c4dce4431ed09b95709e80006e879d20e800c6ef9050244f2a"
+}
