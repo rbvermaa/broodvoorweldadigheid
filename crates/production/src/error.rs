@@ -7,9 +7,13 @@ pub enum Error {
     #[error(transparent)]
     Catalog(#[from] catalog::Error),
     #[error(transparent)]
+    Recipes(#[from] recipes::Error),
+    #[error(transparent)]
     I18n(#[from] i18n::I18nError),
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
+    #[error("the CSV could not be made: {0}")]
+    Csv(String),
     #[error("the PDF could not be made: {0}")]
     Pdf(String),
     #[error("database error: {0}")]

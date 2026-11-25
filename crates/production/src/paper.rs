@@ -6,7 +6,7 @@ use i18n::{Amsterdam, FluentArgs, Translator, decimal};
 use orders::{OrderStatus, PaymentMode};
 use serde_json::{Value, json};
 
-use crate::{Error, PickupList, PickupOrder, ProductionList};
+use crate::{Error, IngredientNeeds, PickupList, PickupOrder, ProductionList, weight};
 
 fn count(n: u64) -> String {
     decimal(i64::try_from(n).unwrap_or(i64::MAX), 0)
@@ -124,5 +124,65 @@ pub(crate) fn pickup(list: &PickupList, t: &Translator) -> Result<Value, Error> 
             "empty": t.t("pickup-list-empty", None)?,
         },
         "slots": slots,
+    }))
+}
+
+pub(crate) fn needs(needs: &IngredientNeeds, t: &Translator) -> Result<Value, Error> {
+    let mut ingredients = Vec::with_capacity(needs.ingredients.len());
+    for need in &needs.ingredients {
+        ingredients.push(json!({
+            "name": need.ingredient.name,
+            "amount": weight(t, need.grams)?,
+        }));
+    }
+    let mut doughs = Vec::with_capacity(needs.doughs.len());
+    for dough in &needs.doughs {
+        let mut args = FluentArgs::new();
+        args.set("recipe", dough.recipe.as_str());
+        args.set("version", dough.version.to_string());
+        let mut products = Vec::with_capacity(dough.products.len());
+        for product in &dough.products {
+            let mut args = FluentArgs::new();
+            args.set("pieces", count(product.pieces));
+            args.set("product", product.name.as_str());
+            products.push(t.t("needs-dough-product", Some(&args))?);
+        }
+        doughs.push(json!({
+            "name": t.t("needs-dough-name", Some(&args))?,
+            "products": products.join(", "),
+            "amount": weight(t, dough.grams.total())?,
+        }));
+    }
+    let mut missing = Vec::with_capacity(needs.missing.len());
+    for product in &needs.missing {
+        missing.push(json!({
+            "name": product.name,
+            "pieces": count(product.pieces),
+            "reason": t.t(product.reason.message_id(), None)?,
+        }));
+    }
+    let sum = needs.ingredients.iter().map(|need| need.grams).sum();
+    Ok(json!({
+        "title": t.t("needs-title", None)?,
+        "date": t.long_date(needs.day.date),
+        "basis": t.t("needs-basis-recipes", None)?,
+        "labels": {
+            "ingredient": t.t("needs-ingredient", None)?,
+            "amount": t.t("needs-amount", None)?,
+            "sum": t.t("needs-sum", None)?,
+            "empty": t.t("needs-empty", None)?,
+            "doughs": t.t("needs-doughs", None)?,
+            "recipe": t.t("needs-recipe", None)?,
+            "products": t.t("needs-products", None)?,
+            "missing": t.t("needs-missing", None)?,
+            "missing_intro": t.t("needs-missing-intro", None)?,
+            "product": t.t("needs-product", None)?,
+            "pieces": t.t("needs-pieces", None)?,
+            "reason": t.t("needs-reason", None)?,
+        },
+        "ingredients": ingredients,
+        "sum": weight(t, sum)?,
+        "doughs": doughs,
+        "missing": missing,
     }))
 }

@@ -79,14 +79,21 @@ pub async fn production_list(
     day: BakeDayId,
 ) -> Result<ProductionList, Error> {
     let mut tx = crate::snapshot(conn).await?;
-    let day = days::get(&mut tx, day).await?;
+    let list = totals(&mut tx, day).await?;
+    tx.commit().await?;
+    Ok(list)
+}
+
+/// The production list as read inside the caller's transaction.
+pub(crate) async fn totals(tx: &mut PgConnection, day: BakeDayId) -> Result<ProductionList, Error> {
+    let day = days::get(&mut *tx, day).await?;
     let mut counts: BTreeMap<ProductId, (u64, Extras)> = BTreeMap::new();
-    for order in orders::order::list_firm(&mut tx, day.id).await? {
+    for order in orders::order::list_firm(&mut *tx, day.id).await? {
         for line in &order.lines {
             counts.entry(line.product_id).or_default().0 += u64::from(line.qty);
         }
     }
-    for extra in extras::list(&mut tx, day.id).await? {
+    for extra in extras::list(&mut *tx, day.id).await? {
         counts
             .entry(extra.product_id)
             .or_default()
@@ -95,7 +102,7 @@ pub async fn production_list(
     }
     let mut products = Vec::with_capacity(counts.len());
     for (&product_id, &(ordered, extras)) in &counts {
-        let product = catalog::products::get(&mut tx, product_id).await?;
+        let product = catalog::products::get(&mut *tx, product_id).await?;
         products.push(ProductTotal {
             product_id,
             name: product.name_nl,
@@ -110,7 +117,6 @@ pub async fn production_list(
             .then(a.product_id.cmp(&b.product_id))
     });
 
-    tx.commit().await?;
     Ok(ProductionList { day, products })
 }
 

@@ -4,8 +4,8 @@ use i18n::Translator;
 use orders::{OrderNumber, OrderStatus, PaymentMode};
 
 use crate::{
-    Extras, PickupLine, PickupList, PickupOrder, ProductTotal, ProductionList, SlotPickups, paper,
-    pdf,
+    Dough, DoughProduct, Extras, IngredientNeeds, Missing, MissingReason, PickupLine, PickupList,
+    PickupOrder, ProductTotal, ProductionList, SlotPickups, paper, pdf,
 };
 
 fn day() -> BakeDay {
@@ -227,6 +227,134 @@ fn names_are_printed_as_text_never_as_markup() {
     for literal in ["*Bo*", "#read(\"/a\")", "$x$ ]"] {
         assert!(text.contains(literal), "{text}");
     }
+}
+
+fn ingredient_needs() -> IngredientNeeds {
+    use domain::IngredientId;
+    use recipes::{DoughGrams, IngredientRef, IngredientRole};
+
+    let ingredient = |id: i64, name: &str, role| IngredientRef {
+        id: IngredientId::new(id),
+        name: name.to_owned(),
+        role,
+    };
+    let flour = ingredient(1, "Tarwebloem", IngredientRole::Flour);
+    let water = ingredient(2, "Water", IngredientRole::Water);
+    let salt = ingredient(3, "Zeezout", IngredientRole::Other);
+    let doughs = vec![
+        Dough {
+            recipe: "Desem".to_owned(),
+            version: 3,
+            products: vec![
+                DoughProduct {
+                    product_id: ProductId::new(1),
+                    name: "Desem".to_owned(),
+                    pieces: 12,
+                    dough_g_per_piece: 900,
+                },
+                DoughProduct {
+                    product_id: ProductId::new(3),
+                    name: "Desem klein".to_owned(),
+                    pieces: 2,
+                    dough_g_per_piece: 450,
+                },
+            ],
+            grams: DoughGrams {
+                ingredients: vec![
+                    (flour.clone(), 6_667),
+                    (water.clone(), 4_867),
+                    (salt.clone(), 166),
+                ],
+            },
+        },
+        Dough {
+            recipe: "Spelt".to_owned(),
+            version: 1,
+            products: vec![DoughProduct {
+                product_id: ProductId::new(4),
+                name: "Spelt".to_owned(),
+                pieces: 1,
+                dough_g_per_piece: 500,
+            }],
+            grams: DoughGrams {
+                ingredients: vec![(flour, 290), (water, 210)],
+            },
+        },
+    ];
+    IngredientNeeds {
+        day: day(),
+        ingredients: recipes::shopping_list(doughs.iter().map(|d| &d.grams)),
+        doughs,
+        missing: vec![Missing {
+            product_id: ProductId::new(2),
+            name: "Granola".to_owned(),
+            pieces: 13,
+            reason: MissingReason::NoRecipe,
+        }],
+    }
+}
+
+#[test]
+fn ingredient_needs_input() {
+    let mut data = paper::needs(&ingredient_needs(), &dutch()).unwrap();
+    data.sort_all_objects();
+    insta::assert_snapshot!(serde_json::to_string_pretty(&data).unwrap());
+}
+
+#[test]
+fn ingredient_needs_on_paper() {
+    let data = paper::needs(&ingredient_needs(), &dutch()).unwrap();
+    let (document, warnings) = pdf::layout(&pdf::NEEDS, &data).unwrap();
+    assert_eq!(warnings, Vec::<String>::new());
+    insta::assert_snapshot!(pdf::text(&document));
+}
+
+#[test]
+fn empty_ingredient_needs_say_so_and_the_pdf_is_stable() {
+    let mut needs = ingredient_needs();
+    needs.ingredients.clear();
+    needs.doughs.clear();
+    needs.missing.clear();
+    let data = paper::needs(&needs, &dutch()).unwrap();
+    let (document, _) = pdf::layout(&pdf::NEEDS, &data).unwrap();
+    let text = pdf::text(&document);
+    assert!(text.contains("Nog niets nodig."), "{text}");
+    assert!(!text.contains("Geen recept"), "{text}");
+    let t = dutch();
+    let first = crate::ingredient_needs_pdf(&ingredient_needs(), &t).unwrap();
+    assert!(first.starts_with(b"%PDF-"));
+    assert_eq!(
+        first,
+        crate::ingredient_needs_pdf(&ingredient_needs(), &t).unwrap()
+    );
+}
+
+#[test]
+fn ingredient_needs_as_csv() {
+    let mut needs = ingredient_needs();
+    needs.missing[0].name = "Granola; groot".to_owned();
+    let csv = crate::ingredient_needs_csv(&needs, &dutch()).unwrap();
+    assert_eq!(
+        csv,
+        "\u{feff}Ingrediënt;Gram\r\n\
+         Tarwebloem;6957\r\n\
+         Water;5077\r\n\
+         Zeezout;166\r\n\
+         \"Niet meegeteld (geen recept): Granola; groot, 13 stuks\";\r\n"
+    );
+}
+
+#[test]
+fn needs_with_only_products_without_recipe_list_them_instead_of_nothing() {
+    let mut needs = ingredient_needs();
+    needs.ingredients.clear();
+    needs.doughs.clear();
+    let data = paper::needs(&needs, &dutch()).unwrap();
+    let (document, _) = pdf::layout(&pdf::NEEDS, &data).unwrap();
+    let text = pdf::text(&document);
+    assert!(!text.contains("Nog niets nodig."), "{text}");
+    assert!(text.contains("Granola | 13 | geen recept"), "{text}");
+    assert!(!text.contains("Ingrediënt"), "{text}");
 }
 
 #[test]

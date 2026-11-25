@@ -368,6 +368,7 @@ staff-sick-day-invoiced = Deze bestellingen zijn al gefactureerd en blijven staa
 # $date: zaterdag 5 december 2026
 lists-production-heading = Productielijst voor { $date }
 lists-pickup-heading = Ophaallijst voor { $date }
+lists-needs-heading = Boodschappenlijst voor { $date }
 lists-pdf = Pdf openen
 lists-back-day = Terug naar de bakdag
 lists-back-orders = Terug naar de bestellingen
