@@ -1,0 +1,44 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/dialog.html" as d %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("recipe-versions")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% call fb::alert("info", status) %}{% endcall %}
+<p><a href="{{ edit }}">{{ layout.t("recipe-edit")? }}</a></p>
+{% if !frozen %}
+{% call b::button(layout.t("recipe-freeze")?, variant = "secondary", opens = "vastzetten") %}{% endcall %}
+{% call d::confirm_dialog("vastzetten", layout.t("recipe-freeze")?, layout.t("recipe-freeze-text")?, layout.t("recipe-freeze-confirm")?, freeze) %}{% endcall %}
+{% else %}
+<form method="post" action="{{ new_version }}">
+{% call s::csrf() %}{% endcall %}
+{% call b::button(layout.t("recipe-new-version")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% if let Some(current) = current %}
+<form method="post" action="{{ current }}">
+{% call s::csrf() %}{% endcall %}
+{% call b::button(layout.t("recipe-make-current")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% call tb::table(facts) %}{% endcall %}
+{%- for message in messages %}
+{% call fb::alert(message.kind, message.text) %}{% endcall %}
+{%- endfor %}
+<form method="get" action="">
+{% call f::field("number", "gewicht", layout.t("recipe-weight")?, value = weight, error = weight_error, required = true) %}{% endcall %}
+{% call b::button(layout.t("recipe-calculate")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% if let Some(lines) = lines %}{% call tb::table(lines) %}{% endcall %}{% endif %}
+{% if let Some(totals) = totals %}{% call tb::table(totals) %}{% endcall %}{% endif %}
+{% if !notes.is_empty() %}
+<h2>{{ layout.t("recipe-notes")? }}</h2>
+<p>{{ notes }}</p>
+{% endif %}
+{% endblock %}

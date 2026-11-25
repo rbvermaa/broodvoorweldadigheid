@@ -123,6 +123,34 @@ pub fn parse_count(input: &str) -> Option<u32> {
     input.trim().parse().ok()
 }
 
+/// A baker's percentage such as `2`, `0,5`, `0.125` or `75%`, in thousandths of a percent.
+/// Refuses more than three decimals and anything negative.
+pub fn parse_pct(input: &str) -> Option<recipes::Pct> {
+    let cleaned = input.trim().trim_end_matches('%').trim_end();
+    let (whole, fraction) = cleaned.split_once([',', '.']).unwrap_or((cleaned, ""));
+    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+    if whole.is_empty() || !digits(whole) || fraction.len() > 3 || !digits(fraction) {
+        return None;
+    }
+    let whole: u32 = whole.parse().ok()?;
+    let fraction: u32 = format!("{fraction:0<3}").parse().ok()?;
+    Some(recipes::Pct::from_thousandths(
+        whole.checked_mul(1000)?.checked_add(fraction)?,
+    ))
+}
+
+/// A percentage as typed and shown: `75`, `0,5`, `66,667`.
+pub fn pct_value(pct: recipes::Pct) -> String {
+    let whole = pct.thousandths() / 1000;
+    let fraction = format!("{:03}", pct.thousandths() % 1000);
+    let fraction = fraction.trim_end_matches('0');
+    if fraction.is_empty() {
+        whole.to_string()
+    } else {
+        format!("{whole},{fraction}")
+    }
+}
+
 /// `HH:MM` from a time input.
 pub fn parse_time(input: &str) -> Option<Time> {
     Time::strptime("%H:%M", input.trim()).ok()
@@ -174,6 +202,33 @@ mod tests {
             assert_eq!(parse_money(input), None, "{input}");
         }
         assert_eq!(parse_money(&money_value(123_456)), Some(123_456));
+    }
+
+    #[test]
+    fn percentages_read_dutch_and_round_trip() {
+        for (input, thousandths) in [
+            ("2", 2000),
+            ("0,5", 500),
+            ("0.125", 125),
+            ("75%", 75_000),
+            (" 100 % ", 100_000),
+            ("1000", 1_000_000),
+        ] {
+            assert_eq!(
+                parse_pct(input).map(recipes::Pct::thousandths),
+                Some(thousandths),
+                "{input}"
+            );
+        }
+        for input in ["", "-1", ",5", "0,1234", "twee", "1,2,3", "99999999"] {
+            assert_eq!(parse_pct(input), None, "{input}");
+        }
+        for thousandths in [0, 500, 2000, 66_667, 1_000_000] {
+            let pct = recipes::Pct::from_thousandths(thousandths);
+            assert_eq!(parse_pct(&pct_value(pct)), Some(pct));
+        }
+        assert_eq!(pct_value(recipes::Pct::from_thousandths(75_500)), "75,5");
+        assert_eq!(pct_value(recipes::Pct::from_thousandths(0)), "0");
     }
 
     #[test]
