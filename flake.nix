@@ -261,7 +261,9 @@
               # 30 s acquire timeout.
               cargoLlvmCovCommand = "nextest";
               NEXTEST_SHOW_PROGRESS = "counter";
-              cargoLlvmCovExtraArgs = "--workspace --all-features --no-tests=pass --remap-path-prefix --lcov --summary-only --output-path $out";
+              # Not e2e (ADR 0033): its binaries add copies of the async fn wrappers of the
+              # crates it calls, which moves which of their lines llvm-cov reports as run.
+              cargoLlvmCovExtraArgs = "--workspace --exclude e2e --all-features --no-tests=pass --remap-path-prefix --lcov --summary-only --output-path $out";
               TZDIR = "${pkgs.tzdata}/share/zoneinfo";
               nativeBuildInputs = postgres.packages ++ [
                 pkgs.rustic
