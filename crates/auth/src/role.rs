@@ -32,10 +32,12 @@ pub enum Permission {
     Privacy,
     /// Bread votes: create, change, see results and wishes (F9b, ADR 0039).
     Polls,
+    /// Company settings, such as switching the public donation page on (F11d). Owner only.
+    Settings,
 }
 
 impl Permission {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::ViewOrders,
         Self::EditOrders,
         Self::PickupList,
@@ -50,6 +52,7 @@ impl Permission {
         Self::ManageStaff,
         Self::Privacy,
         Self::Polls,
+        Self::Settings,
     ];
 }
 
@@ -114,7 +117,7 @@ mod tests {
     #[test]
     fn permission_table_matches_adr_0010() {
         use Permission as P;
-        let expected: [(P, bool, bool, bool); 14] = [
+        let expected: [(P, bool, bool, bool); 15] = [
             // permission, owner, baker, counter
             (P::ViewOrders, true, true, true),
             (P::EditOrders, true, true, false),
@@ -130,6 +133,7 @@ mod tests {
             (P::ManageStaff, true, false, false),
             (P::Privacy, true, false, false),
             (P::Polls, true, true, false),
+            (P::Settings, true, false, false),
         ];
         assert_eq!(
             expected.map(|(permission, ..)| permission),

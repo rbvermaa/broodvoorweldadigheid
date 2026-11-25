@@ -43,3 +43,16 @@ async fn sourdough_deadline_days_are_limited(mut conn: PoolConnection<Postgres>)
         );
     }
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_public_donation_page_is_off_until_switched_on(mut conn: PoolConnection<Postgres>) {
+    assert!(!company::public_donations(&mut conn).await.unwrap());
+    company::set_public_donations(&mut conn, true)
+        .await
+        .unwrap();
+    assert!(company::public_donations(&mut conn).await.unwrap());
+    company::set_public_donations(&mut conn, false)
+        .await
+        .unwrap();
+    assert!(!company::public_donations(&mut conn).await.unwrap());
+}

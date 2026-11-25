@@ -18,6 +18,9 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [ ] **CDLA-Permissive-2.0.** `webpki-roots` (used by rustls for TLS) has this licence.
   It is open but not OSI-approved, so `deny.toml` rejects it. Allow it when TLS lands?
   SMTP avoids it: lettre verifies with `rustls-native-certs` (ADR 0014).
+- [ ] **Public donation page threshold** (F11d, ADR 0040). Amounts on `/giften` show only
+  with at least 5 orders behind them. Is 5 right for the owner, and should the page show
+  all-time totals only, or also per year?
 - [ ] **advisory-db freshness.** cargo-audit is only as fresh as the pinned advisory-db.
   The weekly dependency-update job (spec, "Nightly and weekly") should bump it.
 - [ ] **Partial refund by amount on a mixed-rate order.** How is it split across BTW

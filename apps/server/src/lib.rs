@@ -19,6 +19,7 @@ pub mod icons;
 pub mod pages;
 pub mod payment_provider;
 pub mod privacy;
+pub mod public_donations;
 pub mod rate_limit;
 pub mod security;
 pub mod session;
@@ -62,6 +63,7 @@ pub fn router(state: AppState) -> Router {
         .merge(account::routes())
         .merge(donation::routes())
         .merge(privacy::routes())
+        .merge(public_donations::routes())
         .route("/staff", get(staff::home))
         .route(staff::LOGIN_PATH, get(staff::login))
         .route("/staff/logout", post(staff::logout))
@@ -97,6 +99,10 @@ pub fn router(state: AppState) -> Router {
 fn sessioned(routes: Router<AppState>, state: &AppState) -> Router<AppState> {
     routes
         .layer(middleware::from_fn(pages::header_login))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            pages::footer_donations,
+        ))
         .layer(middleware::from_fn_with_state(state.clone(), csrf::verify))
         .layer(session::layer(state.pool.clone(), &state.config))
 }

@@ -1,9 +1,9 @@
 //! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
 //! charities, bake days, extra production, orders, the production and pickup lists, the
-//! reports, business customers, customer data requests (F12) and bread votes (F9b). Every
-//! handler takes [`Staff`] and checks a permission (ADR 0010). Forms post normally and
-//! redirect with `?opgeslagen=1`; htmx only adds inline checks and partial updates on top
-//! (ADR 0019).
+//! reports, business customers, customer data requests (F12), bread votes (F9b) and the
+//! company settings. Every handler takes [`Staff`] and checks a permission (ADR 0010).
+//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
+//! partial updates on top (ADR 0019).
 
 pub mod bake_days;
 pub mod business;
@@ -20,6 +20,7 @@ pub mod polls;
 pub mod products;
 pub mod recipes;
 pub mod reports;
+pub mod settings;
 pub mod sick_day;
 
 use std::fmt::Display;
@@ -202,6 +203,15 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/production/pdf",
             get(lists::production_pdf),
         )
+        .route("/staff/bake-days/{id}/ingredients", get(lists::needs_page))
+        .route(
+            "/staff/bake-days/{id}/ingredients/pdf",
+            get(lists::needs_pdf),
+        )
+        .route(
+            "/staff/bake-days/{id}/ingredients/csv",
+            get(lists::needs_csv),
+        )
         .route("/staff/bake-days/{id}/pickup-list", get(lists::pickup_page))
         .route(
             "/staff/bake-days/{id}/pickup-list/pdf",
@@ -215,6 +225,7 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/pickup-list/{order}/undo",
             post(lists::undo),
         )
+        .route(settings::PATH, get(settings::page).post(settings::save))
         .route("/staff/reports", get(reports::index))
         .route("/staff/reports/sales", get(reports::sales_page))
         .route("/staff/reports/sales.csv", get(reports::sales_csv))

@@ -31,6 +31,7 @@ impl<T: Whole + ?Sized> Whole for &T {
 
 tokio::task_local! {
     static SIGNED_IN: bool;
+    static DONATIONS_LINK: bool;
 }
 
 /// Tells the pages of this request whether a customer is signed in, for the site header.
@@ -44,11 +45,31 @@ pub async fn header_login(session: Session, request: Request, next: Next) -> Res
     SIGNED_IN.scope(signed_in, next.run(request)).await
 }
 
+/// Tells the pages of this request whether the footer links to the public donation page
+/// (F11d). Reads the cached switch, so another server sees a change within
+/// [`crate::public_donations::FRESH`].
+pub async fn footer_donations(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let on = state
+        .public_donations
+        .is_on(&state.pool)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(%error, "cannot read the donation page switch");
+            false
+        });
+    DONATIONS_LINK.scope(on, next.run(request)).await
+}
+
 /// What every page passes to `base.html`.
 pub struct Layout<'a> {
     i18n: &'a Translator,
     csrf_token: Option<String>,
     signed_in: bool,
+    donations_link: bool,
 }
 
 impl<'a> Layout<'a> {
@@ -57,6 +78,7 @@ impl<'a> Layout<'a> {
             i18n: &state.i18n,
             csrf_token: None,
             signed_in: SIGNED_IN.try_with(|signed_in| *signed_in).unwrap_or(false),
+            donations_link: DONATIONS_LINK.try_with(|on| *on).unwrap_or(false),
         }
     }
 
@@ -119,6 +141,11 @@ impl<'a> Layout<'a> {
     /// Whether the site header links to "Mijn bestellingen" instead of the login page.
     pub fn signed_in(&self) -> bool {
         self.signed_in
+    }
+
+    /// Whether the footer links to the public donation page.
+    pub fn donations_link(&self) -> bool {
+        self.donations_link
     }
 }
 

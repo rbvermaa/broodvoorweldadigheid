@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "components/chart.html" as ch %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ layout.t("giften-title")? }}{% endblock %}
+{% block content %}
+<h1>{{ layout.t("giften-title")? }}</h1>
+<p>{{ layout.t("giften-intro")? }}</p>
+{%- if drops.rows.is_empty() %}
+{% call fb::empty_state(layout.t("giften-empty-title")?, layout.t("giften-empty")?) %}{% endcall %}
+{%- else %}
+{%- if let Some(total) = total %}
+<h2>{{ layout.t("giften-total")? }}: {{ total }}</h2>
+{%- else %}
+{% call fb::alert("info", layout.t("giften-total-hidden")?) %}{% endcall %}
+{%- endif %}
+<h2>{{ layout.t("giften-charities-title")? }}</h2>
+{% if let Some(chart) = chart %}{% call ch::bar_chart(chart) %}{% endcall %}{% endif %}
+{% call tb::table(charities) %}{% endcall %}
+<h2>{{ layout.t("giften-drops-title")? }}</h2>
+{% call tb::table(drops) %}{% endcall %}
+<p>{{ layout.t_count("giften-privacy", min_orders)? }}</p>
+{%- endif %}
+{% endblock %}

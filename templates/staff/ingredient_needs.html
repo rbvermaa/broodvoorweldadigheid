@@ -1,0 +1,25 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("lists-back-day")? }}</a></p>
+<p><a href="{{ production }}">{{ layout.t("production-title")? }}</a></p>
+<p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
+<p><a href="{{ csv }}">{{ layout.t("reports-csv")? }}</a></p>
+<p>{{ layout.t("needs-basis-recipes")? }}</p>
+{% if !missing.rows.is_empty() %}
+{% call fb::alert("warning", layout.t("needs-missing-intro")?) %}{% endcall %}
+{% endif %}
+{% if ingredients.rows.is_empty() && missing.rows.is_empty() %}
+{% call fb::empty_state(layout.t("needs-title")?, layout.t("needs-empty")?) %}{% endcall %}
+{% endif %}
+{% if !ingredients.rows.is_empty() %}
+{% call tb::table(ingredients) %}{% endcall %}
+{% call tb::table(doughs) %}{% endcall %}
+{% endif %}
+{% if !missing.rows.is_empty() %}
+{% call tb::table(missing) %}{% endcall %}
+{% endif %}
+{% endblock %}
