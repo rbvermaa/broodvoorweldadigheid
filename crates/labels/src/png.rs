@@ -93,7 +93,7 @@ fn draw(laid: &Laid) -> Result<Png, Error> {
         Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    for pixel in pixmap.data_mut().chunks_exact_mut(4) {
+    for pixel in pixmap.data_mut().as_chunks_mut::<4>().0 {
         let ink = if pixel[0] < 128 { 0 } else { 255 };
         pixel[..3].fill(ink);
         pixel[3] = 255;

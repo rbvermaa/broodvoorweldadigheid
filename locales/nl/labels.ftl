@@ -50,3 +50,32 @@ product-labels-days-invalid = Vul een heel aantal dagen in, van 1 tot { $max }.
 # $max: 200
 product-labels-storage-too-long = Gebruik hoogstens { $max } tekens.
 product-labels-back = Terug naar het product
+
+# Back office: a batch's label files
+batch-labels-link = Etiketten voor de Niimbot
+# $code: 261205-2
+batch-labels-title = Etiketten van batch { $code }
+batch-labels-intro = Download de PNG en print hem met de Niimbot-app, of importeer de CSV in de app. Het aantal staat erbij.
+batch-labels-check = Allergenen en ingrediënten van deze batch bekijken
+batch-labels-product = Productetiket
+batch-labels-freezer = Vriezeretiket
+# $n: 8
+batch-labels-copies = Aantal: { $n }
+# $width: 50; $length: 30
+batch-labels-file-whole = PNG, { $width } × { $length } mm
+batch-labels-file-front = PNG voorkant, { $width } × { $length } mm
+batch-labels-file-back = PNG achterkant, { $width } × { $length } mm
+batch-labels-file-csv = CSV voor de import in de Niimbot-app
+batch-labels-frozen = Stuks in de vriezer
+batch-labels-frozen-hint = Goede stuks uit deze batch die de vriezer in gaan; één vriezeretiket per stuk. 0 haalt ze weg.
+batch-labels-error-frozen = Vul een heel aantal in, niet meer dan de goede stuks.
+batch-labels-error-fewer-than-frozen = Er liggen meer stuks in de vriezer dan er dan goed zijn. Pas eerst het aantal in de vriezer aan.
+batch-labels-gap-address = Er staat nog geen adres bij de instellingen. Er kan geen etiket geprint worden.
+batch-labels-gap-packaged = Dit product wordt niet verpakt verkocht. Zet dat aan bij de etiketgegevens van het product.
+batch-labels-gap-shelf-life = Vul eerst de houdbaarheid in bij de etiketgegevens van het product.
+batch-labels-gap-storage = Vul eerst het bewaaradvies in bij de etiketgegevens van het product.
+batch-labels-gap-freezer-days = Vul eerst de vriestermijn in bij de etiketgegevens van het product.
+batch-labels-gap-not-baked = Vul eerst de stuks uit de oven in bij de batch.
+batch-labels-gap-no-pieces = Deze batch heeft geen goede stuks.
+batch-labels-gap-no-frozen = Vul hieronder in hoeveel stuks de vriezer in gaan.
+batch-labels-too-long = De tekst past niet op het langste etiket, ook niet verdeeld over voor- en achterkant.

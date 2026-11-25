@@ -794,6 +794,10 @@ async fn render_batch(
                         t_with(state, "label-check-link", &[("product", o.name.clone())]),
                     )
                 })
+                .chain([(
+                    super::label_files::path(&path),
+                    t(state, "batch-labels-link"),
+                )])
                 .collect(),
         },
     ))
@@ -1126,6 +1130,12 @@ pub async fn actuals(
         drop(conn);
         match result {
             Ok(()) => Ok(saved(&headers, &batch_path(&day, batch.id))),
+            Err(production::Error::Invalid("frozen pieces")) => {
+                let error = t(&state, "batch-labels-error-fewer-than-frozen");
+                let answer = BatchAnswer::Actuals { raw, error };
+                let status = invalid_status(&headers);
+                render_batch(&state, &session, status, &day, batch, answer).await
+            }
             Err(error) => Err(production_error(&state, &error)),
         }
     };

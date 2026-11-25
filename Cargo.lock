@@ -3902,6 +3902,7 @@ dependencies = [
  "insta",
  "jiff",
  "jobs",
+ "labels",
  "notify",
  "orders",
  "payments",

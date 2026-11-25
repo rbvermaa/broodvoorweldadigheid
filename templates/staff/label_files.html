@@ -1,0 +1,38 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("label-check-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if let Some(text) = refused %}{% call fb::alert("error", text) %}{% endcall %}{% endif %}
+<p>{{ layout.t("batch-labels-intro")? }}</p>
+{%- for product in products %}
+<h2>{{ product.name }}</h2>
+<p><a href="{{ product.check_href }}">{{ layout.t("batch-labels-check")? }}</a></p>
+{%- for kind in product.kinds %}
+<h3>{{ kind.title }}</h3>
+{% if let Some(text) = kind.refused %}
+{% call fb::alert("warning", text) %}{% endcall %}
+{% else %}
+{% if let Some(text) = kind.warning %}{% call fb::alert("warning", text) %}{% endcall %}{% endif %}
+<p>{{ kind.copies }}</p>
+<ul>
+{%- for file in kind.files %}
+<li><a href="{{ file.href }}" download>{{ file.text }}</a></li>
+{%- endfor %}
+</ul>
+{% endif %}
+{%- endfor %}
+{% if product.baked %}
+<form method="post" action="{{ product.freeze_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("number", "frozen", layout.t("batch-labels-frozen")?, value = product.frozen, hint = layout.t("batch-labels-frozen-hint")?, error = product.frozen_error) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{%- endfor %}
+{% endblock %}

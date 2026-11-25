@@ -167,3 +167,14 @@ Questions about the spec. The spec is only changed when the owner asks.
   old batch's variance then moves whenever a price changes. Keep today's prices as the
   standard, or fix a standard date per product (for example when its selling price was
   set)?
+- [ ] **Label rolls** (F18, F18a, ADR 0047). Labels are 50 mm wide and 30, 40, 50, 70 or
+  100 mm long, the shortest that fits. Which Niimbot rolls does the bakery have? Lengths
+  without a roll should go from the list.
+- [ ] **Freezer label QR code** (F18a, ADR 0047). The spec asks for "a small QR code for
+  staff" but not what it encodes (batch code? a link to the batch page?). There is no QR
+  crate in the workspace. Left out until both are decided.
+- [ ] **ZIP of all label files** (F18, F18a, ADR 0047). No ZIP crate in the workspace, so
+  each PNG and CSV is its own download. Add a ZIP crate?
+- [ ] **Niimbot import check** (ADR 0024, ADR 0047). Does the official app import the CSV
+  (semicolons, UTF-8 with BOM) and print the 591-pixel-wide PNGs at their size? Needs a
+  test print by the owner.
