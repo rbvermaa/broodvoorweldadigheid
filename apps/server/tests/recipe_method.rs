@@ -170,6 +170,18 @@ impl Client<'_> {
         .await
     }
 
+    async fn get_from(&self, path: &str, page: &str) -> Reply {
+        self.send(
+            Request::get(path)
+                .header(COOKIE, &self.cookie)
+                .header("hx-request", "true")
+                .header("hx-current-url", page)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+    }
+
     async fn post_as(&self, path: &str, fields: &[(&str, &str)], htmx: bool) -> Reply {
         let mut all: Vec<(&str, &str)> = vec![("_csrf", &self.token)];
         all.extend_from_slice(fields);
@@ -709,4 +721,25 @@ async fn a_switch_goes_back_to_the_scale_on_screen(pool: PgPool) {
         switched.header("hx-redirect"),
         format!("{path}/edit?gewicht=1770&opgeslagen=1")
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_start_keeps_the_scale_the_page_shows_now(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    with_steps(&pool, v1, &[step("Bulk", Some(60))]).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+    let reply = baker
+        .get_from(
+            &format!("{path}?start=21:00&gewicht=1000"),
+            &format!("https://localhost{path}?gewicht=2000&start=08:00&opgeslagen=1#werkwijze"),
+        )
+        .await;
+    assert_eq!(
+        reply.header("hx-replace-url"),
+        format!("{path}?gewicht=2000&start=21:00")
+    );
+    reply.shows(&time("22:00"));
+    reply.shows_text(&dutch_with("recipe-lines-caption", &[("grams", "2.000")]));
 }

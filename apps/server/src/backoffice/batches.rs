@@ -765,7 +765,6 @@ async fn render_batch(
         &Shown {
             page: path.clone(),
             form: "",
-            pieces: false,
             base: &base,
         },
     )

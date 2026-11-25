@@ -58,8 +58,6 @@ pub struct MethodView {
     pub page: String,
     /// The form the start field belongs to; empty for a form of its own.
     pub form: String,
-    /// Which fields of that form the start sends along, so the URL keeps one scale.
-    pub params: &'static str,
     pub paragraphs: Vec<Vec<String>>,
     pub schedule: Option<ScheduleView>,
 }
@@ -141,8 +139,6 @@ fn start_time(state: &AppState, fields: &Fields, base: &Zoned) -> (Zoned, String
 pub struct Shown<'a> {
     pub page: String,
     pub form: &'a str,
-    /// The page scales by pieces, not by weight.
-    pub pieces: bool,
     /// The start when none is asked: now, or when a batch was mixed.
     pub base: &'a Zoned,
 }
@@ -151,11 +147,6 @@ pub fn view(state: &AppState, method: &Method, fields: &Fields, shown: &Shown<'_
     let mut out = MethodView {
         page: shown.page.clone(),
         form: shown.form.to_owned(),
-        params: if shown.pieces {
-            "not gewicht"
-        } else {
-            "not stuks,product"
-        },
         paragraphs: Vec::new(),
         schedule: None,
     };
@@ -883,4 +874,21 @@ fn back_to(headers: &HeaderMap, path: &str, fields: &Fields) -> String {
         let grams = fields.text("gewicht").parse::<u64>().map(|g| g.to_string());
         format!("{edit}?gewicht={}", grams.unwrap_or_default())
     })
+}
+
+/// For a start time asked through htmx: the query of the page as the browser shows it
+/// (its scale may have changed since the start field was drawn) with the new start.
+pub fn start_on_page(headers: &HeaderMap, uri: &axum::http::Uri) -> Option<String> {
+    let own = uri.query()?;
+    let current = headers.get("hx-current-url")?.to_str().ok()?;
+    let current = current.split('#').next().unwrap_or_default();
+    let (page, query) = current.split_once('?').unwrap_or((current, ""));
+    if !page.ends_with(uri.path()) {
+        return None;
+    }
+    let kept = query
+        .split('&')
+        .filter(|p| !p.is_empty() && !p.starts_with("start=") && !p.starts_with("opgeslagen="));
+    let start = own.split('&').filter(|p| p.starts_with("start="));
+    Some(kept.chain(start).collect::<Vec<_>>().join("&"))
 }

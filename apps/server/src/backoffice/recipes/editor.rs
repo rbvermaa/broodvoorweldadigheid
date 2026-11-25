@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use askama::Template;
 use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect, Response};
 use catalog::products as catalog_products;
 use domain::{Allergen, IngredientId, ProductId, RecipeVersionId};
@@ -30,7 +30,7 @@ use super::super::{
     t_with,
 };
 use super::method::{
-    MethodEditor, MethodState, MethodView, Shown, editor as method_editor, load_view,
+    MethodEditor, MethodState, MethodView, Shown, editor as method_editor, load_view, start_on_page,
 };
 use super::{
     Message, date_text, grams_text, load_version, pct_text, recipe_path, status_text, sub_label,
@@ -748,12 +748,20 @@ pub async fn version_page(
     State(state): State<AppState>,
     staff: Staff,
     session: Session,
+    headers: HeaderMap,
+    uri: Uri,
     Path((id, version)): Path<(String, String)>,
     Query(fields): Query<Fields>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
         let loaded = load(&state, &id, &version).await?;
+        let on_page = start_on_page(&headers, &uri);
+        let fields = on_page
+            .as_ref()
+            .and_then(|query| format!("{}?{query}", uri.path()).parse::<Uri>().ok())
+            .and_then(|page| Query::<Fields>::try_from_uri(&page).ok())
+            .map_or(fields, |Query(merged)| merged);
         let scale = Scale::read(&state, &fields, &loaded.products);
         let (recipe, version) = (&loaded.recipe, &loaded.version);
         let path = version_path(recipe.id, version.id);
@@ -782,12 +790,11 @@ pub async fn version_page(
             &Shown {
                 page: path.clone(),
                 form: "schaal",
-                pieces: !scale.pieces.is_empty() && scale.pieces_error.is_empty(),
                 base: &default_start(&now),
             },
         )
         .await?;
-        Ok(pages::render(
+        let mut page = pages::render(
             &state,
             StatusCode::OK,
             &VersionPage {
@@ -813,7 +820,13 @@ pub async fn version_page(
                 notes: version.notes.clone(),
                 method,
             },
-        ))
+        );
+        if let Some(value) = on_page.and_then(|q| HeaderValue::try_from(format!("{path}?{q}")).ok())
+        {
+            page.headers_mut()
+                .insert(HeaderName::from_static("hx-replace-url"), value);
+        }
+        Ok(page)
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
