@@ -16,11 +16,11 @@ Covers F9 on top of the outbox of ADR 0014 and the webhook of ADR 0015.
 | Email links must be https (ADR 0014), so with an `http://` `PUBLIC_URL` (local runs only) no confirmation is queued; the server warns about that at startup | Production and compose use https |
 | The server builds `SmtpSender` from `SmtpConfig::from_env`. Without `SMTP_HOST` it logs that email is off and runs; emails wait in the outbox. Any other config error stops the server | A typo in the relay settings should not go unnoticed |
 | The outbox is sent by the bake day tick (`jobs::work`, ADR 0021): the server builds one `SmtpSender` and passes it in `jobs::Mail` with the translator, the email links and `OrderEmails`; the tick queues pickup reminders, then drop alerts, then sends at most 500 emails and none after 40 s. Without `SMTP_HOST` the sender is `None` and emails wait in the outbox. Each send also has its own 40 s deadline in `SmtpSender` (lettre's timeout only covers connecting); after a send runs out it starts a fresh connection pool, because lettre would reuse the cut-off connection and read its late reply as the next answer. Compose gives the server a 60 s stop grace period, enough for one send and its commit | One sender and one drain loop for every email kind. `FOR UPDATE SKIP LOCKED` lets several servers send |
+| Orders on account get their confirmation when staff place them, with dedupe key `order-confirmation:<order>`; see ADR 0032 | They have no payment to wait for |
+| Outbox rows are deleted 90 days after they were sent or failed (ADR 0031). Reminders are queued at most 72 hours before the pickup and only before it starts | A deleted `pickup-reminder` key can never bring a second reminder for the same pickup |
 | The compose stack points the server at Mailpit (`SMTP_HOST=mailpit`, port 1025, TLS none), overridable with `BVW_SMTP_*` and `BVW_MAIL_FROM`. The contact form (F4f) writes to `bakkerij@example.org` there, overridable with `BVW_CONTACT_EMAIL` | `make up` shows every email at `https://mail.localhost:8443/` |
 
 Open:
 
-- If outbox rows are deleted before the pickup (ADR 0014, retention), a reminder could be
-  queued again. Retention must keep `pickup-reminder` rows until after the pickup.
 - The owner needs a way to enter the KvK number and address; until then no order email
   goes out (deploy/README.md shows the SQL for the local stack).

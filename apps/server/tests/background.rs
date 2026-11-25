@@ -130,6 +130,7 @@ async fn the_runner_sends_the_outbox_from_its_first_tick(pool: PgPool) {
         html: "<p>Hoi,</p>".to_owned(),
         list_unsubscribe: None,
         reply_to: None,
+        cc: None,
     };
     let mut conn = pool.acquire().await.unwrap();
     notify::enqueue(&mut conn, clock.as_ref(), &email, Some("test"))

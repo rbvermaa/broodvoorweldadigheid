@@ -90,6 +90,7 @@ fn outgoing() -> OutgoingEmail {
             html: "<p>Hoi Sanne,</p>".to_owned(),
             list_unsubscribe: None,
             reply_to: None,
+            cc: None,
         },
     }
 }
@@ -119,6 +120,18 @@ async fn sends_over_smtp() {
         ),
         "{said}"
     );
+}
+
+#[tokio::test]
+async fn a_copy_goes_to_its_own_recipient() {
+    let (port, server) = fake_relay("250 OK").await;
+    let mut email = outgoing();
+    email.email.cc = Some("factuur@example.org".to_owned());
+    sender(port).send(&email).await.expect("sent");
+    let said = server.await.unwrap();
+    assert!(said.contains("RCPT TO:<sanne@example.org>"), "{said}");
+    assert!(said.contains("RCPT TO:<factuur@example.org>"), "{said}");
+    assert!(said.contains("Cc: factuur@example.org"), "{said}");
 }
 
 #[tokio::test]

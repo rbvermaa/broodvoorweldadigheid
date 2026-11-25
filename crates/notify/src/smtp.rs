@@ -308,7 +308,7 @@ fn enhanced_status(reply: Option<&str>) -> Option<&str> {
 /// From domain and, on drop alerts, the RFC 8058 one-click unsubscribe headers.
 ///
 /// # Errors
-/// [`SendError::Permanent`] when the recipient is not a valid address.
+/// [`SendError::Permanent`] when the recipient or the copy is not a valid address.
 pub fn message(from: &Mailbox, outgoing: &OutgoingEmail) -> Result<Message, SendError> {
     let email = &outgoing.email;
     let to = Mailbox::from_str(&email.to)
@@ -319,6 +319,11 @@ pub fn message(from: &Mailbox, outgoing: &OutgoingEmail) -> Result<Message, Send
         .subject(email.subject.clone())
         .message_id(Some(format!("<{}@{}>", outgoing.id, from.email.domain())))
         .date(SystemTime::from(outgoing.date));
+    if let Some(cc) = &email.cc {
+        let cc =
+            Mailbox::from_str(cc).map_err(|error| SendError::Permanent(format!("cc: {error}")))?;
+        builder = builder.cc(cc);
+    }
     if let Some(reply_to) = &email.reply_to {
         let reply_to = Mailbox::from_str(reply_to)
             .map_err(|error| SendError::Permanent(format!("reply-to: {error}")))?;
