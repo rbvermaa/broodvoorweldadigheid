@@ -69,4 +69,5 @@ b2b-error-slot = Kies een ophaalmoment van deze bakdag.
 b2b-error-slot-full = Dit ophaalmoment is vol.
 b2b-error-day = Deze bakdag neemt geen bestellingen aan.
 b2b-error-product = Een van de producten kan nu niet besteld worden.
+b2b-error-kitchen = De sporen van allergenen voor de keuken zijn nog niet goedgekeurd. Keur die eerst goed, dan kun je bestellen.
 b2b-error-details = De gegevens van deze klant kloppen niet. Pas eerst het account aan.

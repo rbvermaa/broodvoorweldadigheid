@@ -3385,6 +3385,32 @@ async fn wrong_business_account_input_gets_dutch_messages(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_order_on_account_says_when_the_kitchen_list_is_unapproved(pool: PgPool) {
+    let app = app(pool.clone());
+    let (day, bread) = open_drop(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let account = business_account(&owner).await;
+    owner.post(KITCHEN, &[("may_milk", "ja")]).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let slot = days::list_slots(&mut conn, day).await.expect("slots")[0].id;
+    drop(conn);
+    let pieces = format!("qty_{}", bread.get());
+    let refused = owner
+        .post(
+            &format!("{account}/order"),
+            &[
+                ("dag", &day.get().to_string()),
+                ("slot", &slot.get().to_string()),
+                ("product", &bread.get().to_string()),
+                (&pieces, "1"),
+            ],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows(&dutch("b2b-error-kitchen"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_baker_orders_on_account_and_the_owner_invoices_it(pool: PgPool) {
     let app = app(pool.clone());
     let (day, bread) = open_drop(&app).await;

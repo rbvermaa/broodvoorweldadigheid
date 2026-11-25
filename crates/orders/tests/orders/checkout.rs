@@ -529,6 +529,69 @@ async fn checkout_waits_for_a_product_allergen_change_and_then_refuses(pool: PgP
     );
 }
 
+/// The other direction: a running checkout holds its product and company rows, so staff
+/// changes that clear an approval wait until the order is committed.
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn approval_changes_wait_for_a_running_checkout(pool: PgPool) {
+    let clock = wednesday();
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = open_day(&mut conn, &clock, &saturday()).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, &shop, bread, None, None).await;
+    drop(conn);
+
+    let mut customer = pool.begin().await.unwrap();
+    let placed = checkout(
+        &mut customer,
+        &clock,
+        &cart(&shop, &[(bread, 1, None)]),
+        &guest("klant@example.org"),
+        shop.slot,
+        OrderedBy::Guest,
+    )
+    .await
+    .unwrap();
+
+    let mut tasks = Vec::new();
+    for revoke in [
+        "UPDATE company SET may_contain = '{nuts}'",
+        "UPDATE product SET allergens = '{milk}'",
+    ] {
+        let mut staff = pool.acquire().await.unwrap();
+        let pid = backend_pid(&mut staff).await;
+        tasks.push(tokio::spawn(async move {
+            sqlx::query(revoke).execute(&mut *staff).await.unwrap();
+        }));
+        wait_until_blocked(&pool, pid).await;
+    }
+    customer.commit().await.unwrap();
+    for task in tasks {
+        task.await.unwrap();
+    }
+
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(
+        orders::order::get(&mut conn, placed.id)
+            .await
+            .unwrap()
+            .status,
+        OrderStatus::PendingPayment
+    );
+    let approvals: (bool, bool) = sqlx::query_as(
+        "SELECT (SELECT may_contain_approved_by IS NULL FROM company),
+            (SELECT allergens_approved_by IS NULL FROM product WHERE id = $1)",
+    )
+    .bind(bread.get())
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!(
+        approvals,
+        (true, true),
+        "both approvals cleared after the commit"
+    );
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn sold_out_products_and_shared_pools_are_refused(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
