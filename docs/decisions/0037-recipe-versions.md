@@ -85,3 +85,17 @@ batch page saves the batch's formula as the next version of its recipe, through
 | Promoting the same batch again returns the version made the first time, also after the batch changed since | One action, no pile of versions. The batch lock (`FOR UPDATE`) and the recipe lock serialise two clicks |
 | A batch whose lines equal its version's lines is refused ("unchanged") | Nothing to save |
 | Lead time comes from the version the batch was made from. Notes are that version's notes, then the batch code and base version, then the reasons for the line changes from the audit log, each once | The audit log keeps reasons a later save cleared from the lines (ADR 0042) |
+
+**Recipe editor (F14, amended 2026-11-25).** Owner: the version page becomes one compact
+table, grams | name | %, editable inline on a phone. The full-form edit with blank rows is
+gone.
+
+| Choice | Why |
+|---|---|
+| Every line edit (by % or grams, add, remove) keeps the grams per percent; the dough weight follows (`recipes::dough_for_sum`) | The other lines keep their grams, as a baker expects when changing the salt. Typed grams become a percentage at the current scale (`pct_for_grams`, half up to 0.001%); scaled back, the line is within half the grams of 0.001% plus 1.5 g of what was typed (property test) |
+| One line per request: `recipes::edit_line` sets, adds or removes a line under the graph lock and refuses a frozen version (`Error::Frozen`). The page posts a stamp of the lines it showed (`recipes::recipes::stamp`); other lines refuse the change (`Error::Stale`) | A stale page, a second tab or two quick edits never change the wrong line or convert grams against another sum, also when an ingredient is in the recipe twice. Lines go through the same write and nesting check as a full save, so the allergen triggers fire as before |
+| Lead time and notes save on their own (`save_details`) | Saving them no longer rewrites the lines |
+| Lines inside a sub-recipe are shown, not edited | They belong to that recipe's version, which may be frozen; its own page edits it |
+| The scale (`gewicht`, or `stuks` × a linked product's dough per piece) and the open sub-recipes live in the URL | Remembered per viewer without storing anything |
+| A new ingredient is created and added in one transaction from the add row, with role and allergens; it needs EditAllergens as well as Production | Same rule as the ingredient pages (ADR 0010) |
+| Hydration and total flour show in the table footer; warnings sit on their line | Owner: like the baking app on the phone |

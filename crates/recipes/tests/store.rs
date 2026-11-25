@@ -882,3 +882,220 @@ async fn a_line_written_during_a_freeze_is_refused(pool: sqlx::PgPool) {
     let refused = insert.await.unwrap().unwrap_err();
     assert!(refused.to_string().contains("is frozen"), "{refused}");
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_draft_line_is_edited_added_and_removed_on_its_own(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (dough, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let flour = LinePart::Ingredient(k.flour);
+    let water = LinePart::Ingredient(k.water);
+    let salt = LinePart::Ingredient(k.salt);
+    store::save_draft(
+        &mut conn,
+        v1.id,
+        &DraftInput {
+            lead_time_hours: Some(36),
+            notes: "Koud rijzen".to_owned(),
+            ..draft(vec![line(flour, 100), line(water, 70)])
+        },
+    )
+    .await
+    .unwrap();
+
+    let set = store::LineEdit::SetPct {
+        position: 1,
+        part: water,
+        pct: pct(75),
+    };
+    edit_now(&mut conn, v1.id, &set).await.unwrap();
+    let add = store::LineEdit::Add(line(salt, 2));
+    edit_now(&mut conn, v1.id, &add).await.unwrap();
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![line(flour, 100), line(water, 75), line(salt, 2)]
+    );
+    let kept = store::version(&mut conn, dough, v1.id).await.unwrap();
+    assert_eq!(kept.lead_time_hours, Some(36));
+    assert_eq!(kept.notes, "Koud rijzen");
+
+    let stale = store::LineEdit::Remove {
+        position: 1,
+        part: salt,
+    };
+    assert!(matches!(
+        edit_now(&mut conn, v1.id, &stale).await,
+        Err(Error::Invalid("line"))
+    ));
+    let past_end = store::LineEdit::SetPct {
+        position: 9,
+        part: salt,
+        pct: pct(3),
+    };
+    assert!(matches!(
+        edit_now(&mut conn, v1.id, &past_end).await,
+        Err(Error::Invalid("line"))
+    ));
+    let zero = store::LineEdit::SetPct {
+        position: 2,
+        part: salt,
+        pct: pct(0),
+    };
+    assert!(matches!(
+        edit_now(&mut conn, v1.id, &zero).await,
+        Err(Error::Invalid("pct"))
+    ));
+    let remove = store::LineEdit::Remove {
+        position: 1,
+        part: water,
+    };
+    edit_now(&mut conn, v1.id, &remove).await.unwrap();
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![line(flour, 100), line(salt, 2)]
+    );
+
+    let details = store::save_details(&mut conn, v1.id, Some(12), "Warm rijzen")
+        .await
+        .unwrap();
+    assert_eq!(details.lead_time_hours, Some(12));
+    assert_eq!(details.notes, "Warm rijzen");
+    assert_eq!(store::lines(&mut conn, v1.id).await.unwrap().len(), 2);
+    assert!(matches!(
+        store::save_details(&mut conn, v1.id, Some(169), "").await,
+        Err(Error::Invalid("lead_time_hours"))
+    ));
+
+    let full = draft(vec![line(flour, 1); store::MAX_LINES]);
+    store::save_draft(&mut conn, v1.id, &full).await.unwrap();
+    assert!(matches!(
+        edit_now(&mut conn, v1.id, &add).await,
+        Err(Error::Invalid("lines"))
+    ));
+    assert!(matches!(
+        edit_now(&mut conn, RecipeVersionId::new(999), &add).await,
+        Err(Error::NotFound)
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_frozen_version_refuses_line_edits(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (dough, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let flour = LinePart::Ingredient(k.flour);
+    store::save_draft(&mut conn, v1.id, &draft(vec![line(flour, 100)]))
+        .await
+        .unwrap();
+    let clock = FakeClock::new(ts("2026-12-01T10:00:00Z"));
+    store::freeze(&mut conn, dough, v1.id, &clock)
+        .await
+        .unwrap();
+    for edit in [
+        store::LineEdit::SetPct {
+            position: 0,
+            part: flour,
+            pct: pct(90),
+        },
+        store::LineEdit::Add(line(LinePart::Ingredient(k.salt), 2)),
+        store::LineEdit::Remove {
+            position: 0,
+            part: flour,
+        },
+    ] {
+        let refused = edit_now(&mut conn, v1.id, &edit).await;
+        assert!(matches!(refused, Err(Error::Frozen)), "{refused:?}");
+    }
+    let refused = store::save_details(&mut conn, v1.id, Some(1), "x").await;
+    assert!(matches!(refused, Err(Error::Frozen)), "{refused:?}");
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![line(flour, 100)]
+    );
+    assert_eq!(store::versions(&mut conn, dough).await.unwrap().len(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_added_line_cannot_use_the_recipe_itself(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (_, l1) = levain(&mut conn, &k).await;
+    let (_, d1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let add = store::LineEdit::Add(line(LinePart::Sub(l1.id), 20));
+    edit_now(&mut conn, d1.id, &add).await.unwrap();
+    let back = store::LineEdit::Add(line(LinePart::Sub(d1.id), 5));
+    assert!(matches!(
+        edit_now(&mut conn, l1.id, &back).await,
+        Err(Error::Nesting)
+    ));
+}
+
+/// Edits as a page showing the lines as they are now would.
+async fn edit_now(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    edit: &store::LineEdit,
+) -> Result<Version, Error> {
+    let seen = match store::lines(conn, id).await {
+        Ok(lines) => store::stamp(&lines),
+        Err(_) => String::new(),
+    };
+    store::edit_line(conn, id, &seen, edit).await
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_edit_from_an_out_of_date_page_is_refused(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (_, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let water = LinePart::Ingredient(k.water);
+    let two_waters = vec![
+        line(LinePart::Ingredient(k.flour), 100),
+        line(water, 50),
+        line(water, 20),
+    ];
+    store::save_draft(&mut conn, v1.id, &draft(two_waters.clone()))
+        .await
+        .unwrap();
+    let page = store::stamp(&two_waters);
+    let first = store::LineEdit::Remove {
+        position: 1,
+        part: water,
+    };
+    store::edit_line(&mut conn, v1.id, &page, &first)
+        .await
+        .unwrap();
+    let again = store::edit_line(&mut conn, v1.id, &page, &first).await;
+    assert!(matches!(again, Err(Error::Stale)), "{again:?}");
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![line(LinePart::Ingredient(k.flour), 100), line(water, 20)]
+    );
+    assert_ne!(
+        store::stamp(&[line(water, 50), line(water, 20)]),
+        store::stamp(&[line(water, 20), line(water, 50)])
+    );
+    assert_eq!(store::stamp(&[]).len(), 16);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_ingredient_is_created_and_added_together(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (_, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let flour = line(LinePart::Ingredient(k.flour), 100);
+    store::save_draft(&mut conn, v1.id, &draft(vec![flour]))
+        .await
+        .unwrap();
+    let seen = store::stamp(&[flour]);
+    let spelt = ingredient_input("Speltbloem", IngredientRole::Flour);
+
+    let stale = store::add_new_ingredient(&mut conn, v1.id, "oud", &spelt, pct(10)).await;
+    assert!(matches!(stale, Err(Error::Stale)), "{stale:?}");
+    assert_eq!(ingredients::list(&mut conn).await.unwrap().len(), 3);
+
+    let created = store::add_new_ingredient(&mut conn, v1.id, &seen, &spelt, pct(10))
+        .await
+        .unwrap();
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![flour, line(LinePart::Ingredient(created.id), 10)]
+    );
+    let again = store::add_new_ingredient(&mut conn, v1.id, &seen, &spelt, pct(10)).await;
+    assert!(matches!(again, Err(Error::Duplicate)), "{again:?}");
+}

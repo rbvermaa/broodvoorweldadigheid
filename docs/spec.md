@@ -557,7 +557,7 @@ The style is “Stempel”: ink #111111 on white, taken from the logo, with no a
 
 **UX rules**
 
-- Mobile-first: the shop and the pickup and extra-production screens are designed for iPhone first; recipes and costing for a laptop.
+- Mobile-first: the shop and the pickup and extra-production screens are designed for iPhone first; recipes and costing work on both a phone and a desktop (owner, 2026-11-25).
 
 - One way to do each thing: forms check input as you type, with Dutch messages; destructive actions such as a sick-day cancel or a refund ask for confirmation and say exactly what will happen; every save shows the same short confirmation.
 

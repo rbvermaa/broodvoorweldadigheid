@@ -4,9 +4,11 @@
 lucide = [
   "calendar",
   "check",
+  "chevron-down",
   "circle-alert",
   "circle-check",
   "clock",
+  "droplet",
   "heart",
   "inbox",
   "info",

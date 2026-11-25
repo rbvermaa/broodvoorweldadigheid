@@ -62,10 +62,11 @@ pub enum Flow {
     SickDayCancel,
     PickupList,
     GalleryAxe,
+    RecipeEditor,
 }
 
 impl Flow {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::BuyALoaf,
         Self::StaffBakeDay,
         Self::CustomerLogin,
@@ -73,6 +74,7 @@ impl Flow {
         Self::SickDayCancel,
         Self::PickupList,
         Self::GalleryAxe,
+        Self::RecipeEditor,
     ];
 
     #[must_use]
@@ -85,12 +87,13 @@ impl Flow {
             Self::SickDayCancel => "a sick-day cancel refunds and emails the customer (F2)",
             Self::PickupList => "tick an order off the pickup list on a phone, and undo (F8)",
             Self::GalleryAxe => "the gallery passes axe-core (WCAG 2.2 AA)",
+            Self::RecipeEditor => "edit a recipe line and add one by name on a phone (F14)",
         }
     }
 
     fn window(self) -> (u32, u32) {
         match self {
-            Self::PickupList => PHONE,
+            Self::PickupList | Self::RecipeEditor => PHONE,
             _ => LAPTOP,
         }
     }
@@ -110,6 +113,7 @@ pub async fn run(ctx: &Ctx, flow: Flow) -> Result<(), Error> {
         Flow::SickDayCancel => sick_day_cancel(ctx, &driver).await,
         Flow::PickupList => pickup_list(ctx, &driver).await,
         Flow::GalleryAxe => gallery_is_accessible(ctx, &driver).await,
+        Flow::RecipeEditor => recipe_editor(ctx, &driver).await,
     };
     let quit = driver.quit().await;
     result?;
@@ -518,6 +522,67 @@ async fn gallery_is_accessible(ctx: &Ctx, driver: &WebDriver) -> Result<(), Erro
     driver.goto(ctx.url("/gallery")).await?;
     wait_for_text(driver, "h1", &ctx.t("gallery-title")?).await?;
     axe(ctx, driver, "gallery").await
+}
+
+/// On a phone: Enter saves a percentage and the dough weight follows, Escape puts a cell
+/// back, and a line is added by typing its name (F14). axe-core checks both modes.
+async fn recipe_editor(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
+    let recipe = seed::recipe(&ctx.pool).await?;
+    let stored = async |position: i32| -> Result<i32, Error> {
+        Ok(sqlx::query_scalar(
+            "SELECT bakers_pct_x1000 FROM recipe_line
+             WHERE recipe_version_id = $1 AND position = $2",
+        )
+        .bind(recipe.version)
+        .bind(position)
+        .fetch_one(&ctx.pool)
+        .await?)
+    };
+    staff_sign_in(ctx, driver, recipe.owner).await?;
+    driver
+        .goto(ctx.url(&format!("{}/edit?gewicht=1670", recipe.path)))
+        .await?;
+    wait_for_text(driver, "#receptuur tfoot", "1.670").await?;
+    axe(ctx, driver, "recipe edit").await?;
+
+    // Typing fires change events on its own; a value set by script does not.
+    set_value(driver, "#pct-1", "70").await?;
+    driver
+        .find(By::Css("#pct-1"))
+        .await?
+        .send_keys(Key::Enter)
+        .await?;
+    wait_for_text(driver, "#receptuur tfoot", "1.720").await?;
+    if stored(1).await? != 70_000 {
+        return Err("Enter did not save the water percentage".into());
+    }
+
+    let salt = driver.find(By::Css("#pct-2")).await?;
+    salt.click().await?;
+    salt.send_keys("9").await?;
+    salt.send_keys(Key::Escape).await?;
+    salt.send_keys(Key::Tab).await?;
+    let value = driver.find(By::Css("#pct-2")).await?.prop("value").await?;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    if value.as_deref() != Some("2") || stored(2).await? != 2_000 {
+        return Err(format!("Escape left {value:?} in the salt cell").into());
+    }
+
+    fill(driver, "#add-q", &recipe.seeds_name).await?;
+    let suggestion = format!("#suggesties button[value=\"i{}\"]", recipe.seeds);
+    wait_for("the type-ahead suggestion", || async {
+        Ok(driver.find(By::Css(&suggestion)).await.ok().map(|_| ()))
+    })
+    .await?;
+    fill(driver, "#add-pct", "5").await?;
+    click(driver, &suggestion).await?;
+    wait_for_text(driver, "#receptuur tfoot", "1.770").await?;
+
+    driver
+        .goto(ctx.url(&format!("{}?gewicht=1770", recipe.path)))
+        .await?;
+    wait_for_text(driver, "#receptuur tfoot", "1.770").await?;
+    axe(ctx, driver, "recipe").await
 }
 
 /// Runs axe-core's WCAG 2.2 AA rules on the current page; any violation fails the flow.

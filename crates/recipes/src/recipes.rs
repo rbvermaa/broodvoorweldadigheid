@@ -9,7 +9,7 @@ use sqlx::{Acquire, PgConnection};
 
 use crate::error::unique;
 use crate::formula::{Formula, IngredientRef, Line, Part, Pct, RecipeKind, SubRecipe};
-use crate::{Error, MAX_NESTING};
+use crate::{Error, Ingredient, IngredientInput, MAX_NESTING};
 
 /// The highest lead time a version may record, in hours.
 pub const MAX_LEAD_TIME_HOURS: i32 = 168;
@@ -577,12 +577,194 @@ pub async fn save_draft(
         .await?;
         id
     };
-    replace_lines(&mut tx, recipe_id, target, &input.lines).await?;
-    formula(&mut tx, target).await?;
-    for user in users(&mut tx, target).await? {
-        formula(&mut tx, user).await?;
-    }
+    write_lines(&mut tx, recipe_id, target, &input.lines).await?;
     let saved = version(&mut tx, recipe_id, target).await?;
+    tx.commit().await?;
+    Ok(saved)
+}
+
+/// Replaces the lines of a draft and checks that it and every version using it still load
+/// within the nesting limit.
+async fn write_lines(
+    conn: &mut PgConnection,
+    recipe_id: RecipeId,
+    id: RecipeVersionId,
+    lines: &[LineInput],
+) -> Result<(), Error> {
+    replace_lines(conn, recipe_id, id, lines).await?;
+    formula(conn, id).await?;
+    for user in users(conn, id).await? {
+        formula(conn, user).await?;
+    }
+    Ok(())
+}
+
+/// One change to one line of a draft. `position` counts from 0 in the version's order,
+/// and `part` is what the line held when the page showed it, so a page that is out of
+/// date changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEdit {
+    SetPct {
+        position: usize,
+        part: LinePart,
+        pct: Pct,
+    },
+    /// Adds the line at the end.
+    Add(LineInput),
+    Remove {
+        position: usize,
+        part: LinePart,
+    },
+}
+
+/// Locks a draft for a change to its lines or details and returns its recipe.
+async fn lock_draft(conn: &mut PgConnection, id: RecipeVersionId) -> Result<RecipeId, Error> {
+    let row = sqlx::query!(
+        r#"SELECT recipe_id, frozen_at IS NOT NULL AS "frozen!" FROM recipe_version
+        WHERE id = $1 FOR NO KEY UPDATE"#,
+        id.get(),
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(Error::NotFound)?;
+    if row.frozen {
+        return Err(Error::Frozen);
+    }
+    Ok(RecipeId::new(row.recipe_id))
+}
+
+fn apply(lines: &mut Vec<LineInput>, edit: &LineEdit) -> Result<(), Error> {
+    let at = |lines: &[LineInput], position: usize, part: LinePart| {
+        lines
+            .get(position)
+            .filter(|line| line.part == part)
+            .map(|_| position)
+            .ok_or(Error::Invalid("line"))
+    };
+    match *edit {
+        LineEdit::SetPct {
+            position,
+            part,
+            pct,
+        } => {
+            let index = at(lines, position, part)?;
+            lines[index].pct = pct;
+        }
+        LineEdit::Add(line) => lines.push(line),
+        LineEdit::Remove { position, part } => {
+            let index = at(lines, position, part)?;
+            lines.remove(index);
+        }
+    }
+    Ok(())
+}
+
+/// A short fingerprint of a version's lines in order (FNV-1a, 64 bits). A page sends back
+/// the stamp of the lines it showed, so a change made on an out-of-date page is refused.
+#[must_use]
+pub fn stamp(lines: &[LineInput]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for line in lines {
+        let (kind, id) = match line.part {
+            LinePart::Ingredient(id) => (b'i', id.get()),
+            LinePart::Sub(id) => (b'v', id.get()),
+        };
+        let bytes = [kind]
+            .into_iter()
+            .chain(id.to_le_bytes())
+            .chain(line.pct.thousandths().to_le_bytes());
+        for byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
+/// Changes one line of a draft and keeps the others, its lead time and notes. `seen` is
+/// the [`stamp`] of the lines the change was made on.
+///
+/// # Errors
+/// [`Error::NotFound`] for an unknown version; [`Error::Frozen`] for a frozen one;
+/// [`Error::Stale`] when the lines are no longer the ones `seen` stamps;
+/// [`Error::Invalid`] (`"line"`) when the line at that position holds something else or
+/// the new line names an unknown ingredient or version, or as for [`save_draft`];
+/// [`Error::Nesting`] as for [`save_draft`].
+pub async fn edit_line(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    seen: &str,
+    edit: &LineEdit,
+) -> Result<Version, Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    let recipe_id = lock_draft(&mut tx, id).await?;
+    let mut new_lines = lines(&mut tx, id).await?;
+    if stamp(&new_lines) != seen {
+        return Err(Error::Stale);
+    }
+    apply(&mut new_lines, edit)?;
+    validate_draft(&DraftInput {
+        lines: new_lines.clone(),
+        lead_time_hours: None,
+        notes: String::new(),
+    })?;
+    write_lines(&mut tx, recipe_id, id, &new_lines).await?;
+    let saved = version(&mut tx, recipe_id, id).await?;
+    tx.commit().await?;
+    Ok(saved)
+}
+
+/// Creates an ingredient and adds it as the last line of a draft at `pct`, in one
+/// transaction. The graph lock comes first, in the same order as an ingredient update.
+///
+/// # Errors
+/// As for [`crate::ingredients::create`] and [`edit_line`]; nothing is created on an error.
+pub async fn add_new_ingredient(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    seen: &str,
+    input: &IngredientInput,
+    pct: Pct,
+) -> Result<Ingredient, Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    let created = crate::ingredients::create(&mut tx, input).await?;
+    let line = LineInput {
+        pct,
+        part: LinePart::Ingredient(created.id),
+    };
+    edit_line(&mut tx, id, seen, &LineEdit::Add(line)).await?;
+    tx.commit().await?;
+    Ok(created)
+}
+
+/// Saves the lead time and notes of a draft; its lines stay as they are.
+///
+/// # Errors
+/// [`Error::NotFound`], [`Error::Frozen`], or [`Error::Invalid`] for a bad lead time.
+pub async fn save_details(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    lead_time_hours: Option<i32>,
+    notes: &str,
+) -> Result<Version, Error> {
+    validate_draft(&DraftInput {
+        lines: Vec::new(),
+        lead_time_hours,
+        notes: String::new(),
+    })?;
+    let mut tx = conn.begin().await?;
+    let recipe_id = lock_draft(&mut tx, id).await?;
+    sqlx::query!(
+        "UPDATE recipe_version SET lead_time_hours = $2, notes = $3 WHERE id = $1",
+        id.get(),
+        lead_time_hours,
+        notes,
+    )
+    .execute(&mut *tx)
+    .await?;
+    let saved = version(&mut tx, recipe_id, id).await?;
     tx.commit().await?;
     Ok(saved)
 }

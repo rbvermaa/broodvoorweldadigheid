@@ -1,0 +1,132 @@
+{# The recipe table of one version: backoffice::recipes::editor::Editor. Grams | name | %,
+   sub-recipe lines open to their own lines, and a footer with flour, hydration and dough.
+   On a draft every gram and percentage is an input that saves its line through its own
+   form (inputs point at it with form=); Esc puts a cell back (design/app.js). #}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+
+{% macro csrf() %}
+{%- if let Some(token) = layout.csrf_token() %}<input type="hidden" name="_csrf" value="{{ token }}">{% endif -%}
+{% endmacro %}
+
+{% macro suggestions(s) %}
+{%- if !s.matches.is_empty() %}
+<ul class="recipe-suggestion-list">
+{%- for m in s.matches %}
+<li><button type="submit" class="recipe-suggestion" name="part" value="{{ m.value }}">{{ m.label }}</button></li>
+{%- endfor %}
+</ul>
+{%- endif %}
+{%- if !s.new_name.is_empty() %}
+<details class="recipe-new"{% if s.new_open %} open{% endif %}>
+<summary class="recipe-new-summary">{{ s.new_label }}</summary>
+{% call f::select("role", layout.t("ingredient-role")?, s.roles.iter(), hint = layout.t("ingredient-role-hint")?, error = s.role_error) %}{% endcall %}
+<fieldset class="field-group">
+<legend class="field-label">{{ layout.t("ingredient-allergens")? }}</legend>
+<p class="field-hint">{{ layout.t("ingredient-allergens-hint")? }}</p>
+{%- for allergen in s.allergens %}
+{% call f::checkbox(allergen.field, layout.allergen(allergen.code)?, checked = allergen.checked) %}{% endcall %}
+{%- endfor %}
+</fieldset>
+<button type="submit" class="button button-primary" name="new" value="1"><span class="button-label">{{ layout.t("recipe-add-new-submit")? }}</span></button>
+</details>
+{%- endif %}
+{% endmacro %}
+
+{% macro line_form(e, row, field) %}
+<form id="regel-{{ row.index }}-{{ field }}" method="post" action="{{ row.action }}" hx-post="{{ row.action }}" hx-trigger="submit, change from:#{{ field }}-{{ row.index }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">
+{%- call csrf() %}{% endcall -%}
+<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><input type="hidden" name="seen" value="{{ e.stamp }}"></form>
+{% endmacro %}
+
+{% macro editor(e) %}
+<section id="receptuur" class="recipe" aria-labelledby="receptuur-caption">
+<form id="schaal" class="recipe-scale" method="get" action="{{ e.page }}">
+<div class="recipe-scale-field" hx-get="{{ e.page }}" hx-trigger="input delay:400ms" hx-include="#schaal" hx-params="not stuks,product" hx-target="#receptuur-regels" hx-select="#receptuur-regels" hx-swap="outerHTML" hx-replace-url="true">
+{% call f::field("number", "gewicht", layout.t("recipe-weight")?, value = e.weight, error = e.weight_error) %}{% endcall %}
+</div>
+{%- if e.can_scale_pieces %}
+<div class="recipe-scale-field" hx-get="{{ e.page }}" hx-trigger="input delay:400ms, change" hx-include="#schaal" hx-params="not gewicht" hx-target="#receptuur-regels" hx-select="#receptuur-regels" hx-swap="outerHTML" hx-replace-url="true">
+{% call f::field("number", "stuks", layout.t("recipe-pieces")?, value = e.pieces, hint = e.pieces_hint, error = e.pieces_error) %}{% endcall %}
+{%- if !e.products.is_empty() %}
+{% call f::select("product", layout.t("recipe-pieces-product")?, e.products.iter()) %}{% endcall %}
+{%- endif %}
+</div>
+{%- endif %}
+<button type="submit" class="button button-secondary recipe-scale-submit"><span class="button-label">{{ layout.t("recipe-calculate")? }}</span></button>
+</form>
+<div id="receptuur-regels">
+{%- if !e.switch_href.is_empty() %}
+<p class="recipe-switch"><a class="button button-primary" href="{{ e.switch_href }}">{{ e.switch_label }}</a></p>
+{%- endif %}
+<div class="recipe-status" role="status">{% if e.saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
+{%- if let Some(notice) = e.notice %}
+{% call fb::alert(notice.kind, notice.text) %}{% endcall %}
+{%- endif %}
+<div class="recipe-table-wrap">
+<table class="recipe-table">
+<caption class="recipe-caption" id="receptuur-caption">{{ e.caption }}</caption>
+<thead><tr><th scope="col" class="recipe-grams">{{ layout.t("recipe-line-grams")? }}</th><th scope="col">{{ layout.t("recipe-line-part")? }}</th><th scope="col" class="recipe-pct"><span aria-hidden="true">{{ layout.t("recipe-col-pct")? }}</span><span class="visually-hidden">{{ layout.t("recipe-line-pct")? }}</span></th>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr></thead>
+{%- for row in e.rows %}
+<tbody class="recipe-group">
+<tr>
+<td class="recipe-grams">{% if e.editable %}<label class="visually-hidden" for="gram-{{ row.index }}">{{ row.gram_label }}</label><input class="recipe-input" id="gram-{{ row.index }}" name="gram" value="{{ row.grams_value }}" form="regel-{{ row.index }}-gram" type="text" inputmode="numeric" autocomplete="off">{% else %}{{ row.grams }}{% endif %}</td>
+<td class="recipe-name"><span class="recipe-name-line">
+{%- if !row.icon.is_empty() %}{{ layout.icon_labelled(row.icon, row.icon_label.as_str())? }}{% endif %}
+{%- if !row.link.is_empty() %}<a href="{{ row.link }}">{{ row.name }}</a>{% else %}<span>{{ row.name }}</span>{% endif %}
+{%- if !row.children.is_empty() %}<input class="visually-hidden recipe-toggle" type="checkbox" id="open-{{ row.index }}" name="open" form="schaal" value="{{ row.index }}"{% if row.open %} checked{% endif %}><label class="recipe-toggle-label" for="open-{{ row.index }}">{{ layout.icon("chevron-down")? }}<span class="visually-hidden">{{ row.toggle_label }}</span></label>{% endif -%}
+</span>
+{%- if !row.warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ row.warning }}</span></span>{% endif -%}
+</td>
+<td class="recipe-pct">{% if e.editable %}<label class="visually-hidden" for="pct-{{ row.index }}">{{ row.pct_label }}</label><input class="recipe-input" id="pct-{{ row.index }}" name="pct" value="{{ row.pct_value }}" form="regel-{{ row.index }}-pct" type="text" inputmode="decimal" autocomplete="off">{% else %}{{ row.pct }}{% endif %}</td>
+{%- if e.editable %}
+<td class="recipe-actions"><form method="post" action="{{ row.remove }}" hx-post="{{ row.remove }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML">{% call csrf() %}{% endcall %}<input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><input type="hidden" name="seen" value="{{ e.stamp }}"><button type="submit" class="recipe-remove">{{ layout.icon_labelled("trash-2", row.remove_label.as_str())? }}</button></form></td>
+{%- endif %}
+</tr>
+{%- for child in row.children %}
+<tr class="recipe-sub-row">
+<td class="recipe-grams">{{ child.grams }}</td>
+<td class="recipe-name"><span class="recipe-name-line {% if child.depth == 1 %}recipe-depth-1{% else if child.depth == 2 %}recipe-depth-2{% else %}recipe-depth-3{% endif %}">
+{%- if !child.icon.is_empty() %}{{ layout.icon_labelled(child.icon, child.icon_label.as_str())? }}{% endif %}<span>{{ child.name }}</span></span></td>
+<td class="recipe-pct">{{ child.pct }}</td>
+{%- if e.editable %}<td class="recipe-actions"></td>{% endif %}
+</tr>
+{%- endfor %}
+</tbody>
+{%- endfor %}
+{%- if let Some(ft) = e.footer %}
+<tfoot>
+<tr><td class="recipe-grams">{{ ft.flour }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("wheat")? }}<span>{{ layout.t("recipe-total-flour")? }}</span></span>
+{%- if !ft.flour_warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ ft.flour_warning }}</span></span>{% endif -%}
+</th><td class="recipe-pct">{{ ft.flour_pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+<tr><td class="recipe-grams">{{ ft.water }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("droplet")? }}<span>{{ layout.t("recipe-hydration")? }}</span></span></th><td class="recipe-pct">{{ ft.hydration }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+<tr class="recipe-total"><td class="recipe-grams">{{ ft.dough }}</td><th scope="row" class="recipe-name">{{ layout.t("recipe-footer-dough")? }}</th><td class="recipe-pct">{{ ft.total_pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+</tfoot>
+{%- endif %}
+</table>
+</div>
+{%- if e.editable %}
+{%- for row in e.rows %}
+{% call line_form(e, row, "gram") %}{% endcall %}
+{% call line_form(e, row, "pct") %}{% endcall %}
+{%- endfor %}
+{%- endif %}
+{%- if e.add.is_some() %}
+<input type="hidden" name="gewicht" value="{{ e.grams }}" form="regel-nieuw"><input type="hidden" name="seen" value="{{ e.stamp }}" form="regel-nieuw"><input type="hidden" name="gewicht" value="{{ e.grams }}" form="gegevens">
+{%- endif %}
+</div>
+{%- if let Some(add) = e.add %}
+<form id="regel-nieuw" class="recipe-add" method="post" action="{{ add.action }}" hx-post="{{ add.action }}" hx-sync="this:drop" hx-include=".recipe-toggle" hx-target="#receptuur" hx-select="#receptuur" hx-swap="outerHTML" hx-disinherit="*">
+{%- call csrf() %}{% endcall -%}
+<div class="recipe-add-row">
+<div class="recipe-add-grams"><label class="field-label" for="add-gram">{{ layout.t("recipe-line-grams")? }}</label><input class="field-input" id="add-gram" name="gram" value="{{ add.gram }}" type="text" inputmode="numeric" autocomplete="off"></div>
+<div class="recipe-add-name"><label class="field-label" for="add-q">{{ layout.t("recipe-add-label")? }}</label><input class="field-input" id="add-q" name="q" value="{{ add.q }}" type="search" autocomplete="off" aria-describedby="add-q-hint" aria-controls="suggesties" hx-get="{{ add.search }}" hx-trigger="input changed delay:200ms, search" hx-target="#suggesties" hx-swap="innerHTML" hx-sync="this:replace"></div>
+<div class="recipe-add-pct"><label class="field-label" for="add-pct"><span aria-hidden="true">{{ layout.t("recipe-col-pct")? }}</span><span class="visually-hidden">{{ layout.t("recipe-line-pct")? }}</span></label><input class="field-input" id="add-pct" name="pct" value="{{ add.pct }}" type="text" inputmode="decimal" autocomplete="off"></div>
+</div>
+<p class="field-hint" id="add-q-hint">{{ layout.t("recipe-add-hint")? }}</p>
+<button type="submit" class="button button-secondary"><span class="button-label">{{ layout.t("recipe-add-submit")? }}</span></button>
+<div id="suggesties" class="recipe-suggestions">{% call suggestions(add.suggestions) %}{% endcall %}</div>
+</form>
+{%- endif %}
+</section>
+{% endmacro %}
