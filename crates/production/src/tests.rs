@@ -63,6 +63,7 @@ fn order(
         order_id: OrderId::new(i64::from(seq)),
         number: OrderNumber { year: 2026, seq },
         customer_name: name.to_owned(),
+        customer_erased: false,
         customer_phone: phone.map(str::to_owned),
         status,
         payment_mode: PaymentMode::Online,
@@ -223,4 +224,20 @@ fn names_are_printed_as_text_never_as_markup() {
     for literal in ["*Bo*", "#read(\"/a\")", "$x$ ]"] {
         assert!(text.contains(literal), "{text}");
     }
+}
+
+#[test]
+fn an_erased_customer_is_printed_as_deleted() {
+    let mut list = pickup_list();
+    let order = &mut list.slots[0].orders[0];
+    order.customer_name = "-".to_owned();
+    order.customer_phone = None;
+    order.customer_erased = true;
+    let data = paper::pickup(&list, &dutch()).unwrap();
+    let printed = &data["slots"][0]["orders"][0];
+    assert_eq!(printed["name"], "verwijderd");
+    assert_eq!(printed["erased"], true);
+    let (document, warnings) = pdf::layout(&pdf::PICKUP, &data).unwrap();
+    assert_eq!(warnings, Vec::<String>::new());
+    assert!(pdf::text(&document).contains("verwijderd"));
 }

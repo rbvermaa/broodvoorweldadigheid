@@ -192,6 +192,7 @@ pub async fn production_pdf(
 pub struct OrderCard {
     pub anchor: String,
     pub name: String,
+    pub erased: bool,
     pub number: String,
     pub link: String,
     pub phone: String,
@@ -243,7 +244,8 @@ fn card(state: &AppState, list: &str, order: &PickupOrder, answer: Option<&Answe
     let phone = order.customer_phone.clone().unwrap_or_default();
     OrderCard {
         anchor: format!("bestelling-{n}"),
-        name: order.customer_name.clone(),
+        name: super::orders::customer_name(state, order.customer_erased, &order.customer_name),
+        erased: order.customer_erased,
         number: order.number.to_string(),
         link: super::orders::order_path(order.order_id),
         phone_href: phone

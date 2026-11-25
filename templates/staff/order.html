@@ -13,7 +13,7 @@
 {% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
 <dl>
 {%- for (term, value) in facts %}
-<dt>{{ term }}</dt><dd>{{ value }}</dd>
+<dt>{{ term }}</dt><dd>{% if value.muted %}<span class="field-hint">{{ value.text }}</span>{% else %}{{ value.text }}{% endif %}</dd>
 {%- endfor %}
 </dl>
 {%- for action in actions %}

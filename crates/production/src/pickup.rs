@@ -22,6 +22,8 @@ pub struct PickupOrder {
     pub order_id: OrderId,
     pub number: OrderNumber,
     pub customer_name: String,
+    /// The customer was erased (F12); `customer_name` is then a placeholder.
+    pub customer_erased: bool,
     pub customer_phone: Option<String>,
     pub status: OrderStatus,
     pub payment_mode: PaymentMode,
@@ -100,6 +102,7 @@ pub async fn pickup_list(conn: &mut PgConnection, day: BakeDayId) -> Result<Pick
             order_id: order.id,
             number: order.number,
             customer_name: order.customer_name,
+            customer_erased: order.customer_erased,
             customer_phone: order.customer_phone,
             status: order.status,
             payment_mode: order.payment_mode,

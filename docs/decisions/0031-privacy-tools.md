@@ -20,11 +20,10 @@ F12 and the GDPR (AVG) row of the spec's Compliance table. Logic in `orders::pri
 | The drop-alert checkbox writes `customer.marketing_consent` and signs the address up as confirmed, or takes it off like an unsubscribe link. No confirmation email | Drop alerts are the only marketing mail, so the subscription is the consent; the export reports it from there, because an unsubscribe link or a sign-up on `/meldingen` does not touch `customer.marketing_consent`. The customer proved the address by signing in with a link sent to it |
 | `jobs::cleanup` runs every tick: expired login links (used or not), logins past their idle or absolute timeout, and finished account-deleted emails. `jobs` now depends on `auth` | The follow-up of ADR 0029. Links count against the rate limit only within 15 minutes and live 30, so deleting expired ones never lifts the limit |
 | The owner searches by email with a POST | The address never lands in a URL, a browser history or an access log. Handlers log no address or name |
+| Staff screens (order list, order page, pickup list) and the pickup list PDF show an erased customer as "verwijderd", in the muted hint style; the order page does the same for the address. They read `customer.erased_at`, not the stored `-` | A `-` reads like a missing value. A name that happens to be `-` stays as typed |
 
 Follow-ups:
 
-- Erased orders show `-` as the name in the back office. A label like "verwijderd" would
-  need a Fluent text in every list that shows names.
 - Sent emails to other customers (with names in the greeting) stay in `email_outbox` until
   its retention question is answered (open questions).
 - Unconfirmed subscribers and old unsubscribe tokens (ADR 0021) are not cleaned up yet.
@@ -34,5 +33,5 @@ Follow-ups:
   are not business records and could be deleted, but they hold order numbers and audit
   entries; deleting them needs its own rules.
 - A paid order not collected in its pickup window no longer blocks erasing. A late pickup
-  at the counter then shows the name `-`.
+  at the counter then shows "verwijderd" as the name.
 - The JSON keys are English and the export has no Dutch explanation next to it.
