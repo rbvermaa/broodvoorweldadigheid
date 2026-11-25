@@ -18,6 +18,7 @@ pub mod nav;
 pub mod orders;
 pub mod payouts;
 pub mod polls;
+pub mod product_labels;
 pub mod products;
 pub mod recipes;
 pub mod reports;
@@ -56,6 +57,7 @@ const FEATURES: &[fn() -> Router<AppState>] = &[
     orders::routes,
     payouts::routes,
     polls::routes,
+    product_labels::routes,
     products::routes,
     recipes::routes,
     reports::routes,
