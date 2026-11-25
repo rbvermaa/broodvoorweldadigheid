@@ -11,4 +11,6 @@ pub use charities::{Charity, CharityInput};
 pub use company::{KitchenMayContain, SourdoughDeadline};
 pub use error::Error;
 pub use faq::{Faq, FaqId, FaqInput};
-pub use products::{AllergenInfo, Approval, Pricing, Product, ProductInput, PublishedAllergens};
+pub use products::{
+    AllergenInfo, Approval, ApprovalCleared, Pricing, Product, ProductInput, PublishedAllergens,
+};

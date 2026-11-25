@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 
 use catalog::company::KitchenMayContain;
-use catalog::{AllergenInfo, Approval, Error, Pricing, ProductInput, PublishedAllergens, products};
+use catalog::{
+    AllergenInfo, Approval, ApprovalCleared, Error, Pricing, ProductInput, PublishedAllergens,
+    products,
+};
 use domain::{Allergen, InvalidPriceRange, Money, ProductId, StaffUserId, VatRate};
 use jiff::{SignedDuration, Timestamp};
 use sqlx::pool::PoolConnection;
@@ -72,9 +75,16 @@ async fn add_baker(conn: &mut PgConnection) {
 async fn approved(conn: &mut PgConnection, clock: &FakeClock) -> ProductId {
     add_baker(conn).await;
     let product = products::create(conn, &sourdough()).await.unwrap();
-    products::approve_allergens(conn, product.id, &product.allergen_info, BAKER, clock)
-        .await
-        .unwrap();
+    products::approve_allergens(
+        conn,
+        product.id,
+        &product.allergen_info,
+        product.allergen_revision,
+        BAKER,
+        clock,
+    )
+    .await
+    .unwrap();
     product.id
 }
 
@@ -255,7 +265,7 @@ async fn missing_products_are_not_found(mut conn: PoolConnection<Postgres>) {
         Err(Error::NotFound)
     ));
     assert!(matches!(
-        products::approve_allergens(&mut conn, missing, &allergen_info(), BAKER, &clock).await,
+        products::approve_allergens(&mut conn, missing, &allergen_info(), 0, BAKER, &clock).await,
         Err(Error::NotFound)
     ));
 }
@@ -288,7 +298,15 @@ async fn approving_stale_allergen_data_is_refused(mut conn: PoolConnection<Postg
     reviewed.allergens.insert(Allergen::Milk);
 
     assert!(matches!(
-        products::approve_allergens(&mut conn, product.id, &reviewed, BAKER, &clock).await,
+        products::approve_allergens(
+            &mut conn,
+            product.id,
+            &reviewed,
+            product.allergen_revision,
+            BAKER,
+            &clock
+        )
+        .await,
         Err(Error::AllergensChanged)
     ));
     assert_eq!(
@@ -560,9 +578,16 @@ async fn every_allergen_code_is_accepted_and_approvable(mut conn: PoolConnection
         let product = products::create(&mut conn, &input).await.unwrap();
         assert_eq!(product.allergen_info, info);
         add_baker(&mut conn).await;
-        products::approve_allergens(&mut conn, product.id, &info, BAKER, &clock)
-            .await
-            .unwrap();
+        products::approve_allergens(
+            &mut conn,
+            product.id,
+            &info,
+            product.allergen_revision,
+            BAKER,
+            &clock,
+        )
+        .await
+        .unwrap();
         let renamed = ProductInput {
             name_nl: "Hernoemd".to_owned(),
             ..input
@@ -588,7 +613,7 @@ async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection
     add_baker(&mut conn).await;
     let mut reviewed = allergen_info();
     reviewed.allergens.insert(Allergen::SesameSeeds);
-    let approved = products::approve_allergens(&mut conn, product.id, &reviewed, BAKER, &clock)
+    let approved = products::approve_allergens(&mut conn, product.id, &reviewed, 0, BAKER, &clock)
         .await
         .unwrap();
     assert!(approved.approval.is_some());
@@ -607,7 +632,7 @@ async fn product_approval_ignores_the_unused_may_contain_column(
         .unwrap();
     add_baker(&mut conn).await;
     let approved =
-        products::approve_allergens(&mut conn, product.id, &allergen_info(), BAKER, &clock)
+        products::approve_allergens(&mut conn, product.id, &allergen_info(), 0, BAKER, &clock)
             .await
             .unwrap();
     assert!(approved.approval.is_some());
@@ -630,4 +655,35 @@ async fn product_approval_ignores_the_unused_may_contain_column(
         ["milk"],
         "the catalogue no longer writes the column"
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_recipe_change_says_why_until_the_next_approval(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-11-24T10:00:00Z"));
+    let id = approved(&mut conn, &clock).await;
+    sqlx::query(
+        "WITH r AS (INSERT INTO recipe (name, kind) VALUES ('Wit', 'dough') RETURNING id)
+        UPDATE product SET recipe_id = (SELECT id FROM r) WHERE id = $1",
+    )
+    .bind(id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let cleared = products::get(&mut conn, id).await.unwrap();
+    assert_eq!(cleared.approval, None);
+    assert_eq!(cleared.approval_cleared, Some(ApprovalCleared::Recipe));
+
+    let again = products::approve_allergens(
+        &mut conn,
+        id,
+        &cleared.allergen_info,
+        cleared.allergen_revision,
+        BAKER,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert!(again.approval.is_some());
+    assert_eq!(again.approval_cleared, None);
+    assert_eq!(products::get(&mut conn, id).await.unwrap(), again);
 }

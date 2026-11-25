@@ -86,15 +86,11 @@ async fn shop(conn: &mut PgConnection, clock: &FakeClock, date: &str) -> Shop {
     }
 }
 
-async fn product(conn: &mut PgConnection, name: &str, sold_online: bool) -> ProductId {
+async fn unapproved(conn: &mut PgConnection, name: &str, sold_online: bool) -> ProductId {
     let id: i64 = sqlx::query_scalar(
-        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
-            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id),
-         kitchen AS (UPDATE company SET may_contain_approved_by = (SELECT id FROM baker),
-            may_contain_approved_at = '2026-08-01T10:00:00Z')
-         INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
-            dough_g_per_piece, sold_online, allergens_approved_by, allergens_approved_at)
-         VALUES ($1, 450, 9, 800, 900, $2, (SELECT id FROM baker), '2026-10-01T10:00:00Z') RETURNING id",
+        "INSERT INTO product (name_nl, price_incl_cents, vat_rate, unit_weight_g,
+            dough_g_per_piece, sold_online)
+         VALUES ($1, 450, 9, 800, 900, $2) RETURNING id",
     )
     .bind(name)
     .bind(sold_online)
@@ -102,6 +98,41 @@ async fn product(conn: &mut PgConnection, name: &str, sold_online: bool) -> Prod
     .await
     .unwrap();
     ProductId::new(id)
+}
+
+async fn product(conn: &mut PgConnection, name: &str, sold_online: bool) -> ProductId {
+    let id = unapproved(conn, name, sold_online).await;
+    approve(conn, id).await;
+    id
+}
+
+/// Links the recipe first: linking clears an approval (ADR 0037).
+async fn linked_product(
+    conn: &mut PgConnection,
+    name: &str,
+    sold_online: bool,
+    recipe: RecipeId,
+) -> ProductId {
+    let id = unapproved(conn, name, sold_online).await;
+    store::link_product(conn, recipe, id).await.unwrap();
+    approve(conn, id).await;
+    id
+}
+
+async fn approve(conn: &mut PgConnection, id: ProductId) {
+    sqlx::query(
+        "WITH baker AS (INSERT INTO staff_user (oidc_sub, name, role) VALUES ('test-baker', 'Testbakker', 'baker')
+            ON CONFLICT (oidc_sub) DO UPDATE SET name = EXCLUDED.name RETURNING id),
+         kitchen AS (UPDATE company SET may_contain_approved_by = (SELECT id FROM baker),
+            may_contain_approved_at = '2026-08-01T10:00:00Z')
+         UPDATE product SET allergens_approved_by = (SELECT id FROM baker),
+            allergens_approved_at = '2026-10-01T10:00:00Z'
+         WHERE id = $1",
+    )
+    .bind(id.get())
+    .execute(conn)
+    .await
+    .unwrap();
 }
 
 async fn on_range(
@@ -614,25 +645,14 @@ async fn ingredient_needs_scale_the_recipe_in_use_for_orders_and_extras(
         .await
         .unwrap();
 
-    let desem = product(&mut conn, "Desem", true).await;
-    let klein = product(&mut conn, "Desem klein", true).await;
+    let desem = linked_product(&mut conn, "Desem", true, desem_recipe).await;
+    let klein = linked_product(&mut conn, "Desem klein", true, desem_recipe).await;
     let granola = product(&mut conn, "Granola", false).await;
-    let spelt = product(&mut conn, "Spelt", true).await;
-    let rogge = product(&mut conn, "Rogge", true).await;
-    let koekjes = product(&mut conn, "Koekjes", true).await;
+    let spelt = linked_product(&mut conn, "Spelt", true, empty_recipe).await;
+    let rogge = linked_product(&mut conn, "Rogge", true, unused_recipe).await;
+    let koekjes = linked_product(&mut conn, "Koekjes", true, desem_recipe).await;
     dough_weight(&mut conn, klein, 450).await;
     dough_weight(&mut conn, koekjes, 0).await;
-    for (product, recipe_id) in [
-        (desem, desem_recipe),
-        (klein, desem_recipe),
-        (koekjes, desem_recipe),
-        (spelt, empty_recipe),
-        (rogge, unused_recipe),
-    ] {
-        store::link_product(&mut conn, recipe_id, product)
-            .await
-            .unwrap();
-    }
     for product in [desem, spelt, rogge, koekjes] {
         on_range(&mut conn, shop.day, product, None, 1).await;
     }
@@ -724,10 +744,7 @@ async fn ingredient_needs_follow_the_version_in_use(mut conn: PoolConnection<Pos
     )
     .await
     .unwrap();
-    let wit = product(&mut conn, "Wit", true).await;
-    store::link_product(&mut conn, recipe_id, wit)
-        .await
-        .unwrap();
+    let wit = linked_product(&mut conn, "Wit", true, recipe_id).await;
     extra(&mut conn, &clock, &shop, wit, 2, Purpose::Freezer).await;
 
     let needs = ingredient_needs(&mut conn, shop.day, &clock).await.unwrap();
@@ -767,10 +784,7 @@ async fn after_the_deadline_ingredient_needs_come_from_the_batches(
         ],
     )
     .await;
-    let wit = product(&mut conn, "Wit", true).await;
-    store::link_product(&mut conn, recipe_id, wit)
-        .await
-        .unwrap();
+    let wit = linked_product(&mut conn, "Wit", true, recipe_id).await;
     extra(&mut conn, &clock, &shop, wit, 5, Purpose::Freezer).await;
     let id = batches::start_manual(&mut conn, shop.day, wit, 3, Actor::Staff(BAKER), &clock)
         .await
@@ -838,10 +852,7 @@ async fn a_batch_with_no_pieces_adds_nothing(mut conn: PoolConnection<Postgres>)
         &[(LinePart::Ingredient(flour), 100)],
     )
     .await;
-    let wit = product(&mut conn, "Wit", true).await;
-    store::link_product(&mut conn, recipe_id, wit)
-        .await
-        .unwrap();
+    let wit = linked_product(&mut conn, "Wit", true, recipe_id).await;
     let id = batches::start_manual(&mut conn, shop.day, wit, 3, Actor::Staff(BAKER), &clock)
         .await
         .unwrap();
@@ -900,10 +911,7 @@ async fn a_day_without_a_deadline_takes_its_batches_at_once(mut conn: PoolConnec
         &[(LinePart::Ingredient(flour), 100)],
     )
     .await;
-    let wit = product(&mut conn, "Wit", false).await;
-    store::link_product(&mut conn, recipe_id, wit)
-        .await
-        .unwrap();
+    let wit = linked_product(&mut conn, "Wit", false, recipe_id).await;
     batches::start_manual(&mut conn, day.id, wit, 2, Actor::Staff(BAKER), &clock)
         .await
         .unwrap();

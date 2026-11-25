@@ -564,6 +564,7 @@ async fn approving_allergens_approves_exactly_what_was_shown(pool: PgPool) {
             &[
                 ("allergens", "cereals_containing_gluten"),
                 ("ingredient_text", "TARWEbloem, water, zout"),
+                ("revisie", "0"),
             ],
         )
         .await;
@@ -617,6 +618,7 @@ async fn approving_data_that_changed_meanwhile_is_refused(pool: PgPool) {
             &[
                 ("allergens", "cereals_containing_gluten"),
                 ("ingredient_text", "TARWEbloem, water"),
+                ("revisie", "0"),
             ],
         )
         .await;
@@ -631,6 +633,49 @@ async fn approving_data_that_changed_meanwhile_is_refused(pool: PgPool) {
             .approval,
         None
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_approve_page_opened_before_a_recipe_change_cannot_approve(pool: PgPool) {
+    let app = app(pool.clone());
+    let id = product(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/products/{}", id.get());
+    baker
+        .get(&format!("{path}/approve"))
+        .await
+        .shows("name=\"revisie\" value=\"0\"");
+    let mut conn = pool.acquire().await.expect("conn");
+    let (recipe, _) = recipes::recipes::create(
+        &mut conn,
+        &recipes::RecipeInput {
+            name: "Desem".to_owned(),
+            kind: recipes::RecipeKind::Dough,
+        },
+    )
+    .await
+    .expect("recipe");
+    recipes::recipes::link_product(&mut conn, recipe.id, id)
+        .await
+        .expect("link");
+    drop(conn);
+    let action = format!("{path}/approve");
+    let fields = |revision| {
+        [
+            ("allergens", "cereals_containing_gluten"),
+            ("ingredient_text", "TARWEbloem, water, zout"),
+            ("revisie", revision),
+        ]
+    };
+
+    let stale = baker.post(&action, &fields("0")).await;
+    assert_eq!(stale.status, StatusCode::CONFLICT);
+    stale.shows(&dutch("approve-changed"));
+    stale.shows("name=\"revisie\" value=\"1\"");
+    baker
+        .post(&action, &fields("1"))
+        .await
+        .redirects_to(&format!("{path}?opgeslagen=1"));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -653,6 +698,7 @@ async fn ingredient_text_with_line_breaks_can_be_approved(pool: PgPool) {
             &[
                 ("allergens", "cereals_containing_gluten"),
                 ("ingredient_text", "SPELTbloem\r\nwater"),
+                ("revisie", "0"),
             ],
         )
         .await;
@@ -1632,6 +1678,7 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
         &mut conn,
         bread,
         &sourdough().allergen_info,
+        0,
         approver.id,
         app.clock.as_ref(),
     )
@@ -1757,6 +1804,7 @@ async fn paid_order_for(app: &App, charity: Option<CharityId>) -> PaidOrder {
         &mut conn,
         bread,
         &sourdough().allergen_info,
+        0,
         approver.id,
         app.clock.as_ref(),
     )
@@ -3369,6 +3417,7 @@ async fn open_drop(app: &App) -> (BakeDayId, ProductId) {
         &mut conn,
         bread,
         &sourdough().allergen_info,
+        0,
         approver.id,
         app.clock.as_ref(),
     )

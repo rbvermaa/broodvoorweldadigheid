@@ -32,10 +32,37 @@ weight exactly, and an ingredient d levels deep is less than d + 1 grams from it
 share (less than 1 g at the top level). Hydration, total flour and prefermented flour use
 the same split on a reference weight of 10^12 g and are rounded half up to 0.001%.
 
-**Allergens.** Changing an ingredient's allergens or a product's recipe does not clear a
-product's allergen approval yet: product allergens are still entered by hand (F10) and
-nothing is computed from recipes. The roll-up with approval (F17) adds that rule. Whether
-to clear the approval already is an open question for the owner (block and ask).
+**Allergens (update 2026-11-25).** Owner: clear a product's allergen approval when its
+recipe changes, already before F17. Database triggers do it in the same transaction as the
+change, whoever writes it, so the shop blocks (ADR 0038) until someone approves again:
+
+| Change | Clears the approval of |
+|---|---|
+| `product.recipe_id` changes: link, unlink, another recipe | that product |
+| `recipe.current_version_id` changes ("In gebruik nemen") | the products of that recipe |
+| A line is added, changed or removed in a version | products whose recipe's version in use is that version or uses it as sub-recipe, at any depth |
+| An ingredient's set of allergens changes, or its label name (an empty label name means the name) | products whose version in use holds the ingredient, directly or through sub-recipes |
+
+Not cleared: renaming a recipe or changing its kind, notes or lead time; freezing; a new
+draft that is not in use; an ingredient's supplier or role; its name when it has a label
+name; versions that are not in use. A sub-recipe line points at a version, so taking
+another version of a levain into use does not change a dough that uses it. Saving a draft
+with the same lines does not rewrite them, so it does not clear anything. The label name
+counts because it becomes the ingredient text in F17.
+
+`product.allergens_cleared_reason` (`recipe` or `ingredient`) records why, and the staff
+product page says so. Any approval resets it. It is a column, not an `audit_log` entry,
+because a trigger would have to take the time from the database clock instead of the
+injected one.
+
+`product.allergens_recipe_rev` goes up with every change in the table, approved or not.
+The approve page sends it back, and `catalog::products::approve_allergens` refuses an
+approval for an older revision, so a page opened before a recipe change cannot approve
+what nobody looked at again. The triggers lock the affected products in id order, as
+checkout does (ADR 0038), and wait for an approval in progress. `set_current`,
+`link_product` and `unlink_product` take the graph lock too, so a line or ingredient
+change never reads a version in use or a recipe link that is about to change.
+
 Linking a product to a recipe needs the EditAllergens permission as well as Production.
 
 Open:
