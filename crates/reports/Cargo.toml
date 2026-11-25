@@ -23,5 +23,6 @@ thiserror.workspace = true
 bakedays = { path = "../bakedays" }
 insta.workspace = true
 proptest.workspace = true
+recipes = { path = "../recipes" }
 testkit = { path = "../testkit" }
 tokio.workspace = true

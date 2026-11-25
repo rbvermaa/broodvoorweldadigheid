@@ -1,0 +1,22 @@
+{% extends "staff/layout.html" %}
+{% import "components/table.html" as tb %}
+{% import "components/feedback.html" as fb %}
+{% block title %}{{ layout.t("costing-title")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("costing-title")? }}</h1>
+<p>{{ standard_date }}</p>
+<h2>{{ layout.t("costing-prices-heading")? }}</h2>
+{% if prices.rows.is_empty() %}
+{% call fb::empty_state(layout.t("costing-prices-empty-title")?, layout.t("costing-prices-empty-text")?) %}{% endcall %}
+{% else %}
+{% call tb::table(prices) %}{% endcall %}
+{% endif %}
+<h2>{{ layout.t("costing-products-heading")? }}</h2>
+{% call tb::table(products) %}{% endcall %}
+<h2>{{ layout.t("costing-batches-heading")? }}</h2>
+{% if batches.rows.is_empty() %}
+<p>{{ layout.t("costing-batches-empty")? }}</p>
+{% else %}
+{% call tb::table(batches) %}{% endcall %}
+{% endif %}
+{% endblock %}

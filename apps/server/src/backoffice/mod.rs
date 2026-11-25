@@ -6,6 +6,7 @@ pub mod bake_days;
 pub mod batches;
 pub mod business;
 pub mod charities;
+pub mod costing;
 pub mod customers;
 pub mod extras;
 pub mod form;
@@ -45,6 +46,7 @@ const FEATURES: &[fn() -> Router<AppState>] = &[
     batches::routes,
     business::routes,
     charities::routes,
+    costing::routes,
     customers::routes,
     extras::routes,
     ingredients::routes,

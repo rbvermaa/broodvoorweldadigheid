@@ -4,8 +4,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use db::time::{from_epoch_days, to_epoch_days, to_micros};
-use domain::{BakeDayId, CharityId, Clock, Money, OrderId, VatRate, VatTotals};
+use domain::{BakeDayId, CharityId, Clock, Money, OrderId, ProductId, VatRate, VatTotals};
 use jiff::civil::Date;
+use production::costing;
 use sqlx::PgConnection;
 
 use crate::facts::{self, DonationFact, OrderFact, Selection};
@@ -83,9 +84,10 @@ pub struct Contribution {
     pub fees: Money,
     /// Orders with a payment whose fee is not known yet.
     pub unknown_fees: u32,
-    /// Estimated ingredient cost of the products with an estimate.
+    /// Ingredient cost of the products with a cost: from the drop's baked batches, else the
+    /// standard cost on the drop date (F16), else the product's estimate.
     pub ingredients: Money,
-    /// Products sold without a cost estimate.
+    /// Products sold without any of those costs.
     pub missing_estimates: BTreeSet<String>,
     /// Packaging, energy and other costs entered for the drops.
     pub drop_costs: Money,
@@ -191,7 +193,7 @@ fn order_contribution(
     c.fees = order.fees;
     c.unknown_fees = u32::from(order.fee_missing);
     for line in &order.lines {
-        match line.estimated_cost {
+        match line.unit_cost {
             Some(cost) => c.ingredients = c.ingredients.checked_add(cost.checked_mul(line.qty)?)?,
             None => {
                 c.missing_estimates.insert(line.product_name.clone());
@@ -284,13 +286,14 @@ pub(crate) fn build(
 
 /// The bakery's contribution for charity drops dated in `period`. A drop's other costs
 /// count for the drop's charity, also on a drop without donations; an order's BTW, fees
-/// and ingredients for the charity its donation went to. Ingredient cost uses the
-/// product's current estimate.
+/// and ingredients for the charity its donation went to. Ingredient cost per piece comes
+/// from [`production::costing::unit_costs`] for the drop, and from the product's
+/// `estimated_cost_cents` for products costing cannot price.
 ///
 /// # Errors
 /// [`Error::Db`], [`Error::Corrupt`] or [`Error::Money`].
 pub async fn report(conn: &mut PgConnection, period: Period) -> Result<ContributionReport, Error> {
-    let orders = facts::orders(
+    let mut orders = facts::orders(
         conn,
         Selection::CharityDrops {
             from: period.from(),
@@ -298,6 +301,7 @@ pub async fn report(conn: &mut PgConnection, period: Period) -> Result<Contribut
         },
     )
     .await?;
+    cost_lines(conn, &mut orders).await?;
     let donations = facts::donations(conn, Some(period.from()), Some(period.to())).await?;
     let costs = sqlx::query!(
         r#"SELECT dc.bake_day_id, (bd.date - date 'epoch') AS "day!",
@@ -322,6 +326,33 @@ pub async fn report(conn: &mut PgConnection, period: Period) -> Result<Contribut
     })
     .collect::<Result<Vec<_>, Error>>()?;
     build(&orders, &donations, &costs, period)
+}
+
+/// Sets each order line's cost per piece from costing (F16) where it knows one, per drop;
+/// a baked batch it cannot price makes the cost unknown.
+async fn cost_lines(conn: &mut PgConnection, orders: &mut [OrderFact]) -> Result<(), Error> {
+    let mut per_day: BTreeMap<BakeDayId, BTreeSet<ProductId>> = BTreeMap::new();
+    for order in orders.iter() {
+        per_day
+            .entry(order.bake_day_id)
+            .or_default()
+            .extend(order.lines.iter().map(|line| line.product_id));
+    }
+    let mut costs: HashMap<(BakeDayId, ProductId), Option<Money>> = HashMap::new();
+    for (day, products) in per_day {
+        let products: Vec<ProductId> = products.into_iter().collect();
+        for (product, unit) in costing::unit_costs(conn, day, &products).await? {
+            costs.insert((day, product), unit.cost);
+        }
+    }
+    for order in orders {
+        for line in &mut order.lines {
+            if let Some(cost) = costs.get(&(order.bake_day_id, line.product_id)) {
+                line.unit_cost = *cost;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -356,7 +387,7 @@ mod tests {
                 unit_price: Money::from_cents(price),
                 suggested_price: None,
                 vat_rate: VatRate::Nine,
-                estimated_cost: cost.map(Money::from_cents),
+                unit_cost: cost.map(Money::from_cents),
             }],
             refunded: Money::ZERO,
             fees: Money::from_cents(fees.unwrap_or(0)),

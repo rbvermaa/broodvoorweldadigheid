@@ -1,0 +1,25 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="/staff/costing">{{ layout.t("costing-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{% if history.rows.is_empty() %}
+<p>{{ layout.t("costing-history-empty")? }}</p>
+{% else %}
+{% call tb::table(history) %}{% endcall %}
+{% endif %}
+<h2>{{ layout.t("costing-new-price")? }}</h2>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("money", "per_kg", layout.t("costing-per-kg")?, value = form.per_kg, hint = layout.t("costing-per-kg-hint")?, error = errors.get("per_kg"), required = true) %}{% endcall %}
+{% call f::field("date", "valid_from", layout.t("costing-valid-from")?, value = form.valid_from, hint = layout.t("costing-valid-from-hint")?, error = errors.get("valid_from"), required = true) %}{% endcall %}
+{% call b::button(layout.t("costing-save-price")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

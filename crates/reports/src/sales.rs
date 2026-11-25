@@ -247,7 +247,7 @@ mod tests {
             unit_price: Money::from_cents(price),
             suggested_price: suggested.map(Money::from_cents),
             vat_rate: rate,
-            estimated_cost: None,
+            unit_cost: None,
         }
     }
 

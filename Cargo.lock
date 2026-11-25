@@ -3431,6 +3431,7 @@ dependencies = [
  "orders",
  "production",
  "proptest",
+ "recipes",
  "serde_json",
  "sqlx",
  "testkit",

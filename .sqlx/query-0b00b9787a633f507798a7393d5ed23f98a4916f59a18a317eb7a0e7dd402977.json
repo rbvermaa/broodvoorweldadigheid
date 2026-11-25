@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id, (b.code_date - date 'epoch') AS \"code_days!\", b.mix_no,\n            (d.date - date 'epoch') AS \"bake_days!\", r.name, v.version\n        FROM batch b\n        JOIN bake_day d ON d.id = b.bake_day_id\n        JOIN recipe_version v ON v.id = b.recipe_version_id\n        JOIN recipe r ON r.id = v.recipe_id\n        WHERE b.status = 'baked' AND d.date >= date 'epoch' + $1::integer\n        ORDER BY d.date DESC, b.code_date DESC, b.mix_no DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "mix_no",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "mix_no"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "bake_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "0b00b9787a633f507798a7393d5ed23f98a4916f59a18a317eb7a0e7dd402977"
+}
