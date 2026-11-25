@@ -124,8 +124,6 @@ pub async fn sell(conn: &mut PgConnection, shop: &Shop, products: &[ProductId]) 
             &BakeDayProduct {
                 product_id,
                 max_qty: None,
-                capacity_pool_id: None,
-                units_per_item: 1,
             },
         )
         .await

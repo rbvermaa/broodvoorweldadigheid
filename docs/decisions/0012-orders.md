@@ -7,8 +7,8 @@ ADR 0008 and adds locks at the end. Every writer that touches orders takes them 
 order:
 
 1. `bake_day` `FOR SHARE` (status, deadline and charity cannot change underneath);
-2. `bakedays::range::lock_capacity` for the order's products (product rows by id, then
-   pools by id);
+2. `bakedays::range::lock_capacity` for the order's products (their
+   `bake_day_product` rows by product id);
 3. the `pickup_slot` row `FOR UPDATE`, which guards `max_orders`;
 4. checkout: the `customer` row (insert if absent) and the year's `order_number` row
    (an upsert, the last lock), then the insert. Payment (`mark_paid`): the order row
@@ -16,9 +16,8 @@ order:
 
 Ordered quantities are read after step 2 through `orders::Orders`, the real
 `bakedays::OrderSource`. A cart is checked as a whole (`range::check_order`, new in
-bakedays): two products in one pool count together, so `Capacity::check_all` adds each
-line to the usage before checking the next. Checkout checks `cutoff_at` itself and never
-relies on the stored status alone (ADR 0011).
+bakedays): `Capacity::check_all` adds each line to the usage before checking the next.
+Checkout checks `cutoff_at` itself and never relies on the stored status alone (ADR 0011).
 
 **What counts as ordered.** Lines of orders that are paid, confirmed or picked up, or
 `pending_payment` with `hold_expires_at` still in the future. A hold is 15 minutes. The
@@ -79,7 +78,7 @@ serialises them) and a payment that waits on the release job.
 the drop's charity at that moment; a drop without charity creates none (F4c). The charity
 cannot have changed since checkout: `set_charity` counts the order from checkout on, and
 an order can only be paid within its hold. Choosing another charity (F4d) fills `saved`,
-`choose_token` and `choose_by` later.
+`choose_token_hash` and `choose_by` later (ADR 0030, 0048).
 
 **Customer details are kept per order.** Anyone can type any email address, so a guest
 checkout never changes an existing `customer` row: it inserts one if the email is new

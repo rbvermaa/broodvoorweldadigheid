@@ -9,8 +9,8 @@ counting holds against capacity. Cancelled and refunded orders never appear. Ext
 production (F7a) counts per purpose, also for products that are not on the day's range.
 
 **Production list (F7).** One row per product with something to bake, by name: ordered,
-the four extra purposes, and the total to bake. Below it every capacity pool of the day
-with the units its products take (`to bake × units_per_item`) and its maximum.
+the four extra purposes, and the total to bake. Pool lines were removed with the pools
+(ADR 0026, 0048).
 
 **Pickup list (F8).** Every pickup slot of the day by start time, also slots without
 orders. Within a slot, orders by customer name (case-insensitive), then order number. Each

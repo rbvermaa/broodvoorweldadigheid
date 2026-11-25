@@ -6,8 +6,8 @@ use bakedays::{
     BakeDayProduct, ExtraInput, NewBakeDay, PickupSlotInput, Purpose, Schedule, days, extras, range,
 };
 use domain::{
-    BakeDayId, CapacityPoolId, IngredientId, PickupLocationId, PickupSlotId, ProductId, RecipeId,
-    RecipeVersionId, StaffUserId,
+    BakeDayId, IngredientId, PickupLocationId, PickupSlotId, ProductId, RecipeId, RecipeVersionId,
+    StaffUserId,
 };
 use jiff::Timestamp;
 use orders::audit::Actor;
@@ -135,21 +135,13 @@ async fn approve(conn: &mut PgConnection, id: ProductId) {
     .unwrap();
 }
 
-async fn on_range(
-    conn: &mut PgConnection,
-    day: BakeDayId,
-    product_id: ProductId,
-    pool: Option<CapacityPoolId>,
-    units_per_item: u32,
-) {
+async fn on_range(conn: &mut PgConnection, day: BakeDayId, product_id: ProductId) {
     range::set_product(
         conn,
         day,
         &BakeDayProduct {
             product_id,
             max_qty: None,
-            capacity_pool_id: pool,
-            units_per_item,
         },
     )
     .await
@@ -280,20 +272,14 @@ async fn the_production_list_counts_firm_orders_and_extras(mut conn: PoolConnect
     let clock = FakeClock::new(ts("2026-10-28T12:00:00Z"));
     let shop = shop(&mut conn, &clock, "2026-10-31").await;
     let other_day = self::shop(&mut conn, &clock, "2026-11-07").await;
-    let oven = range::create_pool(&mut conn, shop.day, "Oven", 100)
-        .await
-        .unwrap();
-    range::create_pool(&mut conn, shop.day, "Koelkast", 20)
-        .await
-        .unwrap();
     let desem = product(&mut conn, "Desem", true).await;
     let koekjes = product(&mut conn, "koekjes", true).await;
     let spelt = product(&mut conn, "Spelt", true).await;
     let granola = product(&mut conn, "Granola", false).await;
-    on_range(&mut conn, shop.day, desem, Some(oven.id), 2).await;
-    on_range(&mut conn, shop.day, koekjes, Some(oven.id), 1).await;
-    on_range(&mut conn, shop.day, spelt, None, 1).await;
-    on_range(&mut conn, other_day.day, desem, None, 1).await;
+    on_range(&mut conn, shop.day, desem).await;
+    on_range(&mut conn, shop.day, koekjes).await;
+    on_range(&mut conn, shop.day, spelt).await;
+    on_range(&mut conn, other_day.day, desem).await;
 
     paid(
         &mut conn,
@@ -376,8 +362,8 @@ async fn the_pickup_list_groups_by_slot_and_sorts_by_name(mut conn: PoolConnecti
     let shop = shop(&mut conn, &clock, "2026-10-31").await;
     let desem = product(&mut conn, "Desem", true).await;
     let koekjes = product(&mut conn, "Koekjes", true).await;
-    on_range(&mut conn, shop.day, desem, None, 1).await;
-    on_range(&mut conn, shop.day, koekjes, None, 1).await;
+    on_range(&mut conn, shop.day, desem).await;
+    on_range(&mut conn, shop.day, koekjes).await;
 
     paid(
         &mut conn,
@@ -654,7 +640,7 @@ async fn ingredient_needs_scale_the_recipe_in_use_for_orders_and_extras(
     dough_weight(&mut conn, klein, 450).await;
     dough_weight(&mut conn, koekjes, 0).await;
     for product in [desem, spelt, rogge, koekjes] {
-        on_range(&mut conn, shop.day, product, None, 1).await;
+        on_range(&mut conn, shop.day, product).await;
     }
 
     paid(

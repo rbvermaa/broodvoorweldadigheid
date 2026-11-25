@@ -638,20 +638,15 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
     .await
     .unwrap();
     days::open(&mut conn, &clock, source.id).await.unwrap();
-    let bread = product(&mut conn, "Desem", None).await;
-    let rolls = product(&mut conn, "Bolletjes", None).await;
-    let oven = range::create_pool(&mut conn, source.id, "Oven", 40)
-        .await
-        .unwrap();
-    for (product_id, pool) in [(bread, Some(oven.id)), (rolls, None)] {
+    let bread = product(&mut conn, "Desem").await;
+    let rolls = product(&mut conn, "Bolletjes").await;
+    for (product_id, max_qty) in [(bread, Some(12)), (rolls, None)] {
         range::set_product(
             &mut conn,
             source.id,
             &BakeDayProduct {
                 product_id,
-                max_qty: Some(12),
-                capacity_pool_id: pool,
-                units_per_item: 2,
+                max_qty,
             },
         )
         .await
@@ -697,10 +692,6 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
     assert_eq!(slots.len(), 1);
     assert_eq!(slots[0].starts_at, ts("2026-10-31T10:00:00Z"));
 
-    let pools = range::list_pools(&mut conn, copy.id).await.unwrap();
-    assert_eq!(pools.len(), 1);
-    assert_ne!(pools[0].id, oven.id);
-    assert_eq!((pools[0].name.as_str(), pools[0].max_units), ("Oven", 40));
     let products = range::list_products(&mut conn, copy.id).await.unwrap();
     assert_eq!(
         products,
@@ -708,14 +699,10 @@ async fn copy_moves_times_by_local_days_and_brings_the_range(mut conn: PoolConne
             BakeDayProduct {
                 product_id: bread,
                 max_qty: Some(12),
-                capacity_pool_id: Some(pools[0].id),
-                units_per_item: 2,
             },
             BakeDayProduct {
                 product_id: rolls,
-                max_qty: Some(12),
-                capacity_pool_id: None,
-                units_per_item: 2,
+                max_qty: None,
             },
         ]
     );
@@ -840,28 +827,6 @@ async fn the_rule_comes_from_the_company_settings(mut conn: PoolConnection<Postg
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_product_lead_time_does_not_warn(mut conn: PoolConnection<Postgres>) {
-    let day = create_day(&mut conn, &saturday()).await;
-    let rye = product(&mut conn, "Rogge", Some(168)).await;
-    range::set_product(
-        &mut conn,
-        day.id,
-        &BakeDayProduct {
-            product_id: rye,
-            max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
-        },
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        days::lead_time_warning(&mut conn, day.id).await.unwrap(),
-        None
-    );
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn baking_starts_at_five_on_the_bake_date(mut conn: PoolConnection<Postgres>) {
     // The clocks jump forward on Sunday 29 March: 05:00 is summer time.
     let spring = create_day(
@@ -956,15 +921,13 @@ async fn production_only_days_need_no_pickup_window(mut conn: PoolConnection<Pos
             .is_empty()
     );
 
-    let bread = product(&mut conn, "Desem", Some(168)).await;
+    let bread = product(&mut conn, "Desem").await;
     range::set_product(
         &mut conn,
         friday.id,
         &BakeDayProduct {
             product_id: bread,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await

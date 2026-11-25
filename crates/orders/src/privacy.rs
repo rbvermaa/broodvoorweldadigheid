@@ -454,7 +454,7 @@ pub async fn erase(
     .await?;
     sqlx::query!(
         r#"UPDATE donation_allocation a
-        SET choose_token = NULL, choose_token_hash = sha256(convert_to(gen_random_uuid()::text, 'UTF8'))
+        SET choose_token_hash = sha256(convert_to(gen_random_uuid()::text, 'UTF8'))
         FROM "order" o
         WHERE o.id = a.order_id AND o.customer_id = $1 AND a.status = 'saved'"#,
         id,

@@ -16,7 +16,7 @@ const BAKER: StaffUserId = StaffUserId::new(7);
 
 async fn paid_order(conn: &mut PgConnection, clock: &FakeClock, shop: &OpenDay) -> Order {
     let bread = product(conn, &BREAD).await;
-    on_range(conn, shop, bread, None, None).await;
+    on_range(conn, shop, bread, None).await;
     let order = order_as_guest(conn, clock, shop, &[(bread, 2, None)])
         .await
         .unwrap();
@@ -128,7 +128,7 @@ async fn only_paid_or_confirmed_orders_can_be_picked_up(mut conn: PoolConnection
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let cookies = product(&mut conn, &COOKIES).await;
-    on_range(&mut conn, &shop, cookies, None, None).await;
+    on_range(&mut conn, &shop, cookies, None).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(cookies, 1, None)])
         .await
         .unwrap();
@@ -172,7 +172,7 @@ async fn firm_orders_of_a_day_leave_out_holds_and_cancelled_ones(
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let paid = paid_order(&mut conn, &clock, &shop).await;
     let cookies = product(&mut conn, &COOKIES).await;
-    on_range(&mut conn, &shop, cookies, None, None).await;
+    on_range(&mut conn, &shop, cookies, None).await;
     let held = order_as_guest(&mut conn, &clock, &shop, &[(cookies, 1, None)])
         .await
         .unwrap();
@@ -255,7 +255,7 @@ async fn only_paid_orders_on_a_live_day_await_pickup(mut conn: PoolConnection<Po
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let order = paid_order(&mut conn, &clock, &shop).await;
     let cookies = product(&mut conn, &COOKIES).await;
-    on_range(&mut conn, &shop, cookies, None, None).await;
+    on_range(&mut conn, &shop, cookies, None).await;
     let pending = order_as_guest(&mut conn, &clock, &shop, &[(cookies, 1, None)])
         .await
         .unwrap();

@@ -312,8 +312,6 @@ async fn bakery(pool: &PgPool, clock: &FakeClock) -> Bakery {
         &BakeDayProduct {
             product_id: bread,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await

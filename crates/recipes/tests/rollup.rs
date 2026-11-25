@@ -603,7 +603,6 @@ async fn a_hand_edit_of_computed_values_drops_the_list(mut conn: PoolConnection<
         unit_weight_g: kept.unit_weight_g,
         dough_g_per_piece: kept.dough_g_per_piece,
         freezer_days: None,
-        lead_time_hours: None,
         allergen_info: kept.allergen_info.clone(),
         packaged: false,
         sold_online: true,

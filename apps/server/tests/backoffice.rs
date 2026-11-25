@@ -273,7 +273,6 @@ fn sourdough() -> ProductInput {
         unit_weight_g: 800,
         dough_g_per_piece: 900,
         freezer_days: None,
-        lead_time_hours: None,
         allergen_info: AllergenInfo {
             allergens: [Allergen::CerealsContainingGluten].into(),
             ingredient_text: "TARWEbloem, water, zout".to_owned(),
@@ -1012,7 +1011,6 @@ async fn the_schedule_warns_only_for_the_sourdough_rule_and_refuses_bad_times(po
             &mut conn,
             &ProductInput {
                 name_nl: "Roggebrood".to_owned(),
-                lead_time_hours: Some(48),
                 ..sourdough()
             },
         )
@@ -1194,7 +1192,7 @@ async fn the_range_editor_sets_limits(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
+async fn changing_a_limit_updates_only_the_maximum(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;
@@ -1212,17 +1210,12 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
         .id
     };
     let mut conn = pool.acquire().await.expect("conn");
-    let oven = range::create_pool(&mut conn, day, "Oven 1", 40)
-        .await
-        .expect("pool");
     range::set_product(
         &mut conn,
         day,
         &BakeDayProduct {
             product_id: bread,
             max_qty: Some(12),
-            capacity_pool_id: Some(oven.id),
-            units_per_item: 2,
         },
     )
     .await
@@ -1238,7 +1231,6 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
         "id=\"max_qty_{id}\" name=\"max_qty_{id}\" value=\"12\""
     ));
     page.lacks(&format!("units_{id}"));
-    page.lacks("Oven 1");
     page.lacks("pool_id");
     page.lacks(">Desembrood wit</option>");
     page.shows(">Speltbrood</option>");
@@ -1254,8 +1246,6 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
         [BakeDayProduct {
             product_id: bread,
             max_qty: Some(20),
-            capacity_pool_id: Some(oven.id),
-            units_per_item: 2,
         }]
     );
     drop(conn);
@@ -1269,8 +1259,8 @@ async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
     stale_add.redirects_to(&format!("{path}?opgeslagen=1"));
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(
-        range::list_products(&mut conn, day).await.expect("range")[0].capacity_pool_id,
-        Some(oven.id)
+        range::list_products(&mut conn, day).await.expect("range")[0].max_qty,
+        Some(8)
     );
     drop(conn);
 
@@ -1453,8 +1443,6 @@ async fn extra_production_counts_against_capacity(pool: PgPool) {
         &BakeDayProduct {
             product_id: bread,
             max_qty: Some(10),
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await
@@ -1701,8 +1689,6 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
         &BakeDayProduct {
             product_id: bread,
             max_qty: Some(10),
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await
@@ -1827,8 +1813,6 @@ async fn paid_order_for(app: &App, charity: Option<CharityId>) -> PaidOrder {
         &BakeDayProduct {
             product_id: bread,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await
@@ -3440,8 +3424,6 @@ async fn open_drop(app: &App) -> (BakeDayId, ProductId) {
         &BakeDayProduct {
             product_id: bread,
             max_qty: Some(10),
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await

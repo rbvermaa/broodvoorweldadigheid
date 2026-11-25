@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, lead_time_hours, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product WHERE id = $1",
+  "query": "SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,\n            pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,\n            dough_g_per_piece, freezer_days, allergens,\n            ingredient_text, allergens_approved_by,\n            (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,\n            allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,\n            recipe_id IS NOT NULL AS \"has_recipe!\",\n            packaged, sold_online, estimated_cost_cents, active\n        FROM product ORDER BY name_nl, id",
   "describe": {
     "columns": [
       {
@@ -137,17 +137,6 @@
       },
       {
         "ordinal": 12,
-        "name": "lead_time_hours",
-        "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "product",
-            "name": "lead_time_hours"
-          }
-        }
-      },
-      {
-        "ordinal": 13,
         "name": "allergens",
         "type_info": "TextArray",
         "origin": {
@@ -158,7 +147,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "ingredient_text",
         "type_info": "Text",
         "origin": {
@@ -169,7 +158,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "allergens_approved_by",
         "type_info": "Int8",
         "origin": {
@@ -180,13 +169,13 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 15,
         "name": "allergens_approved_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 17,
+        "ordinal": 16,
         "name": "allergens_cleared_reason",
         "type_info": "Text",
         "origin": {
@@ -197,7 +186,7 @@
         }
       },
       {
-        "ordinal": 18,
+        "ordinal": 17,
         "name": "allergens_recipe_rev",
         "type_info": "Int8",
         "origin": {
@@ -208,7 +197,7 @@
         }
       },
       {
-        "ordinal": 19,
+        "ordinal": 18,
         "name": "ingredient_names",
         "type_info": "TextArray",
         "origin": {
@@ -219,7 +208,7 @@
         }
       },
       {
-        "ordinal": 20,
+        "ordinal": 19,
         "name": "ingredient_emphasis",
         "type_info": "BoolArray",
         "origin": {
@@ -230,13 +219,13 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 20,
         "name": "has_recipe!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 22,
+        "ordinal": 21,
         "name": "packaged",
         "type_info": "Bool",
         "origin": {
@@ -247,7 +236,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 22,
         "name": "sold_online",
         "type_info": "Bool",
         "origin": {
@@ -258,7 +247,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 23,
         "name": "estimated_cost_cents",
         "type_info": "Int8",
         "origin": {
@@ -269,7 +258,7 @@
         }
       },
       {
-        "ordinal": 25,
+        "ordinal": 24,
         "name": "active",
         "type_info": "Bool",
         "origin": {
@@ -281,9 +270,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -297,7 +284,6 @@
       true,
       false,
       false,
-      true,
       true,
       false,
       false,
@@ -314,5 +300,5 @@
       false
     ]
   },
-  "hash": "fb3d6afeaa720e8a68a442555aa78a56489a963dd6522b5fb457644e3944cc91"
+  "hash": "fb765f8f2df864efb3c062ab11281ba42b4a253af8392af317d5352e2eaa0ea6"
 }

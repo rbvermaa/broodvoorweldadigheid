@@ -17,5 +17,5 @@ pub use error::Error;
 pub use extras::{ExtraInput, ProductionExtra, ProductionExtraId, Purpose};
 pub use orders::{NoOrders, OrderSource};
 pub use pickup::{PickupLocation, PickupLocationInput, PickupWindow, PickupWindowInput};
-pub use range::{Availability, BakeDayProduct, CapacityPool};
+pub use range::{Availability, BakeDayProduct};
 pub use status::{BakeDayStatus, PublicStatus, Transition};

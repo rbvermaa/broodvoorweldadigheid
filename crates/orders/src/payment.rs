@@ -190,7 +190,7 @@ async fn find_payment(conn: &mut PgConnection, reference: &str) -> Result<Option
 /// that completes within the order's hold counts; a later one is always refunded
 /// (ADR 0012). Reporting the same payment again changes nothing.
 ///
-/// Locks in the order of ADR 0008 and ADR 0012: bake day, products and pools, slot, then
+/// Locks in the order of ADR 0008 and ADR 0012: bake day, range rows, slot, then
 /// the order row. The clock is read after the locks.
 ///
 /// # Errors

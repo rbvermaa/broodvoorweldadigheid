@@ -24,7 +24,6 @@ id_type!(
     BatchId,
     BatchLineId,
     BusinessAccountId,
-    CapacityPoolId,
     CharityId,
     CustomerId,
     DonationAllocationId,

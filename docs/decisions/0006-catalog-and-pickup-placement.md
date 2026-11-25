@@ -18,8 +18,8 @@ crate. Nothing below layer 3 needs locations.
 uses the longest recipe lead time on a drop, but `RecipeVersion.lead_time_hours` arrives
 in Phase 2. Until then `product.lead_time_hours` (nullable) holds a per-product value and
 `company.default_lead_time_hours` the fallback. The default is 36 hours: an assumption,
-to confirm with the baker. When recipes ship, the recipe value takes over and the
-product column is dropped in a later release.
+to confirm with the baker. When recipes ship, the recipe value takes over. Both
+columns were dropped in ADR 0048.
 
 **Update 2026-11-24: the owner's rule replaces the 36-hour default.** The owner answered
 "sourdough lead time can just be 2 days before in the evening". The warning now uses
@@ -29,9 +29,9 @@ on the bake date minus that many days, with the same summer/winter time handling
 default deadline. A product that sets its own `lead_time_hours` still adds a check
 (`bake_starts_at` minus that lead time); the earlier of the two limits wins. A product
 without one has no lead time of its own: there is no fallback any more.
-`company.default_lead_time_hours` is no longer read and is dropped in a later release
-(migrations only add). The warning applies to every online drop, also one without
-products yet. Per-product lead times were dropped later the same day (ADR 0027).
+`company.default_lead_time_hours` is no longer read (dropped in ADR 0048). The warning
+applies to every online drop, also one without products yet. Per-product lead times were
+dropped later the same day (ADR 0027).
 
 Smaller choices in the same change:
 

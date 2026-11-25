@@ -19,7 +19,6 @@ fn cookies() -> ProductInput {
         unit_weight_g: 200,
         dough_g_per_piece: 210,
         freezer_days: None,
-        lead_time_hours: None,
         allergen_info: AllergenInfo {
             allergens: BTreeSet::new(),
             ingredient_text: "havermout".to_owned(),

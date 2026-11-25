@@ -136,8 +136,6 @@ async fn extra(conn: &mut PgConnection, day: BakeDayId, product: ProductId, qty:
         &BakeDayProduct {
             product_id: product,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await

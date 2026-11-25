@@ -12,11 +12,10 @@ not in the recipe, so it is one list for the whole kitchen instead of one per pr
 | Showing allergens, adding to the cart and checkout need both the product's approval and the kitchen list's approval (`Product::allergens_approved`). Checkout locks its product rows by id and then the company row `FOR SHARE` (ADR 0008, update 2026-11-25), reads both approvals after those locks and refuses with `CartError::KitchenAllergensNotApproved`; the shop shows the usual "allergeneninformatie volgt" and "niet beschikbaar" | ADR 0012's "block when in doubt": without an approved list we cannot tell the customer what the bread may contain. The locks make a staff change that clears an approval wait for a running checkout, so no order is placed against a revoked approval |
 | The list starts empty and unapproved. The staff home and the product list show a warning with a link until the owner or baker approves it; until then nothing can be ordered online | An empty list is a statement too ("geen sporen"), so someone has to approve it once. The warning makes the block visible right after deploying |
 | Owner and baker edit and approve it on `/staff/products/may-contain` (`Permission::EditAllergens`). Approving sends the shown list back in hidden fields; a list that changed in the meantime gets a 409 and the new list | Same flow as the product approve page |
-| Product approval now covers allergens and ingredient text only; the form and approve page no longer show may-contain. `product.may_contain` stays in the schema but is not read or written. Its old trigger clause stays too | Migrations only add (CLAUDE.md). The column and the trigger clause go in a later release |
+| Product approval now covers allergens and ingredient text only; the form and approve page no longer show may-contain. `product.may_contain` and its clause in `clear_allergen_approval` were dropped in ADR 0048 | Not read or written since this change |
 
 Follow-ups:
 
-- Drop `product.may_contain` and its clause in `clear_allergen_approval` in a later release.
 - F17 (recipes): decide whether an ingredient's `may_contain` feeds the kitchen list or a
   product's own allergens (docs/open-questions.md).
 

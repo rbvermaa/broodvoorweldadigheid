@@ -51,7 +51,6 @@ fn sourdough() -> ProductInput {
         unit_weight_g: 800,
         dough_g_per_piece: 900,
         freezer_days: Some(90),
-        lead_time_hours: None,
         allergen_info: allergen_info(),
         packaged: false,
         sold_online: true,
@@ -207,13 +206,6 @@ async fn invalid_fields_are_refused(mut conn: PoolConnection<Postgres>) {
         ),
         (
             ProductInput {
-                lead_time_hours: Some(169),
-                ..sourdough()
-            },
-            "lead time",
-        ),
-        (
-            ProductInput {
                 estimated_cost: Some(eur(-1)),
                 ..sourdough()
             },
@@ -235,7 +227,6 @@ async fn update_replaces_fields(mut conn: PoolConnection<Postgres>) {
         name_nl: "Desembrood volkoren".to_owned(),
         price_incl: eur(700),
         sold_online: false,
-        lead_time_hours: Some(48),
         estimated_cost: None,
         ..sourdough()
     };
@@ -247,7 +238,6 @@ async fn update_replaces_fields(mut conn: PoolConnection<Postgres>) {
     assert_eq!(updated.name_nl, "Desembrood volkoren");
     assert_eq!(updated.pricing, Pricing::Fixed(eur(700)));
     assert!(!updated.sold_online);
-    assert_eq!(updated.lead_time_hours, Some(48));
     assert_eq!(updated.estimated_cost, None);
     assert_eq!(products::get(&mut conn, product.id).await.unwrap(), updated);
 }
@@ -514,8 +504,6 @@ async fn database_refuses_bad_vat_rates(mut conn: PoolConnection<Postgres>) {
 async fn database_refuses_unknown_allergen_codes(mut conn: PoolConnection<Postgres>) {
     let err = insert_raw(&mut conn, ", allergens", ", '{gluten}'").await;
     assert_eq!(constraint(&err), Some("product_allergens_check"));
-    let err = insert_raw(&mut conn, ", may_contain", ", '{milk,NULL}'").await;
-    assert_eq!(constraint(&err), Some("product_may_contain_check"));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -617,44 +605,6 @@ async fn approval_ignores_the_stored_order_of_allergens(mut conn: PoolConnection
         .await
         .unwrap();
     assert!(approved.approval.is_some());
-}
-
-#[sqlx::test(migrator = "db::MIGRATOR")]
-async fn product_approval_ignores_the_unused_may_contain_column(
-    mut conn: PoolConnection<Postgres>,
-) {
-    let clock = FakeClock::new(ts("2026-11-25T10:00:00Z"));
-    let product = products::create(&mut conn, &sourdough()).await.unwrap();
-    sqlx::query("UPDATE product SET may_contain = '{milk}' WHERE id = $1")
-        .bind(product.id.get())
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    add_baker(&mut conn).await;
-    let approved =
-        products::approve_allergens(&mut conn, product.id, &allergen_info(), 0, BAKER, &clock)
-            .await
-            .unwrap();
-    assert!(approved.approval.is_some());
-
-    let renamed = ProductInput {
-        name_nl: "Hernoemd".to_owned(),
-        ..sourdough()
-    };
-    let updated = products::update(&mut conn, product.id, &renamed)
-        .await
-        .unwrap();
-    assert!(updated.approval.is_some());
-    let stored: Vec<String> = sqlx::query_scalar("SELECT may_contain FROM product WHERE id = $1")
-        .bind(product.id.get())
-        .fetch_one(&mut *conn)
-        .await
-        .unwrap();
-    assert_eq!(
-        stored,
-        ["milk"],
-        "the catalogue no longer writes the column"
-    );
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

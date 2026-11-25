@@ -265,7 +265,6 @@ mod tests {
             unit_weight_g: 800,
             dough_g_per_piece: 900,
             freezer_days: None,
-            lead_time_hours: None,
             allergen_info: AllergenInfo::default(),
             ingredient_list: None,
             has_recipe: false,
@@ -308,8 +307,6 @@ mod tests {
         BakeDayProduct {
             product_id,
             max_qty: None,
-            capacity_pool_id: None,
-            units_per_item: 1,
         }
     }
 

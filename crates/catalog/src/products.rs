@@ -70,7 +70,6 @@ pub struct ProductInput {
     pub unit_weight_g: i32,
     pub dough_g_per_piece: i32,
     pub freezer_days: Option<i32>,
-    pub lead_time_hours: Option<i32>,
     pub allergen_info: AllergenInfo,
     pub packaged: bool,
     pub sold_online: bool,
@@ -89,7 +88,6 @@ pub struct Product {
     pub unit_weight_g: i32,
     pub dough_g_per_piece: i32,
     pub freezer_days: Option<i32>,
-    pub lead_time_hours: Option<i32>,
     pub allergen_info: AllergenInfo,
     /// The computed list the allergen data came from (F17); `None` when the ingredient
     /// text was entered by hand.
@@ -156,7 +154,6 @@ struct Row {
     unit_weight_g: i32,
     dough_g_per_piece: i32,
     freezer_days: Option<i32>,
-    lead_time_hours: Option<i32>,
     allergens: Vec<String>,
     ingredient_text: String,
     allergens_approved_by: Option<i64>,
@@ -222,7 +219,6 @@ impl TryFrom<Row> for Product {
             unit_weight_g: row.unit_weight_g,
             dough_g_per_piece: row.dough_g_per_piece,
             freezer_days: row.freezer_days,
-            lead_time_hours: row.lead_time_hours,
             allergen_info: AllergenInfo {
                 allergens: allergens_from_db(&row.allergens)?,
                 ingredient_text: row.ingredient_text,
@@ -269,12 +265,6 @@ fn validate(input: &ProductInput) -> Result<Validated, Error> {
     if input.freezer_days.is_some_and(|days| days <= 0) {
         return Err(Error::Invalid("freezer days"));
     }
-    if input
-        .lead_time_hours
-        .is_some_and(|hours| !(0..=168).contains(&hours))
-    {
-        return Err(Error::Invalid("lead time"));
-    }
     if input.estimated_cost.is_some_and(|cost| cost < Money::ZERO) {
         return Err(Error::Invalid("estimated cost"));
     }
@@ -301,12 +291,12 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
         r#"INSERT INTO product (
             name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, packaged, sold_online, estimated_cost_cents, active
-        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        ) VALUES ($1, $2, $3, $4, $5::bigint, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -323,7 +313,6 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
         input.unit_weight_g,
         input.dough_g_per_piece,
         input.freezer_days,
-        input.lead_time_hours,
         &v.allergens,
         input.allergen_info.ingredient_text,
         input.packaged,
@@ -353,16 +342,16 @@ pub async fn update(
             name_nl = $2, description_nl = $3, photo_path = $4, price_incl_cents = $5,
             vat_rate = $6::bigint, pay_what_you_want = $7, min_price_cents = $8, max_price_cents = $9,
             unit_weight_g = $10, dough_g_per_piece = $11, freezer_days = $12,
-            lead_time_hours = $13, allergens = $14, ingredient_text = $15,
-            packaged = $16, sold_online = $17, estimated_cost_cents = $18, active = $19,
-            ingredient_names = CASE WHEN allergens @> $14 AND allergens <@ $14
-                AND ingredient_text = $15 THEN ingredient_names END,
-            ingredient_emphasis = CASE WHEN allergens @> $14 AND allergens <@ $14
-                AND ingredient_text = $15 THEN ingredient_emphasis END
+            allergens = $13, ingredient_text = $14,
+            packaged = $15, sold_online = $16, estimated_cost_cents = $17, active = $18,
+            ingredient_names = CASE WHEN allergens @> $13 AND allergens <@ $13
+                AND ingredient_text = $14 THEN ingredient_names END,
+            ingredient_emphasis = CASE WHEN allergens @> $13 AND allergens <@ $13
+                AND ingredient_text = $14 THEN ingredient_emphasis END
         WHERE id = $1
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -380,7 +369,6 @@ pub async fn update(
         input.unit_weight_g,
         input.dough_g_per_piece,
         input.freezer_days,
-        input.lead_time_hours,
         &v.allergens,
         input.allergen_info.ingredient_text,
         input.packaged,
@@ -432,7 +420,7 @@ async fn approve_stored(
             AND NOT ($7 AND recipe_id IS NOT NULL)
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -526,7 +514,7 @@ pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Erro
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -550,7 +538,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -574,7 +562,7 @@ pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,
@@ -598,7 +586,7 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
         Row,
         r#"SELECT id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
-            dough_g_per_piece, freezer_days, lead_time_hours, allergens,
+            dough_g_per_piece, freezer_days, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
             allergens_cleared_reason, allergens_recipe_rev, ingredient_names, ingredient_emphasis,

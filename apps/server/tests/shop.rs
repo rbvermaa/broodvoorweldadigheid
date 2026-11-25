@@ -324,8 +324,6 @@ async fn on_range(conn: &mut PgConnection, day: BakeDayId, product: ProductId, m
         &bakedays::BakeDayProduct {
             product_id: product,
             max_qty: max,
-            capacity_pool_id: None,
-            units_per_item: 1,
         },
     )
     .await
