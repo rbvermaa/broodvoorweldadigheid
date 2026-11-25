@@ -35,7 +35,7 @@ pub struct PickupOrder {
 pub struct SlotPickups {
     pub slot: PickupSlot,
     pub location: String,
-    /// By customer name, then order number.
+    /// By customer name, then order number; erased customers (F12) last.
     pub orders: Vec<PickupOrder>,
 }
 
@@ -113,9 +113,13 @@ pub async fn pickup_list(conn: &mut PgConnection, day: BakeDayId) -> Result<Pick
     tx.commit().await?;
     for slot in &mut slots {
         slot.orders.sort_by(|a, b| {
-            a.customer_name
-                .to_lowercase()
-                .cmp(&b.customer_name.to_lowercase())
+            a.customer_erased
+                .cmp(&b.customer_erased)
+                .then_with(|| {
+                    a.customer_name
+                        .to_lowercase()
+                        .cmp(&b.customer_name.to_lowercase())
+                })
                 .then(a.number.cmp(&b.number))
         });
     }

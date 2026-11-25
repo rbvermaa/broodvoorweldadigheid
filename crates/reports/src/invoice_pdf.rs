@@ -269,6 +269,10 @@ mod tests {
         let data = paper(&overview(), &seller(), &dutch()).unwrap();
         let (text, warnings) = production::invoice_overview_text(&data).unwrap();
         assert_eq!(warnings, Vec::<String>::new());
+        assert!(
+            text.contains("Bestelling | Bakdag | Product | Aantal | Prijs per stuk excl. BTW"),
+            "every column, product included, fits on one line: {text}"
+        );
         insta::assert_snapshot!(text);
     }
 

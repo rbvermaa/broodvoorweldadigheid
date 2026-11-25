@@ -2,7 +2,7 @@
 #let l = data.labels
 
 #set document(title: data.title, date: none)
-#set page(paper: "a4", margin: 15mm)
+#set page(paper: "a4", flipped: true, margin: 15mm)
 #set text(font: "Inter", size: 10pt, lang: "nl", fallback: false)
 #show heading: set text(font: "Oswald", weight: "regular")
 #show table: set text(size: 9pt)
