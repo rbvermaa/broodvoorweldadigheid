@@ -89,6 +89,9 @@ expression: without_asset_hashes(&gallery_html(&state))
 <h2 id="gallery-fields">Formuliervelden</h2>
 <div class="gallery-form">
 
+<div class="form-grid">
+
+
 <div class="field">
 
 <label class="field-label" for="naam">Naam <span class="field-required" aria-hidden="true">(verplicht)</span></label>
@@ -225,6 +228,9 @@ expression: without_asset_hashes(&gallery_html(&state))
 <input class="field-checkbox" type="checkbox" id="akkoord-uit" name="akkoord-uit" value="ja" checked disabled>
 
 <label class="field-label" for="akkoord-uit">Ik ga akkoord met de voorwaarden</label>
+
+</div>
+
 
 </div>
 
@@ -723,6 +729,69 @@ expression: without_asset_hashes(&gallery_html(&state))
 </form>
 </dialog>
 <div id="bakdag-annuleren-result" role="status"></div>
+
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-layout">
+<h2 id="gallery-layout">Indeling</h2>
+<p>Op een breed scherm staan keuzes, kaarten en een zijkolom naast elkaar. Op een telefoon onder elkaar.</p>
+
+<div class="choice-grid">
+
+
+<div class="field field-check">
+
+
+<input class="field-checkbox" type="checkbox" id="keuze-a" name="keuze-a" value="ja">
+
+<label class="field-label" for="keuze-a">Voedselbank Westerveld</label>
+
+</div>
+
+
+<div class="field field-check">
+
+
+<input class="field-checkbox" type="checkbox" id="keuze-b" name="keuze-b" value="ja">
+
+<label class="field-label" for="keuze-b">Stichting Kinderhulp Frederiksoord</label>
+
+</div>
+
+
+<div class="field field-check">
+
+
+<input class="field-checkbox" type="checkbox" id="keuze-c" name="keuze-c" value="ja">
+
+<label class="field-label" for="keuze-c">Zuurdesemvolkorenbrood met zonnebloempitten</label>
+
+</div>
+
+
+</div>
+
+
+<div class="split">
+
+
+<div class="card-grid">
+
+<article><h3>Desem wit</h3><p>Licht en luchtig.</p></article>
+<article><h3>Zuurdesemvolkorenbrood met zonnebloempitten</h3><p>Langzaam gerezen, met een krokante korst.</p></article>
+<article><h3>Desem wit</h3><p>Tarwebloem, water, zuurdesem (tarwe), zeezout.</p></article>
+
+</div>
+
+
+<div class="empty-state">
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+<p class="empty-state-title">Nog geen bestellingen</p>
+<p class="empty-state-text">Zodra iemand bestelt, zie je de bestelling hier.</p>
+</div>
+
+
+</div>
 
 </section>
 

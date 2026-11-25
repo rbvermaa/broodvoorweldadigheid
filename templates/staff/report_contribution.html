@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("reports-contribution-title")? }}{% endblock %}
@@ -24,11 +25,13 @@
 {% call s::csrf() %}{% endcall %}
 <input type="hidden" name="van" value="{{ cost.from }}">
 <input type="hidden" name="tot" value="{{ cost.to }}">
+{% call l::form_grid() %}
 {% call f::select("bake_day_id", layout.t("reports-cost-day")?, cost.days, error = cost.errors.get("bake_day_id"), required = true) %}{% endcall %}
 {% call f::select("kind", layout.t("reports-cost-kind")?, cost.kinds, error = cost.errors.get("kind"), required = true) %}{% endcall %}
 {% call f::field("money", "amount", layout.t("reports-amount")?, value = cost.amount, error = cost.errors.get("amount"), required = true) %}{% endcall %}
 {% call f::field("text", "note", layout.t("reports-cost-note")?, value = cost.note) %}{% endcall %}
 {% call b::button(layout.t("reports-cost-add")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 {% endblock %}

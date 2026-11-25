@@ -10,6 +10,7 @@
 {% import "components/drop.html" as dr %}
 {% import "components/cart.html" as c %}
 {% import "components/brand.html" as brand %}
+{% import "components/layout.html" as l %}
 {% block title %}{{ layout.t("gallery-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("gallery-title")? }}</h1>
@@ -42,6 +43,7 @@
 <section class="gallery-section" aria-labelledby="gallery-fields">
 <h2 id="gallery-fields">{{ layout.t("gallery-fields")? }}</h2>
 <div class="gallery-form">
+{% call l::form_grid() %}
 {% call f::field("text", "naam", layout.t("gallery-name")?, hint = layout.t("gallery-name-hint")?, required = true) %}{% endcall %}
 {% call f::field("email", "email", layout.t("gallery-email")?, value = "naam@", error = layout.t("gallery-email-error")?, required = true) %}{% endcall %}
 {% call f::field("number", "aantal", layout.t("gallery-amount")?, value = "0", error = layout.t("gallery-amount-error")?) %}{% endcall %}
@@ -55,6 +57,7 @@
 {% call f::checkbox("akkoord", layout.t("gallery-terms")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-fout", layout.t("gallery-terms")?, error = layout.t("gallery-terms-error")?, required = true) %}{% endcall %}
 {% call f::checkbox("akkoord-uit", layout.t("gallery-terms")?, checked = true, disabled = true) %}{% endcall %}
+{% endcall %}
 </div>
 </section>
 
@@ -132,6 +135,24 @@
 <h2 id="gallery-dialog">{{ layout.t("gallery-dialog")? }}</h2>
 {% call b::button(layout.t("gallery-dialog-open")?, variant = "danger", opens = "bakdag-annuleren") %}{% endcall %}
 {% call d::confirm_dialog("bakdag-annuleren", layout.t("gallery-dialog-title")?, layout.t("gallery-dialog-text")?, layout.t("gallery-dialog-confirm")?, "/gallery") %}{% endcall %}
+</section>
+
+<section class="gallery-section" aria-labelledby="gallery-layout">
+<h2 id="gallery-layout">{{ layout.t("gallery-layout")? }}</h2>
+<p>{{ layout.t("gallery-layout-intro")? }}</p>
+{% call l::choice_grid() %}
+{% call f::checkbox("keuze-a", layout.t("gallery-charity-a")?) %}{% endcall %}
+{% call f::checkbox("keuze-b", layout.t("gallery-charity-b")?) %}{% endcall %}
+{% call f::checkbox("keuze-c", layout.t("gallery-long-word")?) %}{% endcall %}
+{% endcall %}
+{% call l::split() %}
+{% call l::card_grid() %}
+<article><h3>{{ layout.t("gallery-product-short")? }}</h3><p>{{ layout.t("gallery-product-short-desc")? }}</p></article>
+<article><h3>{{ layout.t("gallery-long-word")? }}</h3><p>{{ layout.t("gallery-product-desc")? }}</p></article>
+<article><h3>{{ layout.t("gallery-product-short")? }}</h3><p>{{ layout.t("gallery-product-ingredients")? }}</p></article>
+{% endcall %}
+{% call fb::empty_state(layout.t("gallery-empty-title")?, layout.t("gallery-empty-text")?) %}{% endcall %}
+{% endcall %}
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-saved">

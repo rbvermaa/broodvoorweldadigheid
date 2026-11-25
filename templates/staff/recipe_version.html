@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
+{% import "components/layout.html" as l %}
 {% import "components/recipe.html" as r %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
@@ -10,11 +11,11 @@
 <h1>{{ heading }}</h1>
 <p><a href="{{ back }}">{{ layout.t("recipe-versions")? }}</a></p>
 {% call s::status(saved) %}{% endcall %}
-<div class="recipe-page">
-<div class="recipe-main">
+{% call l::split() %}
+<div>
 {% call r::editor(editor) %}{% endcall %}
 </div>
-<div class="recipe-side">
+<div>
 {% call fb::alert("info", status) %}{% endcall %}
 <div class="recipe-side-actions">
 {%- if !frozen %}
@@ -41,5 +42,5 @@
 <p>{{ notes }}</p>
 {%- endif %}
 </div>
-</div>
+{% endcall %}
 {% endblock %}

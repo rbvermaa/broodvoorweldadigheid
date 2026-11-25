@@ -95,6 +95,10 @@ async fn gallery_shows_every_component_and_state() {
         "<div id=\"bakdag-annuleren-result\" role=\"status\"></div>",
         "<p class=\"saved\">",
         "€\u{a0}1.234,56",
+        "<div class=\"form-grid\">",
+        "<div class=\"choice-grid\">",
+        "<div class=\"card-grid\">",
+        "<div class=\"split\">",
     ] {
         assert!(html.contains(needle), "{needle} missing");
     }

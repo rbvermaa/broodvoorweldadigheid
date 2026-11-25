@@ -3,6 +3,7 @@
 {% import "components/dialog.html" as d %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -27,6 +28,7 @@
 {% if has_errors %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}" hx-post="{{ preview }}" hx-trigger="input delay:400ms" hx-target="#grams" hx-select="#grams" hx-swap="outerHTML">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {%- for field in line_fields %}
 {% call f::field("text", field.name, field.label, value = field.value, error = field.error) %}{% endcall %}
 {%- endfor %}
@@ -35,15 +37,18 @@
 {%- endfor %}
 {% call f::field("text", "reason", layout.t("batch-reason")?, value = reason, hint = layout.t("batch-reason-hint")?, error = reason_error) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 <h2>{{ layout.t("batch-add-title")? }}</h2>
 {% if !add_errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ add_action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::select("ingredient", layout.t("batch-add-ingredient")?, ingredients, error = add_errors.get("ingredient"), required = true) %}{% endcall %}
 {% call f::field("text", "add_pct", layout.t("batch-add-pct")?, value = add.pct, error = add_errors.get("add_pct"), required = true) %}{% endcall %}
 {% call f::field("text", "add_reason", layout.t("batch-reason")?, value = add.reason, hint = layout.t("batch-reason-hint")?, error = add_errors.get("add_reason")) %}{% endcall %}
 {% call b::button(layout.t("batch-add")?, variant = "secondary", kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% call b::button(layout.t("batch-mix")?, opens = "mengen") %}{% endcall %}
 {% call d::confirm_dialog("mengen", layout.t("batch-mix")?, mix_text, layout.t("batch-mix-confirm")?, mix_action) %}{% endcall %}
@@ -64,11 +69,13 @@
 {% if !actuals_error.is_empty() %}{% call fb::alert("error", actuals_error) %}{% endcall %}{% endif %}
 <form method="post" action="{{ actuals_action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {%- for field in actual_fields %}
 {% call f::field("number", field.pieces_name, field.pieces_label, value = field.pieces, required = true) %}{% endcall %}
 {% call f::field("number", field.waste_name, field.waste_label, value = field.waste, required = true) %}{% endcall %}
 {%- endfor %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% endif %}
 {% endblock %}

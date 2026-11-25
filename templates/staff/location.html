@@ -2,6 +2,7 @@
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
+{% import "components/layout.html" as l %}
 {% import "components/table.html" as tb %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ heading }}{% endblock %}
@@ -11,10 +12,12 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+{% call l::form_grid() %}
 {% call f::field("text", "name", layout.t("location-name")?, value = form.name, error = errors.get("name"), required = true) %}{% endcall %}
 {% call f::field("textarea", "address", layout.t("location-address")?, value = form.address, error = errors.get("address"), required = true) %}{% endcall %}
 {% call f::field("textarea", "notes", layout.t("location-notes")?, value = form.notes) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+{% endcall %}
 </form>
 {% if let Some((table, new_window)) = windows %}
 <h2>{{ layout.t("windows-caption")? }}</h2>
