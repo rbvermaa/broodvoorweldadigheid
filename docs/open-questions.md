@@ -63,8 +63,11 @@ Questions about the spec. The spec is only changed when the owner asks.
   like the logo (ADR 0023). Spec updated.
 - [ ] **Email Reply-To.** Emails say "Beantwoord deze mail". Is `MAIL_FROM` an inbox the
   bakery reads, or should replies go to another address? (ADR 0014)
-- [ ] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
+- [x] **Email outbox retention.** How long do sent emails stay in `email_outbox`? A short
   period (for example 30 days) is enough for support questions (ADR 0014).
+  **Answered 2026-11-25:** 90 days after an email was sent or failed for good. The cleanup
+  job deletes the row, body and addresses included; pending emails stay. Emails with a
+  secret keep their faster blanking (ADR 0031).
 - [ ] **Company KvK number and address.** Order emails need both (Compliance), but the
   `company` row has neither and there is no form yet. Until they are filled in, payments
   go through without a confirmation email (ADR 0022). What are they, and should the
@@ -86,9 +89,12 @@ Questions about the spec. The spec is only changed when the owner asks.
   count refunds on that day instead?
 - [ ] **On-account orders on charity drops.** Do they create a donation allocation
   (F4b says they pay the suggested price), and when: at confirmation or once invoiced?
-- [ ] **Confirmation email for orders on account.** F9 sends an order confirmation, but order
+- [x] **Confirmation email for orders on account.** F9 sends an order confirmation, but order
   emails go out on payment (ADR 0022) and orders on account have none (ADR 0032). Send one
   when staff place the order, to the contact email or the invoice email?
+  **Answered 2026-11-25:** yes, when staff place the order, in the same transaction. To the
+  contact email with a copy to the invoice email when that differs, with "op rekening"
+  wording and no payment (ADR 0032).
 - [x] **Niimbot driver licence** (spec, Risks: NiimBlueLib asks not to be used
   commercially without Niimbot's consent).
   **Answered 2026-11-24:** no own Niimbot driver. The system produces each label as a

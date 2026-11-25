@@ -224,18 +224,20 @@ pub async fn cancel(
         let invoiced = done.invoiced.iter().map(|&(order, _)| (order, None));
         for (order, refund) in done.orders.iter().copied().chain(invoiced) {
             let text = done.message.as_str();
-            queue_email(&state, &mut tx, order, async |conn| {
-                order_emails::enqueue_sick_day(
-                    conn,
-                    clock,
-                    &state.order_emails,
-                    order,
-                    text,
-                    refund,
-                )
-                .await
-            })
-            .await?;
+            if !done.repeated {
+                queue_email(&state, &mut tx, order, async |conn| {
+                    order_emails::enqueue_sick_day(
+                        conn,
+                        clock,
+                        &state.order_emails,
+                        order,
+                        text,
+                        refund,
+                    )
+                    .await
+                })
+                .await?;
+            }
             order_emails::withdraw_reminder(&mut tx, order)
                 .await
                 .map_err(|e| fail(&state, &e))?;

@@ -5,10 +5,11 @@ use std::time::Duration;
 
 use domain::Clock;
 use jiff::SignedDuration;
-use notify::outbox::{BACKOFF, MAX_ATTEMPTS};
+use notify::outbox::{BACKOFF, MAX_ATTEMPTS, RETENTION};
 use notify::{
     Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture, SendReport,
-    delete_finished, enqueue, enqueue_expiring, forget_address, send_pending, withdraw_unsent,
+    delete_finished, delete_retired, enqueue, enqueue_expiring, forget_address, send_pending,
+    withdraw_unsent,
 };
 use sqlx::{Acquire, PgPool};
 use testkit::{FakeClock, FakeEmailSender};
@@ -27,6 +28,7 @@ fn email(to: &str) -> Email {
         html: "<p>Hoi,</p>".to_owned(),
         list_unsubscribe: None,
         reply_to: None,
+        cc: None,
     }
 }
 
@@ -359,6 +361,90 @@ async fn reply_to_survives_the_outbox(pool: PgPool) {
     let sender = FakeEmailSender::new();
     assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
     assert_eq!(sender.sent()[0].email, contact);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn cc_survives_the_outbox_and_is_forgotten_with_its_address(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    let mut on_account = email("inkoop@example.nl");
+    on_account.cc = Some("factuur@example.nl".to_owned());
+    enqueue(&mut conn, &clock, &on_account, None).await.unwrap();
+
+    let sender = FakeEmailSender::new();
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(1, 0, 0));
+    assert_eq!(sender.sent()[0].email, on_account);
+    assert_eq!(
+        forget_address(&mut conn, "FACTUUR@example.nl")
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+async fn finish(pool: &PgPool, to: &str, status: &str, days_ago: i32) {
+    sqlx::query(
+        "INSERT INTO email_outbox (kind, to_address, subject, text_body, html_body, status,
+            next_attempt_at, created_at, sent_at, failed_at)
+        SELECT 'order_confirmation', $1, 'S', 't', 'h', $2, at, at,
+            CASE WHEN $2 = 'sent' THEN at END, CASE WHEN $2 = 'failed' THEN at END
+        FROM (SELECT timestamptz '2026-12-01T08:00:00Z' - $3 * interval '1 day' AS at) t",
+    )
+    .bind(to)
+    .bind(status)
+    .bind(days_ago)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn emails_are_deleted_90_days_after_they_were_sent_or_failed(pool: PgPool) {
+    assert_eq!(RETENTION, SignedDuration::from_hours(90 * 24));
+    for (to, status, days) in [
+        ("sent-89@example.nl", "sent", 89),
+        ("sent-91@example.nl", "sent", 91),
+        ("failed-89@example.nl", "failed", 89),
+        ("failed-91@example.nl", "failed", 91),
+        ("pending-91@example.nl", "pending", 91),
+    ] {
+        finish(&pool, to, status, days).await;
+    }
+    let mut conn = pool.acquire().await.unwrap();
+    assert_eq!(delete_retired(&mut conn, &clock()).await.unwrap(), 2);
+    let left: Vec<String> = states(&pool)
+        .await
+        .into_iter()
+        .map(|s| s.to_address)
+        .collect();
+    assert_eq!(
+        left,
+        [
+            "sent-89@example.nl",
+            "failed-89@example.nl",
+            "pending-91@example.nl"
+        ]
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_email_that_fails_for_good_records_when(pool: PgPool) {
+    let clock = clock();
+    let mut conn = pool.acquire().await.unwrap();
+    enqueue(&mut conn, &clock, &email("a@example.org"), None)
+        .await
+        .unwrap();
+    let sender = FakeEmailSender::new();
+    sender.fail_next(SendError::Permanent("550 5.1.1 no such user".to_owned()));
+    clock.advance(SignedDuration::from_mins(3));
+    assert_eq!(send(&pool, &sender, &clock, 10).await, report(0, 0, 1));
+    let recorded: Option<bool> =
+        sqlx::query_scalar("SELECT failed_at = $1::timestamptz FROM email_outbox")
+            .bind(clock.now().to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(recorded, Some(true));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

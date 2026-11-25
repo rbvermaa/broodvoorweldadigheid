@@ -69,6 +69,8 @@ pub struct Email {
     pub list_unsubscribe: Option<String>,
     /// Where replies go when that is not the From address, such as a contact form sender.
     pub reply_to: Option<String>,
+    /// A copy, such as to the invoice email of a business account.
+    pub cc: Option<String>,
 }
 
 /// An email taken from the outbox to send.
