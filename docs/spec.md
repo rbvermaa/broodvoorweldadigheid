@@ -335,7 +335,7 @@ Subscriber       email, confirmed_at?, unsubscribed_at?
 FaqEntry         question, answer_md, position, published
 Poll             title, bake_day_id?, closes_at, public_results
 PollOption       poll_id, product_id?, name
-Vote             poll_id, poll_option_id, subscriber_id, wish?, created_at
+Vote             poll_id, poll_option_id, email, wish?, confirmed_at?, created_at
 
 Document         path, mime, sha256, uploaded_by, uploaded_at
 AiTask           kind, input_document_id, output_json, model, status (draft | confirmed | rejected),

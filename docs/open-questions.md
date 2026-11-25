@@ -50,6 +50,15 @@ Questions about the spec. The spec is only changed when the owner asks.
   allergen data cannot be ordered, also not by staff. OK?
 - [ ] **Staff orders and payment.** Staff orders wait for payment with a 15-minute hold
   like web orders. How do phone orders get paid: payment link, at pickup, on account?
+- [x] **Bread vote data model** (F9b, ADR 0039). The spec has `Vote.subscriber_id`; the
+  code stores the voter's email on the vote instead, so voting never puts anyone on the
+  drop-alert list. Update the spec to `Vote poll_id, poll_option_id, email, wish?,
+  confirmed_at?, created_at`?
+  **Spec updated 2026-11-25:** the data model lists `email` and `confirmed_at` on Vote.
+- [ ] **Voters without an account** (F9b, F12). Their votes are only in the export and
+  erase of a customer with the same address. How long may a confirmed vote keep its
+  address: blank it some time after the poll closes, or add "erase by address" for the
+  owner?
 - [x] **Failed payment, same order.** After a failed or cancelled Mollie payment the order
   stays pending until its hold ends; the customer orders again from the drop page. Should
   the status page offer "try paying again" for the same order within its hold instead?

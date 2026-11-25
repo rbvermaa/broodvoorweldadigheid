@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE vote SET confirmed_at = timestamptz 'epoch' + $2::bigint * interval '1 microsecond',\n            confirm_token_hash = NULL, confirm_expires_at = NULL\n        WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "81fd78802b4eaef1c57a4eefe886f238369029c4a3c262da3c8e07f5308d1295"
+}

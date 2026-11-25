@@ -617,6 +617,55 @@ async fn order_for(pool: &PgPool, clock: &FakeClock, email: &str) -> orders::Ord
     .unwrap()
 }
 
+/// A poll with two candidates, and a confirmed vote with a wish from `email`.
+async fn voted(pool: &PgPool, email: &str) {
+    sqlx::query(
+        "WITH p AS (
+            INSERT INTO poll (title, closes_at, created_at)
+            VALUES ('Welk brood?', '2026-10-01T12:00:00Z', now()) RETURNING id
+        ), o AS (
+            INSERT INTO poll_option (poll_id, name, position)
+            SELECT id, name, pos FROM p, (VALUES ('Spelt', 0), ('Rogge', 1)) v(name, pos)
+            RETURNING poll_id, id, name
+        )
+        INSERT INTO vote (poll_id, poll_option_id, email, wish, confirmed_at, created_at)
+        SELECT poll_id, id, $1, 'Meer rogge', now(), now() FROM o WHERE name = 'Spelt'",
+    )
+    .bind(email)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn votes_are_in_the_export_and_lose_address_and_wish_on_delete(pool: PgPool) {
+    customer(&pool, KNOWN).await;
+    voted(&pool, "Klant@Example.nl").await;
+    let app = app(&pool).await;
+    let (cookie, token) = customer_signed_in(&app, &pool, KNOWN).await;
+    let file = get(&app, "/mijn-bestellingen/gegevens", Some(&cookie)).await;
+    let json: serde_json::Value = serde_json::from_str(&file.body).unwrap();
+    let votes = json["votes"].as_array().unwrap();
+    assert_eq!(votes.len(), 1);
+    assert_eq!(votes[0]["poll"], "Welk brood?");
+    assert_eq!(votes[0]["choice"], "Spelt");
+    assert_eq!(votes[0]["wish"], "Meer rogge");
+    assert!(votes[0]["confirmed_at"].is_string());
+
+    let reply = htmx(&app, "/mijn-bestellingen/verwijderen", &cookie, &token).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    let left: Vec<(Option<String>, Option<String>, bool)> =
+        sqlx::query_as("SELECT email, wish, confirmed_at IS NOT NULL FROM vote")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        left,
+        [(None, None, true)],
+        "the vote in the closed poll still counts, anonymously"
+    );
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn staff_see_an_erased_customer_as_deleted(pool: PgPool) {
     let clock = FakeClock::new(ts(NOW));

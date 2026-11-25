@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, p.title, p.bake_day_id,\n            d.date - date 'epoch' AS bake_date_days,\n            (extract(epoch FROM p.closes_at) * 1000000)::bigint AS \"closes_us!\",\n            p.public_results\n        FROM poll p LEFT JOIN bake_day d ON d.id = p.bake_day_id\n        WHERE p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "poll",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "poll",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "poll",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "bake_date_days",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "closes_us!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "public_results",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "poll",
+            "name": "public_results"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "81971711574e9b3b5ce74f9ca5b52d86c058c318db790b6e833adfabcf59f153"
+}

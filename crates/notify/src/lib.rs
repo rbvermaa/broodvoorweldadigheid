@@ -5,15 +5,17 @@ mod compose;
 mod content;
 mod email;
 pub mod outbox;
+pub mod polls;
 mod smtp;
 pub mod style;
 pub mod subscribers;
+mod token;
 
 pub use compose::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
     DropAlertKind, Item, LoginLink, OnAccountConfirmation, OrderCancelled, OrderConfirmation,
     OrderLine, Pickup, PickupMoved, PickupReminder, Recipient, SickDayCancelled,
-    SubscriptionConfirmation, is_address,
+    SubscriptionConfirmation, VoteConfirmation, is_address,
 };
 pub use content::RenderError;
 pub use email::{Email, EmailKind, EmailSender, OutgoingEmail, SendError, SendFuture};

@@ -190,6 +190,26 @@ impl std::fmt::Debug for LoginLink {
     }
 }
 
+/// The link that makes a bread vote count (F9b, ADR 0039).
+#[derive(Clone, PartialEq, Eq)]
+pub struct VoteConfirmation {
+    pub to: String,
+    pub poll: String,
+    pub choice: String,
+    pub confirm_url: String,
+}
+
+impl std::fmt::Debug for VoteConfirmation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VoteConfirmation")
+            .field("to", &self.to)
+            .field("poll", &self.poll)
+            .field("choice", &self.choice)
+            .field("confirm_url", &"<redacted>")
+            .finish()
+    }
+}
+
 /// A saved donation nobody chose a charity for went to the next drop's charity (F4d).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DonationMoved {
@@ -627,6 +647,26 @@ impl<'a> Composer<'a> {
             unsubscribe: None,
         };
         self.email(EmailKind::DonationMoved, &moved.to.email, parts)
+    }
+
+    /// # Errors
+    /// See [`Composer::order_confirmation`].
+    pub fn vote_confirmation(&self, vote: &VoteConfirmation) -> Result<Email, ComposeError> {
+        let parts = Parts {
+            subject: self.t("email-vote-subject", &[("poll", vote.poll.clone())])?,
+            heading: self.t("email-vote-heading", &[])?,
+            greeting: self.greeting(None)?,
+            blocks: vec![
+                Block::Paragraph(self.t("email-vote-intro", &[("choice", vote.choice.clone())])?),
+                Block::Button(Link {
+                    label: self.t("email-vote-confirm", &[])?,
+                    url: https(&vote.confirm_url)?,
+                }),
+                Block::Paragraph(self.t("email-vote-ignore", &[])?),
+            ],
+            unsubscribe: None,
+        };
+        self.email(EmailKind::VoteConfirmation, &vote.to, parts)
     }
 
     /// The last email to a customer whose data was erased (F12). No name: it is gone.

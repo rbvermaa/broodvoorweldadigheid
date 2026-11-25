@@ -92,6 +92,7 @@ async fn the_export_holds_profile_orders_lines_payments_donations_and_logins(
     assert_eq!(data.logins.len(), 1);
     assert_eq!(data.logins[0].started_at, "2026-10-28T12:00:00Z");
     assert!(data.drop_alerts.is_none());
+    assert!(data.votes.is_empty());
     assert!(data.business.is_none());
     let json = data.to_json().unwrap();
     assert!(json.contains("\"email\": \"sanne@example.org\""), "{json}");

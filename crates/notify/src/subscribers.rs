@@ -2,25 +2,19 @@
 //! links that work without a login. Tokens are random and only their SHA-256 hash is
 //! stored.
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use domain::{BakeDayId, Clock};
 use jiff::{SignedDuration, Timestamp};
-use rand::Rng;
-use sha2::{Digest, Sha256};
 use sqlx::{Acquire, PgConnection};
 
 use crate::compose::{ComposeError, Composer, SubscriptionConfirmation};
 use crate::outbox::{self, OutboxError};
+use crate::token::{new_token, token_hash};
 
 /// How long a confirmation link works.
 pub const CONFIRM_VALID: SignedDuration = SignedDuration::from_hours(7 * 24);
 /// A new confirmation email for the same address goes out at most this often.
 pub const RESEND_AFTER: SignedDuration = SignedDuration::from_mins(5);
 const MAX_EMAIL_LEN: usize = 254;
-const TOKEN_BYTES: usize = 32;
-/// base64url without padding of [`TOKEN_BYTES`].
-const TOKEN_LEN: usize = 43;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubscriberError {
@@ -78,6 +72,11 @@ impl Links {
     }
 
     #[must_use]
+    pub fn vote_confirm(&self, token: &str) -> String {
+        format!("{}/stemmen/bevestig/{token}", self.origin)
+    }
+
+    #[must_use]
     pub fn drop_page(&self, bake_day: BakeDayId) -> String {
         format!("{}/drops/{}", self.origin, bake_day.get())
     }
@@ -93,28 +92,6 @@ pub fn parse_address(raw: &str) -> Result<String, SubscriberError> {
         return Err(SubscriberError::Address);
     }
     Ok(email.to_owned())
-}
-
-fn new_token() -> (String, Vec<u8>) {
-    let mut bytes = [0_u8; TOKEN_BYTES];
-    rand::rng().fill(&mut bytes);
-    let token = URL_SAFE_NO_PAD.encode(bytes);
-    let hash = hash(&token);
-    (token, hash)
-}
-
-fn hash(token: &str) -> Vec<u8> {
-    Sha256::digest(token.as_bytes()).to_vec()
-}
-
-/// `None` for anything that cannot be one of our tokens, so junk never reaches the
-/// database.
-fn token_hash(token: &str) -> Option<Vec<u8>> {
-    (token.len() == TOKEN_LEN
-        && token
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
-    .then(|| hash(token))
 }
 
 fn micros(at: Timestamp) -> i64 {
@@ -465,24 +442,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tokens_are_43_url_safe_characters_and_hash_to_32_bytes() {
-        let (token, stored) = new_token();
-        assert_eq!(token.len(), TOKEN_LEN);
-        assert_eq!(stored.len(), 32);
-        assert_eq!(token_hash(&token), Some(stored));
-        assert_ne!(new_token().0, token);
-    }
-
-    #[test]
-    fn junk_tokens_never_reach_the_database() {
-        assert_eq!(token_hash(""), None);
-        assert_eq!(token_hash("abc"), None);
-        assert_eq!(token_hash(&"a".repeat(44)), None);
-        assert_eq!(token_hash(&format!("{}!", "a".repeat(42))), None);
-        assert!(token_hash(&"a-_".repeat(14).chars().chain(['Z']).collect::<String>()).is_some());
-    }
-
-    #[test]
     fn addresses_are_trimmed_and_checked() {
         assert_eq!(
             parse_address("  Iemand@Example.NL ").unwrap(),
@@ -509,6 +468,10 @@ mod tests {
         assert_eq!(
             links.drop_page(BakeDayId::new(7)),
             "https://broodvoorweldadigheid.nl/drops/7"
+        );
+        assert_eq!(
+            links.vote_confirm("t"),
+            "https://broodvoorweldadigheid.nl/stemmen/bevestig/t"
         );
     }
 }

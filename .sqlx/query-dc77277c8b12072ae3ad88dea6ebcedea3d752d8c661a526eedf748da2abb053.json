@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE poll SET title = $2, bake_day_id = $3,\n            closes_at = timestamptz 'epoch' + $4::bigint * interval '1 microsecond',\n            public_results = $5\n        WHERE id = $1 AND NOT ($6\n            AND closes_at <= timestamptz 'epoch' + $7::bigint * interval '1 microsecond')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dc77277c8b12072ae3ad88dea6ebcedea3d752d8c661a526eedf748da2abb053"
+}

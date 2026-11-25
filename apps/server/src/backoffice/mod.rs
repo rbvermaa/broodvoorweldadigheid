@@ -1,9 +1,9 @@
 //! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
 //! charities, bake days, extra production, orders, the production and pickup lists, the
-//! reports, business customers, customer data requests (F12) and the company settings.
-//! Every handler takes [`Staff`] and checks a permission (ADR 0010). Forms post normally
-//! and redirect with `?opgeslagen=1`; htmx only adds inline checks and partial updates on
-//! top (ADR 0019).
+//! reports, business customers, customer data requests (F12), bread votes (F9b) and the
+//! company settings. Every handler takes [`Staff`] and checks a permission (ADR 0010).
+//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
+//! partial updates on top (ADR 0019).
 
 pub mod bake_days;
 pub mod business;
@@ -16,6 +16,7 @@ pub mod lists;
 pub mod locations;
 pub mod orders;
 pub mod payouts;
+pub mod polls;
 pub mod products;
 pub mod recipes;
 pub mod reports;
@@ -66,6 +67,9 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/staff/customers/{id}/export", get(customers::export))
         .route("/staff/customers/{id}/erase", post(customers::erase))
+        .route(polls::PATH, get(polls::list))
+        .route("/staff/polls/new", get(polls::new_form).post(polls::create))
+        .route("/staff/polls/{id}", get(polls::show).post(polls::update))
         .route("/staff/products", get(products::list))
         .route(
             "/staff/products/new",

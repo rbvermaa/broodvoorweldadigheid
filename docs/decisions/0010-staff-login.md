@@ -21,6 +21,7 @@ Owner can do everything. The other roles get what their work needs.
 | ManageCharities | charities and payouts | ✓ | | |
 | ManageStaff | adding staff and changing roles | ✓ | | |
 | Privacy | exporting and erasing a customer's data on their request (F12, ADR 0031) | ✓ | | |
+| Polls | bread votes: create, change, see results and wishes (F9b, ADR 0039) | ✓ | ✓ | |
 | Settings | company settings, such as switching the public donation page on (F11d, ADR 0040) | ✓ | | |
 
 The table lives in `auth::Role::can` and its test. Routes call `Staff::require(permission)`,
