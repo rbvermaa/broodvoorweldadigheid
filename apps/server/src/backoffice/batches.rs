@@ -17,8 +17,8 @@ use super::bake_days::{self, day_path};
 use super::form::{Errors, Fields, parse_count, parse_pct, pct_value};
 use super::recipes::{Message, version_path};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
+    require, saved, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -749,7 +749,10 @@ async fn render_batch(
             actual_fields: actual_fields(state, &stored, &actuals.0),
             actuals_error: actuals.1,
             actuals_action: format!("{path}/actuals"),
-            promotable: promoted.is_none() && stored.lines.iter().any(|l| l.is_changed()),
+            promotable: promoted.is_none()
+                && stored.lines.iter().any(|l| {
+                    l.is_changed() && (l.base_pct.is_some() || l.actual_pct.thousandths() > 0)
+                }),
             promoted,
             promote_action: format!("{path}/promote"),
         },
@@ -1124,7 +1127,7 @@ pub async fn promote(
                 let draft = recipes::recipes::version(&mut conn, batch.recipe_id, draft)
                     .await
                     .map_err(|e| fail(&state, &e))?;
-                let status = if headers.contains_key("hx-request") {
+                let status = if is_htmx(&headers) {
                     StatusCode::OK
                 } else {
                     StatusCode::CONFLICT
