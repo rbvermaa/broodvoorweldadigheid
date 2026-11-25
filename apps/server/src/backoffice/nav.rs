@@ -19,6 +19,7 @@ const ENTRIES: &[Entry] = &[
     entry(10, "/staff/bake-days", "staff-nav-bake-days"),
     entry(100, "/staff/business-accounts", "staff-nav-b2b"),
     entry(80, "/staff/charities", "staff-nav-charities"),
+    entry(105, "/staff/costing", "staff-nav-costing"),
     entry(30, "/staff/customers", "staff-nav-customers"),
     entry(50, "/staff/ingredients", "staff-nav-ingredients"),
     entry(70, "/staff/locations", "staff-nav-locations"),

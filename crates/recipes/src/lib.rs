@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
-//! Ingredients and versioned recipes in baker's percentages (F14), and ingredient needs
-//! per bake day (F15).
+//! Ingredients and versioned recipes in baker's percentages (F14), ingredient needs per
+//! bake day (F15), and ingredient prices and standard cost (F16).
 
+pub mod cost;
 mod error;
 pub mod formula;
 pub mod ingredients;
 pub mod needs;
+pub mod prices;
 pub mod recipes;
 
 pub use error::Error;

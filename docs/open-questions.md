@@ -155,3 +155,8 @@ Questions about the spec. The spec is only changed when the owner asks.
 - [x] **Extras after batches exist** (ADR 0042). F7a says extras can change until the
   batch is mixed. Should a change resize planned batches?
   **Answered 2026-11-25:** no, the baker adjusts batches by hand (ADR 0042).
+- [ ] **Standard prices for the cost variance** (ADR 0045). F16 compares a batch with its
+  recipe version at "current ingredient prices" (spec, Cost table). The price part of an
+  old batch's variance then moves whenever a price changes. Keep today's prices as the
+  standard, or fix a standard date per product (for example when its selling price was
+  set)?

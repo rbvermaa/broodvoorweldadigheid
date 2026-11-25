@@ -25,7 +25,7 @@ pub enum Error {
     #[error(transparent)]
     Orders(#[from] orders::Error),
     #[error(transparent)]
-    Pdf(#[from] production::Error),
+    Production(#[from] production::Error),
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
     #[error("database error: {0}")]

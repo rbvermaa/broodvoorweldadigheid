@@ -94,3 +94,107 @@ async fn the_bakery_covers_btw_fees_ingredients_and_costs(mut conn: PoolConnecti
     assert_eq!(report.charities[0].contribution, *c);
     assert_eq!(report.total, *c);
 }
+
+async fn flour_bread(conn: &mut sqlx::PgConnection, bread: domain::ProductId) {
+    use recipes::recipes as store;
+    let flour = recipes::ingredients::create(
+        conn,
+        &recipes::IngredientInput {
+            name: "Tarwebloem".into(),
+            label_name: String::new(),
+            role: recipes::IngredientRole::Flour,
+            supplier_name: String::new(),
+            allergens: std::collections::BTreeSet::new(),
+        },
+    )
+    .await
+    .unwrap()
+    .id;
+    let (recipe, version) = store::create(
+        conn,
+        &recipes::RecipeInput {
+            name: "Alleen bloem".into(),
+            kind: recipes::RecipeKind::Dough,
+        },
+    )
+    .await
+    .unwrap();
+    store::save_draft(
+        conn,
+        version.id,
+        &recipes::DraftInput {
+            lines: vec![recipes::LineInput {
+                pct: recipes::Pct::HUNDRED,
+                part: recipes::LinePart::Ingredient(flour),
+            }],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .unwrap();
+    store::link_product(conn, recipe.id, bread).await.unwrap();
+    recipes::prices::add(
+        conn,
+        &FakeClock::new(ts("2026-10-01T10:00:00Z")),
+        &recipes::prices::NewPrice {
+            ingredient_id: flour,
+            per_kg: Money::from_cents(100),
+            valid_from: date("2026-10-01"),
+            by: None,
+        },
+    )
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn ingredients_use_the_batch_cost_else_the_standard_cost(mut conn: PoolConnection<Postgres>) {
+    use orders::audit::Actor;
+    use production::batches;
+    let clock = FakeClock::new(ts("2026-10-20T10:00:00Z"));
+    let food_bank = charity(&mut conn, "Voedselbank").await;
+    let drop = drop_on(&mut conn, &clock, "2026-10-31", Some(food_bank)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    sell(&mut conn, &drop, &[bread]).await;
+    paid_order(&mut conn, &clock, &drop, &[(bread, 2, None)]).await;
+    let oct = Period::new(date("2026-10-01"), date("2026-10-31")).unwrap();
+    let ingredients = |report: reports::contribution::ContributionReport| report.total.ingredients;
+
+    let estimate = contribution::report(&mut conn, oct).await.unwrap();
+    assert_eq!(
+        ingredients(estimate).cents(),
+        240,
+        "no recipe: the estimate"
+    );
+
+    flour_bread(&mut conn, bread).await;
+    let standard = contribution::report(&mut conn, oct).await.unwrap();
+    // 900 g of flour at €1,00 per kg, twice.
+    assert_eq!(ingredients(standard).cents(), 180);
+
+    let baker = Actor::Staff(domain::StaffUserId::new(1));
+    let batch = batches::start_manual(&mut conn, drop.day, bread, 10, baker, &clock)
+        .await
+        .unwrap();
+    batches::mark_mixed(&mut conn, batch, baker, &clock)
+        .await
+        .unwrap();
+    batches::record_actuals(
+        &mut conn,
+        batch,
+        &[batches::Actual {
+            product_id: bread,
+            pieces: 10,
+            waste: 1,
+        }],
+        baker,
+        &clock,
+    )
+    .await
+    .unwrap();
+    let actual = contribution::report(&mut conn, oct).await.unwrap();
+    // €9,00 of flour over 9 good pieces.
+    assert_eq!(ingredients(actual.clone()).cents(), 200);
+    assert!(actual.total.missing_estimates.is_empty());
+}

@@ -42,6 +42,8 @@ macro_rules! permissions {
 permissions! {
     /// Sick-day cancel (F2), including that day's refunds (ADR 0028).
     CloseBakeDay => [Owner],
+    /// Ingredient prices, standard and batch cost, cost variance (F16).
+    Costing => [Owner],
     /// Allergens, ingredient text, nutrition approval.
     EditAllergens => [Owner, Baker],
     /// Moving an order to another pickup slot, cancelling an unpaid order (F6), placing an

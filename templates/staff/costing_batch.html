@@ -1,0 +1,17 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="/staff/costing">{{ layout.t("costing-back")? }}</a></p>
+<p>{{ facts }}</p>
+{% if unweighable %}{% call fb::alert("warning", layout.t("costing-batch-unweighable")?) %}{% endcall %}{% endif %}
+{% if let Some(missing) = missing %}{% call fb::alert("warning", missing) %}{% endcall %}{% endif %}
+{% if let Some(lines) = lines %}{% call tb::table(lines) %}{% endcall %}{% endif %}
+{% call tb::table(pieces) %}{% endcall %}
+<h2>{{ layout.t("costing-variance-heading")? }}</h2>
+<p>{{ standard_date }}</p>
+{% if !variance_note.is_empty() %}<p>{{ variance_note }}</p>{% endif %}
+{% if let Some(variance) = variance %}{% call tb::table(variance) %}{% endcall %}{% endif %}
+{% endblock %}
