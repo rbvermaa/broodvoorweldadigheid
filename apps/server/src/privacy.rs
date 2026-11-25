@@ -12,7 +12,7 @@ use axum::{Form, Router};
 use domain::CustomerId;
 use notify::Composer;
 use orders::audit::Actor;
-use orders::privacy::{self, DropAlertsRecord, Erase};
+use orders::privacy::{self, DropAlertsRecord, Erase, VoteRecord};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -45,6 +45,8 @@ pub enum PrivacyError {
     Subscribers(#[from] notify::subscribers::SubscriberError),
     #[error(transparent)]
     Outbox(#[from] notify::OutboxError),
+    #[error(transparent)]
+    Polls(#[from] notify::polls::PollError),
 }
 
 /// What [`erase`] did.
@@ -58,7 +60,8 @@ pub enum Erased {
     NotFound,
 }
 
-/// The customer's data as JSON, with the drop-alert subscription of their address. Drop
+/// The customer's data as JSON, with the drop-alert subscription and the bread votes of
+/// their address. Drop
 /// alerts are the only marketing mail, so the subscription is the consent: an unsubscribe
 /// link or a sign-up on /meldingen does not touch `customer.marketing_consent`.
 ///
@@ -74,6 +77,17 @@ pub async fn export_json(state: &AppState, customer: CustomerId) -> Result<Strin
         confirmed_at: s.confirmed_at.map(|t| t.to_string()),
         unsubscribed_at: s.unsubscribed_at.map(|t| t.to_string()),
     });
+    data.votes = notify::polls::of_address(&mut conn, &data.customer.email)
+        .await?
+        .into_iter()
+        .map(|v| VoteRecord {
+            poll: v.poll,
+            choice: v.choice,
+            wish: v.wish,
+            voted_at: v.voted_at.to_string(),
+            confirmed_at: v.confirmed_at.map(|t| t.to_string()),
+        })
+        .collect();
     Ok(data.to_json()?)
 }
 
@@ -97,10 +111,10 @@ pub fn json_download(json: String, filename: &str) -> Response {
     )
 }
 
-/// Erases the customer, takes their address off the drop-alert list, deletes the emails
-/// to or from it still in the outbox, and queues one last email to say it is done, all in
-/// one transaction. When that email cannot be composed (company details missing), the
-/// account is erased anyway.
+/// Erases the customer, takes their address off the drop-alert list and out of the bread
+/// votes, deletes the emails to or from it still in the outbox, and queues one last email
+/// to say it is done, all in one transaction. When that email cannot be composed (company
+/// details missing), the account is erased anyway.
 ///
 /// # Errors
 /// [`PrivacyError`] when the database fails.
@@ -118,6 +132,7 @@ pub async fn erase(
         Err(error) => return Err(error.into()),
     };
     notify::subscribers::forget(&mut tx, &email).await?;
+    notify::polls::forget(&mut tx, &email).await?;
     notify::outbox::forget_address(&mut tx, &email).await?;
     let company = notify::Company::load(&mut tx).await?;
     match Composer::new(&state.i18n, &company).account_deleted(&email) {

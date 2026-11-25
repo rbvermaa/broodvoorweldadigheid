@@ -29,6 +29,7 @@ pub mod staff_session;
 pub mod state;
 #[cfg(test)]
 mod tokens;
+pub mod votes;
 
 use std::future::Future;
 use std::io;
@@ -57,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .merge(shop::routes())
         .merge(site)
         .merge(alerts::routes(&state))
+        .merge(votes::routes(&state))
         .merge(account::routes())
         .merge(donation::routes())
         .merge(privacy::routes())

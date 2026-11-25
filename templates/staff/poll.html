@@ -1,0 +1,38 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/chart.html" as ch %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ title }}{% endblock %}
+{% block page %}
+<h1>{{ title }}</h1>
+{% call s::status(saved) %}{% endcall %}
+<p>{{ status }}</p>
+<p><a href="{{ site_link }}">{{ layout.t("poll-site-link")? }}</a></p>
+<h2>{{ layout.t("poll-results")? }}</h2>
+<p>{{ layout.t_count("poll-total", total)? }}</p>
+{% call ch::bar_chart(chart) %}{% endcall %}
+<h2>{{ layout.t("poll-wishes")? }}</h2>
+{%- if wishes.is_empty() %}
+<p>{{ layout.t("poll-wishes-empty")? }}</p>
+{%- else %}
+<ul>
+{%- for wish in wishes %}
+<li>{{ wish }}</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+<h2>{{ layout.t("poll-settings")? }}</h2>
+<p>{{ layout.t("poll-settings-hint")? }}</p>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("text", "title", layout.t("poll-title")?, value = form.title, error = errors.get("title"), required = true) %}{% endcall %}
+{% call f::field("datetime-local", "closes_at", layout.t("poll-closes")?, value = form.closes_at, error = errors.get("closes_at"), required = true) %}{% endcall %}
+{% call f::select("bake_day", layout.t("poll-bake-day")?, days, error = errors.get("bake_day")) %}{% endcall %}
+{% call f::checkbox("public", layout.t("poll-public")?, checked = form.public) %}{% endcall %}
+<p>{{ layout.t("poll-public-hint")? }}</p>
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}

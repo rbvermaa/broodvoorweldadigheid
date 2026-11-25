@@ -1,0 +1,26 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("polls-new")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("polls-new")? }}</h1>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="/staff/polls/new">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("text", "title", layout.t("poll-title")?, value = form.title, hint = layout.t("poll-title-hint")?, error = errors.get("title"), required = true) %}{% endcall %}
+{% call f::field("datetime-local", "closes_at", layout.t("poll-closes")?, value = form.closes_at, error = errors.get("closes_at"), required = true) %}{% endcall %}
+{% call f::select("bake_day", layout.t("poll-bake-day")?, days, error = errors.get("bake_day")) %}{% endcall %}
+{% call f::checkbox("public", layout.t("poll-public")?, checked = form.public) %}{% endcall %}
+<p>{{ layout.t("poll-public-hint")? }}</p>
+{%- if !products.is_empty() %}
+<h2>{{ layout.t("poll-products")? }}</h2>
+{%- for product in products %}
+{% call f::checkbox(product.field, product.name, checked = product.checked) %}{% endcall %}
+{%- endfor %}
+{%- endif %}
+{% call f::field("textarea", "options", layout.t("poll-options")?, value = options, hint = layout.t("poll-options-hint")?, error = errors.get("options")) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}
