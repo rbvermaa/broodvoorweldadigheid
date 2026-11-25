@@ -17,6 +17,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
       "heading": "za 31 okt, 11:00–12:00 · De Proef",
       "orders": [
         {
+          "erased": false,
           "lines": [
             "2× Desem",
             "1× Koekjes"
@@ -28,6 +29,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
           "status": "Betaald"
         },
         {
+          "erased": false,
           "lines": [
             "10× Desem"
           ],
@@ -38,6 +40,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
           "status": "Op rekening"
         },
         {
+          "erased": false,
           "lines": [
             "1× Desem"
           ],
@@ -48,6 +51,7 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
           "status": "Opgehaald"
         },
         {
+          "erased": false,
           "lines": [
             "1× Desem"
           ],

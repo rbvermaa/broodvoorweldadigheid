@@ -43,6 +43,11 @@ pub(crate) const NEEDS: Template = Template {
     source: include_str!("../../../typst/ingredient_needs.typ"),
 };
 
+pub(crate) const INVOICE_OVERVIEW: Template = Template {
+    path: "/invoice_overview.typ",
+    source: include_str!("../../../typst/invoice_overview.typ"),
+};
+
 macro_rules! font_file {
     ($name:literal) => {
         include_bytes!(concat!(
@@ -177,7 +182,6 @@ pub(crate) fn render(template: &Template, data: &Value, ident: String) -> Result
 
 /// The text of a laid-out document, line by line from the top of each page; runs on one
 /// line are joined by ` | `. Tests snapshot this instead of the PDF bytes.
-#[cfg(test)]
 pub(crate) fn text(document: &PagedDocument) -> String {
     use typst::layout::{Frame, FrameItem, Point};
 

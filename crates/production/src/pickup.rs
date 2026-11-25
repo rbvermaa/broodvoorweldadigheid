@@ -22,6 +22,8 @@ pub struct PickupOrder {
     pub order_id: OrderId,
     pub number: OrderNumber,
     pub customer_name: String,
+    /// The customer was erased (F12); `customer_name` is then a placeholder.
+    pub customer_erased: bool,
     pub customer_phone: Option<String>,
     pub status: OrderStatus,
     pub payment_mode: PaymentMode,
@@ -33,7 +35,7 @@ pub struct PickupOrder {
 pub struct SlotPickups {
     pub slot: PickupSlot,
     pub location: String,
-    /// By customer name, then order number.
+    /// By customer name, then order number; erased customers (F12) last.
     pub orders: Vec<PickupOrder>,
 }
 
@@ -100,6 +102,7 @@ pub async fn pickup_list(conn: &mut PgConnection, day: BakeDayId) -> Result<Pick
             order_id: order.id,
             number: order.number,
             customer_name: order.customer_name,
+            customer_erased: order.customer_erased,
             customer_phone: order.customer_phone,
             status: order.status,
             payment_mode: order.payment_mode,
@@ -109,14 +112,22 @@ pub async fn pickup_list(conn: &mut PgConnection, day: BakeDayId) -> Result<Pick
     }
     tx.commit().await?;
     for slot in &mut slots {
-        slot.orders.sort_by(|a, b| {
-            a.customer_name
-                .to_lowercase()
-                .cmp(&b.customer_name.to_lowercase())
-                .then(a.number.cmp(&b.number))
-        });
+        sort_orders(&mut slot.orders);
     }
     Ok(PickupList { day, slots })
+}
+
+pub(crate) fn sort_orders(orders: &mut [PickupOrder]) {
+    orders.sort_by(|a, b| {
+        a.customer_erased
+            .cmp(&b.customer_erased)
+            .then_with(|| {
+                a.customer_name
+                    .to_lowercase()
+                    .cmp(&b.customer_name.to_lowercase())
+            })
+            .then(a.number.cmp(&b.number))
+    });
 }
 
 /// The pickup list as an A4 PDF, with a box to tick per order.

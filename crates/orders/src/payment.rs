@@ -685,6 +685,7 @@ mod tests {
             customer_id: CustomerId::new(1),
             customer_name: "Klant".to_owned(),
             customer_phone: None,
+            customer_erased: false,
             marketing_opt_in: false,
             bake_day_id: BakeDayId::new(1),
             pickup_slot_id: Slot::new(1),

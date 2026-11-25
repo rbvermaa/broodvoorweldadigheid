@@ -95,7 +95,12 @@ pub(crate) fn pickup(list: &PickupList, t: &Translator) -> Result<Value, Error> 
             }
             orders.push(json!({
                 "number": order.number.to_string(),
-                "name": order.customer_name,
+                "name": if order.customer_erased {
+                    t.t("customer-erased", None)?
+                } else {
+                    order.customer_name.clone()
+                },
+                "erased": order.customer_erased,
                 "phone": order.customer_phone.as_deref().unwrap_or(""),
                 "status": status_label(t, order)?,
                 "picked_up": order.picked_up,

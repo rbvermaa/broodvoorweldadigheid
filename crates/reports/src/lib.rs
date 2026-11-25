@@ -8,6 +8,7 @@ mod csv_out;
 pub mod donations;
 mod error;
 mod facts;
+pub mod invoice_pdf;
 pub mod invoices;
 pub mod payouts;
 mod period;

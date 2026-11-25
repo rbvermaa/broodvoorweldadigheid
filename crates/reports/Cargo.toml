@@ -14,12 +14,14 @@ domain = { path = "../domain" }
 i18n = { path = "../i18n" }
 jiff.workspace = true
 orders = { path = "../orders" }
+production = { path = "../production" }
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 bakedays = { path = "../bakedays" }
+insta.workspace = true
 proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true
