@@ -6,25 +6,9 @@ Status: proposed, 2026-11-24
 
 Owner can do everything. The other roles get what their work needs.
 
-| Permission | What it covers | owner | baker | counter |
-|---|---|---|---|---|
-| ViewOrders | order list and order details | ✓ | ✓ | ✓ |
-| EditOrders | moving an order to another pickup slot, cancelling an unpaid order (F6), placing an order on account (F11a) | ✓ | ✓ | |
-| PickupList | pickup list, marking orders picked up | ✓ | ✓ | ✓ |
-| Production | production list, recipes, batches, labels | ✓ | ✓ | |
-| EditAllergens | allergens, ingredient text, nutrition approval | ✓ | ✓ | |
-| ManageBakeDays | bake days, cutoffs, pickup slots, capacity | ✓ | ✓ | |
-| CloseBakeDay | sick-day cancel (F2), including that day's refunds (ADR 0028) | ✓ | | |
-| Refund | cancelling a paid order with its refund, retrying a refund (F6, ADR 0028) | ✓ | ✓ | |
-| ViewReports | sales, donation and contribution reports (F11c, F11e) | ✓ | | |
-| Invoicing | business accounts, the invoice overview, marking orders invoiced (F11a) | ✓ | | |
-| ManageCharities | charities and payouts | ✓ | | |
-| ManageStaff | adding staff and changing roles | ✓ | | |
-| Privacy | exporting and erasing a customer's data on their request (F12, ADR 0031) | ✓ | | |
-| Polls | bread votes: create, change, see results and wishes (F9b, ADR 0039) | ✓ | ✓ | |
-| Settings | company settings, such as switching the public donation page on (F11d, ADR 0040) | ✓ | | |
+The table of permissions per role is generated from code: docs/permissions.md (ADR 0044).
 
-The table lives in `auth::Role::can` and its test. Routes call `Staff::require(permission)`,
+Each permission is one line in `crates/auth/src/role.rs`. Routes call `Staff::require(permission)`,
 which answers with the Dutch 403 page.
 
 ## Sessions and sign-in
