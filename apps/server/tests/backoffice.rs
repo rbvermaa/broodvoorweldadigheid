@@ -4329,3 +4329,42 @@ async fn the_range_is_a_table_whose_limits_save_in_place(pool: PgPool) {
     wrong.shows(&format!("id=\"{max}-error\""));
     wrong.shows(&dutch("form-error-count"));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_refused_limit_on_a_final_day_replaces_the_whole_page(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(12),
+        },
+    )
+    .await
+    .expect("range");
+    drop(conn);
+    sqlx::query("UPDATE bake_day SET status = 'done' WHERE id = $1")
+        .bind(day.get())
+        .execute(&pool)
+        .await
+        .expect("done");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let id = bread.get();
+
+    let refused = baker
+        .htmx(
+            &format!("{path}/range/{id}"),
+            &[(&format!("max_qty_{id}"), "20")],
+        )
+        .await;
+    assert_eq!(refused.status, StatusCode::OK, "{}", refused.text);
+    assert_eq!(refused.header("hx-retarget"), "#inhoud");
+    assert_eq!(refused.header("hx-reselect"), "#inhoud");
+    assert_eq!(refused.header("hx-reswap"), "outerHTML");
+    refused.shows(&dutch("day-error-final"));
+}

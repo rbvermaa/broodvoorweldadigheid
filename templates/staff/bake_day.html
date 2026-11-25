@@ -9,8 +9,7 @@
 {% block page %}
 <h1>{{ heading }}</h1>
 <p>{{ layout.t("day-status")? }}: <strong>{{ status }}</strong></p>
-{% call s::status(saved) %}{% endcall %}
-{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}
+<div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}{% if !problem.is_empty() %}{% call fb::alert("error", problem) %}{% endcall %}{% endif %}</div>
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 {%- for alert in alerts %}
 {% call fb::alert("warning", alert) %}{% endcall %}
@@ -130,8 +129,7 @@
 {% call f::inline_number(row.max_field, layout.t("range-max-qty")?, value = row.max_qty, error = errors.get(row.max_field)) %}{% endcall %}
 </form></td>
 <td class="table-number">{{ row.ordered }}</td><td class="table-number">{{ row.left }}</td>
-<td>{% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog, small = true) %}{% endcall %}
-{% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}</td>
+<td>{% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog, small = true, id = row.remove_id) %}{% endcall %}</td>
 </tr>
 {%- endfor %}
 {%- if !product_options.is_empty() %}
@@ -145,6 +143,9 @@
 </tbody>
 </table>
 </div>
+{%- for row in range %}
+{% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}
+{%- endfor %}
 
 {% endif %}
 

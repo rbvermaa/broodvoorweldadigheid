@@ -7,7 +7,7 @@ use askama::Template;
 use auth::Permission;
 use axum::Router;
 use axum::extract::{Form, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use bakedays::capacity::Remaining;
@@ -528,6 +528,7 @@ pub struct RangeRow {
     pub edit: String,
     pub max_field: String,
     pub max_qty: String,
+    pub remove_id: String,
     pub dialog: String,
     pub action: String,
     pub confirm: String,
@@ -882,6 +883,7 @@ async fn render_day(
             };
             RangeRow {
                 anchor: format!("aanbod-{id}"),
+                remove_id: format!("aanbod-{id}-weg"),
                 ordered: ordered.get(&item.product_id).copied().unwrap_or(0),
                 left: remaining_text(state, remaining.get(&item.product_id).copied()),
                 edit: format!("{path}/range/{id}"),
@@ -1255,8 +1257,9 @@ pub async fn update_product(
             "max_qty" => max_field,
             _ => String::new(),
         };
+        let whole_page = field.is_empty() && is_htmx(&headers);
         let answer = Answer::row(forms, &field, problem.text);
-        render_day(
+        let mut page = render_day(
             &state,
             &staff,
             &session,
@@ -1264,7 +1267,22 @@ pub async fn update_product(
             &day,
             answer,
         )
-        .await
+        .await?;
+        if whole_page {
+            // The row may be gone from the answer, for instance on a day that became final.
+            let page_headers = page.headers_mut();
+            for (name, value) in [
+                ("hx-retarget", "#inhoud"),
+                ("hx-reselect", "#inhoud"),
+                ("hx-reswap", "outerHTML"),
+            ] {
+                page_headers.insert(
+                    HeaderName::from_static(name),
+                    HeaderValue::from_static(value),
+                );
+            }
+        }
+        Ok(page)
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

@@ -328,8 +328,9 @@ async fn staff_bake_day(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
 
     let row = format!("#aanbod-{}", basics.product);
     let limit = format!("#max_qty_{}", basics.product);
+    driver.goto(ctx.url(&page)).await?;
     wait_for_text(driver, &row, &basics.product_name).await?;
-    fill(driver, &limit, "15").await?;
+    set_value(driver, &limit, "15").await?;
     driver
         .find(By::Css(&limit))
         .await?
