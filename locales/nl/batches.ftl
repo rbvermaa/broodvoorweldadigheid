@@ -3,27 +3,9 @@ batches-title = Batches
 # $date: zaterdag 5 december 2026
 batches-heading = Batches voor { $date }
 batches-back = Terug naar de bakdag
-batches-capacity-missing = De mengcapaciteit is nog niet ingevuld. Daarom maakt het systeem bij de bestel-deadline geen batches. Je kunt wel een batch met de hand starten.
-# $kg is preformatted: 12,5
-batches-capacity-current = Bij de bestel-deadline verdeelt het systeem elk deeg over batches van hooguit { $kg } kg.
-batches-capacity = Mengcapaciteit in kg deeg per batch
-batches-capacity-hint = Bijvoorbeeld 12,5. Leeg laten zet het maken van batches uit.
-batches-capacity-error = Vul een gewicht in kg in, bijvoorbeeld 12,5.
-batches-split = Maak batches
-batches-split-hint = Verdeelt de stuks die nog niet in een batch zitten: bestellingen en extra productie.
-batches-split-done = { $n ->
-    [0] Er waren geen nieuwe stukken om in batches te verdelen.
-    [one] 1 batch gemaakt.
-   *[other] { $n } batches gemaakt.
-}
-batches-skip-no-recipe = { $product } heeft geen recept, dus geen batch.
-batches-skip-no-version = Het recept van { $product } heeft geen versie in gebruik, dus geen batch.
-batches-skip-no-dough = { $product } heeft geen deeggewicht per stuk, dus geen batch.
-batches-skip-empty = Het recept van { $product } heeft nog geen regels, dus geen batch.
-batches-skip-too-heavy = Eén stuk { $product } heeft meer deeg dan de mixer aankan. Start een batch met de hand.
 batches-caption = Batches van deze bakdag
 batches-empty-title = Nog geen batches
-batches-empty-text = Maak batches of start er een met de hand.
+batches-empty-text = Start hieronder een batch met de hand.
 batches-manual-title = Batch met de hand starten
 batches-manual-product = Product
 batches-manual-pieces = Aantal stuks
@@ -45,13 +27,10 @@ batch-status-baked = Gebakken
 batch-recipe-version = { $name } versie { $n }
 # $kg is preformatted: 12,5
 batch-kg = { $kg } kg
-batch-origin-cutoff = Gemaakt bij de bestel-deadline
-batch-origin-manual = Met de hand gestart
 # $code: 261205-2
 batch-heading = Batch { $code }
 batch-back = Alle batches van deze bakdag
 batch-facts = Over deze batch
-batch-origin = Herkomst
 # $grams is preformatted: 9.000
 batch-lines-caption = Regels voor { $grams } g deeg
 batch-line = Ingrediënt
@@ -105,5 +84,5 @@ batches-unbatched = { $n ->
 
 # Product form: dough per piece, for batches (F14a)
 product-dough-weight = Deeg per stuk (gram)
-product-dough-weight-hint = Nodig om batches te maken. Leeg of 0 als het product geen deeg heeft.
+product-dough-weight-hint = Nodig voor batches. Leeg of 0 als het product geen deeg heeft.
 product-error-dough-weight = Vul het deeggewicht in gram in, van 0 tot 1.000.000.

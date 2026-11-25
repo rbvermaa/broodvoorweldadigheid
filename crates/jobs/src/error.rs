@@ -4,8 +4,6 @@ pub enum Error {
     BakeDays(#[from] bakedays::Error),
     #[error(transparent)]
     Orders(#[from] orders::Error),
-    #[error(transparent)]
-    Production(#[from] production::Error),
     #[error("job queue error: {0}")]
     Queue(#[from] apalis_postgres::Error),
     #[error("job worker stopped: {0}")]

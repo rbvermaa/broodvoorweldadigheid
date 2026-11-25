@@ -1,11 +1,6 @@
 -- F14a (ADR 0042): batches per bake day, their own copy of the recipe lines, and what
 -- came out of the oven. Percentages are integer thousandths of a percent, as in recipe_line.
 
--- Dough per batch in grams. NULL until the owner gives a value; then only manual batches.
-ALTER TABLE company
-    ADD COLUMN mixer_capacity_g integer CONSTRAINT company_mixer_capacity_g
-        CHECK (mixer_capacity_g BETWEEN 1 AND 1000000);
-
 CREATE TABLE batch (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     bake_day_id bigint NOT NULL REFERENCES bake_day (id),
@@ -14,7 +9,6 @@ CREATE TABLE batch (
     -- printed, also when the bake day moves.
     code_date date NOT NULL,
     mix_no integer NOT NULL CHECK (mix_no > 0),
-    origin text NOT NULL CHECK (origin IN ('cutoff', 'manual')),
     status text NOT NULL DEFAULT 'planned'
         CHECK (status IN ('planned', 'adjusted', 'mixed', 'baked')),
     notes text NOT NULL DEFAULT '',
@@ -57,13 +51,7 @@ CREATE TABLE batch_output (
     CONSTRAINT batch_output_actuals CHECK ((actual_pieces IS NULL) = (waste_pieces IS NULL))
 );
 
--- The bake days the deadline split has run for, so the jobs tick splits a day once.
-CREATE TABLE batch_split (
-    bake_day_id bigint PRIMARY KEY REFERENCES bake_day (id),
-    split_at timestamptz NOT NULL
-);
-
--- A mixed batch is locked: its version, code and origin never change, its status only
+-- A mixed batch is locked: its version and code never change, its status only
 -- moves on to baked, and its lines and planned pieces stay as they were mixed.
 CREATE FUNCTION refuse_locked_batch_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -75,7 +63,7 @@ BEGIN
     IF NEW.id <> OLD.id OR NEW.bake_day_id <> OLD.bake_day_id
         OR NEW.recipe_version_id <> OLD.recipe_version_id
         OR NEW.code_date <> OLD.code_date OR NEW.mix_no <> OLD.mix_no
-        OR NEW.origin <> OLD.origin OR NEW.created_at <> OLD.created_at
+        OR NEW.created_at <> OLD.created_at
     THEN
         RAISE EXCEPTION 'batch % keeps its recipe version and code', OLD.id
             USING ERRCODE = 'restrict_violation';

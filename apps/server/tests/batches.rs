@@ -375,8 +375,6 @@ async fn counter_staff_cannot_see_or_change_batches(pool: PgPool) {
         reply.shows(&dutch("staff-forbidden-text"));
     }
     for path in [
-        format!("{list}/capacity"),
-        format!("{list}/split"),
         format!("{list}/new"),
         batch.clone(),
         format!("{batch}/preview"),
@@ -384,7 +382,7 @@ async fn counter_staff_cannot_see_or_change_batches(pool: PgPool) {
         format!("{batch}/mixed"),
         format!("{batch}/actuals"),
     ] {
-        let reply = counter.post(&path, &[("capacity", "10")]).await;
+        let reply = counter.post(&path, &[("pieces", "10")]).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{path}");
     }
     assert_eq!(stored(&pool, id).await.status, Status::Planned);
@@ -399,8 +397,6 @@ async fn changes_need_the_csrf_token(pool: PgPool) {
     let list = list_path(b.day);
     let batch = batch_path(b.day, id);
     for path in [
-        format!("{list}/capacity"),
-        format!("{list}/split"),
         format!("{list}/new"),
         batch.clone(),
         format!("{batch}/preview"),
@@ -408,16 +404,14 @@ async fn changes_need_the_csrf_token(pool: PgPool) {
         format!("{batch}/mixed"),
         format!("{batch}/actuals"),
     ] {
-        let reply = baker.post_raw(&path, &[("capacity", "10")]).await;
+        let reply = baker.post_raw(&path, &[("pieces", "10")]).await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{path}");
     }
-    let mut conn = pool.acquire().await.expect("conn");
-    assert_eq!(batches::capacity(&mut conn).await.expect("capacity"), None);
     assert_eq!(stored(&pool, id).await.status, Status::Planned);
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn baker_sets_the_capacity_and_makes_batches(pool: PgPool) {
+async fn the_batches_page_lists_pieces_still_in_no_batch(pool: PgPool) {
     let app = app(pool.clone());
     let b = bakery(&pool, &app.clock).await;
     let baker = client(&app, "Bakker Bas", Role::Baker).await;
@@ -430,42 +424,26 @@ async fn baker_sets_the_capacity_and_makes_batches(pool: PgPool) {
 
     let page = baker.get(&list).await;
     assert_eq!(page.status, StatusCode::OK);
-    page.shows(&dutch("batches-capacity-missing"));
-    page.lacks(&format!("action=\"{list}/split\""));
-    let refused = baker.post(&format!("{list}/split"), &[]).await;
-    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
-
-    let wrong = baker
-        .post(&format!("{list}/capacity"), &[("capacity", "tien")])
-        .await;
-    assert_eq!(wrong.status, StatusCode::UNPROCESSABLE_ENTITY);
-    wrong.shows(&dutch("batches-capacity-error"));
-    baker
-        .post(&format!("{list}/capacity"), &[("capacity", "10")])
-        .await
-        .redirects_to(&format!("{list}?opgeslagen=1"));
-    let page = baker.get(&list).await;
-    page.lacks(&dutch("batches-capacity-missing"));
     page.shows("25 stuks Desem wit zitten nog niet in een batch.");
-    page.shows(&dutch_with("batches-capacity-current", &[("kg", "10")]));
+    page.lacks("Maak batches");
 
-    let made = baker.post(&format!("{list}/split"), &[]).await;
-    assert_eq!(made.status, StatusCode::OK);
-    made.shows("3 batches gemaakt.");
-    made.lacks("zitten nog niet in een batch");
-    for code in ["261205-1", "261205-2", "261205-3"] {
-        made.shows(code);
-    }
-    let again = baker.post(&format!("{list}/split"), &[]).await;
-    again.shows("Er waren geen nieuwe stukken om in batches te verdelen.");
+    baker
+        .post(
+            &format!("{list}/new"),
+            &[("product_id", &b.bread.get().to_string()), ("pieces", "25")],
+        )
+        .await;
+    let page = baker.get(&list).await;
+    page.lacks("zitten nog niet in een batch");
+    page.shows("261205-1");
 
     let mut conn = pool.acquire().await.expect("conn");
     let list = batches::list(&mut conn, b.day).await.expect("list");
-    assert_eq!(list.len(), 3);
+    assert_eq!(list.len(), 1);
     let page = baker.get(&batch_path(b.day, list[0].id)).await;
     assert_eq!(page.status, StatusCode::OK);
     page.shows("Batch 261205-1");
-    page.shows(&dutch_with("batch-lines-caption", &[("grams", "8.100")]));
+    page.shows(&dutch_with("batch-lines-caption", &[("grams", "22.500")]));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

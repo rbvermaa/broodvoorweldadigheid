@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT p.id, p.name_nl FROM product p JOIN recipe r ON r.id = p.recipe_id\n        WHERE p.active AND p.dough_g_per_piece > 0 AND r.current_version_id IS NOT NULL\n        ORDER BY lower(p.name_nl), p.id",
+  "query": "SELECT p.id, p.name_nl FROM product p JOIN recipe r ON r.id = p.recipe_id\n        WHERE (p.active OR p.id = ANY($1)) AND p.dough_g_per_piece > 0\n            AND r.current_version_id IS NOT NULL\n        ORDER BY lower(p.name_nl), p.id",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,14 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int8Array"
+      ]
     },
     "nullable": [
       false,
       false
     ]
   },
-  "hash": "2976528322e626cda8b5d9016a95085b7dc08f184b2f77466e27c3fe6025442a"
+  "hash": "3fe27cadf1a66977c3a9015b2b62346ad357c0feb7d6177799e2381143dc756a"
 }

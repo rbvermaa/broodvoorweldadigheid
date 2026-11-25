@@ -19,7 +19,6 @@ i18n = { path = "../i18n" }
 jiff.workspace = true
 notify = { path = "../notify" }
 orders = { path = "../orders" }
-production = { path = "../production" }
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
@@ -27,5 +26,4 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-recipes = { path = "../recipes" }
 testkit = { path = "../testkit", features = ["email"] }

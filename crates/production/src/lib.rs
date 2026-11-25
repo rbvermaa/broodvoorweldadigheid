@@ -8,7 +8,6 @@ mod paper;
 mod pdf;
 pub mod pickup;
 pub mod production;
-pub mod split;
 
 pub use error::Error;
 pub use pickup::{PickupLine, PickupList, PickupOrder, SlotPickups, pickup_list, pickup_pdf};

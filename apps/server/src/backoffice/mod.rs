@@ -191,11 +191,6 @@ pub fn routes() -> Router<AppState> {
             post(extras::remove),
         )
         .route("/staff/bake-days/{id}/batches", get(batches::page))
-        .route(
-            "/staff/bake-days/{id}/batches/capacity",
-            post(batches::set_capacity),
-        )
-        .route("/staff/bake-days/{id}/batches/split", post(batches::split))
         .route("/staff/bake-days/{id}/batches/new", post(batches::start))
         .route(
             "/staff/bake-days/{id}/batches/{batch}",

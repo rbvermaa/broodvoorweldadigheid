@@ -83,7 +83,7 @@ The MVP gets the bakery selling online. Phase 2 moves recipes and labels into th
 | F12 | Privacy tools | Export and delete a customer's data; marketing consent | MVP |
 | F13 | Staff roles | Owner, baker and counter roles; passkey login; owner and baker can refund an order, only the owner can cancel a whole bake day | MVP |
 | F14 | Recipe versions | Base recipes in baker's percentages with sub-recipes, preferments and hydration; a version freezes once a batch uses it, and editing creates the next version | Phase 2 |
-| F14a | Batches | At cutoff, split each dough (orders plus extra production) into batches by mixer capacity, or start a batch by hand for any quantity; each batch copies the recipe version; the baker adjusts lines and quantities with an optional reason; grams recalculate live; a batch locks when mixed; actual pieces and waste are recorded after baking | Phase 2 |
+| F14a | Batches | The baker starts each batch by hand for any quantity; each batch copies the recipe version; the baker adjusts lines and quantities with an optional reason; grams recalculate live; a batch locks when mixed; actual pieces and waste are recorded after baking | Phase 2 |
 | F14b | Promote an adjustment | Save a batch formula as the next recipe version in one action | Phase 2 |
 | F15 | Ingredient needs | Ingredient totals per bake day as a shopping list, including extra production: from recipe versions before cutoff, from batch lines after | Phase 2 |
 | F16 | Costing | Standard cost per product, actual cost per batch, and the variance split into recipe, price and yield; ingredient prices with a valid-from date | Phase 2 |
@@ -221,7 +221,7 @@ bakflow/
 │   ├── bakedays/         bake days, cutoffs, pickup slots, per-product limits, sick-day cancel
 │   ├── orders/           cart, checkout, capacity holds, order status, audit log
 │   ├── payments/         Mollie implementation of PaymentProvider, webhooks, refunds
-│   ├── production/       production list, pickup list; batches: mixer split, adjustments, actuals, actual cost (Phase 2)
+│   ├── production/       production list, pickup list; batches: adjustments, actuals, actual cost (Phase 2)
 │   ├── reports/          sales per BTW rate, B2B invoice overview, CSV export
 │   ├── notify/           email templates and sending
 │   ├── jobs/             scheduled work: open and close bake days, reminders, cleanup
@@ -287,7 +287,6 @@ BusinessAccount  customer_id, company_name, kvk, btw_id, invoice_address, invoic
 PickupLocation   name, address, notes
 PickupWindow     location_id, weekday, starts, ends, default_deadline_days_before,
                  default_deadline_time, active
-Mixer            name, max_dough_kg
 
 Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 | 21),
                  pay_what_you_want, min_price_cents?, max_price_cents?,
@@ -308,7 +307,7 @@ PickupSlot       bake_day_id, location_id, starts_at, ends_at, max_orders?
 BakeDayProduct   bake_day_id, product_id, max_qty?
 ProductionExtra  bake_day_id, product_id, qty, purpose (freezer | sumup | samples | other), note?
 
-Batch            bake_day_id, recipe_version_id, mixer_id, mix_no, flour_g, origin (cutoff | manual),
+Batch            bake_day_id, recipe_version_id, mix_no, flour_g,
                  status (planned | adjusted | mixed | baked), allergens[],
                  allergens_approved_by?, notes
 BatchLine        batch_id, ingredient_id | sub_recipe_id, base_pct?, actual_pct, reason?
@@ -407,7 +406,7 @@ Base recipes are frozen templates; each batch copies its recipe version and the 
 
 batch lifecycle · 5 states, allergen check, promote loop
 
-At cutoff, orders plus extra production are summed per dough (pieces × dough weight per piece) and split into batches by mixer capacity. The baker can also start a batch by hand for any quantity, for example bread for the freezer on a day without online sales. The baker adjusts a batch, for example water 78% to 74% or a different flour; grams recalculate live and changed lines show against the base. A batch locks once mixed, and after baking the baker records actual pieces and waste.
+The baker starts each batch by hand for any quantity, for example bread for the freezer on a day without online sales. There is no automatic split: the baker manages mixer capacity. The batches page shows the pieces (orders plus extra production) not yet in a batch. The baker adjusts a batch, for example water 78% to 74% or a different flour; grams recalculate live and changed lines show against the base. A batch locks once mixed, and after baking the baker records actual pieces and waste.
 
 **Planning**
 

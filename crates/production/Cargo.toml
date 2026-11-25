@@ -25,6 +25,5 @@ typst-pdf = "0.15.1"
 
 [dev-dependencies]
 insta.workspace = true
-proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true

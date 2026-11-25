@@ -1,5 +1,4 @@
-//! Batches (F14a, ADR 0042): the split of each dough at the order deadline, batches by
-//! hand, the baker's adjustments, the lock at mixing and the pieces out of the oven.
+//! Batches (F14a, ADR 0042): batches started by hand, the baker's adjustments, the lock at mixing and the pieces out of the oven.
 //!
 //! A batch keeps its own copy of the recipe version's lines; the version freezes when the
 //! first batch uses it. Grams are never stored: they follow from the lines and the dough
@@ -21,46 +20,16 @@ use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 
 use crate::Error;
-use crate::split::{self, Demand, SplitError};
 
 /// The most pieces of one product in one batch.
 pub const MAX_PIECES: u32 = 100_000;
 /// The most dough one piece may have; the limit of `batch_output.dough_g_per_piece`.
 pub const MAX_DOUGH_G_PER_PIECE: u32 = 1_000_000;
-/// The highest mixer capacity the setting takes: 1000 kg.
-pub const MAX_CAPACITY_G: u32 = 1_000_000;
 /// Longest reason the baker can give for an adjustment.
 pub const MAX_REASON_CHARS: usize = 200;
 /// Serialises numbering batches; unique among the advisory lock keys the crates use.
 const NUMBERING_LOCK: i64 = 0x6261_7463_6865_7331;
 const AUDIT_ENTITY: &str = "batch";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Origin {
-    /// Made by the split at the order deadline, or by the "make batches" button.
-    Cutoff,
-    /// Started by hand for any quantity.
-    Manual,
-}
-
-impl Origin {
-    /// Stored in the database; never change.
-    #[must_use]
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::Cutoff => "cutoff",
-            Self::Manual => "manual",
-        }
-    }
-
-    fn from_code(code: &str) -> Result<Self, Error> {
-        match code {
-            "cutoff" => Ok(Self::Cutoff),
-            "manual" => Ok(Self::Manual),
-            other => Err(Error::Corrupt(format!("batch origin {other}"))),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -171,7 +140,6 @@ pub struct Batch {
     pub recipe_name: String,
     pub version: i32,
     pub code: BatchCode,
-    pub origin: Origin,
     pub status: Status,
     pub notes: String,
     pub mixed_at: Option<Timestamp>,
@@ -209,33 +177,6 @@ pub struct BatchFormula {
     pub formula: Formula,
 }
 
-/// Why a product on the production list got no batch from the split.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkipReason {
-    NoRecipe,
-    NoVersionInUse,
-    NoDoughWeight,
-    EmptyRecipe,
-    /// One piece needs more dough than the mixer holds.
-    TooHeavy,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Skipped {
-    pub product_id: ProductId,
-    pub name: String,
-    pub reason: SkipReason,
-}
-
-/// What a split did.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SplitReport {
-    pub created: Vec<BatchId>,
-    pub skipped: Vec<Skipped>,
-    /// The deadline split had already run for this day; nothing was done.
-    pub already_split: bool,
-}
-
 /// The baker's changes to a batch before mixing, with one optional reason for all.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Adjustment {
@@ -252,70 +193,26 @@ pub struct Actual {
     pub waste: u32,
 }
 
-/// The mixer capacity in grams of dough per batch; `None` until the owner sets it, and
-/// then the split is off.
+/// Products a batch can be started for by hand on a day: active, or with pieces still to
+/// bake that day, and with a recipe that has a version in use and dough per piece. By name.
 ///
 /// # Errors
-/// [`Error::Db`] or [`Error::Corrupt`].
-pub async fn capacity(conn: &mut PgConnection) -> Result<Option<u32>, Error> {
-    let row = sqlx::query_scalar!("SELECT mixer_capacity_g FROM company")
-        .fetch_optional(conn)
-        .await?
-        .ok_or_else(|| Error::Corrupt("no company row".to_owned()))?;
-    row.map(|g| u32::try_from(g).map_err(|_| Error::Corrupt("mixer capacity".to_owned())))
-        .transpose()
-}
-
-/// Sets or clears the mixer capacity.
-///
-/// # Errors
-/// [`Error::Invalid`] outside 1 g to [`MAX_CAPACITY_G`].
-pub async fn set_capacity(
-    conn: &mut PgConnection,
-    grams: Option<u32>,
-    actor: Actor,
-    clock: &dyn Clock,
-) -> Result<(), Error> {
-    if grams.is_some_and(|g| g == 0 || g > MAX_CAPACITY_G) {
-        return Err(Error::Invalid("capacity"));
-    }
-    let mut tx = conn.begin().await?;
-    let before = sqlx::query_scalar!("SELECT mixer_capacity_g FROM company FOR UPDATE")
-        .fetch_one(&mut *tx)
-        .await?;
-    let after = grams.map(i32::try_from).transpose().ok().flatten();
-    sqlx::query!("UPDATE company SET mixer_capacity_g = $1", after)
-        .execute(&mut *tx)
-        .await?;
-    audit::record(
-        &mut tx,
-        &Entry {
-            entity: "company",
-            entity_id: 1,
-            action: "mixer_capacity",
-            before: Some(json!({ "mixer_capacity_g": before })),
-            after: Some(json!({ "mixer_capacity_g": after })),
-            actor,
-            at: clock.now(),
-        },
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Active products a batch can be started for by hand: with a recipe that has a version in
-/// use, and dough per piece. By name.
-///
-/// # Errors
-/// [`Error::Db`].
+/// [`Error::Db`], [`Error::Orders`] or [`Error::BakeDays`].
 pub async fn startable_products(
     conn: &mut PgConnection,
+    day: BakeDayId,
 ) -> Result<Vec<(ProductId, String)>, Error> {
+    let baking: Vec<i64> = to_bake(conn, day)
+        .await?
+        .into_keys()
+        .map(|id| id.get())
+        .collect();
     Ok(sqlx::query!(
         "SELECT p.id, p.name_nl FROM product p JOIN recipe r ON r.id = p.recipe_id
-        WHERE p.active AND p.dough_g_per_piece > 0 AND r.current_version_id IS NOT NULL
+        WHERE (p.active OR p.id = ANY($1)) AND p.dough_g_per_piece > 0
+            AND r.current_version_id IS NOT NULL
         ORDER BY lower(p.name_nl), p.id",
+        &baking,
     )
     .fetch_all(conn)
     .await?
@@ -404,7 +301,7 @@ async fn planned(conn: &mut PgConnection, day: BakeDayId) -> Result<HashMap<i64,
 }
 
 /// Pieces still to bake on a day that are in none of its batches, per product with its
-/// name, by name. Shows what the split skipped and what was added after it.
+/// name, by name: what still needs a batch started by hand.
 ///
 /// # Errors
 /// [`Error::Db`], [`Error::Orders`] or [`Error::BakeDays`].
@@ -448,166 +345,6 @@ async fn require_lines(conn: &mut PgConnection, id: BatchId) -> Result<(), Error
     }
 }
 
-/// Splits what is still to bake on a day into batches: per dough (recipe version in use
-/// of each product's recipe) the pieces not yet in one of the day's batches, by mixer
-/// capacity (see [`crate::split`]). Running it again only adds batches for pieces added
-/// since. This is the "make batches" button; the jobs tick uses
-/// [`split_at_deadline`].
-///
-/// # Errors
-/// [`Error::NoCapacity`] while the mixer capacity is not set, [`Error::DayFinal`] for a
-/// cancelled or finished day, [`Error::BakeDays`] with `NotFound` for an unknown day.
-pub async fn make_batches(
-    conn: &mut PgConnection,
-    day: BakeDayId,
-    actor: Actor,
-    clock: &dyn Clock,
-) -> Result<SplitReport, Error> {
-    let mut tx = conn.begin().await?;
-    let report = split_day(&mut tx, day, actor, clock).await?;
-    tx.commit().await?;
-    Ok(report)
-}
-
-/// The split at the order deadline: [`make_batches`] once per day. A second call, also
-/// from another server at the same time, reports `already_split` and changes nothing.
-///
-/// # Errors
-/// As [`make_batches`]; on an error nothing is recorded, so the next tick tries again.
-pub async fn split_at_deadline(
-    conn: &mut PgConnection,
-    day: BakeDayId,
-    clock: &dyn Clock,
-) -> Result<SplitReport, Error> {
-    let mut tx = conn.begin().await?;
-    let first = sqlx::query!(
-        "INSERT INTO batch_split (bake_day_id, split_at)
-        VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond')
-        ON CONFLICT (bake_day_id) DO NOTHING",
-        day.get(),
-        to_micros(clock.now()),
-    )
-    .execute(&mut *tx)
-    .await?
-    .rows_affected()
-        == 1;
-    if !first {
-        return Ok(SplitReport {
-            already_split: true,
-            ..SplitReport::default()
-        });
-    }
-    let report = split_day(&mut tx, day, Actor::System("batch-split"), clock).await?;
-    tx.commit().await?;
-    Ok(report)
-}
-
-async fn split_day(
-    conn: &mut PgConnection,
-    day_id: BakeDayId,
-    actor: Actor,
-    clock: &dyn Clock,
-) -> Result<SplitReport, Error> {
-    lock_day(conn, day_id).await?;
-    let day = days::get(conn, day_id).await?;
-    if day.status.is_final() {
-        return Err(Error::DayFinal);
-    }
-    let capacity = capacity(conn).await?.ok_or(Error::NoCapacity)?;
-    lock_numbering(conn).await?;
-    let pieces = to_bake(conn, day_id).await?;
-    let ids: Vec<i64> = pieces.keys().map(|id| id.get()).collect();
-    let products = product_recipes(conn, &ids).await?;
-    let already = planned(conn, day_id).await?;
-    let mut report = SplitReport::default();
-    let mut doughs: BTreeMap<(i64, i64), Vec<Demand>> = BTreeMap::new();
-    for (&product_id, &count) in &pieces {
-        let Some(product) = products.get(&product_id.get()) else {
-            continue;
-        };
-        let skip = |reason| Skipped {
-            product_id,
-            name: product.name.clone(),
-            reason,
-        };
-        let (Some(recipe_id), Some(version_id)) = (product.recipe_id, product.version_id) else {
-            report.skipped.push(skip(if product.recipe_id.is_none() {
-                SkipReason::NoRecipe
-            } else {
-                SkipReason::NoVersionInUse
-            }));
-            continue;
-        };
-        let Ok(grams_per_piece) = u32::try_from(product.dough_g_per_piece) else {
-            return Err(Error::Corrupt("dough per piece".to_owned()));
-        };
-        if grams_per_piece == 0 {
-            report.skipped.push(skip(SkipReason::NoDoughWeight));
-            continue;
-        }
-        if !product.has_lines {
-            report.skipped.push(skip(SkipReason::EmptyRecipe));
-            continue;
-        }
-        if grams_per_piece > capacity {
-            report.skipped.push(skip(SkipReason::TooHeavy));
-            continue;
-        }
-        let done = already.get(&product_id.get()).copied().unwrap_or(0);
-        let left = count.saturating_sub(done);
-        if left > 0 {
-            doughs
-                .entry((recipe_id, version_id))
-                .or_default()
-                .push(Demand {
-                    product_id,
-                    grams_per_piece,
-                    pieces: left,
-                });
-        }
-    }
-    for ((recipe_id, version_id), demands) in doughs {
-        let planned = match split::split(&demands, capacity) {
-            Ok(planned) => planned,
-            Err(SplitError::PieceTooHeavy(heavy)) => {
-                let name = products
-                    .get(&heavy.get())
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                report.skipped.push(Skipped {
-                    product_id: heavy,
-                    name,
-                    reason: SkipReason::TooHeavy,
-                });
-                continue;
-            }
-        };
-        for batch in planned {
-            let outputs: Vec<(ProductId, u32, u32)> = batch
-                .outputs
-                .iter()
-                .map(|&(product_id, pieces)| {
-                    let grams = demands
-                        .iter()
-                        .find(|d| d.product_id == product_id)
-                        .map_or(0, |d| d.grams_per_piece);
-                    (product_id, grams, pieces)
-                })
-                .collect();
-            let new = NewBatch {
-                day: &day,
-                recipe_id: RecipeId::new(recipe_id),
-                version_id: RecipeVersionId::new(version_id),
-                origin: Origin::Cutoff,
-                outputs: &outputs,
-            };
-            let id = insert_batch(conn, &new, actor, clock).await?;
-            report.created.push(id);
-        }
-    }
-    Ok(report)
-}
-
 /// Holds the bake day row, so it cannot be cancelled or finished while batches are made.
 async fn lock_day(conn: &mut PgConnection, day: BakeDayId) -> Result<(), Error> {
     sqlx::query_scalar!("SELECT id FROM bake_day WHERE id = $1 FOR SHARE", day.get())
@@ -627,7 +364,6 @@ struct NewBatch<'a> {
     day: &'a bakedays::BakeDay,
     recipe_id: RecipeId,
     version_id: RecipeVersionId,
-    origin: Origin,
     /// Product, dough grams per piece, pieces.
     outputs: &'a [(ProductId, u32, u32)],
 }
@@ -643,22 +379,20 @@ async fn insert_batch(
         day,
         recipe_id,
         version_id,
-        origin,
         outputs,
     } = *new;
     recipes::recipes::freeze(conn, recipe_id, version_id, clock).await?;
     let now = clock.now();
     let id = sqlx::query_scalar!(
-        "INSERT INTO batch (bake_day_id, recipe_version_id, code_date, mix_no, origin, created_at)
+        "INSERT INTO batch (bake_day_id, recipe_version_id, code_date, mix_no, created_at)
         SELECT $1, $2, date 'epoch' + $3::integer,
-            COALESCE(max(mix_no), 0) + 1, $4,
-            timestamptz 'epoch' + $5::bigint * interval '1 microsecond'
+            COALESCE(max(mix_no), 0) + 1,
+            timestamptz 'epoch' + $4::bigint * interval '1 microsecond'
         FROM batch WHERE code_date = date 'epoch' + $3::integer
         RETURNING id",
         day.id.get(),
         version_id.get(),
         to_epoch_days(day.date),
-        origin.code(),
         to_micros(now),
     )
     .fetch_one(&mut *conn)
@@ -694,7 +428,6 @@ async fn insert_batch(
             action: "create",
             before: None,
             after: Some(json!({
-                "origin": origin.code(),
                 "recipe_version_id": version_id.get(),
                 "outputs": outputs
                     .iter()
@@ -710,7 +443,7 @@ async fn insert_batch(
 }
 
 /// Starts a batch by hand: `pieces` of one product, made from the version in use of its
-/// recipe. Works without a mixer capacity and may exceed it.
+/// recipe. Any quantity.
 ///
 /// # Errors
 /// [`Error::Invalid`] with `pieces` outside 1 to [`MAX_PIECES`], `recipe` when the
@@ -749,7 +482,6 @@ pub async fn start_manual(
         day: &day,
         recipe_id: RecipeId::new(recipe_id),
         version_id: RecipeVersionId::new(version_id),
-        origin: Origin::Manual,
         outputs: &[(product_id, grams, pieces)],
     };
     let id = insert_batch(&mut tx, &new, actor, clock).await?;
@@ -766,7 +498,6 @@ struct BatchRow {
     version: i32,
     code_days: i32,
     mix_no: i32,
-    origin: String,
     status: String,
     notes: String,
     mixed_at_us: Option<i64>,
@@ -898,7 +629,6 @@ async fn load(conn: &mut PgConnection, rows: Vec<BatchRow>) -> Result<Vec<Batch>
                     date: from_epoch_days(row.code_days)?,
                     mix_no: count(row.mix_no)?,
                 },
-                origin: Origin::from_code(&row.origin)?,
                 status: Status::from_code(&row.status)?,
                 notes: row.notes,
                 mixed_at: row.mixed_at_us.map(from_micros).transpose()?,
@@ -918,7 +648,7 @@ pub async fn list(conn: &mut PgConnection, day: BakeDayId) -> Result<Vec<Batch>,
     let rows = sqlx::query_as!(
         BatchRow,
         r#"SELECT b.id, b.bake_day_id, b.recipe_version_id, v.recipe_id, r.name AS recipe_name,
-            v.version, (b.code_date - date 'epoch') AS "code_days!", b.mix_no, b.origin,
+            v.version, (b.code_date - date 'epoch') AS "code_days!", b.mix_no,
             b.status, b.notes,
             (extract(epoch FROM b.mixed_at) * 1000000)::bigint AS mixed_at_us,
             (extract(epoch FROM b.baked_at) * 1000000)::bigint AS baked_at_us
@@ -940,7 +670,7 @@ pub async fn get(conn: &mut PgConnection, id: BatchId) -> Result<Batch, Error> {
     let rows = sqlx::query_as!(
         BatchRow,
         r#"SELECT b.id, b.bake_day_id, b.recipe_version_id, v.recipe_id, r.name AS recipe_name,
-            v.version, (b.code_date - date 'epoch') AS "code_days!", b.mix_no, b.origin,
+            v.version, (b.code_date - date 'epoch') AS "code_days!", b.mix_no,
             b.status, b.notes,
             (extract(epoch FROM b.mixed_at) * 1000000)::bigint AS mixed_at_us,
             (extract(epoch FROM b.baked_at) * 1000000)::bigint AS baked_at_us
@@ -1375,9 +1105,6 @@ mod tests {
 
     #[test]
     fn codes_round_trip() {
-        for origin in [Origin::Cutoff, Origin::Manual] {
-            assert_eq!(Origin::from_code(origin.code()).ok(), Some(origin));
-        }
         for status in [
             Status::Planned,
             Status::Adjusted,
@@ -1386,7 +1113,6 @@ mod tests {
         ] {
             assert_eq!(Status::from_code(status.code()).ok(), Some(status));
         }
-        assert!(Origin::from_code("x").is_err());
         assert!(Status::from_code("x").is_err());
     }
 

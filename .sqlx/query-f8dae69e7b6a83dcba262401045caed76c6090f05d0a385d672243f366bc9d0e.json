@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT b.id, b.bake_day_id, b.recipe_version_id, v.recipe_id, r.name AS recipe_name,\n            v.version, (b.code_date - date 'epoch') AS \"code_days!\", b.mix_no, b.origin,\n            b.status, b.notes,\n            (extract(epoch FROM b.mixed_at) * 1000000)::bigint AS mixed_at_us,\n            (extract(epoch FROM b.baked_at) * 1000000)::bigint AS baked_at_us\n        FROM batch b\n        JOIN recipe_version v ON v.id = b.recipe_version_id\n        JOIN recipe r ON r.id = v.recipe_id\n        WHERE b.id = $1",
+  "query": "SELECT b.id, b.bake_day_id, b.recipe_version_id, v.recipe_id, r.name AS recipe_name,\n            v.version, (b.code_date - date 'epoch') AS \"code_days!\", b.mix_no,\n            b.status, b.notes,\n            (extract(epoch FROM b.mixed_at) * 1000000)::bigint AS mixed_at_us,\n            (extract(epoch FROM b.baked_at) * 1000000)::bigint AS baked_at_us\n        FROM batch b\n        JOIN recipe_version v ON v.id = b.recipe_version_id\n        JOIN recipe r ON r.id = v.recipe_id\n        WHERE b.id = $1",
   "describe": {
     "columns": [
       {
@@ -88,17 +88,6 @@
       },
       {
         "ordinal": 8,
-        "name": "origin",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "batch",
-            "name": "origin"
-          }
-        }
-      },
-      {
-        "ordinal": 9,
         "name": "status",
         "type_info": "Text",
         "origin": {
@@ -109,7 +98,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "notes",
         "type_info": "Text",
         "origin": {
@@ -120,13 +109,13 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "mixed_at_us",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "baked_at_us",
         "type_info": "Int8",
         "origin": "Expression"
@@ -148,10 +137,9 @@
       false,
       false,
       false,
-      false,
       null,
       null
     ]
   },
-  "hash": "930284429a71c2c704fe0c62933cea9eb15175224a5504d9df7c7d9bcb40e0a9"
+  "hash": "f8dae69e7b6a83dcba262401045caed76c6090f05d0a385d672243f366bc9d0e"
 }

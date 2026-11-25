@@ -14,9 +14,6 @@ pub enum Error {
     NotFound,
     #[error("invalid {0}")]
     Invalid(&'static str),
-    /// The mixer capacity is not set, so batches can only be started by hand.
-    #[error("the mixer capacity is not set")]
-    NoCapacity,
     /// The bake day is cancelled or done.
     #[error("the bake day is cancelled or done")]
     DayFinal,

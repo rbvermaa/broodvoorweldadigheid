@@ -1,5 +1,4 @@
-//! Batches per bake day (F14a, ADR 0042): the split by mixer capacity, batches by hand,
-//! adjusting a batch with grams that recalculate on the server, the lock at mixing and
+//! Batches per bake day (F14a, ADR 0042): batches started by hand, adjusting a batch with grams that recalculate on the server, the lock at mixing and
 //! the pieces after baking.
 
 use askama::Template;
@@ -10,9 +9,7 @@ use axum::response::Response;
 use bakedays::BakeDay;
 use domain::{BatchId, IngredientId, ProductId};
 use orders::audit::Actor;
-use production::batches::{
-    self, Actual, Adjustment, Batch, LineRef, Origin, SkipReason, Skipped, SplitReport, Status,
-};
+use production::batches::{self, Actual, Adjustment, Batch, LineRef, Status};
 use recipes::{Part, Pct, ScaleError, Scaled, ingredient_totals, ingredients};
 use tower_sessions::Session;
 
@@ -21,7 +18,7 @@ use super::form::{Errors, Fields, parse_count, parse_pct, pct_value};
 use super::recipes::Message;
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_count, t_with,
+    saved, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -49,32 +46,6 @@ fn kg_text(grams: u64) -> String {
     }
 }
 
-/// Grams as kilograms for the input field: no thousands separator, so [`parse_kg`] reads it
-/// back unchanged.
-fn kg_value(grams: u32) -> String {
-    let fraction = format!("{:03}", grams % 1000);
-    let fraction = fraction.trim_end_matches('0');
-    if fraction.is_empty() {
-        (grams / 1000).to_string()
-    } else {
-        format!("{},{fraction}", grams / 1000)
-    }
-}
-
-/// Kilograms as typed (`12`, `12,5`, `12.250`) in whole grams; more than three decimals
-/// is refused.
-fn parse_kg(input: &str) -> Option<u32> {
-    let cleaned = input.trim();
-    let (whole, fraction) = cleaned.split_once([',', '.']).unwrap_or((cleaned, ""));
-    let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
-    if whole.is_empty() || !digits(whole) || fraction.len() > 3 || !digits(fraction) {
-        return None;
-    }
-    let whole: u32 = whole.parse().ok()?;
-    let fraction: u32 = format!("{fraction:0<3}").parse().ok()?;
-    whole.checked_mul(1000)?.checked_add(fraction)
-}
-
 fn grams_text(grams: u64) -> String {
     i18n::decimal(i64::try_from(grams).unwrap_or(i64::MAX), 0)
 }
@@ -89,16 +60,6 @@ const fn status_message(status: Status) -> &'static str {
         Status::Adjusted => "batch-status-adjusted",
         Status::Mixed => "batch-status-mixed",
         Status::Baked => "batch-status-baked",
-    }
-}
-
-const fn skip_message(reason: SkipReason) -> &'static str {
-    match reason {
-        SkipReason::NoRecipe => "batches-skip-no-recipe",
-        SkipReason::NoVersionInUse => "batches-skip-no-version",
-        SkipReason::NoDoughWeight => "batches-skip-no-dough",
-        SkipReason::EmptyRecipe => "batches-skip-empty",
-        SkipReason::TooHeavy => "batches-skip-too-heavy",
     }
 }
 
@@ -128,12 +89,6 @@ struct ListPage<'a> {
     back: String,
     saved: bool,
     editable: bool,
-    capacity_set: bool,
-    capacity_text: String,
-    capacity_value: String,
-    capacity_error: String,
-    capacity_action: String,
-    split_action: String,
     messages: Vec<Message>,
     batches: Option<Table>,
     products: Vec<SelectOption>,
@@ -144,8 +99,6 @@ struct ListPage<'a> {
 
 enum ListAnswer {
     Plain { saved: bool },
-    Capacity { value: String, error: String },
-    Split(SplitReport),
     Manual { form: ManualForm, errors: Errors },
 }
 
@@ -157,13 +110,10 @@ async fn render_list(
     answer: ListAnswer,
 ) -> Outcome {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    let capacity = batches::capacity(&mut conn)
-        .await
-        .map_err(|e| fail(state, &e))?;
     let list = batches::list(&mut conn, day.id)
         .await
         .map_err(|e| fail(state, &e))?;
-    let startable = batches::startable_products(&mut conn)
+    let startable = batches::startable_products(&mut conn, day.id)
         .await
         .map_err(|e| fail(state, &e))?;
     let unbatched = batches::unbatched(&mut conn, day.id)
@@ -172,8 +122,6 @@ async fn render_list(
     drop(conn);
     let path = list_path(day);
     let mut messages = Vec::new();
-    let (mut capacity_value, mut capacity_error) =
-        (capacity.map(kg_value).unwrap_or_default(), String::new());
     let (mut manual, mut errors, mut saved) = (
         ManualForm {
             product_id: String::new(),
@@ -184,29 +132,6 @@ async fn render_list(
     );
     match answer {
         ListAnswer::Plain { saved: s } => saved = s,
-        ListAnswer::Capacity { value, error } => {
-            capacity_value = value;
-            capacity_error = error;
-        }
-        ListAnswer::Split(report) => {
-            messages.push(Message {
-                kind: "info",
-                text: t_count(
-                    state,
-                    "batches-split-done",
-                    u32::try_from(report.created.len()).unwrap_or(u32::MAX),
-                ),
-            });
-            messages.extend(
-                report
-                    .skipped
-                    .iter()
-                    .map(|Skipped { name, reason, .. }| Message {
-                        kind: "warning",
-                        text: t_with(state, skip_message(*reason), &[("product", name.clone())]),
-                    }),
-            );
-        }
         ListAnswer::Manual { form, errors: e } => {
             manual = form;
             errors = e;
@@ -276,18 +201,6 @@ async fn render_list(
             back: day_path(day.id),
             saved,
             editable: !day.status.is_final(),
-            capacity_set: capacity.is_some(),
-            capacity_text: capacity.map_or_else(String::new, |g| {
-                t_with(
-                    state,
-                    "batches-capacity-current",
-                    &[("kg", kg_text(u64::from(g)))],
-                )
-            }),
-            capacity_value,
-            capacity_error,
-            capacity_action: format!("{path}/capacity"),
-            split_action: format!("{path}/split"),
             messages,
             batches,
             products,
@@ -312,70 +225,6 @@ pub async fn page(
             saved: flash.saved(),
         };
         render_list(&state, &session, StatusCode::OK, &day, answer).await
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-pub async fn set_capacity(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Form(fields): Form<Fields>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::Production)?;
-        let day = bake_days::load(&state, &id).await?;
-        let raw = fields.text("capacity");
-        let grams = if raw.is_empty() {
-            None
-        } else {
-            match parse_kg(raw).filter(|g| (1..=batches::MAX_CAPACITY_G).contains(g)) {
-                Some(g) => Some(g),
-                None => {
-                    let answer = ListAnswer::Capacity {
-                        value: raw.to_owned(),
-                        error: t(&state, "batches-capacity-error"),
-                    };
-                    let status = invalid_status(&headers);
-                    return render_list(&state, &session, status, &day, answer).await;
-                }
-            }
-        };
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        batches::set_capacity(&mut conn, grams, actor(&staff), state.clock.as_ref())
-            .await
-            .map_err(|e| fail(&state, &e))?;
-        drop(conn);
-        Ok(saved(&headers, &list_path(&day)))
-    };
-    run.await.unwrap_or_else(Rejection::into_response)
-}
-
-/// The "make batches" button. The page comes back with what was made and skipped.
-pub async fn split(
-    State(state): State<AppState>,
-    staff: Staff,
-    session: Session,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Response {
-    let run = async {
-        require(&state, &staff, Permission::Production)?;
-        let day = bake_days::load(&state, &id).await?;
-        let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        let result =
-            batches::make_batches(&mut conn, day.id, actor(&staff), state.clock.as_ref()).await;
-        drop(conn);
-        let (status, answer) = match result {
-            Ok(report) => (StatusCode::OK, ListAnswer::Split(report)),
-            Err(production::Error::NoCapacity | production::Error::DayFinal) => {
-                (invalid_status(&headers), ListAnswer::Plain { saved: false })
-            }
-            Err(error) => return Err(production_error(&state, &error)),
-        };
-        render_list(&state, &session, status, &day, answer).await
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -763,10 +612,6 @@ fn actual_fields(state: &AppState, batch: &Batch, raw: &[(String, String)]) -> V
 }
 
 fn facts(state: &AppState, batch: &Batch) -> Table {
-    let origin = match batch.origin {
-        Origin::Cutoff => "batch-origin-cutoff",
-        Origin::Manual => "batch-origin-manual",
-    };
     let row = |label: &str, value: String| vec![Cell::text(t(state, label)), Cell::text(value)];
     Table {
         id: "batch".to_owned(),
@@ -787,7 +632,6 @@ fn facts(state: &AppState, batch: &Batch) -> Table {
                     ],
                 ),
             ),
-            row("batch-origin", t(state, origin)),
             row(
                 "batch-dough",
                 t_with(state, "batch-kg", &[("kg", kg_text(batch.dough_g()))]),
@@ -1237,23 +1081,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kilograms_read_and_show_the_dutch_way() {
-        assert_eq!(parse_kg("12"), Some(12_000));
-        assert_eq!(parse_kg("12,5"), Some(12_500));
-        assert_eq!(parse_kg(" 0.125 "), Some(125));
-        assert_eq!(parse_kg("1,2345"), None);
-        assert_eq!(parse_kg("-1"), None);
-        assert_eq!(parse_kg(""), None);
+    fn kilograms_show_the_dutch_way() {
         assert_eq!(kg_text(12_500), "12,5");
         assert_eq!(kg_text(9_000), "9");
         assert_eq!(kg_text(1_250_125), "1.250,125");
-        assert_eq!(kg_value(1_000_000), "1000");
-        assert_eq!(parse_kg(&kg_value(1_000_000)), Some(1_000_000));
-        assert_eq!(kg_value(12_500), "12,5");
     }
 
     #[test]
-    fn every_status_and_skip_reason_has_a_text() {
+    fn every_status_has_a_text() {
         let translator = i18n::Translator::dutch().expect("Dutch texts");
         for status in [
             Status::Planned,
@@ -1262,19 +1097,6 @@ mod tests {
             Status::Baked,
         ] {
             translator.t(status_message(status), None).expect("text");
-        }
-        let mut args = i18n::FluentArgs::new();
-        args.set("product", "Desem");
-        for reason in [
-            SkipReason::NoRecipe,
-            SkipReason::NoVersionInUse,
-            SkipReason::NoDoughWeight,
-            SkipReason::EmptyRecipe,
-            SkipReason::TooHeavy,
-        ] {
-            translator
-                .t(skip_message(reason), Some(&args))
-                .expect("text");
         }
     }
 }
