@@ -891,7 +891,7 @@ pub async fn formulas_for_day(
 }
 
 /// Locks the batch row and returns its status.
-async fn lock(conn: &mut PgConnection, id: BatchId) -> Result<Status, Error> {
+pub(crate) async fn lock(conn: &mut PgConnection, id: BatchId) -> Result<Status, Error> {
     let status = sqlx::query_scalar!(
         "SELECT status FROM batch WHERE id = $1 FOR UPDATE",
         id.get()

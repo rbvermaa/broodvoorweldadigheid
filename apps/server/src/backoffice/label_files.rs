@@ -15,7 +15,7 @@ use domain::{BatchId, ProductId};
 use orders::audit::Actor;
 use production::batches::{self, Batch};
 use production::label_check::LabelBlock;
-use production::label_files::{self, BatchLabel, LabelGap, LabelKind};
+use production::label_files::{self, BatchLabel, LabelFile, LabelGap, LabelKind};
 use tower_sessions::Session;
 
 use super::form::{Fields, parse_count};
@@ -102,6 +102,7 @@ fn refusal(error: &production::Error) -> Option<&'static str> {
             LabelGap::NoFrozenPieces => "batch-labels-gap-no-frozen",
         },
         production::Error::Label(labels::Error::TooLong) => "batch-labels-too-long",
+        production::Error::Label(labels::Error::TooWide) => "batch-labels-too-wide",
         _ => return None,
     })
 }
@@ -156,6 +157,20 @@ struct Page<'a> {
     products: Vec<ProductView>,
 }
 
+/// Typst is CPU work, so it runs off the async workers.
+async fn draw(
+    state: &AppState,
+    label: BatchLabel,
+) -> Step<(BatchLabel, Result<Vec<LabelFile>, production::Error>)> {
+    let i18n = state.i18n.clone();
+    tokio::task::spawn_blocking(move || {
+        let files = label_files::files(&label, &i18n);
+        (label, files)
+    })
+    .await
+    .map_err(|e| fail(state, &e).into())
+}
+
 async fn kind_view(
     state: &AppState,
     batch: BatchId,
@@ -182,7 +197,8 @@ async fn kind_view(
             None => return Err(production_error(state, &error)),
         },
     };
-    let files = match label_files::files(&label, &state.i18n) {
+    let (label, files) = draw(state, label).await?;
+    let files = match files {
         Ok(files) => files,
         Err(error) => {
             return match refusal(&error) {
@@ -228,10 +244,10 @@ async fn kind_view(
         copies: t_with(
             state,
             "batch-labels-copies",
-            &[("n", label.copies.to_string())],
+            &[("n", label.copies().to_string())],
         ),
         warning: label
-            .order_changed
+            .order_changed()
             .then(|| t(state, "label-check-order-warning")),
         files: downloads,
     })
@@ -386,17 +402,8 @@ pub async fn download(
                 .await;
             }
         };
-        let Some(index) = index else {
-            let csv =
-                label_files::csv(&label, &state.i18n).map_err(|e| production_error(&state, &e))?;
-            let name = format!("{}-{}.csv", label.label.batch_code, kind.slug());
-            return Ok(file_response(
-                "text/csv; charset=utf-8",
-                &name,
-                csv.into_bytes(),
-            ));
-        };
-        let files = match label_files::files(&label, &state.i18n) {
+        let (label, files) = draw(&state, label).await?;
+        let files = match files {
             Ok(files) => files,
             Err(error) => {
                 let Some(text) = refused(&state, &error) else {
@@ -415,6 +422,16 @@ pub async fn download(
                 )
                 .await;
             }
+        };
+        let Some(index) = index else {
+            let csv = label_files::csv(&label, &files, &state.i18n)
+                .map_err(|e| production_error(&state, &e))?;
+            let name = format!("{}-{}.csv", label.label().batch_code, kind.slug());
+            return Ok(file_response(
+                "text/csv; charset=utf-8",
+                &name,
+                csv.into_bytes(),
+            ));
         };
         let file = files
             .into_iter()

@@ -229,3 +229,22 @@ fn a_glyph_no_font_has_is_an_error() {
     };
     assert!(matches!(render(&label, &T), Err(Error::Typst(_))));
 }
+
+#[test]
+fn a_word_too_long_for_the_width_is_refused_not_cut_off() {
+    let long_name = Label {
+        product: "Volkorenspeltdesembroodmetzonnebloempitten".to_owned(),
+        ..granola()
+    };
+    assert!(matches!(render(&long_name, &T), Err(Error::TooWide)));
+    let long_ingredient = Label {
+        ingredients: vec![ingredient(&"tarwe".repeat(20), true)],
+        ..granola()
+    };
+    assert!(matches!(render(&long_ingredient, &T), Err(Error::TooWide)));
+}
+
+#[test]
+fn drawing_errors_keep_their_message() {
+    assert!(matches!(png::draw_error("bad svg"), Error::Draw(m) if m == "bad svg"));
+}

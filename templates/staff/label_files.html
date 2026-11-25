@@ -22,7 +22,7 @@
 <p>{{ kind.copies }}</p>
 <ul>
 {%- for file in kind.files %}
-<li><a href="{{ file.href }}" download>{{ file.text }}</a></li>
+<li><a href="{{ file.href }}">{{ file.text }}</a></li>
 {%- endfor %}
 </ul>
 {% endif %}

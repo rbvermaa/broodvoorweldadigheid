@@ -3,7 +3,7 @@
 //! the label text for the app's data import.
 //!
 //! This crate only lays out what it is given. Whether a batch may get a label is decided
-//! in `production::labels`, which calls the F17 label check before anything reaches here.
+//! in `production::label_files`, which calls the F17 label check before anything reaches here.
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeSet;
@@ -96,6 +96,8 @@ pub enum Error {
     Draw(String),
     #[error("the label text does not fit on the longest label, also not split")]
     TooLong,
+    #[error("a word on the label is too long for its width")]
+    TooWide,
     #[error("the best-before date is out of range")]
     DateOutOfRange,
     #[error("the CSV could not be made: {0}")]

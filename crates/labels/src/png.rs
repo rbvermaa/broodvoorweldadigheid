@@ -36,6 +36,43 @@ pub struct Png {
 }
 
 const MM_PER_PT: f64 = 25.4 / 72.0;
+/// The page margin and the logo with its gap, as in typst/label.typ.
+const MARGIN_MM: f64 = 1.5;
+const LOGO_MM: f64 = 13.0;
+/// Rounding room, so text that ends exactly at an edge still fits.
+const SLACK_PT: f64 = 0.5;
+
+/// Text that a word too long to break pushes past the right margin, or into the logo.
+/// Typst lays it out without a warning, and the PNG would cut it off.
+fn overflows(frame: &typst::layout::Frame, logo: bool) -> bool {
+    use typst::layout::{Frame, FrameItem, Point};
+
+    fn walk(frame: &Frame, origin: Point, limits: (f64, f64, f64), logo: bool) -> bool {
+        let (right, logo_left, logo_bottom) = limits;
+        frame.items().any(|(pos, item)| {
+            let at = origin + *pos;
+            match item {
+                FrameItem::Group(group) => walk(&group.frame, at, limits, logo),
+                FrameItem::Text(text) => {
+                    let end = (at.x + text.width()).to_pt();
+                    let top = (at.y - text.size).to_pt();
+                    end > right + SLACK_PT
+                        || (logo && top < logo_bottom && end > logo_left + SLACK_PT)
+                }
+                _ => false,
+            }
+        })
+    }
+
+    let width = frame.width().to_pt();
+    let margin = MARGIN_MM / MM_PER_PT;
+    let limits = (
+        width - margin,
+        width - margin - LOGO_MM / MM_PER_PT,
+        margin + (LOGO_MM - 1.0) / MM_PER_PT,
+    );
+    walk(frame, Point::zero(), limits, logo)
+}
 
 struct Laid {
     side: Side,
@@ -46,9 +83,13 @@ struct Laid {
 /// Lays out one side; `None` when it fits none of the label lengths.
 fn lay(label: &Label, side: Side, t: &Translator) -> Result<Option<Laid>, Error> {
     let document = world::layout(&data(label, side, t)?)?;
-    let [page] = document.pages() else {
-        return Ok(None);
-    };
+    let page = document
+        .pages()
+        .first()
+        .ok_or(Error::Typst("no page".to_owned()))?;
+    if overflows(&page.frame, side != Side::Back) {
+        return Err(Error::TooWide);
+    }
     let needed_mm = page.frame.height().to_pt() * MM_PER_PT;
     Ok(LENGTHS_MM
         .into_iter()
@@ -74,16 +115,18 @@ fn sides(label: &Label, t: &Translator) -> Result<Vec<Laid>, Error> {
     }
 }
 
+pub(crate) fn draw_error(error: impl ToString) -> Error {
+    Error::Draw(error.to_string())
+}
+
 /// Draws the laid-out page black on white: the B21 Pro prints dots, not greys, so every
 /// pixel is either. The page sits at the top of a label that may be longer.
 fn draw(laid: &Laid) -> Result<Png, Error> {
     let page = &laid.document.pages()[0];
     let svg = typst_svg::svg(page, &typst_svg::SvgOptions::default());
-    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default())
-        .map_err(|e| Error::Draw(e.to_string()))?;
+    let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).map_err(draw_error)?;
     let (width, height) = laid.size.pixels();
-    let mut pixmap = Pixmap::new(width, height)
-        .ok_or_else(|| Error::Draw(format!("no {width} x {height} canvas")))?;
+    let mut pixmap = Pixmap::new(width, height).ok_or(Error::Draw("no canvas".to_owned()))?;
     pixmap.fill(Color::WHITE);
     // typst-svg sizes the page in pt, which usvg reads as CSS units at 96 per inch.
     #[expect(clippy::cast_precision_loss, reason = "300 / 96 is exact in f32")]
@@ -98,9 +141,7 @@ fn draw(laid: &Laid) -> Result<Png, Error> {
         pixel[..3].fill(ink);
         pixel[3] = 255;
     }
-    let bytes = pixmap
-        .encode_png()
-        .map_err(|e| Error::Draw(e.to_string()))?;
+    let bytes = pixmap.encode_png().map_err(draw_error)?;
     Ok(Png {
         side: laid.side,
         size: laid.size,

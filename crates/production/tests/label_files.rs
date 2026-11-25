@@ -213,9 +213,9 @@ async fn a_product_label_carries_the_checked_data(pool: PgPool) {
     let label = label_files::label(&mut conn, id, k.bread, LabelKind::Product)
         .await
         .unwrap();
-    assert_eq!(label.copies, 8, "one per good piece");
-    assert!(!label.order_changed);
-    let l = &label.label;
+    assert_eq!(label.copies(), 8, "one per good piece");
+    assert!(!label.order_changed());
+    let l = label.label();
     assert_eq!(
         l.kind,
         labels::Kind::Product {
@@ -241,7 +241,7 @@ async fn a_product_label_carries_the_checked_data(pool: PgPool) {
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].name, "261205-1-product-1.png");
     assert_eq!(files[0].png.size.pixels(), (591, 354));
-    let csv = label_files::csv(&label, &t).unwrap();
+    let csv = label_files::csv(&label, &files, &t).unwrap();
     assert!(
         csv.contains("261205-1-product-1.png;Productetiket;Desem wit;TARWEBLOEM, water, zout;melk;800 g;09-12-2026;;Koel en droog bewaren.;261205-1;"),
         "{csv}"
@@ -345,8 +345,8 @@ async fn a_changed_order_by_weight_is_passed_on_as_a_warning(pool: PgPool) {
     let label = label_files::label(&mut conn, id, k.bread, LabelKind::Product)
         .await
         .unwrap();
-    assert!(label.order_changed);
-    assert_eq!(label.label.ingredients[0].name, "water");
+    assert!(label.order_changed());
+    assert_eq!(label.label().ingredients[0].name, "water");
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -431,10 +431,14 @@ async fn freezer_labels_count_from_the_freeze_date_in_amsterdam(pool: PgPool) {
     let label = label_files::label(&mut conn, id, k.bread, LabelKind::Freezer)
         .await
         .unwrap();
-    assert_eq!(label.copies, 6, "one per frozen piece");
-    assert_eq!(label.label.kind, labels::Kind::Freezer { frozen_on: on });
+    assert_eq!(label.copies(), 6, "one per frozen piece");
+    let product = label_files::label(&mut conn, id, k.bread, LabelKind::Product)
+        .await
+        .unwrap();
+    assert_eq!(product.copies(), 3, "frozen pieces get only a freezer label");
+    assert_eq!(label.label().kind, labels::Kind::Freezer { frozen_on: on });
     assert_eq!(
-        label.label.best_before,
+        label.label().best_before,
         date(2027, 3, 6),
         "freeze date plus 90 days"
     );

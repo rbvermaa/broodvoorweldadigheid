@@ -105,12 +105,22 @@ impl World for LabelWorld {
     }
 }
 
-fn messages(diagnostics: &[SourceDiagnostic]) -> String {
-    diagnostics
-        .iter()
-        .map(|d| d.message.to_string())
-        .collect::<Vec<_>>()
-        .join("; ")
+fn typst_error(diagnostics: &[SourceDiagnostic]) -> Error {
+    Error::Typst(
+        diagnostics
+            .iter()
+            .map(|d| d.message.to_string())
+            .collect::<Vec<_>>()
+            .join("; "),
+    )
+}
+
+fn no_warnings(warnings: &[SourceDiagnostic]) -> Result<(), Error> {
+    if warnings.is_empty() {
+        Ok(())
+    } else {
+        Err(typst_error(warnings))
+    }
 }
 
 /// Lays out the label template with `data` as `/data.json`. A warning, such as a glyph
@@ -123,12 +133,8 @@ pub(crate) fn layout(data: &Value) -> Result<PagedDocument, Error> {
     let compiled = typst::compile::<PagedDocument>(&world);
     // Typst memoizes globally; without eviction every label stays in memory.
     typst::comemo::evict(10);
-    let document = compiled
-        .output
-        .map_err(|errors| Error::Typst(messages(&errors)))?;
-    if !compiled.warnings.is_empty() {
-        return Err(Error::Typst(messages(&compiled.warnings)));
-    }
+    let document = compiled.output.map_err(|errors| typst_error(&errors))?;
+    no_warnings(&compiled.warnings)?;
     if document
         .pages()
         .iter()
@@ -147,4 +153,38 @@ fn missing_glyph(frame: &typst::layout::Frame) -> bool {
         FrameItem::Text(text) => text.glyphs.iter().any(|g| g.id == 0),
         _ => false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use typst::syntax::Span;
+
+    use super::*;
+
+    #[test]
+    fn the_template_reads_nothing_but_its_data_and_the_logo() {
+        let world = LabelWorld {
+            main: Source::new(file_id("/label.typ"), TEMPLATE.to_owned()),
+            data: Bytes::from_string("{}".to_owned()),
+        };
+        let other = file_id("/etc/passwd");
+        assert!(matches!(world.source(other), Err(FileError::AccessDenied)));
+        assert!(matches!(world.file(other), Err(FileError::AccessDenied)));
+        assert!(world.file(file_id("/logo.png")).is_ok());
+        assert!(world.today(None).is_none());
+    }
+
+    #[test]
+    fn errors_and_warnings_refuse_the_label() {
+        assert!(matches!(
+            layout(&serde_json::json!({})),
+            Err(Error::Typst(message)) if !message.is_empty()
+        ));
+        assert!(no_warnings(&[]).is_ok());
+        let warning = SourceDiagnostic::warning(Span::detached(), "unknown font");
+        assert!(matches!(
+            no_warnings(&[warning]),
+            Err(Error::Typst(message)) if message == "unknown font"
+        ));
+    }
 }

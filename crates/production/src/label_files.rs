@@ -59,15 +59,38 @@ pub enum LabelGap {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Checked;
 
-/// A label that passed every check, with how many to print.
+/// A label that passed every check, with how many to print. Read-only, so nothing can
+/// change it after the check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchLabel {
-    pub kind: LabelKind,
-    pub label: labels::Label,
-    pub copies: u32,
-    /// The batch has the ingredients in another order by weight: warn before printing.
-    pub order_changed: bool,
+    kind: LabelKind,
+    label: labels::Label,
+    copies: u32,
+    order_changed: bool,
     checked: Checked,
+}
+
+impl BatchLabel {
+    #[must_use]
+    pub const fn kind(&self) -> LabelKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn label(&self) -> &labels::Label {
+        &self.label
+    }
+
+    #[must_use]
+    pub const fn copies(&self) -> u32 {
+        self.copies
+    }
+
+    /// The batch has the ingredients in another order by weight: warn before printing.
+    #[must_use]
+    pub const fn order_changed(&self) -> bool {
+        self.order_changed
+    }
 }
 
 /// Pieces of a batch's product in the freezer.
@@ -167,6 +190,7 @@ pub async fn record_frozen(
     clock: &dyn Clock,
 ) -> Result<(), Error> {
     let mut tx = conn.begin().await?;
+    batches::lock(&mut tx, batch).await?;
     let before = output(&mut tx, batch, product, true).await?;
     let good = before.good.ok_or(Error::NotBaked)?;
     if pieces > good.min(MAX_PIECES) {
@@ -247,7 +271,10 @@ pub async fn label(
             if settings.storage.is_empty() {
                 return Err(Error::LabelGap(LabelGap::NoStorage));
             }
-            let good = output.good.ok_or(Error::LabelGap(LabelGap::NotBaked))?;
+            let good = output
+                .good
+                .ok_or(Error::LabelGap(LabelGap::NotBaked))?
+                .saturating_sub(output.frozen.map_or(0, |f| f.pieces));
             if good == 0 {
                 return Err(Error::LabelGap(LabelGap::NoPieces));
             }
@@ -334,12 +361,17 @@ pub fn files(label: &BatchLabel, t: &Translator) -> Result<Vec<LabelFile>, Error
         .collect())
 }
 
-/// The CSV row of the label text for the Niimbot app's import.
+/// The CSV row of the label text for the Niimbot app's import; `files` are its PNGs, so
+/// there is no CSV for a label that cannot be drawn.
 ///
 /// # Errors
 /// [`Error::Label`] when the CSV cannot be made.
-pub fn csv(label: &BatchLabel, t: &Translator) -> Result<String, Error> {
-    let file = format!("{}-1.png", base_name(label));
+pub fn csv(label: &BatchLabel, files: &[LabelFile], t: &Translator) -> Result<String, Error> {
+    let file = files
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     Ok(labels::csv(
         &[labels::CsvRow {
             label: &label.label,
