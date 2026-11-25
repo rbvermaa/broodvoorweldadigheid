@@ -13,12 +13,14 @@ pub mod extras;
 pub mod form;
 pub mod ingredients;
 pub mod kitchen;
+pub mod label_files;
 pub mod lists;
 pub mod locations;
 pub mod nav;
 pub mod orders;
 pub mod payouts;
 pub mod polls;
+pub mod product_labels;
 pub mod products;
 pub mod recipes;
 pub mod reports;
@@ -53,11 +55,13 @@ const FEATURES: &[fn() -> Router<AppState>] = &[
     extras::routes,
     ingredients::routes,
     kitchen::routes,
+    label_files::routes,
     lists::routes,
     locations::routes,
     orders::routes,
     payouts::routes,
     polls::routes,
+    product_labels::routes,
     products::routes,
     recipes::routes,
     reports::routes,

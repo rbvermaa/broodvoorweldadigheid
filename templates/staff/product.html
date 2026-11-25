@@ -11,6 +11,7 @@
 {% if let Some(approval) = approval %}
 {% if approval.approved %}{% call fb::alert("success", approval.text) %}{% endcall %}{% else %}{% call fb::alert("warning", approval.text) %}{% endcall %}{% endif %}
 <p><a href="{{ approve_href }}">{{ layout.t("product-approve-link")? }}</a></p>
+<p><a href="{{ action }}/etiket">{{ layout.t("product-labels-link")? }}</a></p>
 {% endif %}
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">

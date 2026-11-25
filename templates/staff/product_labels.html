@@ -1,0 +1,21 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+{% call s::status(saved) %}{% endcall %}
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<p>{{ layout.t("product-labels-intro")? }}</p>
+<form method="post" action="{{ action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::checkbox("packaged", layout.t("product-labels-packaged")?, checked = values.packaged) %}{% endcall %}
+{% call f::field("number", "shelf_life_days", layout.t("product-labels-shelf-life")?, value = values.shelf_life_days, hint = layout.t("product-labels-shelf-life-hint")?, error = errors.get("shelf_life_days")) %}{% endcall %}
+{% call f::field("text", "storage", layout.t("product-labels-storage")?, value = values.storage, hint = layout.t("product-labels-storage-hint")?, error = errors.get("storage")) %}{% endcall %}
+{% call f::field("number", "freezer_days", layout.t("product-labels-freezer-days")?, value = values.freezer_days, hint = layout.t("product-labels-freezer-days-hint")?, error = errors.get("freezer_days")) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
+</form>
+<p><a href="{{ back }}">{{ layout.t("product-labels-back")? }}</a></p>
+{% endblock %}

@@ -5,6 +5,7 @@ pub mod company;
 mod error;
 pub mod faq;
 pub mod ingredient_list;
+pub mod label_settings;
 pub mod markdown;
 pub mod products;
 

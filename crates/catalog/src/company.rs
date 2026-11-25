@@ -198,3 +198,28 @@ pub async fn set_public_donations(conn: &mut PgConnection, on: bool) -> Result<(
     }
     Ok(())
 }
+
+/// The longest company address, in characters.
+pub const MAX_ADDRESS_CHARS: usize = 200;
+
+/// Sets the address on emails, receipts and labels; blank clears it.
+///
+/// # Errors
+/// [`Error::Invalid`] when longer than [`MAX_ADDRESS_CHARS`]; [`Error::Db`] or
+/// [`Error::Corrupt`].
+pub async fn set_address(conn: &mut PgConnection, address: &str) -> Result<(), Error> {
+    let address = address.trim();
+    if address.chars().count() > MAX_ADDRESS_CHARS {
+        return Err(Error::Invalid("address"));
+    }
+    let updated = sqlx::query!(
+        "UPDATE company SET address = $1",
+        Some(address).filter(|a| !a.is_empty())
+    )
+    .execute(conn)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(Error::Corrupt("no company row".to_owned()));
+    }
+    Ok(())
+}

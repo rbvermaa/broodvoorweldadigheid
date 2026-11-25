@@ -19,6 +19,7 @@ catalog = { path = "../../crates/catalog" }
 db = { path = "../../crates/db" }
 domain = { path = "../../crates/domain" }
 i18n = { path = "../../crates/i18n" }
+labels = { path = "../../crates/labels" }
 jobs = { path = "../../crates/jobs" }
 jiff.workspace = true
 notify = { path = "../../crates/notify" }

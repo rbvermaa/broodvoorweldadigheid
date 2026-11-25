@@ -22,12 +22,19 @@ pub enum Error {
     Locked,
     #[error("the batch is not mixed yet")]
     NotMixed,
+    #[error("the batch has no actual pieces yet")]
+    NotBaked,
     /// The batch's product may not get a label (F17).
     #[error("the label is blocked: {0:?}")]
     LabelBlocked(crate::label_check::LabelBlock),
     /// The batch's computed allergen data changed since it was reviewed.
     #[error("allergen data changed since it was reviewed")]
     AllergensChanged,
+    /// Something a label needs besides the allergen check is missing (F18, F18a).
+    #[error("the label is incomplete: {0:?}")]
+    LabelGap(crate::label_files::LabelGap),
+    #[error(transparent)]
+    Label(#[from] labels::Error),
     #[error("stored data is invalid: {0}")]
     Corrupt(String),
     #[error("the CSV could not be made: {0}")]

@@ -891,7 +891,7 @@ pub async fn formulas_for_day(
 }
 
 /// Locks the batch row and returns its status.
-async fn lock(conn: &mut PgConnection, id: BatchId) -> Result<Status, Error> {
+pub(crate) async fn lock(conn: &mut PgConnection, id: BatchId) -> Result<Status, Error> {
     let status = sqlx::query_scalar!(
         "SELECT status FROM batch WHERE id = $1 FOR UPDATE",
         id.get()
@@ -1170,6 +1170,16 @@ pub async fn record_actuals(
         }
         if actual.waste > actual.pieces {
             return Err(Error::Invalid("waste"));
+        }
+        let frozen = sqlx::query_scalar!(
+            "SELECT frozen_pieces FROM batch_output WHERE batch_id = $1 AND product_id = $2",
+            id.get(),
+            actual.product_id.get(),
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if frozen.is_some_and(|f| i64::from(f) > i64::from(actual.pieces - actual.waste)) {
+            return Err(Error::Invalid("frozen pieces"));
         }
     }
     let now = clock.now();
