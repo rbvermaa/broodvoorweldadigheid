@@ -1172,8 +1172,12 @@ async fn the_range_editor_sets_limits(pool: PgPool) {
         .await;
     set.redirects_to(&format!("{path}?opgeslagen=1"));
     let page = baker.get(&path).await;
-    page.shows(&dutch_count("range-max", 12));
-    page.shows(&dutch_count("range-remaining", 12));
+    page.shows(&format!(
+        "id=\"max_qty_{}\" name=\"max_qty_{}\" value=\"12\"",
+        bread.get(),
+        bread.get()
+    ));
+    page.shows("<td class=\"table-number\">0</td><td class=\"table-number\">12</td>");
 
     let removed = baker
         .htmx(&format!("{path}/range/{}/remove", bread.get()), &[])
@@ -1744,7 +1748,7 @@ async fn orders_take_capacity_and_lock_the_charity(pool: PgPool) {
     baker
         .get(&path)
         .await
-        .shows(&dutch_count("range-remaining", 7));
+        .shows("<td class=\"table-number\">7</td>");
 
     let too_many = baker
         .post(
@@ -4261,4 +4265,67 @@ async fn the_pickup_list_warns_about_a_batch_with_other_allergens(pool: PgPool) 
     page.shows(&dutch_with("pickup-list-batch-differs", &[("code", &code)]));
     page.shows(&dutch("allergen-sesame_seeds"));
     page.shows("<strong>sesamzaad</strong>");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_range_is_a_table_whose_limits_save_in_place(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let bread = product(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    products::create(
+        &mut conn,
+        &ProductInput {
+            name_nl: "Speltbrood".to_owned(),
+            ..sourdough()
+        },
+    )
+    .await
+    .expect("product");
+    range::set_product(
+        &mut conn,
+        day,
+        &BakeDayProduct {
+            product_id: bread,
+            max_qty: Some(12),
+        },
+    )
+    .await
+    .expect("range");
+    drop(conn);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = format!("/staff/bake-days/{}", day.get());
+    let id = bread.get();
+    let row = format!("aanbod-{id}");
+
+    let page = baker.get(&path).await;
+    page.shows(&format!("<tr id=\"{row}\">"));
+    page.shows(&format!("hx-post=\"{path}/range/{id}\""));
+    page.shows(&format!("hx-target=\"#{row}\" hx-select=\"#{row}\""));
+    page.shows("<form id=\"aanbod-nieuw\"");
+    page.shows("form=\"aanbod-nieuw\"");
+
+    let max = format!("max_qty_{id}");
+    let changed = baker
+        .htmx(&format!("{path}/range/{id}"), &[(&max, "20")])
+        .await;
+    assert_eq!(changed.status, StatusCode::OK, "{}", changed.text);
+    assert_eq!(changed.header("hx-redirect"), "");
+    changed.shows(&format!("<tr id=\"{row}\">"));
+    changed.shows(&format!("id=\"{max}\" name=\"{max}\" value=\"20\""));
+    changed.shows("<td class=\"table-number\">0</td><td class=\"table-number\">20</td>");
+    changed.shows(&dutch("saved"));
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        range::list_products(&mut conn, day).await.expect("range")[0].max_qty,
+        Some(20)
+    );
+    drop(conn);
+
+    let wrong = baker
+        .htmx(&format!("{path}/range/{id}"), &[(&max, "veel")])
+        .await;
+    assert_eq!(wrong.status, StatusCode::OK, "{}", wrong.text);
+    wrong.shows(&format!("id=\"{max}-error\""));
+    wrong.shows(&dutch("form-error-count"));
 }

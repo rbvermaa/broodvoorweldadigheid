@@ -323,23 +323,21 @@ async fn staff_bake_day(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
 
     choose(driver, "#product_id", &basics.product.to_string()).await?;
     fill(driver, "#max_qty", "12").await?;
-    click(
-        driver,
-        &format!("form[action=\"{page}/range\"] button[type=submit]"),
-    )
-    .await?;
-    wait_for("the product on the menu", || async {
-        Ok(sqlx::query_scalar::<_, Option<i32>>(
-            "SELECT max_qty FROM bake_day_product WHERE bake_day_id = $1 AND product_id = $2",
-        )
-        .bind(day)
-        .bind(basics.product)
-        .fetch_optional(&ctx.pool)
+    click(driver, "button[form=\"aanbod-nieuw\"]").await?;
+    max_qty_is(ctx, day, basics.product, 12).await?;
+
+    let row = format!("#aanbod-{}", basics.product);
+    let limit = format!("#max_qty_{}", basics.product);
+    wait_for_text(driver, &row, &basics.product_name).await?;
+    fill(driver, &limit, "15").await?;
+    driver
+        .find(By::Css(&limit))
         .await?
-        .flatten()
-        .filter(|max| *max == 12))
-    })
-    .await?;
+        .send_keys(Key::Enter)
+        .await?;
+    max_qty_is(ctx, day, basics.product, 15).await?;
+    wait_for_text(driver, "#status", &ctx.t("saved")?).await?;
+    axe(ctx, driver, "bake day range").await?;
 
     driver.goto(ctx.url(&page)).await?;
     click(driver, "button[data-dialog-open=\"day-open\"]").await?;
@@ -565,6 +563,23 @@ fn checkout_url(current: &str) -> Option<String> {
         url.to_string()
     };
     target.starts_with(CHECKOUT_BASE).then_some(target)
+}
+
+/// Waits until the range of `day` holds `product` with a maximum of `max`.
+async fn max_qty_is(ctx: &Ctx, day: i64, product: i64, max: i32) -> Result<(), Error> {
+    wait_for(&format!("a maximum of {max}"), || async {
+        Ok(sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT max_qty FROM bake_day_product WHERE bake_day_id = $1 AND product_id = $2",
+        )
+        .bind(day)
+        .bind(product)
+        .fetch_optional(&ctx.pool)
+        .await?
+        .flatten()
+        .filter(|found| *found == max)
+        .map(|_| ()))
+    })
+    .await
 }
 
 #[cfg(test)]

@@ -233,17 +233,17 @@ day-error-no-pickup-slot = Deze bakdag heeft geen ophaalmoment. Zonder ophaalmom
 range-title = Aanbod
 range-empty = Nog geen producten op deze bakdag.
 range-product = Product
-range-product-hint = Hier staan alleen producten die nog niet in het aanbod staan. De grenzen van de andere wijzig je hierboven.
+range-product-hint = In de onderste regel zet je een product dat nog niet in het aanbod staat erbij.
 range-max-qty = Maximaal aantal van dit brood
 range-max-qty-hint = Leeg laten voor geen maximum.
 range-add = In het aanbod zetten
-range-no-max = geen maximum
-range-max = maximaal { $n } van dit brood
-range-remaining = { $n ->
-    [one] nog 1 over
-   *[other] nog { $n } over
-}
 range-unlimited = onbeperkt
+range-max-head = Maximum
+range-ordered = Besteld
+range-left = Over
+range-actions = Acties
+range-table-hint = Pas een maximum aan en druk op Enter of klik ernaast; dan is het opgeslagen.
+day-lists = Lijsten voor deze bakdag
 range-remove = Uit het aanbod halen
 range-remove-confirm = Ja, uit het aanbod
 range-remove-text = { $product } verdwijnt uit het aanbod van { $date }. Klanten kunnen het dan niet meer bestellen voor deze bakdag.

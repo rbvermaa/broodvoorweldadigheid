@@ -16,16 +16,24 @@
 {% call fb::alert("warning", alert) %}{% endcall %}
 {%- endfor %}
 {% if !editable %}{% call fb::alert("info", layout.t("day-final")?) %}{% endcall %}{% endif %}
+{% if !actions.is_empty() || cancel_day.is_some() %}
+{% call l::cluster() %}
 {%- for action in actions %}
 {% call b::button(action.label, opens = action.dialog) %}{% endcall %}
+{%- endfor %}
+{% if let Some(cancel) = cancel_day %}<a class="button button-danger" href="{{ cancel }}">{{ layout.t("staff-day-cancel-sick")? }}</a>{% endif %}
+{% endcall %}
+{%- for action in actions %}
 {% call d::confirm_dialog(action.dialog, action.label, action.text, action.label, action.action) %}{% endcall %}
 {%- endfor %}
-{% if let Some(cancel) = cancel_day %}<p><a class="button button-danger" href="{{ cancel }}">{{ layout.t("staff-day-cancel-sick")? }}</a></p>{% endif %}
-<p><a href="{{ path }}/extras">{{ layout.t("extras-title")? }}</a></p>
-<p><a href="{{ path }}/batches">{{ layout.t("batches-title")? }}</a></p>
-<p><a href="{{ path }}/production">{{ layout.t("production-title")? }}</a></p>
-<p><a href="{{ path }}/ingredients">{{ layout.t("needs-title")? }}</a></p>
-<p><a href="{{ path }}/pickup-list">{{ layout.t("pickup-list-title")? }}</a></p>
+{% endif %}
+{% call l::link_row(layout.t("day-lists")?) %}
+<a href="{{ path }}/extras">{{ layout.t("extras-title")? }}</a>
+<a href="{{ path }}/batches">{{ layout.t("batches-title")? }}</a>
+<a href="{{ path }}/production">{{ layout.t("production-title")? }}</a>
+<a href="{{ path }}/ingredients">{{ layout.t("needs-title")? }}</a>
+<a href="{{ path }}/pickup-list">{{ layout.t("pickup-list-title")? }}</a>
+{% endcall %}
 
 <h2>{{ layout.t("day-slots")? }}</h2>
 {% if slots.is_empty() %}<p>{{ layout.t("day-no-slots")? }}</p>{% else %}
@@ -102,35 +110,41 @@
 {% endcall %}
 </form>
 
-<h2>{{ layout.t("range-title")? }}</h2>
-{% if range.is_empty() %}<p>{{ layout.t("range-empty")? }}</p>{% else %}
-<ul>
+<h2 id="aanbod-titel">{{ layout.t("range-title")? }}</h2>
+<p class="field-hint">{{ layout.t("range-table-hint")? }} {{ layout.t("range-max-qty-hint")? }} {{ layout.t("range-product-hint")? }}</p>
+<form id="aanbod-nieuw" method="post" action="{{ path }}/range">
+{% call s::csrf() %}{% endcall %}
+</form>
+<div class="table-wrap" role="region" aria-labelledby="aanbod-titel" tabindex="0">
+<table class="table">
+<thead><tr><th scope="col">{{ layout.t("range-product")? }}</th><th scope="col">{{ layout.t("range-max-head")? }}</th><th scope="col" class="table-number">{{ layout.t("range-ordered")? }}</th><th scope="col" class="table-number">{{ layout.t("range-left")? }}</th><th scope="col"><span class="visually-hidden">{{ layout.t("range-actions")? }}</span></th></tr></thead>
+<tbody>
+{%- if range.is_empty() %}
+<tr><td colspan="5">{{ layout.t("range-empty")? }}</td></tr>
+{%- endif %}
 {%- for row in range %}
-<li>{{ row.text }}
-<form method="post" action="{{ row.edit }}">
+<tr id="{{ row.anchor }}">
+<td>{{ row.name }}</td>
+<td><form method="post" action="{{ row.edit }}" hx-post="{{ row.edit }}" hx-trigger="change, submit" hx-sync="this:replace" hx-target="#{{ row.anchor }}" hx-select="#{{ row.anchor }}" hx-select-oob="#status" hx-swap="outerHTML">
 {% call s::csrf() %}{% endcall %}
-<fieldset class="field-group">
-<legend class="field-label">{{ row.name }}</legend>
-{% call l::form_grid() %}
-{% call f::field("number", row.max_field, layout.t("range-max-qty")?, value = row.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get(row.max_field)) %}{% endcall %}
-{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
-{% endcall %}
-</fieldset>
-</form>
-{% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog) %}{% endcall %}
-{% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}
-</li>
+{% call f::inline_number(row.max_field, layout.t("range-max-qty")?, value = row.max_qty, error = errors.get(row.max_field)) %}{% endcall %}
+</form></td>
+<td class="table-number">{{ row.ordered }}</td><td class="table-number">{{ row.left }}</td>
+<td>{% call b::button(layout.t("range-remove")?, variant = "secondary", opens = row.dialog, small = true) %}{% endcall %}
+{% call d::confirm_dialog(row.dialog, layout.t("range-remove")?, row.confirm, layout.t("range-remove-confirm")?, row.action) %}{% endcall %}</td>
+</tr>
 {%- endfor %}
-</ul>
-{% endif %}
-<form method="post" action="{{ path }}/range">
-{% call s::csrf() %}{% endcall %}
-{% call l::form_grid() %}
-{% call f::select("product_id", layout.t("range-product")?, product_options, hint = layout.t("range-product-hint")?, error = errors.get("product_id"), required = true) %}{% endcall %}
-{% call f::field("number", "max_qty", layout.t("range-max-qty")?, value = forms.max_qty, hint = layout.t("range-max-qty-hint")?, error = errors.get("max_qty")) %}{% endcall %}
-{% call b::button(layout.t("range-add")?, kind = "submit") %}{% endcall %}
-{% endcall %}
-</form>
+{%- if !product_options.is_empty() %}
+<tr>
+<td>{% call f::inline_select("product_id", layout.t("range-product")?, product_options, error = errors.get("product_id"), form = "aanbod-nieuw") %}{% endcall %}</td>
+<td>{% call f::inline_number("max_qty", layout.t("range-max-qty")?, value = forms.max_qty, error = errors.get("max_qty"), form = "aanbod-nieuw") %}{% endcall %}</td>
+<td colspan="2"></td>
+<td>{% call b::button(layout.t("range-add")?, kind = "submit", small = true, form = "aanbod-nieuw") %}{% endcall %}</td>
+</tr>
+{%- endif %}
+</tbody>
+</table>
+</div>
 
 {% endif %}
 

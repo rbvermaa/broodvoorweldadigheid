@@ -771,6 +771,50 @@ expression: without_asset_hashes(&gallery_html(&state))
 </div>
 
 
+<div class="cluster">
+
+
+<button type="button" class="button button-primary button-small"><span class="button-label">Opslaan</span></button>
+
+
+<button type="button" class="button button-secondary button-small"><span class="button-label">Terug</span></button>
+
+
+<button type="button" class="button button-secondary"><span class="button-label">Ophaalmomentvoorkeursinstellingen opslaan</span></button>
+
+
+</div>
+
+
+<nav class="link-row" aria-label="Indeling">
+
+<a href="#gallery-fields">Formuliervelden</a>
+<a href="#gallery-products">Producttegels</a>
+<a href="#gallery-icons">Iconen</a>
+
+</nav>
+
+
+<div class="field-inline">
+<label class="visually-hidden" for="inline-aantal">Aantal broden</label>
+<input class="field-input field-input-number" type="number" inputmode="numeric" id="inline-aantal" name="inline-aantal" value="12">
+
+
+</div>
+
+
+<div class="field-inline field-invalid">
+<label class="visually-hidden" for="inline-doel">Goed doel</label>
+<select class="field-input" id="inline-doel" name="inline-doel" aria-describedby="inline-doel-error" aria-invalid="true" required>
+<option value="">Kies…</option>
+<option value="voedselbank">Voedselbank Westerveld</option>
+<option value="kinderhulp" selected>Stichting Kinderhulp Frederiksoord</option>
+</select>
+<p class="field-error" id="inline-doel-error"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><span class="visually-hidden">Fout:</span> Kies een goed doel.</p>
+
+</div>
+
+
 <div class="split">
 
 

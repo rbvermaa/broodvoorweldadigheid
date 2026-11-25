@@ -68,3 +68,27 @@
 <input type="text" id="{{ name }}" name="{{ name }}" value="" tabindex="-1" autocomplete="off">
 </div>
 {% endmacro %}
+
+{# Fields for a table cell: the label is for screen readers only, the column head shows
+   it. `form` ties the field to a form elsewhere on the page, for a row whose cells hold
+   one form's fields. #}
+{% macro inline_number(name, label, value = "", error = "", form = "") %}
+<div class="field-inline{% if !error.is_empty() %} field-invalid{% endif %}">
+<label class="visually-hidden" for="{{ name }}">{{ label }}</label>
+<input class="field-input field-input-number" type="number" inputmode="numeric" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% if !form.is_empty() %} form="{{ form }}"{% endif %}{% call described(name, "", error, false, false) %}{% endcall %}>
+{% call help(name, "", error) %}{% endcall %}
+</div>
+{% endmacro %}
+
+{% macro inline_select(name, label, options, error = "", form = "") %}
+<div class="field-inline{% if !error.is_empty() %} field-invalid{% endif %}">
+<label class="visually-hidden" for="{{ name }}">{{ label }}</label>
+<select class="field-input" id="{{ name }}" name="{{ name }}"{% if !form.is_empty() %} form="{{ form }}"{% endif %}{% call described(name, "", error, true, false) %}{% endcall %}>
+<option value="">{{ layout.t("select-placeholder")? }}</option>
+{%- for option in options %}
+<option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+{%- endfor %}
+</select>
+{% call help(name, "", error) %}{% endcall %}
+</div>
+{% endmacro %}
