@@ -57,3 +57,6 @@ method-duration-hours = { $hours } u
 method-duration-hours-minutes = { $hours } u { $min } min
 # $c: 24
 method-temperature = { $c } °C
+method-error-kind = Kies tekst, stappen of geen werkwijze.
+# $text: the text that was not saved
+method-error-stale-text = De werkwijze is intussen veranderd. Je tekst is niet opgeslagen: { $text }

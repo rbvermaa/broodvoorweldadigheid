@@ -17,7 +17,7 @@ use tower_sessions::Session;
 
 use super::super::form::{Errors, Fields, parse_time};
 use super::super::{
-    Rejection, Step, fail, is_htmx, layout, not_found, require, saved, t, t_count, t_with,
+    Outcome, Rejection, Step, fail, is_htmx, layout, not_found, require, saved, t, t_count, t_with,
 };
 use super::editor::{EditView, Reply, load, refused_status, render_edit};
 use super::{Message, version_path};
@@ -58,6 +58,8 @@ pub struct MethodView {
     pub page: String,
     /// The form the start field belongs to; empty for a form of its own.
     pub form: String,
+    /// Which fields of that form the start sends along, so the URL keeps one scale.
+    pub params: &'static str,
     pub paragraphs: Vec<Vec<String>>,
     pub schedule: Option<ScheduleView>,
 }
@@ -139,6 +141,8 @@ fn start_time(state: &AppState, fields: &Fields, base: &Zoned) -> (Zoned, String
 pub struct Shown<'a> {
     pub page: String,
     pub form: &'a str,
+    /// The page scales by pieces, not by weight.
+    pub pieces: bool,
     /// The start when none is asked: now, or when a batch was mixed.
     pub base: &'a Zoned,
 }
@@ -147,6 +151,11 @@ pub fn view(state: &AppState, method: &Method, fields: &Fields, shown: &Shown<'_
     let mut out = MethodView {
         page: shown.page.clone(),
         form: shown.form.to_owned(),
+        params: if shown.pieces {
+            "not gewicht"
+        } else {
+            "not stuks,product"
+        },
         paragraphs: Vec::new(),
         schedule: None,
     };
@@ -339,6 +348,9 @@ pub struct MethodState {
     pub text: Option<(String, String)>,
     /// A step as typed, and where: `None` for the new step.
     pub step: Option<(Option<usize>, StepFields)>,
+    /// The stamp the typed step was made on, posted back instead of the current one so a
+    /// stale page stays stale.
+    pub seen: Option<String>,
 }
 
 fn switch(state: &AppState, from: MethodKind, to: MethodKind) -> Switch {
@@ -380,6 +392,7 @@ pub fn editor(
         saved,
         text,
         step,
+        seen,
     } = view;
     let (mut typed_at, mut typed_add) = (None, None);
     if let Some((position, fields)) = step {
@@ -442,7 +455,7 @@ pub fn editor(
     });
     MethodEditor {
         kind: kind.code(),
-        stamp: store::stamp(method),
+        stamp: seen.unwrap_or_else(|| store::stamp(method)),
         grams,
         kind_action: format!("{base}/method"),
         text_action: format!("{base}/text"),
@@ -527,7 +540,14 @@ async fn change(
         };
         let change = match planned(&state, &fields) {
             Ok(change) => change,
-            Err(method) => {
+            Err(mut method) => {
+                if fields.checked("kind") && is_htmx(&headers) {
+                    let text = t(&state, "method-error-kind");
+                    return refused_fragment(&state, &session, text).await;
+                }
+                if method.step.is_some() {
+                    method.seen = Some(fields.text("seen").to_owned());
+                }
                 let status = refused_status(&headers, None);
                 return render_edit(&reply(status), &loaded, refuse(*method)).await;
             }
@@ -568,7 +588,7 @@ async fn change(
         drop(conn);
         let error = match result {
             Ok(_) => {
-                let target = format!("{path}/edit?gewicht={}", fields.text("gewicht"));
+                let target = back_to(&headers, &path, &fields);
                 if !is_htmx(&headers) || fields.checked("kind") {
                     return Ok(saved(&headers, &target));
                 }
@@ -582,14 +602,17 @@ async fn change(
         };
         let text = error_text(&state, &error).ok_or_else(|| fail(&state, &error))?;
         if fields.checked("kind") && is_htmx(&headers) {
-            return Ok(pages::render(
-                &state,
-                StatusCode::OK,
-                &Refused {
-                    layout: layout(&state, &session).await?,
-                    text,
-                },
-            ));
+            return refused_fragment(&state, &session, text).await;
+        }
+        let mut typed = typed;
+        let mut text = text;
+        if matches!(error, recipes::Error::Stale) {
+            if typed.step.as_ref().is_some_and(|(at, _)| at.is_some()) {
+                typed.step = None;
+            }
+            if let Some((lost, _)) = typed.text.take() {
+                text = t_with(&state, "method-error-stale-text", &[("text", lost)]);
+            }
         }
         let current = load(&state, &id, &version).await?;
         let mut view = EditView::read(&state, &fields, &current);
@@ -824,4 +847,40 @@ pub async fn load_view(
         .await
         .map_err(|e| fail(state, &e))?;
     Ok(view(state, &method, fields, shown))
+}
+
+async fn refused_fragment(state: &AppState, session: &Session, text: String) -> Outcome {
+    Ok(pages::render(
+        state,
+        StatusCode::OK,
+        &Refused {
+            layout: layout(state, session).await?,
+            text,
+        },
+    ))
+}
+
+/// The edit page as the browser shows it now (its scale may have changed since the form
+/// was drawn), else at the posted weight.
+fn back_to(headers: &HeaderMap, path: &str, fields: &Fields) -> String {
+    let edit = format!("{path}/edit");
+    let shown = ["hx-current-url", "referer"]
+        .into_iter()
+        .filter_map(|name| headers.get(name)?.to_str().ok())
+        .find_map(|url| {
+            let at = url.find(&edit)?;
+            let shown = url[at..].split('#').next().unwrap_or_default();
+            let (page, query) = shown.split_once('?').unwrap_or((shown, ""));
+            (page == edit).then(|| {
+                let kept: Vec<&str> = query
+                    .split('&')
+                    .filter(|p| !p.is_empty() && !p.starts_with("opgeslagen="))
+                    .collect();
+                format!("{edit}?{}", kept.join("&"))
+            })
+        });
+    shown.unwrap_or_else(|| {
+        let grams = fields.text("gewicht").parse::<u64>().map(|g| g.to_string());
+        format!("{edit}?gewicht={}", grams.unwrap_or_default())
+    })
 }

@@ -27,7 +27,7 @@
 {%- if m.form.is_empty() %}
 <form id="start-formulier" class="method-start" method="get" action="{{ m.page }}" hx-get="{{ m.page }}" hx-trigger="change" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML" hx-replace-url="true">
 {%- else %}
-<div class="method-start" hx-get="{{ m.page }}" hx-trigger="change" hx-include="#start, #{{ m.form }}" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML" hx-replace-url="true">
+<div class="method-start" hx-get="{{ m.page }}" hx-trigger="change" hx-include="#start, #{{ m.form }}" hx-params="{{ m.params }}" hx-target="#werkwijze" hx-select="#werkwijze" hx-swap="outerHTML" hx-replace-url="true">
 {%- endif %}
 <div class="field{% if !s.start_error.is_empty() %} field-invalid{% endif %}">
 <label class="field-label" for="start">{{ layout.t("method-start")? }}</label>

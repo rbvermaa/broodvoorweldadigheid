@@ -782,6 +782,7 @@ pub async fn version_page(
             &Shown {
                 page: path.clone(),
                 form: "schaal",
+                pieces: !scale.pieces.is_empty() && scale.pieces_error.is_empty(),
                 base: &default_start(&now),
             },
         )

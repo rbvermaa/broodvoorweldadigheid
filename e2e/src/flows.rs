@@ -87,7 +87,9 @@ impl Flow {
             Self::SickDayCancel => "a sick-day cancel refunds and emails the customer (F2)",
             Self::PickupList => "tick an order off the pickup list on a phone, and undo (F8)",
             Self::GalleryAxe => "the gallery passes axe-core (WCAG 2.2 AA)",
-            Self::RecipeEditor => "edit a recipe line, add one by name and add a step on a phone (F14)",
+            Self::RecipeEditor => {
+                "edit a recipe line, add one by name and add a step on a phone (F14)"
+            }
         }
     }
 

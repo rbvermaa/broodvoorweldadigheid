@@ -184,6 +184,23 @@ impl Client<'_> {
         self.post_as(path, fields, true).await
     }
 
+    async fn post_from(&self, path: &str, fields: &[(&str, &str)], page: &str) -> Reply {
+        let mut all: Vec<(&str, &str)> = vec![("_csrf", &self.token)];
+        all.extend_from_slice(fields);
+        let body = all
+            .iter()
+            .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let request = Request::post(path)
+            .header(COOKIE, &self.cookie)
+            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header("hx-request", "true")
+            .header("hx-current-url", page);
+        self.send(request.body(Body::from(body)).expect("request"))
+            .await
+    }
+
     async fn post_raw(&self, path: &str, fields: &[(&str, &str)], htmx: bool) -> Reply {
         let body = fields
             .iter()
@@ -611,4 +628,85 @@ async fn instruction_changes_need_production_and_the_csrf_token(pool: PgPool) {
         )
         .await;
     assert_eq!(other.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_refused_change_never_lands_on_another_step(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    with_steps(
+        &pool,
+        v1,
+        &[step("Autolyse", Some(30)), step("Bulk", Some(240))],
+    )
+    .await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+    let old = seen(&pool, v1).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    method::edit_step(
+        &mut conn,
+        v1,
+        &old,
+        recipes::StepEdit::Remove { position: 0 },
+    )
+    .await
+    .expect("remove");
+
+    let stale = baker
+        .post_htmx(
+            &format!("{path}/steps/0"),
+            &[
+                ("seen", &old),
+                ("stap-0-naam", "Autolyse lang"),
+                ("stap-0-duur", "60"),
+            ],
+        )
+        .await;
+    stale.shows_text(&dutch("method-error-stale"));
+    stale.shows("value=\"Bulk\"");
+    stale.lacks("value=\"Autolyse lang\"");
+
+    let invalid = baker
+        .post_htmx(
+            &format!("{path}/steps/0"),
+            &[
+                ("seen", &old),
+                ("stap-0-naam", "Autolyse"),
+                ("stap-0-duur", "0"),
+            ],
+        )
+        .await;
+    invalid.shows_text(&dutch("method-error-duration"));
+    invalid.shows(&format!("name=\"seen\" value=\"{old}\""));
+    assert_eq!(names(&stored(&pool, v1).await), ["Bulk"]);
+
+    let bad_kind = baker
+        .post_htmx(
+            &format!("{path}/method"),
+            &[("kind", "tekst"), ("seen", &old)],
+        )
+        .await;
+    bad_kind.shows_text(&dutch("method-error-kind"));
+    bad_kind.lacks("<html");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_switch_goes_back_to_the_scale_on_screen(pool: PgPool) {
+    let app = app(pool.clone());
+    let (recipe_id, v1) = recipe(&pool).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let path = version_path(recipe_id, v1);
+    let s = seen(&pool, v1).await;
+    let switched = baker
+        .post_from(
+            &format!("{path}/method"),
+            &[("kind", "steps"), ("seen", &s), ("gewicht", "1670")],
+            &format!("https://localhost{path}/edit?gewicht=1770&opgeslagen=1#werkwijze"),
+        )
+        .await;
+    assert_eq!(
+        switched.header("hx-redirect"),
+        format!("{path}/edit?gewicht=1770&opgeslagen=1")
+    );
 }

@@ -313,7 +313,7 @@ fn apply(steps: &mut Vec<Step>, edit: StepEdit) -> Result<(), Error> {
         StepEdit::MoveUp { position } if (1..len).contains(&position) => {
             steps.swap(position - 1, position);
         }
-        StepEdit::MoveDown { position } if position + 1 < len => {
+        StepEdit::MoveDown { position } if position < len.saturating_sub(1) => {
             steps.swap(position, position + 1);
         }
         StepEdit::Remove { .. } | StepEdit::MoveUp { .. } | StepEdit::MoveDown { .. } => {
@@ -567,6 +567,12 @@ mod tests {
         for edit in [
             StepEdit::MoveUp { position: 0 },
             StepEdit::MoveDown { position: 2 },
+            StepEdit::MoveDown {
+                position: usize::MAX,
+            },
+            StepEdit::MoveUp {
+                position: usize::MAX,
+            },
             StepEdit::Remove { position: 3 },
             StepEdit::Set {
                 position: 3,
