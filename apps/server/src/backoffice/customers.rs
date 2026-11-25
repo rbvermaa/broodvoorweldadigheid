@@ -7,6 +7,8 @@ use axum::Form;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::{get, post};
 use domain::CustomerId;
 use orders::audit::Actor;
 use serde::Deserialize;
@@ -18,6 +20,16 @@ use crate::pages::{self, Layout};
 use crate::privacy::{self, Erased};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            PATH,
+            get(page).post(search),
+        )
+        .route("/staff/customers/{id}/export", get(export))
+        .route("/staff/customers/{id}/erase", post(erase))
+}
 
 pub const PATH: &str = "/staff/customers";
 

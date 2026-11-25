@@ -1,29 +1,9 @@
-//! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
-//! charities, bake days, extra production, batches, orders, the production and pickup lists,
-//! the reports, business customers, customer data requests (F12), bread votes (F9b) and the
-//! company settings. Every handler takes [`Staff`] and checks a permission (ADR 0010).
-//! Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline checks and
-//! partial updates on top (ADR 0019).
+//! The back office under `/staff`. Every handler takes [`Staff`] and checks a permission
+//! (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline
+//! checks and partial updates on top (ADR 0019).
 
-pub mod bake_days;
-pub mod batches;
-pub mod business;
-pub mod charities;
-pub mod customers;
-pub mod extras;
 pub mod form;
-pub mod ingredients;
-pub mod kitchen;
-pub mod lists;
-pub mod locations;
-pub mod orders;
-pub mod payouts;
-pub mod polls;
-pub mod products;
-pub mod recipes;
-pub mod reports;
-pub mod settings;
-pub mod sick_day;
+pub mod nav;
 
 use std::fmt::Display;
 
@@ -32,7 +12,6 @@ use axum::Router;
 use axum::http::header::HeaderName;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
 use i18n::FluentArgs;
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -41,6 +20,39 @@ use crate::csrf;
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+/// Declares each feature module and merges its `routes()`.
+macro_rules! features {
+    ($($feature:ident,)+) => {
+        $(pub mod $feature;)+
+
+        pub fn routes() -> Router<AppState> {
+            Router::new()$(.merge($feature::routes()))+
+        }
+    };
+}
+
+// One line per feature, sorted (ADR 0044).
+features! {
+    bake_days,
+    batches,
+    business,
+    charities,
+    customers,
+    extras,
+    ingredients,
+    kitchen,
+    lists,
+    locations,
+    orders,
+    payouts,
+    polls,
+    products,
+    recipes,
+    reports,
+    settings,
+    sick_day,
+}
 
 /// A response that ends the handler early: a refusal, a 404 or a 500 page. Boxed, so
 /// results stay small.
@@ -60,269 +72,6 @@ impl Rejection {
 
 pub type Step<T> = Result<T, Rejection>;
 pub type Outcome = Step<Response>;
-
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            customers::PATH,
-            get(customers::page).post(customers::search),
-        )
-        .route("/staff/customers/{id}/export", get(customers::export))
-        .route("/staff/customers/{id}/erase", post(customers::erase))
-        .route(polls::PATH, get(polls::list))
-        .route("/staff/polls/new", get(polls::new_form).post(polls::create))
-        .route("/staff/polls/{id}", get(polls::show).post(polls::update))
-        .route("/staff/products", get(products::list))
-        .route(
-            "/staff/products/new",
-            get(products::new_form).post(products::create),
-        )
-        .route("/staff/products/check", post(products::check))
-        .route(kitchen::PATH, get(kitchen::page).post(kitchen::save))
-        .route(kitchen::APPROVE_PATH, post(kitchen::approve))
-        .route(
-            "/staff/products/{id}",
-            get(products::edit_form).post(products::update),
-        )
-        .route(
-            "/staff/products/{id}/approve",
-            get(products::approve_form).post(products::approve),
-        )
-        .route("/staff/ingredients", get(ingredients::list))
-        .route(
-            "/staff/ingredients/new",
-            get(ingredients::new_form).post(ingredients::create),
-        )
-        .route(
-            "/staff/ingredients/{id}",
-            get(ingredients::edit_form).post(ingredients::update),
-        )
-        .route("/staff/recipes", get(recipes::list))
-        .route(
-            "/staff/recipes/new",
-            get(recipes::new_form).post(recipes::create),
-        )
-        .route(
-            "/staff/recipes/{id}",
-            get(recipes::show).post(recipes::update),
-        )
-        .route("/staff/recipes/{id}/versions", post(recipes::new_version))
-        .route("/staff/recipes/{id}/products", post(recipes::link_product))
-        .route(
-            "/staff/recipes/{id}/products/{product}/remove",
-            post(recipes::unlink_product),
-        )
-        .route(
-            "/staff/recipes/{id}/versions/{version}",
-            get(recipes::version_page),
-        )
-        .route(
-            "/staff/recipes/{id}/versions/{version}/edit",
-            get(recipes::edit_form).post(recipes::save_draft),
-        )
-        .route(
-            "/staff/recipes/{id}/versions/{version}/freeze",
-            post(recipes::freeze),
-        )
-        .route(
-            "/staff/recipes/{id}/versions/{version}/current",
-            post(recipes::make_current),
-        )
-        .route("/staff/charities", get(charities::list))
-        .route(
-            "/staff/charities/new",
-            get(charities::new_form).post(charities::create),
-        )
-        .route("/staff/charities/check", post(charities::check))
-        .route(
-            "/staff/charities/{id}",
-            get(charities::edit_form).post(charities::update),
-        )
-        .route("/staff/charities/{id}/archive", post(charities::archive))
-        .route("/staff/locations", get(locations::list))
-        .route(
-            "/staff/locations/new",
-            get(locations::new_form).post(locations::create),
-        )
-        .route(
-            "/staff/locations/{id}",
-            get(locations::edit_form).post(locations::update),
-        )
-        .route(
-            "/staff/locations/{id}/windows/new",
-            get(locations::new_window_form).post(locations::create_window),
-        )
-        .route(
-            "/staff/locations/windows/check",
-            post(locations::check_window),
-        )
-        .route(
-            "/staff/locations/{id}/windows/{window}",
-            get(locations::edit_window_form).post(locations::update_window),
-        )
-        .route("/staff/bake-days", get(bake_days::list))
-        .route(
-            "/staff/bake-days/new",
-            get(bake_days::new_form).post(bake_days::create),
-        )
-        .route("/staff/bake-days/{id}", get(bake_days::show))
-        .route("/staff/bake-days/{id}/schedule", post(bake_days::schedule))
-        .route("/staff/bake-days/{id}/charity", post(bake_days::charity))
-        .route("/staff/bake-days/{id}/range", post(bake_days::set_product))
-        .route(
-            "/staff/bake-days/{id}/range/{product}",
-            post(bake_days::update_product),
-        )
-        .route(
-            "/staff/bake-days/{id}/range/{product}/remove",
-            post(bake_days::remove_product),
-        )
-        .route("/staff/bake-days/{id}/copy", post(bake_days::copy))
-        .route("/staff/bake-days/{id}/repeat", post(bake_days::repeat))
-        .route("/staff/bake-days/{id}/slots", post(bake_days::add_slot))
-        .route(
-            "/staff/bake-days/{id}/slots/{slot}",
-            post(bake_days::update_slot),
-        )
-        .route(
-            "/staff/bake-days/{id}/slots/{slot}/remove",
-            post(bake_days::remove_slot),
-        )
-        .route("/staff/bake-days/{id}/open", post(bake_days::open))
-        .route("/staff/bake-days/{id}/close", post(bake_days::close))
-        .route(
-            "/staff/bake-days/{id}/extras",
-            get(extras::page).post(extras::add),
-        )
-        .route("/staff/bake-days/{id}/extras/{extra}", post(extras::update))
-        .route(
-            "/staff/bake-days/{id}/extras/{extra}/remove",
-            post(extras::remove),
-        )
-        .route("/staff/bake-days/{id}/batches", get(batches::page))
-        .route("/staff/bake-days/{id}/batches/new", post(batches::start))
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}",
-            get(batches::batch_page).post(batches::save),
-        )
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}/preview",
-            post(batches::preview),
-        )
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}/lines",
-            post(batches::add_line),
-        )
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}/mixed",
-            post(batches::mixed),
-        )
-        .route(
-            "/staff/bake-days/{id}/batches/{batch}/actuals",
-            post(batches::actuals),
-        )
-        .route(
-            "/staff/bake-days/{id}/production",
-            get(lists::production_page),
-        )
-        .route(
-            "/staff/bake-days/{id}/production/pdf",
-            get(lists::production_pdf),
-        )
-        .route("/staff/bake-days/{id}/ingredients", get(lists::needs_page))
-        .route(
-            "/staff/bake-days/{id}/ingredients/pdf",
-            get(lists::needs_pdf),
-        )
-        .route(
-            "/staff/bake-days/{id}/ingredients/csv",
-            get(lists::needs_csv),
-        )
-        .route("/staff/bake-days/{id}/pickup-list", get(lists::pickup_page))
-        .route(
-            "/staff/bake-days/{id}/pickup-list/pdf",
-            get(lists::pickup_pdf),
-        )
-        .route(
-            "/staff/bake-days/{id}/pickup-list/{order}/picked-up",
-            post(lists::picked_up),
-        )
-        .route(
-            "/staff/bake-days/{id}/pickup-list/{order}/undo",
-            post(lists::undo),
-        )
-        .route(settings::PATH, get(settings::page).post(settings::save))
-        .route("/staff/reports", get(reports::index))
-        .route("/staff/reports/sales", get(reports::sales_page))
-        .route("/staff/reports/sales.csv", get(reports::sales_csv))
-        .route(
-            "/staff/reports/pay-what-you-want.csv",
-            get(reports::pay_what_you_want_csv),
-        )
-        .route("/staff/reports/donations", get(reports::donations_page))
-        .route(
-            "/staff/reports/donations/drops.csv",
-            get(reports::donation_drops_csv),
-        )
-        .route(
-            "/staff/reports/donations/charities.csv",
-            get(reports::donation_charities_csv),
-        )
-        .route(
-            "/staff/reports/contribution",
-            get(reports::contribution_page),
-        )
-        .route("/staff/reports/contribution/costs", post(reports::add_cost))
-        .route("/staff/reports/payouts", get(payouts::list))
-        .route("/staff/reports/payouts/{id}", get(payouts::detail))
-        .route(
-            "/staff/reports/payouts/{id}/transfers",
-            post(payouts::record),
-        )
-        .route("/staff/business-accounts", get(business::list))
-        .route(
-            "/staff/business-accounts/new",
-            get(business::new_form).post(business::create),
-        )
-        .route(
-            "/staff/business-accounts/{id}",
-            get(business::show).post(business::update),
-        )
-        .route(
-            "/staff/business-accounts/{id}/invoice",
-            get(business::invoice_page),
-        )
-        .route(
-            "/staff/business-accounts/{id}/invoice.csv",
-            get(business::invoice_csv),
-        )
-        .route(
-            "/staff/business-accounts/{id}/invoice.pdf",
-            get(business::invoice_pdf),
-        )
-        .route(
-            "/staff/business-accounts/{id}/invoices",
-            post(business::mark_invoiced),
-        )
-        .route(
-            "/staff/business-accounts/{id}/order",
-            get(business::order_form).post(business::place_order),
-        )
-        .route("/staff/orders", get(orders::days_list))
-        .route("/staff/bake-days/{id}/orders", get(orders::list))
-        .route("/staff/orders/{id}", get(orders::show))
-        .route("/staff/orders/{id}/pickup", post(orders::move_pickup))
-        .route("/staff/orders/{id}/picked-up", post(orders::picked_up))
-        .route("/staff/orders/{id}/cancel", post(orders::cancel))
-        .route(
-            "/staff/orders/{id}/refunds/{refund}/retry",
-            post(orders::retry_refund),
-        )
-        .route(
-            "/staff/bake-days/{id}/cancel",
-            get(sick_day::page).post(sick_day::cancel),
-        )
-}
 
 /// `?opgeslagen=1` after a save, so the page shows the save confirmation.
 #[derive(Debug, Default, Deserialize)]

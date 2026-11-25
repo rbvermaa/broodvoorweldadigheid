@@ -5,6 +5,8 @@ use auth::Permission;
 use axum::extract::{Form, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::get;
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -12,6 +14,11 @@ use super::{Flash, Rejection, fail, layout, require, saved};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(PATH, get(page).post(save))
+}
 
 pub const PATH: &str = "/staff/settings";
 

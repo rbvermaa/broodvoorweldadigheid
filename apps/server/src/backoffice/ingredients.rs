@@ -7,6 +7,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::get;
 use domain::{Allergen, IngredientId};
 use recipes::{Ingredient, IngredientInput, IngredientRole, ingredients};
 use tower_sessions::Session;
@@ -21,6 +23,19 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/ingredients", get(list))
+        .route(
+            "/staff/ingredients/new",
+            get(new_form).post(create),
+        )
+        .route(
+            "/staff/ingredients/{id}",
+            get(edit_form).post(update),
+        )
+}
 
 const NEW: &str = "/staff/ingredients/new";
 

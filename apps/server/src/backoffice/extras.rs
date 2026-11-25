@@ -7,6 +7,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::{get, post};
 use bakedays::capacity::Remaining;
 use bakedays::{BakeDay, ExtraInput, ProductionExtra, ProductionExtraId, Purpose, extras, range};
 use domain::ProductId;
@@ -23,6 +25,19 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/staff/bake-days/{id}/extras",
+            get(page).post(add),
+        )
+        .route("/staff/bake-days/{id}/extras/{extra}", post(update))
+        .route(
+            "/staff/bake-days/{id}/extras/{extra}/remove",
+            post(remove),
+        )
+}
 
 const fn purpose_message(purpose: Purpose) -> &'static str {
     match purpose {

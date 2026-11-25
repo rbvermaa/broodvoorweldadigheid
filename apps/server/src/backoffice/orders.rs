@@ -9,6 +9,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::{get, post};
 use bakedays::{BakeDay, days, pickup};
 use domain::{OrderId, PickupLocationId, PickupSlotId, RefundId, StaffUserId};
 use jobs::order_emails;
@@ -29,6 +31,20 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/orders", get(days_list))
+        .route("/staff/bake-days/{id}/orders", get(list))
+        .route("/staff/orders/{id}", get(show))
+        .route("/staff/orders/{id}/pickup", post(move_pickup))
+        .route("/staff/orders/{id}/picked-up", post(picked_up))
+        .route("/staff/orders/{id}/cancel", post(cancel))
+        .route(
+            "/staff/orders/{id}/refunds/{refund}/retry",
+            post(retry_refund),
+        )
+}
 
 const DAYS_BACK: i32 = 28;
 const DAYS_AHEAD: i32 = 366;

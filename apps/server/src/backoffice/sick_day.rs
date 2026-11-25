@@ -7,6 +7,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::get;
 use bakedays::{BakeDay, BakeDayStatus};
 use domain::BakeDayId;
 use jobs::order_emails;
@@ -20,6 +22,14 @@ use crate::components::{Cell, Table};
 use crate::pages;
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/staff/bake-days/{id}/cancel",
+            get(page).post(cancel),
+        )
+}
 
 pub fn cancel_path(day: BakeDayId) -> String {
     format!("/staff/bake-days/{}/cancel", day.get())

@@ -6,6 +6,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
+use axum::Router;
+use axum::routing::{get, post};
 use bakedays::BakeDay;
 use domain::{BatchId, IngredientId, ProductId};
 use orders::audit::Actor;
@@ -24,6 +26,32 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/bake-days/{id}/batches", get(page))
+        .route("/staff/bake-days/{id}/batches/new", post(start))
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}",
+            get(batch_page).post(save),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/preview",
+            post(preview),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/lines",
+            post(add_line),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/mixed",
+            post(mixed),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/actuals",
+            post(actuals),
+        )
+}
 
 fn list_path(day: &BakeDay) -> String {
     format!("{}/batches", day_path(day.id))

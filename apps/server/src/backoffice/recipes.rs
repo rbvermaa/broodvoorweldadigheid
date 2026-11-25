@@ -5,6 +5,8 @@ use auth::Permission;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
+use axum::Router;
+use axum::routing::{get, post};
 use catalog::products as catalog_products;
 use domain::{ProductId, RecipeId, RecipeVersionId, in_bakery_time};
 use jiff::Timestamp;
@@ -25,6 +27,41 @@ use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
+
+pub fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/staff/recipes", get(list))
+        .route(
+            "/staff/recipes/new",
+            get(new_form).post(create),
+        )
+        .route(
+            "/staff/recipes/{id}",
+            get(show).post(update),
+        )
+        .route("/staff/recipes/{id}/versions", post(new_version))
+        .route("/staff/recipes/{id}/products", post(link_product))
+        .route(
+            "/staff/recipes/{id}/products/{product}/remove",
+            post(unlink_product),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}",
+            get(version_page),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/edit",
+            get(edit_form).post(save_draft),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/freeze",
+            post(freeze),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/current",
+            post(make_current),
+        )
+}
 
 const LIST: &str = "/staff/recipes";
 const NEW: &str = "/staff/recipes/new";
