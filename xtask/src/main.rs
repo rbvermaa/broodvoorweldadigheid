@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod adr_numbers;
+mod async_fn;
 mod compose_smoke;
 mod coverage;
 mod layers;
@@ -41,7 +42,18 @@ fn main() -> ExitCode {
             task,
             std::fs::read_to_string(report)
                 .map_err(|error| format!("cannot read {report}: {error}"))
-                .and_then(|contents| coverage::check(&contents)),
+                .and_then(|contents| {
+                    coverage::check(&contents, |path| {
+                        std::fs::read_to_string(path)
+                            .map_err(|error| format!("cannot read {path}: {error}"))
+                    })
+                })
+                .map(|outcome| {
+                    for line in &outcome.summary {
+                        println!("{task}: {line}");
+                    }
+                    outcome.violations
+                }),
         ),
         [task, rest @ ..] if task == "compose-smoke" => (task, compose_smoke::run(rest)),
         _ => {
