@@ -16,11 +16,17 @@ pub enum Unavailable {
     Provider(#[from] OidcError),
 }
 
+struct Cached {
+    discovered: Timestamp,
+    client_secret: String,
+    provider: Arc<Provider>,
+}
+
 /// The OIDC provider for staff, discovered on first use and cached.
 pub struct StaffLogin {
     config: OidcConfig,
     http: Arc<dyn OidcHttp>,
-    cached: Mutex<Option<(Timestamp, Arc<Provider>)>>,
+    cached: Mutex<Option<Cached>>,
 }
 
 impl StaffLogin {
@@ -42,19 +48,12 @@ impl StaffLogin {
         *self.cached.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
+    /// The client secret is read on every call, so a replaced secret file counts at once.
+    ///
     /// # Errors
     /// `NotSetUp` while the client secret file is missing or empty, `Provider` when
     /// discovery fails.
     pub async fn provider(&self, now: Timestamp) -> Result<Arc<Provider>, Unavailable> {
-        if let Some((discovered, provider)) = self
-            .cached
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            && now.duration_since(*discovered) < REDISCOVER_AFTER
-        {
-            return Ok(Arc::clone(provider));
-        }
         let secret_file = &self.config.client_secret_file;
         let not_set_up = || Unavailable::NotSetUp(secret_file.display().to_string());
         let client_secret = std::fs::read_to_string(secret_file)
@@ -64,15 +63,28 @@ impl StaffLogin {
         if client_secret.is_empty() {
             return Err(not_set_up());
         }
+        if let Some(cached) = self
+            .cached
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            && cached.client_secret == client_secret
+            && now.duration_since(cached.discovered) < REDISCOVER_AFTER
+        {
+            return Ok(Arc::clone(&cached.provider));
+        }
         let settings = Settings {
             issuer: self.config.issuer.clone(),
             client_id: self.config.client_id.clone(),
-            client_secret,
+            client_secret: client_secret.clone(),
             redirect_url: self.config.redirect_url.clone(),
         };
         let provider = Arc::new(Provider::discover(&settings, self.http()).await?);
-        *self.cached.lock().unwrap_or_else(PoisonError::into_inner) =
-            Some((now, Arc::clone(&provider)));
+        *self.cached.lock().unwrap_or_else(PoisonError::into_inner) = Some(Cached {
+            discovered: now,
+            client_secret,
+            provider: Arc::clone(&provider),
+        });
         Ok(provider)
     }
 }

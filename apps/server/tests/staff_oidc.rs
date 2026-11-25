@@ -56,7 +56,7 @@ fn rand_suffix() -> u64 {
 struct Harness {
     app: Router,
     fake: FakeOidc,
-    _secret: SecretFile,
+    secret: SecretFile,
 }
 
 fn config(vars: &[(&str, &str)]) -> Config {
@@ -96,11 +96,7 @@ fn harness(pool: PgPool, vars: &[(&str, &str)]) -> Harness {
     let fake = FakeOidc::new(now());
     let secret = SecretFile::new(testkit::oidc::CLIENT_SECRET);
     let app = server::router(state_with(pool, vars, &secret, &fake));
-    Harness {
-        app,
-        fake,
-        _secret: secret,
-    }
+    Harness { app, fake, secret }
 }
 
 fn dutch(id: &str) -> String {
@@ -499,4 +495,25 @@ async fn a_login_without_a_name_claim_keeps_the_local_name_and_role(pool: PgPool
     assert_eq!(page.status, StatusCode::OK, "{}", page.body);
     assert!(page.body.contains("Bakker Bas"), "{}", page.body);
     assert!(page.body.contains(&dutch("staff-role-counter")));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_replaced_client_secret_counts_at_the_next_login(pool: PgPool) {
+    add(&pool, BAKER, "Bas", Role::Baker).await;
+    let harness = harness(pool, &[]);
+    log_in(&harness, FakeUser::new(BAKER, "Bas")).await;
+
+    std::fs::write(&harness.secret.0, "an-old-secret").expect("write secret");
+    let (cookie, url) = begin_login(&harness.app).await;
+    let callback = harness.fake.authorize(&url, FakeUser::new(BAKER, "Bas"));
+    let reply = get_with(&harness.app, &callback.path_and_query(), Some(&cookie)).await;
+    assert_eq!(
+        reply.status,
+        StatusCode::FORBIDDEN,
+        "the provider refuses the wrong secret: {}",
+        reply.body
+    );
+
+    std::fs::write(&harness.secret.0, testkit::oidc::CLIENT_SECRET).expect("write secret");
+    log_in(&harness, FakeUser::new(BAKER, "Bas")).await;
 }

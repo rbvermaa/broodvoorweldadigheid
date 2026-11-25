@@ -10,6 +10,9 @@ pub const DEFAULT_DATA_DIR: &str = "/data";
 const ADMIN: &str = "idm_admin";
 const CA_COPY: &str = "/tmp/bvw-kanidm-ca.pem";
 const TOKEN_CACHE: &str = "/tmp/bvw-kanidm-tokens";
+/// The image user's home is the read-only /var/empty, and the kanidm client creates
+/// `~/.cache` even with `KANIDM_TOKEN_CACHE_PATH` set.
+const HOME: &str = "/tmp/bvw-kanidm-home";
 /// Only members of this group may log in to the shop; their role lives in `staff_user`.
 pub const STAFF_GROUP: &str = "bvw_staff";
 const SCOPES: [&str; 2] = ["openid", "email"];
@@ -167,6 +170,10 @@ struct Admin {
 
 impl Admin {
     fn login(url: &str, data_dir: &Path) -> Result<Self, Error> {
+        std::fs::create_dir_all(HOME).map_err(|source| Error::Io {
+            path: HOME.into(),
+            source,
+        })?;
         std::fs::write(CA_COPY, ca_pem(data_dir)?).map_err(|source| Error::Io {
             path: CA_COPY.into(),
             source,
@@ -205,6 +212,7 @@ impl Admin {
             ("KANIDM_CA_PATH", CA_COPY),
             ("KANIDM_NAME", ADMIN),
             ("KANIDM_TOKEN_CACHE_PATH", TOKEN_CACHE),
+            ("HOME", HOME),
         ];
         env.extend_from_slice(extra);
         let output = run(step, &env)?;
