@@ -864,3 +864,18 @@ pub async fn unlink_product(
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_percentages_must_not_be_negative() {
+        assert_eq!(pct_from_db(100_000).unwrap(), Pct::HUNDRED);
+        let negative = pct_from_db(-1);
+        assert!(
+            matches!(&negative, Err(Error::Corrupt(m)) if m == "negative percentage"),
+            "{negative:?}"
+        );
+    }
+}

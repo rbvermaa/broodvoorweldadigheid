@@ -42,3 +42,42 @@ pub(crate) fn unique(err: sqlx::Error) -> Error {
         _ => Error::Db(err),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_read_well_in_the_log() {
+        let cases = [
+            (Error::NotFound, "not found"),
+            (Error::Invalid("name"), "invalid name"),
+            (Error::Duplicate, "the name is already in use"),
+            (Error::InUse, "a frozen recipe version uses it"),
+            (
+                Error::DraftExists(RecipeVersionId::new(7)),
+                "recipe already has draft version",
+            ),
+            (
+                Error::Nesting,
+                "sub-recipes nest too deep or use the recipe itself",
+            ),
+            (Error::Db(sqlx::Error::RowNotFound), "database error: "),
+        ];
+        for (error, text) in cases {
+            assert!(error.to_string().starts_with(text), "{error}");
+        }
+    }
+
+    #[test]
+    fn bad_stored_values_are_corrupt() {
+        let time = Error::from(db::time::OutOfRange("timestamp"));
+        assert!(matches!(&time, Error::Corrupt(_)), "{time:?}");
+        assert!(time.to_string().starts_with("stored data is invalid: "));
+        let code = Error::from(crate::formula::UnknownCode("meel".to_owned()));
+        assert!(
+            matches!(&code, Error::Corrupt(m) if m.contains("meel")),
+            "{code:?}"
+        );
+    }
+}
