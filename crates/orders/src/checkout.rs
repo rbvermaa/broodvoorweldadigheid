@@ -166,7 +166,7 @@ async fn insert_lines(
 
 /// Turns a cart into an order waiting for payment, holding its capacity for [`HOLD`]
 /// (F3, F4, F4b). One transaction, locking in the order of ADR 0008 and ADR 0012: the
-/// bake day `FOR SHARE`, the products and pools ([`range::lock_capacity`]), the product
+/// bake day `FOR SHARE`, the products ([`range::lock_capacity`]), the product
 /// and company rows `FOR SHARE` (their allergen approvals), the pickup slot, the customer,
 /// the year's order number. Orders are read after those locks.
 ///

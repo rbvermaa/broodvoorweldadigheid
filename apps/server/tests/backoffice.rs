@@ -1192,7 +1192,7 @@ async fn the_range_editor_sets_limits(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn changing_a_limit_keeps_the_hidden_pool(pool: PgPool) {
+async fn changing_a_limit_updates_only_the_maximum(pool: PgPool) {
     let app = app(pool.clone());
     let day = saturday(&pool).await;
     let bread = product(&pool).await;

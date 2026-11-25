@@ -593,7 +593,7 @@ async fn approval_changes_wait_for_a_running_checkout(pool: PgPool) {
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn sold_out_products_are_refused_counting_the_whole_cart(mut conn: PoolConnection<Postgres>) {
+async fn sold_out_products_are_refused(mut conn: PoolConnection<Postgres>) {
     let clock = wednesday();
     let shop = open_day(&mut conn, &clock, &saturday()).await;
     let bread = product(&mut conn, &BREAD).await;
