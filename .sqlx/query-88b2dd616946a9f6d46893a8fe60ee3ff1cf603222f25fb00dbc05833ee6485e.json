@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT product_id, max_qty FROM bake_day_product\n        WHERE bake_day_id = $1 ORDER BY product_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "product_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "product_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "max_qty",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "bake_day_product",
+            "name": "max_qty"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "88b2dd616946a9f6d46893a8fe60ee3ff1cf603222f25fb00dbc05833ee6485e"
+}
