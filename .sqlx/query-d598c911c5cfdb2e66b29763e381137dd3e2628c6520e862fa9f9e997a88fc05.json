@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT recipe_id, frozen_at IS NOT NULL AS \"frozen!\" FROM recipe_version\n        WHERE id = $1 FOR NO KEY UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recipe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "recipe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "frozen!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "d598c911c5cfdb2e66b29763e381137dd3e2628c6520e862fa9f9e997a88fc05"
+}

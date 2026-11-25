@@ -27,6 +27,7 @@ payments = { path = "../../crates/payments" }
 production = { path = "../../crates/production" }
 reports = { path = "../../crates/reports" }
 rand.workspace = true
+recipes = { path = "../../crates/recipes" }
 serde.workspace = true
 sha2.workspace = true
 sqlx.workspace = true

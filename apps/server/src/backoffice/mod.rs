@@ -1,8 +1,9 @@
-//! The back office under `/staff`: catalogue, pickup locations, charities, bake days,
-//! extra production, orders, the production and pickup lists, the reports, business
-//! customers, customer data requests (F12) and the company settings. Every handler takes
-//! [`Staff`] and checks a permission (ADR 0010). Forms post normally and redirect with
-//! `?opgeslagen=1`; htmx only adds inline checks and partial updates on top (ADR 0019).
+//! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
+//! charities, bake days, extra production, orders, the production and pickup lists, the
+//! reports, business customers, customer data requests (F12) and the company settings.
+//! Every handler takes [`Staff`] and checks a permission (ADR 0010). Forms post normally
+//! and redirect with `?opgeslagen=1`; htmx only adds inline checks and partial updates on
+//! top (ADR 0019).
 
 pub mod bake_days;
 pub mod business;
@@ -10,11 +11,13 @@ pub mod charities;
 pub mod customers;
 pub mod extras;
 pub mod form;
+pub mod ingredients;
 pub mod lists;
 pub mod locations;
 pub mod orders;
 pub mod payouts;
 pub mod products;
+pub mod recipes;
 pub mod reports;
 pub mod settings;
 pub mod sick_day;
@@ -76,6 +79,46 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/products/{id}/approve",
             get(products::approve_form).post(products::approve),
+        )
+        .route("/staff/ingredients", get(ingredients::list))
+        .route(
+            "/staff/ingredients/new",
+            get(ingredients::new_form).post(ingredients::create),
+        )
+        .route(
+            "/staff/ingredients/{id}",
+            get(ingredients::edit_form).post(ingredients::update),
+        )
+        .route("/staff/recipes", get(recipes::list))
+        .route(
+            "/staff/recipes/new",
+            get(recipes::new_form).post(recipes::create),
+        )
+        .route(
+            "/staff/recipes/{id}",
+            get(recipes::show).post(recipes::update),
+        )
+        .route("/staff/recipes/{id}/versions", post(recipes::new_version))
+        .route("/staff/recipes/{id}/products", post(recipes::link_product))
+        .route(
+            "/staff/recipes/{id}/products/{product}/remove",
+            post(recipes::unlink_product),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}",
+            get(recipes::version_page),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/edit",
+            get(recipes::edit_form).post(recipes::save_draft),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/freeze",
+            post(recipes::freeze),
+        )
+        .route(
+            "/staff/recipes/{id}/versions/{version}/current",
+            post(recipes::make_current),
         )
         .route("/staff/charities", get(charities::list))
         .route(

@@ -1,0 +1,15 @@
+{% extends "staff/layout.html" %}
+{% import "components/feedback.html" as fb %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ layout.t("staff-nav-ingredients")? }}{% endblock %}
+{% block page %}
+<h1>{{ layout.t("staff-nav-ingredients")? }}</h1>
+{% call s::status(saved) %}{% endcall %}
+<p><a href="/staff/ingredients/new">{{ layout.t("ingredient-new")? }}</a></p>
+{% if table.rows.is_empty() %}
+{% call fb::empty_state(layout.t("ingredients-empty-title")?, layout.t("ingredients-empty-text")?) %}{% endcall %}
+{% else %}
+{% call tb::table(table) %}{% endcall %}
+{% endif %}
+{% endblock %}
