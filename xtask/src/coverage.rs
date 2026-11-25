@@ -133,8 +133,7 @@ fn count(value: &str) -> Result<u64, String> {
 }
 
 /// The signature lines (from `async` through the `{` of the body) of each async fn whose
-/// body has a hit line. llvm-cov counts the wrapper that builds the future apart from the
-/// body, and whether it reports the wrapper as run varies between builds (ADR 0043).
+/// body has a hit line (ADR 0043).
 fn excluded(hits: &BTreeMap<u32, u64>, functions: &[AsyncFn]) -> Lines {
     let mut lines = BTreeSet::new();
     for function in functions {

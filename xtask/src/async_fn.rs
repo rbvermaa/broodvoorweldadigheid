@@ -67,25 +67,30 @@ pub fn find(source: &str) -> Vec<AsyncFn> {
     found
 }
 
-/// The first `{` outside parentheses, brackets and generics, or `None` when a `;` (a
-/// declaration without body) or the end of the file comes first.
+/// The first `{` outside parentheses and brackets that does not follow a `<`, or `None`
+/// when a `;` (a declaration without body), another item or the end of the file comes
+/// first. `<` and `>` are not counted: they are also shifts and comparisons. A wrong `None`
+/// keeps the signature lines counted, a wrong `{` could drop lines of other code.
 fn body_open(tokens: &[Token], from: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (index, token) in tokens.iter().enumerate().skip(from) {
-        let Kind::Punct(punct) = token.kind else {
-            continue;
+        let punct = match &token.kind {
+            Kind::Ident(ident) if depth == 0 && ITEMS.contains(&ident.as_str()) => return None,
+            Kind::Ident(_) => continue,
+            Kind::Punct(punct) => *punct,
         };
         match punct {
-            '{' if depth == 0 => return Some(index),
+            '{' if depth == 0 && !tokens[index - 1].is_punct('<') => return Some(index),
             ';' if depth == 0 => return None,
-            '(' | '[' | '<' | '{' => depth += 1,
-            '>' if tokens[index - 1].is_punct('-') => {}
-            ')' | ']' | '>' | '}' => depth = depth.checked_sub(1)?,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' => depth = depth.checked_sub(1)?,
             _ => {}
         }
     }
     None
 }
+
+const ITEMS: &[&str] = &["fn", "struct", "enum", "trait", "mod"];
 
 fn matching_close(tokens: &[Token], open: usize) -> Option<usize> {
     let mut depth = 0usize;
@@ -373,6 +378,32 @@ async fn handler(
     fn const_generic_block_in_signature() {
         let source = "async fn f() -> Foo<{ 1 + 1 }> {\n}\n";
         assert_eq!(spans(source), [(1, 1, 2)]);
+    }
+
+    #[test]
+    fn shifts_and_comparisons_do_not_move_the_body() {
+        let source = "
+async fn a(x: [u8; 1 << 4]) {
+    1
+}
+fn b() { match x { 1 => {}, _ => {} } }
+async fn c(f: impl Fn(u8) -> bool) -> Option<Box<dyn Fn() -> u8>> {
+    a < b && c >= d
+}
+";
+        assert_eq!(spans(source), [(2, 2, 4), (6, 6, 8)]);
+    }
+
+    #[test]
+    fn a_later_item_before_any_brace_finds_nothing() {
+        let source = "async fn f() -> u8\nfn g() {\n}\n";
+        assert!(spans(source).is_empty());
+    }
+
+    #[test]
+    fn async_fn_in_macro_rules_is_found() {
+        let source = "macro_rules! m {\n    () => {\n        async fn g() {\n            1\n        }\n    };\n}\n";
+        assert_eq!(spans(source), [(3, 3, 5)]);
     }
 
     #[test]

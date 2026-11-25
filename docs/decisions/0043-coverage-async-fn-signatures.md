@@ -31,8 +31,8 @@ many of those had no hits, and the percentage without the rule.
 |---|---|
 | Leave out the signature lines in both directions (hit or missed) | Leaving out only the missed ones would still let the count of found lines move with the build |
 | Only when a body line is hit | An untested function still lowers coverage, through its body and its signature |
-| Parse the source in xtask, with a small tokenizer that skips comments, strings, chars and lifetimes | No new dependency. Checked against all workspace files: it finds every `async fn` with a body that a line search finds |
-| The report keeps line data (`--summary-only` is gone); a record without `DA` lines is an error | The rule needs per-line hits; failing loudly keeps the rule from silently turning off |
+| Parse the source in xtask, with a small tokenizer that skips comments, strings, chars and lifetimes. When it cannot tell where the body starts, it finds no function, so the lines keep counting | No new dependency, and a parser mistake can only keep lines in. Checked against all workspace files: it finds every `async fn` with a body that a line search finds |
+| The report keeps line data (`--summary-only` is gone); a record with lines (`LF` above 0) but no `DA` lines is an error | The rule needs per-line hits; failing loudly keeps the rule from silently turning off |
 
 **Why this does not weaken the gate.** The left-out lines carry no information about
 tests: a hit body line proves the wrapper ran, because the body only runs through it. All
