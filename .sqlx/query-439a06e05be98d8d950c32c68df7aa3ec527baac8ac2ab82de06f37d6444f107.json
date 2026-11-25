@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE batch_output SET actual_pieces = $3, waste_pieces = $4\n            WHERE batch_id = $1 AND product_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "439a06e05be98d8d950c32c68df7aa3ec527baac8ac2ab82de06f37d6444f107"
+}

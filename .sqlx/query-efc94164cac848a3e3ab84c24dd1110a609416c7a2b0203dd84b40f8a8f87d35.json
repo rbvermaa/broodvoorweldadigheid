@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO batch_split (bake_day_id, split_at)\n        VALUES ($1, timestamptz 'epoch' + $2::bigint * interval '1 microsecond')\n        ON CONFLICT (bake_day_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "efc94164cac848a3e3ab84c24dd1110a609416c7a2b0203dd84b40f8a8f87d35"
+}

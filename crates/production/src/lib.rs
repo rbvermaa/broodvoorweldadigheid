@@ -1,12 +1,14 @@
-//! The production list (F7) and the pickup list (F8): their data and their PDFs. See
-//! ADR 0016.
+//! The production list (F7) and the pickup list (F8): their data and their PDFs (ADR
+//! 0016). Batches (F14a, ADR 0042).
 #![forbid(unsafe_code)]
 
+pub mod batches;
 mod error;
 mod paper;
 mod pdf;
 pub mod pickup;
 pub mod production;
+pub mod split;
 
 pub use error::Error;
 pub use pickup::{PickupLine, PickupList, PickupOrder, SlotPickups, pickup_list, pickup_pdf};

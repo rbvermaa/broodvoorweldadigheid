@@ -10,9 +10,12 @@ workspace = true
 [dependencies]
 bakedays = { path = "../bakedays" }
 catalog = { path = "../catalog" }
+db = { path = "../db" }
 domain = { path = "../domain" }
 i18n = { path = "../i18n" }
+jiff.workspace = true
 orders = { path = "../orders" }
+recipes = { path = "../recipes" }
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
@@ -21,8 +24,7 @@ typst-layout = "0.15.1"
 typst-pdf = "0.15.1"
 
 [dev-dependencies]
-db = { path = "../db" }
 insta.workspace = true
-jiff.workspace = true
+proptest.workspace = true
 testkit = { path = "../testkit" }
 tokio.workspace = true

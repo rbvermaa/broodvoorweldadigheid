@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE company SET mixer_capacity_g = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43fa5f5320ae6d2f0ac9b0581d41a875909034039477467f5fdd67b281374d16"
+}

@@ -15,6 +15,7 @@ use tokio::time::MissedTickBehavior;
 
 use crate::Error;
 use crate::bake_days::{self, TickReport};
+use crate::batches::{self, SplitReport};
 use crate::cleanup::{self, CleanupReport};
 use crate::drop_alerts::{self, AlertReport};
 use crate::order_emails::{self, OrderEmails};
@@ -67,6 +68,7 @@ pub struct Mail {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TickOutcome {
     pub days: TickReport,
+    pub batches: SplitReport,
     pub released: Vec<OrderId>,
     pub reminded: Vec<OrderId>,
     pub donations: MoveReport,
@@ -130,7 +132,8 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
     }
 }
 
-/// One tick's work, in order: open and close bake days, release expired order holds, queue
+/// One tick's work, in order: open and close bake days, split closed days into batches
+/// (F14a), release expired order holds, queue
 /// due pickup reminders and move saved donations past their date (an error in those two is
 /// logged and tried again next tick), queue
 /// the drop alerts that are now due, hand due emails to the relay, then delete expired
@@ -140,7 +143,8 @@ async fn push_tick(storage: &mut TickStorage, minute: Timestamp) -> Result<bool,
 /// sent either way. The first error is returned.
 ///
 /// # Errors
-/// The first [`Error`] of [`bake_days::tick`], [`orders::release_expired_holds`],
+/// The first [`Error`] of [`bake_days::tick`], [`batches::tick`],
+/// [`orders::release_expired_holds`],
 /// [`drop_alerts::tick`], [`notify::send_pending`] or [`cleanup::tick`].
 pub fn work<'a>(
     pool: &'a PgPool,
@@ -164,6 +168,12 @@ pub fn work<'a>(
                 false
             }
         };
+        match batches::tick(&mut conn, &frozen).await {
+            Ok(report) => outcome.batches = report,
+            Err(err) => {
+                first_error.get_or_insert(err);
+            }
+        }
         match orders::release_expired_holds(&mut conn, &frozen).await {
             Ok(released) => outcome.released = released,
             Err(err) => {
@@ -282,6 +292,9 @@ pub async fn handle_tick(
             released = ?outcome.released,
             "bake day tick"
         );
+    }
+    if !outcome.batches.created.is_empty() {
+        tracing::info!(minute = %tick.minute, days = ?outcome.batches.days, batches = ?outcome.batches.created, "batches made");
     }
     if !outcome.reminded.is_empty() {
         tracing::info!(minute = %tick.minute, orders = ?outcome.reminded, "pickup reminders queued");

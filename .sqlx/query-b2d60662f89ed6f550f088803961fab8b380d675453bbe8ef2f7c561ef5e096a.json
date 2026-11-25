@@ -1,0 +1,157 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id, b.bake_day_id, b.recipe_version_id, v.recipe_id, r.name AS recipe_name,\n            v.version, (b.code_date - date 'epoch') AS \"code_days!\", b.mix_no, b.origin,\n            b.status, b.notes,\n            (extract(epoch FROM b.mixed_at) * 1000000)::bigint AS mixed_at_us,\n            (extract(epoch FROM b.baked_at) * 1000000)::bigint AS baked_at_us\n        FROM batch b\n        JOIN recipe_version v ON v.id = b.recipe_version_id\n        JOIN recipe r ON r.id = v.recipe_id\n        WHERE b.bake_day_id = $1\n        ORDER BY b.code_date, b.mix_no",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bake_day_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "bake_day_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recipe_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "recipe_version_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recipe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "recipe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "recipe_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "recipe_version",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "code_days!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "mix_no",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "mix_no"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "origin",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "origin"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "notes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "batch",
+            "name": "notes"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "mixed_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "baked_at_us",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "b2d60662f89ed6f550f088803961fab8b380d675453bbe8ef2f7c561ef5e096a"
+}

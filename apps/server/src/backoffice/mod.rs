@@ -1,10 +1,11 @@
 //! The back office under `/staff`: catalogue, ingredients and recipes, pickup locations,
-//! charities, bake days, extra production, orders, the production and pickup lists, the
+//! charities, bake days, extra production, batches, orders, the production and pickup lists, the
 //! reports, business customers and customer data requests (F12). Every handler takes
 //! [`Staff`] and checks a permission (ADR 0010). Forms post normally and redirect with
 //! `?opgeslagen=1`; htmx only adds inline checks and partial updates on top (ADR 0019).
 
 pub mod bake_days;
+pub mod batches;
 pub mod business;
 pub mod charities;
 pub mod customers;
@@ -188,6 +189,33 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/staff/bake-days/{id}/extras/{extra}/remove",
             post(extras::remove),
+        )
+        .route("/staff/bake-days/{id}/batches", get(batches::page))
+        .route(
+            "/staff/bake-days/{id}/batches/capacity",
+            post(batches::set_capacity),
+        )
+        .route("/staff/bake-days/{id}/batches/split", post(batches::split))
+        .route("/staff/bake-days/{id}/batches/new", post(batches::start))
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}",
+            get(batches::batch_page).post(batches::save),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/preview",
+            post(batches::preview),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/lines",
+            post(batches::add_line),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/mixed",
+            post(batches::mixed),
+        )
+        .route(
+            "/staff/bake-days/{id}/batches/{batch}/actuals",
+            post(batches::actuals),
         )
         .route(
             "/staff/bake-days/{id}/production",

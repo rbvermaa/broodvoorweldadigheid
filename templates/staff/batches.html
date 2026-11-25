@@ -1,0 +1,41 @@
+{% extends "staff/layout.html" %}
+{% import "components/button.html" as b %}
+{% import "components/feedback.html" as fb %}
+{% import "components/field.html" as f %}
+{% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
+{% block title %}{{ heading }}{% endblock %}
+{% block page %}
+<h1>{{ heading }}</h1>
+<p><a href="{{ back }}">{{ layout.t("batches-back")? }}</a></p>
+{% call s::status(saved) %}{% endcall %}
+{%- for message in messages %}
+{% call fb::alert(message.kind, message.text) %}{% endcall %}
+{%- endfor %}
+{% if !editable %}{% call fb::alert("info", layout.t("day-final")?) %}{% endcall %}{% endif %}
+{% if capacity_set %}<p>{{ capacity_text }}</p>{% else %}{% call fb::alert("warning", layout.t("batches-capacity-missing")?) %}{% endcall %}{% endif %}
+{% if editable && capacity_set %}
+<form method="post" action="{{ split_action }}">
+{% call s::csrf() %}{% endcall %}
+<p class="field-hint">{{ layout.t("batches-split-hint")? }}</p>
+{% call b::button(layout.t("batches-split")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+{% if let Some(batches) = batches %}{% call tb::table(batches) %}{% endcall %}{% else %}{% call fb::empty_state(layout.t("batches-empty-title")?, layout.t("batches-empty-text")?) %}{% endcall %}{% endif %}
+{% if editable %}
+<h2>{{ layout.t("batches-manual-title")? }}</h2>
+{% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
+<form method="post" action="{{ manual_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::select("product_id", layout.t("batches-manual-product")?, products, error = errors.get("product_id"), required = true) %}{% endcall %}
+{% call f::field("number", "pieces", layout.t("batches-manual-pieces")?, value = manual.pieces, error = errors.get("pieces"), required = true) %}{% endcall %}
+{% call b::button(layout.t("batches-manual-start")?, kind = "submit") %}{% endcall %}
+</form>
+{% endif %}
+<h2>{{ layout.t("batches-capacity")? }}</h2>
+<form method="post" action="{{ capacity_action }}">
+{% call s::csrf() %}{% endcall %}
+{% call f::field("text", "capacity", layout.t("batches-capacity")?, value = capacity_value, hint = layout.t("batches-capacity-hint")?, error = capacity_error) %}{% endcall %}
+{% call b::button(layout.t("form-save")?, variant = "secondary", kind = "submit") %}{% endcall %}
+</form>
+{% endblock %}
