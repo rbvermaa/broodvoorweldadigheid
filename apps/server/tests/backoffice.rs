@@ -4188,7 +4188,7 @@ async fn the_pickup_list_shows_approved_ingredients_with_allergens_in_bold(pool:
 
     for change in [
         "UPDATE product SET ingredient_names = '{tarwebloem,water}',
-            ingredient_emphasis = '{t,f}'",
+            ingredient_emphasis = '{t,f}', ingredient_text = 'tarwebloem, water'",
         "UPDATE product SET allergens_approved_by = (SELECT id FROM staff_user LIMIT 1),
             allergens_approved_at = now()",
     ] {
@@ -4206,4 +4206,77 @@ async fn the_pickup_list_shows_approved_ingredients_with_allergens_in_bold(pool:
     let pending = counter.get(&list).await;
     pending.shows(&dutch("product-allergens-pending"));
     pending.lacks("<strong>tarwebloem</strong>");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_pickup_list_warns_about_a_batch_with_other_allergens(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    let list = format!("/staff/bake-days/{}/pickup-list", paid.day.get());
+    let mut conn = pool.acquire().await.expect("conn");
+    let product: i64 = sqlx::query_scalar("SELECT product_id FROM order_line LIMIT 1")
+        .fetch_one(&mut *conn)
+        .await
+        .expect("product");
+    let product = domain::ProductId::new(product);
+    let sesame = recipes::ingredients::create(
+        &mut conn,
+        &recipes::IngredientInput {
+            name: "Sesam".to_owned(),
+            label_name: "sesamzaad".to_owned(),
+            role: recipes::IngredientRole::Other,
+            supplier_name: String::new(),
+            allergens: std::collections::BTreeSet::from([domain::Allergen::SesameSeeds]),
+        },
+    )
+    .await
+    .expect("ingredient");
+    let (recipe, version) = recipes::recipes::create(
+        &mut conn,
+        &recipes::RecipeInput {
+            name: "Sesambrood".to_owned(),
+            kind: recipes::RecipeKind::Dough,
+        },
+    )
+    .await
+    .expect("recipe");
+    recipes::recipes::save_draft(
+        &mut conn,
+        version.id,
+        &recipes::DraftInput {
+            lines: vec![recipes::LineInput {
+                pct: recipes::Pct::HUNDRED,
+                part: recipes::LinePart::Ingredient(sesame.id),
+            }],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("draft");
+    recipes::recipes::link_product(&mut conn, recipe.id, product)
+        .await
+        .expect("link");
+    let batch = production::batches::start_manual(
+        &mut conn,
+        paid.day,
+        product,
+        2,
+        orders::audit::Actor::System("test"),
+        app.clock.as_ref(),
+    )
+    .await
+    .expect("batch");
+    let code = production::batches::get(&mut conn, batch)
+        .await
+        .expect("batch")
+        .code
+        .to_string();
+    drop(conn);
+
+    let page = counter.get(&list).await;
+    page.shows(&dutch_with("pickup-list-batch-differs", &[("code", &code)]));
+    page.shows(&dutch("allergen-sesame_seeds"));
+    page.shows("<strong>sesamzaad</strong>");
 }

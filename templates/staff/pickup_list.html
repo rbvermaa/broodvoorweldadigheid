@@ -51,6 +51,13 @@
 {%- else %}
 <p class="product-status">{{ layout.t("product-allergens-pending")? }}</p>
 {%- endif %}
+{%- for notice in product.batches %}
+{% call fb::alert("warning", notice.text) %}{% endcall %}
+{% call p::allergen_list(notice.allergens) %}{% endcall %}
+{%- if !notice.ingredients.is_empty() %}
+<p class="product-ingredients"><span class="allergen-heading">{{ layout.t("product-ingredients")? }}</span> {% call p::ingredient_text(notice.ingredients) %}{% endcall %}</p>
+{%- endif %}
+{%- endfor %}
 {%- endfor %}
 </section>
 {% endif %}

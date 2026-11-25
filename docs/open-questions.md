@@ -167,3 +167,7 @@ Questions about the spec. The spec is only changed when the owner asks.
   old batch's variance then moves whenever a price changes. Keep today's prices as the
   standard, or fix a standard date per product (for example when its selling price was
   set)?
+- [ ] **Shop allergens for a drop with a differing batch** (F17, ADR 0046). The shop shows
+  the product's approved allergens. When a batch of that day adds an allergen (for example
+  sesame) and is approved for its labels, the shop does not show it; the pickup list warns.
+  Should the shop block or show the batch's allergens for that drop?

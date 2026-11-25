@@ -464,7 +464,8 @@ async fn approve_stored(
 /// lock (`recipes::rollup::approve_product`).
 ///
 /// # Errors
-/// [`Error::NotFound`], or [`Error::AllergensChanged`] when the revision is out of date.
+/// [`Error::NotFound`], or [`Error::AllergensChanged`] when the revision is out of date or
+/// the product has no recipe.
 pub async fn approve_computed(
     conn: &mut PgConnection,
     id: ProductId,
@@ -478,7 +479,7 @@ pub async fn approve_computed(
     let stored = sqlx::query!(
         "UPDATE product SET allergens = $2, ingredient_text = $3, ingredient_names = $4,
             ingredient_emphasis = $5
-        WHERE id = $1 AND allergens_recipe_rev = $6",
+        WHERE id = $1 AND allergens_recipe_rev = $6 AND recipe_id IS NOT NULL",
         id.get(),
         &allergens_to_db(&computed.allergens),
         computed.ingredients.text(),

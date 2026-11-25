@@ -23,7 +23,7 @@ use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
     require, t, t_with,
 };
-use crate::components::{ApprovedAllergens, Cell, Table};
+use crate::components::{ApprovedAllergens, Cell, ListedIngredient, Table, listed};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
@@ -431,6 +431,49 @@ struct PickupPage<'a> {
 struct ProductAllergens {
     name: String,
     allergens: Option<ApprovedAllergens>,
+    batches: Vec<BatchNotice>,
+}
+
+/// A batch of the day whose own allergen data differs from what the product shows.
+struct BatchNotice {
+    text: String,
+    allergens: Vec<&'static str>,
+    ingredients: Vec<ListedIngredient>,
+}
+
+/// The day's batches of `product` that compute other values than its approved ones.
+async fn batch_notices(
+    state: &AppState,
+    conn: &mut sqlx::PgConnection,
+    batches: &[production::batches::Batch],
+    product: domain::ProductId,
+) -> Step<Vec<BatchNotice>> {
+    let mut notices = Vec::new();
+    for batch in batches
+        .iter()
+        .filter(|b| b.outputs.iter().any(|o| o.product_id == product))
+    {
+        let check = production::label_check::check(conn, batch.id, product)
+            .await
+            .map_err(|e| fail(state, &e))?;
+        if check.computed.is_some() && check.computed == check.product_values {
+            continue;
+        }
+        let code = batch.code.to_string();
+        notices.push(match check.computed {
+            Some(computed) => BatchNotice {
+                text: t_with(state, "pickup-list-batch-differs", &[("code", code)]),
+                allergens: computed.allergens.iter().map(|a| a.code()).collect(),
+                ingredients: listed(&computed.ingredients),
+            },
+            None => BatchNotice {
+                text: t_with(state, "pickup-list-batch-unweighable", &[("code", code)]),
+                allergens: Vec::new(),
+                ingredients: Vec::new(),
+            },
+        });
+    }
+    Ok(notices)
 }
 
 async fn pickup_allergens(state: &AppState, list: &PickupList) -> Step<Vec<ProductAllergens>> {
@@ -449,12 +492,16 @@ async fn pickup_allergens(state: &AppState, list: &PickupList) -> Step<Vec<Produ
     let kitchen = catalog::company::kitchen_may_contain(&mut conn)
         .await
         .map_err(|e| fail(state, &e))?;
+    let batches = production::batches::list(&mut conn, list.day.id)
+        .await
+        .map_err(|e| fail(state, &e))?;
     let mut shown = Vec::with_capacity(ids.len());
     for id in ids {
         let product = catalog::products::get(&mut conn, id)
             .await
             .map_err(|e| fail(state, &e))?;
         shown.push(ProductAllergens {
+            batches: batch_notices(state, &mut conn, &batches, id).await?,
             allergens: ApprovedAllergens::from_catalog(&product, &kitchen),
             name: product.name_nl,
         });

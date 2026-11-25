@@ -31,7 +31,7 @@
 {% else if uncomputable %}
 {% call fb::alert("warning", layout.t("rollup-unweighable")?) %}{% endcall %}
 {% endif %}
-{% if computed_only %}{% call fb::alert("info", layout.t("approve-computed-only")?) %}{% endcall %}{% else %}<p>{{ layout.t("approve-intro")? }}</p>{% endif %}
+{% if computed_only %}{% if !uncomputable %}{% call fb::alert("info", layout.t("approve-computed-only")?) %}{% endcall %}{% endif %}{% else %}<p>{{ layout.t("approve-intro")? }}</p>{% endif %}
 {% if allergens.is_empty() %}<p>{{ layout.t("approve-no-allergens")? }}</p>{% else %}{% call p::allergen_list(allergens) %}{% endcall %}{% endif %}
 <p class="allergen-heading">{{ layout.t("product-ingredient-text")? }}</p>
 {% if let Some(items) = current_list %}<p>{% call p::ingredient_text(items) %}{% endcall %}</p>{% else if ingredient_text.is_empty() %}<p>{{ layout.t("approve-no-ingredients")? }}</p>{% else %}<p>{{ ingredient_text }}</p>{% endif %}

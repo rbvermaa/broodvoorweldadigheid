@@ -53,8 +53,11 @@ the batch does not make the product. Each batch approval writes an audit entry.
 |---|---|
 | A product made from a recipe takes only computed values: `approve_allergens` refuses it (`Error::ComputedOnly`, checked in the same UPDATE as the approval) and the approve page hides the hand form. Products without a recipe keep the hand approval | The hand path could re-approve allergens the recipe no longer computes |
 | The shop tiles and the pickup list show the ingredient list from the stored structure, allergen entries in bold (`components/product.html` `ingredient_text`). Hand-entered text shows as it was typed | Spec compliance: allergens emphasised in the ingredient list. The pickup list shows each product on it once, with the same approved data as the shop |
+| The pickup list also warns per product about each batch of the day whose computed values differ from the product's approved ones, and shows that batch's values | The counter must not hand out bread with an allergen the product declaration lacks |
+| A migration takes away the hand approval of products that have a recipe but no stored list | Otherwise hand-typed data would stay published for them |
 
 Open:
 
 - The pickup list PDF does not show allergens yet.
+- The shop shows the product's approved data, not a day's differing batch (docs/open-questions.md).
 - Whether the order by weight should block or only warn (docs/open-questions.md).
