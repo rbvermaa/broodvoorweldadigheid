@@ -271,6 +271,7 @@ mod tests {
                 by: StaffUserId::new(1),
                 at: "2026-10-01T10:00:00Z".parse().unwrap(),
             }),
+            approval_cleared: None,
             packaged: false,
             sold_online: true,
             estimated_cost: None,

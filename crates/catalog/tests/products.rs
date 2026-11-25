@@ -3,7 +3,10 @@
 use std::collections::BTreeSet;
 
 use catalog::company::KitchenMayContain;
-use catalog::{AllergenInfo, Approval, Error, Pricing, ProductInput, PublishedAllergens, products};
+use catalog::{
+    AllergenInfo, Approval, ApprovalCleared, Error, Pricing, ProductInput, PublishedAllergens,
+    products,
+};
 use domain::{Allergen, InvalidPriceRange, Money, ProductId, StaffUserId, VatRate};
 use jiff::{SignedDuration, Timestamp};
 use sqlx::pool::PoolConnection;
@@ -630,4 +633,28 @@ async fn product_approval_ignores_the_unused_may_contain_column(
         ["milk"],
         "the catalogue no longer writes the column"
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_recipe_change_says_why_until_the_next_approval(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-11-24T10:00:00Z"));
+    let id = approved(&mut conn, &clock).await;
+    sqlx::query(
+        "WITH r AS (INSERT INTO recipe (name, kind) VALUES ('Wit', 'dough') RETURNING id)
+        UPDATE product SET recipe_id = (SELECT id FROM r) WHERE id = $1",
+    )
+    .bind(id.get())
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let cleared = products::get(&mut conn, id).await.unwrap();
+    assert_eq!(cleared.approval, None);
+    assert_eq!(cleared.approval_cleared, Some(ApprovalCleared::Recipe));
+
+    let again = products::approve_allergens(&mut conn, id, &cleared.allergen_info, BAKER, &clock)
+        .await
+        .unwrap();
+    assert!(again.approval.is_some());
+    assert_eq!(again.approval_cleared, None);
+    assert_eq!(products::get(&mut conn, id).await.unwrap(), again);
 }

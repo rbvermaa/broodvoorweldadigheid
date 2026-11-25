@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT NOT EXISTS (\n            (SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000\n                FROM recipe_line WHERE recipe_version_id = $1\n            EXCEPT ALL\n            SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[]))\n            UNION ALL\n            (SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[])\n            EXCEPT ALL\n            SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000\n                FROM recipe_line WHERE recipe_version_id = $1)\n        ) AS \"unchanged!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unchanged!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4Array",
+        "Int8Array",
+        "Int8Array",
+        "Int4Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0f79d478e11bbf17fbeb298b0ced76cd5a24af49dfcdd242809b9775e92490cc"
+}

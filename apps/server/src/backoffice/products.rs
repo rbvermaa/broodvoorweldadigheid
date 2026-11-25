@@ -304,7 +304,12 @@ fn product_path(id: ProductId) -> String {
 }
 
 async fn approval_view(state: &AppState, product: &Product) -> Step<ApprovalView> {
-    approval_text(state, product.approval, "product-not-approved").await
+    let missing = match product.approval_cleared {
+        None => "product-not-approved",
+        Some(catalog::ApprovalCleared::Recipe) => "product-approval-cleared-recipe",
+        Some(catalog::ApprovalCleared::Ingredient) => "product-approval-cleared-ingredient",
+    };
+    approval_text(state, product.approval, missing).await
 }
 
 /// Who approved and when, or `missing` when nobody has.

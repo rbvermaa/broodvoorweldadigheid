@@ -636,6 +636,31 @@ async fn replace_lines(
     if own {
         return Err(Error::Nesting);
     }
+    // Rewriting the same lines would clear the allergen approval of the products that
+    // use this version (database trigger, ADR 0037).
+    let unchanged = sqlx::query_scalar!(
+        r#"SELECT NOT EXISTS (
+            (SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000
+                FROM recipe_line WHERE recipe_version_id = $1
+            EXCEPT ALL
+            SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[]))
+            UNION ALL
+            (SELECT * FROM unnest($2::int[], $3::bigint[], $4::bigint[], $5::int[])
+            EXCEPT ALL
+            SELECT position, ingredient_id, sub_recipe_version_id, bakers_pct_x1000
+                FROM recipe_line WHERE recipe_version_id = $1)
+        ) AS "unchanged!""#,
+        id.get(),
+        &positions,
+        &ingredients as &[Option<i64>],
+        &subs as &[Option<i64>],
+        &pcts,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if unchanged {
+        return Ok(());
+    }
     sqlx::query!(
         "DELETE FROM recipe_line WHERE recipe_version_id = $1",
         id.get()

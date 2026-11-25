@@ -615,6 +615,69 @@ async fn nothing_can_be_ordered_while_the_kitchen_list_is_unapproved(pool: PgPoo
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_recipe_change_blocks_checkout_until_the_baker_approves_again(pool: PgPool) {
+    let shop = shop(pool);
+    let mut conn = shop.pool.acquire().await.unwrap();
+    let drop = open_drop(&mut conn, &shop.clock, &saturday(None, true)).await;
+    let bread = product(&mut conn, &BREAD).await;
+    on_range(&mut conn, drop.day, bread, None).await;
+    let (recipe, v1) = recipes::recipes::create(
+        &mut conn,
+        &recipes::RecipeInput {
+            name: "Desem".to_owned(),
+            kind: recipes::RecipeKind::Dough,
+        },
+    )
+    .await
+    .unwrap();
+    recipes::recipes::link_product(&mut conn, recipe.id, bread)
+        .await
+        .unwrap();
+    let approve = async |conn: &mut PgConnection| {
+        let current = catalog::products::get(conn, bread).await.unwrap();
+        let baker = sqlx::query_scalar("SELECT id FROM staff_user LIMIT 1")
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap();
+        catalog::products::approve_allergens(
+            conn,
+            bread,
+            &current.allergen_info,
+            domain::StaffUserId::new(baker),
+            &*shop.clock,
+        )
+        .await
+        .unwrap();
+    };
+    approve(&mut conn).await;
+    let (browser, _) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    browser.add(drop.day, bread, "1", None).await;
+
+    recipes::recipes::freeze(&mut conn, recipe.id, v1.id, &*shop.clock)
+        .await
+        .unwrap();
+    let v2 = recipes::recipes::new_version(&mut conn, recipe.id)
+        .await
+        .unwrap();
+    recipes::recipes::set_current(&mut conn, recipe.id, v2.id)
+        .await
+        .unwrap();
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        reply.body.contains(&dutch("checkout-error-unavailable")),
+        "{}",
+        reply.body
+    );
+    assert!(shop.mollie.created().is_empty());
+
+    approve(&mut conn).await;
+    let reply = browser.checkout(drop.day, &drop.slot).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    assert_eq!(shop.mollie.created().len(), 1);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
 async fn cart_and_checkout_need_the_csrf_token_but_the_webhook_does_not(pool: PgPool) {
     let shop = shop(pool);
     let mut conn = shop.pool.acquire().await.unwrap();
