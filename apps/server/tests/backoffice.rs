@@ -1,6 +1,6 @@
 //! The back office screens: products and allergen approval (F10), pickup locations
 //! (F4a), charities (F4g), bake days (F1, F3, F4c), extra production (F7a), and the
-//! production (F7) and pickup (F8) lists.
+//! production (F7) and pickup (F8) lists, and the ingredient needs (F15).
 #![forbid(unsafe_code)]
 
 mod support;
@@ -2749,6 +2749,162 @@ async fn the_production_list_adds_extras_to_orders_on_screen_and_as_pdf(pool: Pg
         baker.get("/staff/bake-days/999999/production").await.status,
         StatusCode::NOT_FOUND
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn ingredient_needs_show_as_a_shopping_list_with_pdf_and_csv(pool: PgPool) {
+    use recipes::{
+        DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, Pct, RecipeInput,
+        RecipeKind, ingredients, recipes as store,
+    };
+
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let bread = paid.order.lines[0].product_id;
+    let mut conn = pool.acquire().await.expect("conn");
+    let granola = products::create(
+        &mut conn,
+        &ProductInput {
+            name_nl: "Granola".to_owned(),
+            ..sourdough()
+        },
+    )
+    .await
+    .expect("product")
+    .id;
+    for (product, qty) in [(bread, 3), (granola, 4)] {
+        extras::add(
+            &mut conn,
+            paid.day,
+            product,
+            &ExtraInput {
+                qty,
+                purpose: Purpose::Freezer,
+                note: None,
+            },
+            &bakedays::NoOrders,
+        )
+        .await
+        .expect("extra");
+    }
+    let mut ingredient = async |name: &str, role| {
+        ingredients::create(
+            &mut conn,
+            &IngredientInput {
+                name: name.to_owned(),
+                label_name: String::new(),
+                role,
+                supplier_name: String::new(),
+                allergens: std::collections::BTreeSet::new(),
+            },
+        )
+        .await
+        .expect("ingredient")
+        .id
+    };
+    let flour = ingredient("Tarwebloem", IngredientRole::Flour).await;
+    let water = ingredient("Water", IngredientRole::Water).await;
+    let (recipe, version) = store::create(
+        &mut conn,
+        &RecipeInput {
+            name: "Wit".to_owned(),
+            kind: RecipeKind::Dough,
+        },
+    )
+    .await
+    .expect("recipe");
+    store::save_draft(
+        &mut conn,
+        version.id,
+        &DraftInput {
+            lines: vec![
+                LineInput {
+                    pct: Pct::from_thousandths(100_000),
+                    part: LinePart::Ingredient(flour),
+                },
+                LineInput {
+                    pct: Pct::from_thousandths(80_000),
+                    part: LinePart::Ingredient(water),
+                },
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("lines");
+    store::link_product(&mut conn, recipe.id, bread)
+        .await
+        .expect("link");
+    drop(conn);
+
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let day = format!("/staff/bake-days/{}", paid.day.get());
+    let path = format!("{day}/ingredients");
+    // 2 ordered + 3 extra × 900 g = 4500 g at 180%.
+    let page = baker.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK, "{}", page.text);
+    page.shows(&dutch("needs-title"));
+    page.shows("<td>Tarwebloem</td><td class=\"table-number\">2,500 kg</td>");
+    page.shows("<td>Water</td><td class=\"table-number\">2,000 kg</td>");
+    page.shows("4,500 kg");
+    page.shows(&dutch_with(
+        "needs-dough-name",
+        &[("recipe", "Wit"), ("version", "1")],
+    ));
+    page.shows(&dutch("needs-missing"));
+    page.shows("<td>Granola</td><td class=\"table-number\">4</td>");
+    page.shows(&dutch("needs-reason-no-recipe"));
+    page.shows(&format!("href=\"{path}/pdf\""));
+    page.shows(&format!("href=\"{path}/csv\""));
+    page.shows(&format!("href=\"{day}/production\""));
+
+    let pdf = baker.get(&format!("{path}/pdf")).await;
+    assert_eq!(pdf.status, StatusCode::OK);
+    assert_eq!(pdf.header("content-type"), "application/pdf");
+    assert_eq!(
+        pdf.header("content-disposition"),
+        "inline; filename=\"boodschappenlijst-2026-12-05.pdf\""
+    );
+    assert!(pdf.text.starts_with("%PDF-"));
+
+    let csv = baker.get(&format!("{path}/csv")).await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert_eq!(csv.header("content-type"), "text/csv; charset=utf-8");
+    assert_eq!(
+        csv.header("content-disposition"),
+        "attachment; filename=\"boodschappenlijst-2026-12-05.csv\""
+    );
+    assert!(
+        csv.text.contains("Tarwebloem;2500\r\nWater;2000\r\n"),
+        "{}",
+        csv.text
+    );
+    assert!(csv.text.contains("Granola, 4 stuks"), "{}", csv.text);
+
+    baker.get(&day).await.shows(&format!("href=\"{path}\""));
+    baker
+        .get(&format!("{day}/production"))
+        .await
+        .shows(&format!("href=\"{path}\""));
+
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+    for url in [path.clone(), format!("{path}/pdf"), format!("{path}/csv")] {
+        assert_eq!(
+            counter.get(&url).await.status,
+            StatusCode::FORBIDDEN,
+            "{url}"
+        );
+    }
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    assert_eq!(owner.get(&path).await.status, StatusCode::OK);
+    for url in [
+        "/staff/bake-days/999999/ingredients",
+        "/staff/bake-days/999999/ingredients/pdf",
+        "/staff/bake-days/999999/ingredients/csv",
+    ] {
+        assert_eq!(baker.get(url).await.status, StatusCode::NOT_FOUND, "{url}");
+    }
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]

@@ -197,6 +197,15 @@ pub fn routes() -> Router<AppState> {
             "/staff/bake-days/{id}/production/pdf",
             get(lists::production_pdf),
         )
+        .route("/staff/bake-days/{id}/ingredients", get(lists::needs_page))
+        .route(
+            "/staff/bake-days/{id}/ingredients/pdf",
+            get(lists::needs_pdf),
+        )
+        .route(
+            "/staff/bake-days/{id}/ingredients/csv",
+            get(lists::needs_csv),
+        )
         .route("/staff/bake-days/{id}/pickup-list", get(lists::pickup_page))
         .route(
             "/staff/bake-days/{id}/pickup-list/pdf",

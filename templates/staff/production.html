@@ -6,6 +6,7 @@
 <h1>{{ heading }}</h1>
 <p><a href="{{ back }}">{{ layout.t("lists-back-day")? }}</a></p>
 <p><a href="{{ pdf }}">{{ layout.t("lists-pdf")? }}</a></p>
+<p><a href="{{ needs }}">{{ layout.t("needs-title")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("production-title")?, layout.t("production-empty")?) %}{% endcall %}
 {% else %}
