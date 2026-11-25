@@ -31,7 +31,8 @@ If this file and the spec disagree, stop and ask.
   flow in the spec. When in doubt, block and ask.
 - **Charities get the full amount paid** minus refunds; see the donation rules in the spec.
 - **Crate layers** follow "Cargo workspace layout" in the spec. Lower layers never depend
-  on higher ones. Only `apps/server` knows HTTP.
+  on higher ones. Only `apps/server` knows HTTP; the test-only `e2e` crate is the one
+  exception (browser tests and the fake Mollie, ADR 0033), and nothing may depend on it.
 - `#![forbid(unsafe_code)]` in every crate we write.
 - **No real customer data** in tests, fixtures, logs or prompts.
 

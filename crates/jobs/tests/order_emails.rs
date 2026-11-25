@@ -9,7 +9,10 @@ use i18n::Translator;
 use jiff::Timestamp;
 use jiff::civil::time;
 use jobs::OrderEmails;
-use jobs::order_emails::{enqueue_cancellation, enqueue_due_reminders, reminder_due, reminder_key};
+use jobs::order_emails::{
+    confirmation_key, enqueue_cancellation, enqueue_due_reminders, enqueue_on_account_confirmation,
+    reminder_due, reminder_key,
+};
 use orders::{Cart, CustomerInput, OrderedBy, PaidOutcome, PaymentReceived};
 use sqlx::{PgConnection, PgPool};
 use testkit::FakeClock;
@@ -328,4 +331,83 @@ async fn no_reminder_when_the_drop_is_cancelled_after_payment(pool: PgPool) {
             .is_empty()
     );
     assert!(outbox(&pool).await.is_empty());
+}
+
+async fn on_account(conn: &mut PgConnection, shop: &Shop, invoice_email: &str) -> OrderId {
+    let staff: i64 = sqlx::query_scalar(
+        "WITH c AS (INSERT INTO customer (email, name, created_at)
+            VALUES ('inkoop@dehoek.example', 'Inkoop', '2026-10-01T10:00:00Z') RETURNING id),
+        a AS (INSERT INTO business_account (customer_id, company_name, kvk, invoice_address,
+            invoice_email, on_account_allowed)
+            SELECT id, 'Café De Hoek', '12345678', 'Dorpsstraat 1', $1, true FROM c)
+        SELECT id FROM staff_user WHERE oidc_sub = 'test-baker'",
+    )
+    .bind(invoice_email)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    orders::checkout_on_account(
+        conn,
+        &shop.clock,
+        &shop.cart,
+        &CustomerInput {
+            email: "inkoop@dehoek.example".to_owned(),
+            name: "Café De Hoek".to_owned(),
+            phone: None,
+            marketing_opt_in: false,
+        },
+        shop.slot,
+        domain::StaffUserId::new(staff),
+    )
+    .await
+    .unwrap()
+    .id
+}
+
+async fn cc(pool: &PgPool) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT cc_address FROM email_outbox ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_order_on_account_is_confirmed_to_the_contact_with_a_copy_to_invoicing(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = shop(&mut conn).await;
+    let order = on_account(&mut conn, &shop, "factuur@dehoek.example").await;
+    let first = enqueue_on_account_confirmation(&mut conn, &shop.clock, &emails(), order)
+        .await
+        .unwrap();
+    let again = enqueue_on_account_confirmation(&mut conn, &shop.clock, &emails(), order)
+        .await
+        .unwrap();
+    assert!(first.is_some());
+    assert_eq!(again, None, "one confirmation per order");
+    let queued = outbox(&pool).await;
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].kind, "order_confirmation");
+    assert_eq!(queued[0].to_address, "inkoop@dehoek.example");
+    assert_eq!(
+        queued[0].dedupe_key.as_deref(),
+        Some(confirmation_key(order).as_str())
+    );
+    assert!(
+        queued[0].text_body.contains("op rekening"),
+        "{}",
+        queued[0].text_body
+    );
+    assert!(queued[0].text_body.contains("2 × Desem"));
+    assert_eq!(cc(&pool).await, [Some("factuur@dehoek.example".to_owned())]);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn no_copy_when_the_invoice_address_is_the_contact(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let shop = shop(&mut conn).await;
+    let order = on_account(&mut conn, &shop, "inkoop@dehoek.example").await;
+    enqueue_on_account_confirmation(&mut conn, &shop.clock, &emails(), order)
+        .await
+        .unwrap();
+    assert_eq!(cc(&pool).await, [None]);
 }

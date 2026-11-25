@@ -20,13 +20,18 @@ const LAYERS: &[(&str, u8)] = &[
     ("server", APP_LAYER),
     ("pos", APP_LAYER),
     ("cli", APP_LAYER),
+    ("e2e", E2E_LAYER),
 ];
 /// The top library layer of the spec. testkit stays below it.
 const TOP_LAYER: u8 = 6;
 /// The apps sit above every library crate and may use all of them (ADR 0020).
 const APP_LAYER: u8 = 7;
+/// The browser tests drive the running apps from above; nothing may depend on them.
+const E2E_LAYER: u8 = 8;
 const TESTKIT: &str = "testkit";
 const EXCLUDED: &[&str] = &["xtask"];
+/// e2e runs a mock Mollie on axum.
+const HTTP_ALLOWED: &[&str] = &["server", "e2e"];
 const HTTP_CRATES: &[&str] = &[
     "actix-web",
     "axum",
@@ -130,9 +135,9 @@ pub fn check(crates: &[Crate]) -> Vec<String> {
         for dep in &krate.deps {
             if dep.workspace {
                 check_workspace_dep(name, dep, &mut violations);
-            } else if name != "server" && HTTP_CRATES.contains(&dep.name.as_str()) {
+            } else if !HTTP_ALLOWED.contains(&name) && HTTP_CRATES.contains(&dep.name.as_str()) {
                 violations.push(format!(
-                    "{} has {} {}; only server may depend on HTTP crates",
+                    "{} has {} {}; only server and e2e may depend on HTTP crates",
                     label(name),
                     kind_name(dep.kind),
                     dep.name
@@ -380,6 +385,34 @@ mod tests {
         let violations = check(&crates);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].contains("axum-core"), "{violations:?}");
+    }
+
+    #[test]
+    fn e2e_may_use_the_apps_and_http_crates() {
+        let mut crates = clean_workspace();
+        crates.push(krate(
+            "e2e",
+            vec![
+                ext("axum"),
+                ws("server", DepKind::Normal),
+                ws("orders", DepKind::Normal),
+                ws("testkit", DepKind::Dev),
+            ],
+        ));
+        assert_eq!(check(&crates), Vec::<String>::new());
+    }
+
+    #[test]
+    fn nothing_may_depend_on_e2e() {
+        for user in ["server", "testkit"] {
+            let mut crates = clean_workspace();
+            crates.push(krate("e2e", vec![]));
+            let krate = crates.iter_mut().find(|k| k.name == user).unwrap();
+            krate.deps.push(ws("e2e", DepKind::Dev));
+            let violations = check(&crates);
+            assert_eq!(violations.len(), 1, "{user}: {violations:?}");
+            assert!(violations[0].contains("e2e (layer 8)"), "{violations:?}");
+        }
     }
 
     #[test]

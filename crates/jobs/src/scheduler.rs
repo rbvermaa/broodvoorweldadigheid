@@ -308,6 +308,7 @@ pub async fn handle_tick(
             login_links = cleaned.login_links,
             logins = cleaned.logins,
             emails = cleaned.emails,
+            old_emails = cleaned.old_emails,
             "cleanup"
         );
     }
@@ -390,6 +391,7 @@ mod tests {
                 html: "<p>Hoi Sanne,</p>".to_owned(),
                 list_unsubscribe: None,
                 reply_to: None,
+                cc: None,
             },
         };
         let sender = Deadline {

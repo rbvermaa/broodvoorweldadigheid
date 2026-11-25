@@ -6,9 +6,9 @@ use jiff::Timestamp;
 use jiff::civil::{Date, date};
 use notify::{
     Company, ComposeError, Composer, ContactMessage, Donation, DonationMoved, DropAlert,
-    DropAlertKind, Email, EmailKind, Item, LoginLink, OrderCancelled, OrderConfirmation, OrderLine,
-    OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient, SendError, SickDayCancelled,
-    SubscriptionConfirmation,
+    DropAlertKind, Email, EmailKind, Item, LoginLink, OnAccountConfirmation, OrderCancelled,
+    OrderConfirmation, OrderLine, OutgoingEmail, Pickup, PickupMoved, PickupReminder, Recipient,
+    SendError, SickDayCancelled, SubscriptionConfirmation,
 };
 
 const NBSP: char = '\u{a0}';
@@ -160,6 +160,75 @@ fn order_confirmation_with_a_saved_donation_links_to_the_choice() {
             .contains("href=\"https://broodvoorweldadigheid.nl/donatie/kies/abc123\"")
     );
     snapshot("order-confirmation-saved", &email);
+}
+
+fn on_account() -> OnAccountConfirmation {
+    OnAccountConfirmation {
+        to: Recipient {
+            email: "inkoop@dehoek.example".to_owned(),
+            name: Some("Café De Hoek".to_owned()),
+        },
+        cc: Some("factuur@dehoek.example".to_owned()),
+        order_number: "2026-0043".to_owned(),
+        drop_date: DROP,
+        pickup: pickup(),
+        lines: lines()
+            .into_iter()
+            .map(|line| OrderLine {
+                pay_what_you_want: false,
+                ..line
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn order_on_account_confirmation_asks_no_payment_and_copies_the_invoice_address() {
+    let email = compose(|c| c.order_on_account(&on_account()));
+    assert_eq!(email.kind, EmailKind::OrderConfirmation);
+    assert_eq!(email.to, "inkoop@dehoek.example");
+    assert_eq!(email.cc.as_deref(), Some("factuur@dehoek.example"));
+    for part in [&email.text, &email.html] {
+        assert!(part.contains("op rekening"), "{part}");
+        assert!(!part.contains("/bestelling/"), "no status page: {part}");
+    }
+    insta::assert_snapshot!(
+        "order-on-account-text",
+        format!(
+            "To: {}\nCc: {}\nSubject: {}\n\n{}",
+            email.to,
+            email.cc.as_deref().unwrap_or_default(),
+            email.subject,
+            email.text
+        )
+    );
+    insta::assert_snapshot!("order-on-account-html", email.html);
+
+    let raw = mime(email);
+    assert!(raw.contains("To: inkoop@dehoek.example\r\n"), "{raw}");
+    assert!(raw.contains("Cc: factuur@dehoek.example\r\n"), "{raw}");
+
+    let mut alone = on_account();
+    alone.cc = None;
+    let email = compose(|c| c.order_on_account(&alone));
+    assert_eq!(email.cc, None);
+    assert!(!mime(email).contains("Cc:"));
+
+    let i18n = i18n();
+    let company = company();
+    let composer = Composer::new(&i18n, &company);
+    let mut bad = on_account();
+    bad.cc = Some("factuur@dehoek.example\r\nBcc: x@y.example".to_owned());
+    assert!(matches!(
+        composer.order_on_account(&bad),
+        Err(ComposeError::Address)
+    ));
+    let mut empty = on_account();
+    empty.lines.clear();
+    assert!(matches!(
+        composer.order_on_account(&empty),
+        Err(ComposeError::NoLines)
+    ));
 }
 
 #[test]

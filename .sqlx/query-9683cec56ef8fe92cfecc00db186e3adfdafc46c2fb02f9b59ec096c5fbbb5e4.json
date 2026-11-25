@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_outbox WHERE lower(to_address) = lower($1) OR lower(reply_to) = lower($1)\n            OR lower(cc_address) = lower($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9683cec56ef8fe92cfecc00db186e3adfdafc46c2fb02f9b59ec096c5fbbb5e4"
+}

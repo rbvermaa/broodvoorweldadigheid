@@ -19,14 +19,14 @@ F12 and the GDPR (AVG) row of the spec's Compliance table. Logic in `orders::pri
 | Refused, with a message, while an order still waits for payment or pickup (pending, or paid or confirmed with its pickup window not yet over), and for business customers | The counter needs the name at pickup. A business customer's details are on hand-made invoices (F11a), and invoiced orders cannot change |
 | The drop-alert checkbox writes `customer.marketing_consent` and signs the address up as confirmed, or takes it off like an unsubscribe link. No confirmation email | Drop alerts are the only marketing mail, so the subscription is the consent; the export reports it from there, because an unsubscribe link or a sign-up on `/meldingen` does not touch `customer.marketing_consent`. The customer proved the address by signing in with a link sent to it |
 | `jobs::cleanup` runs every tick: expired login links (used or not), logins past their idle or absolute timeout, and finished account-deleted emails. `jobs` now depends on `auth` | The follow-up of ADR 0029. Links count against the rate limit only within 15 minutes and live 30, so deleting expired ones never lifts the limit |
+| Outbox retention (owner, 2026-11-25): the cleanup also deletes every email, body and addresses included, 90 days (`notify::outbox::RETENTION`) after it was sent or failed for good. A new `failed_at` column records the failure; rows that failed before it existed count from their last attempt. Pending emails stay, however old. Login links and other secret-carrying emails are still blanked once sent, and account-deleted emails still go as soon as they are finished | Long enough for questions about an order or a payout; nothing that identifies a customer stays in the outbox longer |
+| Erasing also deletes outbox emails that were copied (Cc) to the address | A business invoice email can be a person's own address |
 | The owner searches by email with a POST | The address never lands in a URL, a browser history or an access log. Handlers log no address or name |
 
 Follow-ups:
 
 - Erased orders show `-` as the name in the back office. A label like "verwijderd" would
   need a Fluent text in every list that shows names.
-- Sent emails to other customers (with names in the greeting) stay in `email_outbox` until
-  its retention question is answered (open questions).
 - Unconfirmed subscribers and old unsubscribe tokens (ADR 0021) are not cleaned up yet.
 - The processing register and the processor agreements (spec, Compliance) are paperwork
   outside the system.
