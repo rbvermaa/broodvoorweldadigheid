@@ -18,7 +18,6 @@
 {% call fb::alert("info", status) %}{% endcall %}
 <div class="recipe-side-actions">
 {%- if !frozen %}
-<a class="button button-primary" href="{{ edit }}">{{ layout.t("recipe-edit")? }}</a>
 {% call b::button(layout.t("recipe-freeze")?, variant = "secondary", opens = "vastzetten") %}{% endcall %}
 {%- else %}
 <form method="post" action="{{ new_version }}">

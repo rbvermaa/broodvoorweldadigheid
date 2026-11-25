@@ -9,7 +9,7 @@ use sqlx::{Acquire, PgConnection};
 
 use crate::error::unique;
 use crate::formula::{Formula, IngredientRef, Line, Part, Pct, RecipeKind, SubRecipe};
-use crate::{Error, MAX_NESTING};
+use crate::{Error, Ingredient, IngredientInput, MAX_NESTING};
 
 /// The highest lead time a version may record, in hours.
 pub const MAX_LEAD_TIME_HOURS: i32 = 168;
@@ -713,6 +713,30 @@ pub async fn edit_line(
     let saved = version(&mut tx, recipe_id, id).await?;
     tx.commit().await?;
     Ok(saved)
+}
+
+/// Creates an ingredient and adds it as the last line of a draft at `pct`, in one
+/// transaction. The graph lock comes first, in the same order as an ingredient update.
+///
+/// # Errors
+/// As for [`crate::ingredients::create`] and [`edit_line`]; nothing is created on an error.
+pub async fn add_new_ingredient(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    seen: &str,
+    input: &IngredientInput,
+    pct: Pct,
+) -> Result<Ingredient, Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    let created = crate::ingredients::create(&mut tx, input).await?;
+    let line = LineInput {
+        pct,
+        part: LinePart::Ingredient(created.id),
+    };
+    edit_line(&mut tx, id, seen, &LineEdit::Add(line)).await?;
+    tx.commit().await?;
+    Ok(created)
 }
 
 /// Saves the lead time and notes of a draft; its lines stay as they are.

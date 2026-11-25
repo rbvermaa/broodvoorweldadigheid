@@ -56,6 +56,9 @@
 <button type="submit" class="button button-secondary recipe-scale-submit"><span class="button-label">{{ layout.t("recipe-calculate")? }}</span></button>
 </form>
 <div id="receptuur-regels">
+{%- if !e.switch_href.is_empty() %}
+<p class="recipe-switch"><a class="button button-primary" href="{{ e.switch_href }}">{{ e.switch_label }}</a></p>
+{%- endif %}
 <div class="recipe-status" role="status">{% if e.saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
 {%- if let Some(notice) = e.notice %}
 {% call fb::alert(notice.kind, notice.text) %}{% endcall %}
@@ -109,7 +112,7 @@
 {%- endfor %}
 {%- endif %}
 {%- if e.add.is_some() %}
-<input type="hidden" name="gewicht" value="{{ e.grams }}" form="regel-nieuw"><input type="hidden" name="seen" value="{{ e.stamp }}" form="regel-nieuw">
+<input type="hidden" name="gewicht" value="{{ e.grams }}" form="regel-nieuw"><input type="hidden" name="seen" value="{{ e.stamp }}" form="regel-nieuw"><input type="hidden" name="gewicht" value="{{ e.grams }}" form="gegevens">
 {%- endif %}
 </div>
 {%- if let Some(add) = e.add %}

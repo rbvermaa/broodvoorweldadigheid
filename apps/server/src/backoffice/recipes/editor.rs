@@ -19,7 +19,6 @@ use recipes::{
     Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum, ingredients,
     leaf_grams, pct_for_grams,
 };
-use sqlx::Acquire;
 use tower_sessions::Session;
 
 use super::super::form::{Fields, parse_pct, pct_value};
@@ -205,6 +204,9 @@ pub struct AddRow {
 pub struct Editor {
     pub editable: bool,
     pub page: String,
+    /// A link to the other mode at the same scale; empty for none.
+    pub switch_href: String,
+    pub switch_label: String,
     pub caption: String,
     pub rows: Vec<Row>,
     pub footer: Option<Footer>,
@@ -466,6 +468,8 @@ fn footer(state: &AppState, formula: &Formula, grams: u64) -> Option<Footer> {
 struct EditorInput<'a> {
     scale: &'a Scale,
     page: String,
+    /// The other mode of the page (its path without query) and the link text.
+    switch: Option<(String, String)>,
     notice: Option<Message>,
     saved: bool,
     add: Option<AddRow>,
@@ -475,19 +479,34 @@ fn editor(state: &AppState, loaded: &Loaded, input: EditorInput<'_>) -> Editor {
     let EditorInput {
         scale,
         page,
+        switch,
         mut notice,
         saved,
         add,
     } = input;
+    let scale_error = [&scale.weight_error, &scale.pieces_error]
+        .into_iter()
+        .find(|e| !e.is_empty());
+    if let (None, Some(error)) = (&notice, scale_error) {
+        notice = Some(Message {
+            kind: "error",
+            text: error.clone(),
+        });
+    }
     if loaded.formula.lines.is_empty() && notice.is_none() {
         notice = Some(Message {
             kind: "info",
             text: t(state, "recipe-no-lines"),
         });
     }
+    let (switch_href, switch_label) = switch
+        .map(|(path, label)| (format!("{path}?{}", scale.query()), label))
+        .unwrap_or_default();
     Editor {
         editable: add.is_some(),
         page,
+        switch_href,
+        switch_label,
         caption: t_with(
             state,
             "recipe-lines-caption",
@@ -674,7 +693,6 @@ struct VersionPage<'a> {
     saved: bool,
     frozen: bool,
     status: String,
-    edit: String,
     freeze: String,
     current: Option<String>,
     new_version: String,
@@ -744,6 +762,8 @@ pub async fn version_page(
             EditorInput {
                 scale: &scale,
                 page: path.clone(),
+                switch: (!version.is_frozen())
+                    .then(|| (format!("{path}/edit"), t(&state, "recipe-edit"))),
                 notice: None,
                 saved: false,
                 add: None,
@@ -766,7 +786,6 @@ pub async fn version_page(
                 saved: fields.checked("opgeslagen"),
                 frozen: version.is_frozen(),
                 status,
-                edit: format!("{path}/edit?{}", scale.query()),
                 freeze: format!("{path}/freeze"),
                 current: (recipe.current_version_id != Some(version.id))
                     .then(|| format!("{path}/current")),
@@ -785,7 +804,6 @@ pub async fn version_page(
 struct EditPage<'a> {
     layout: Layout<'a>,
     heading: String,
-    back: String,
     saved: bool,
     editor: Editor,
     details_action: String,
@@ -863,6 +881,7 @@ async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outc
         EditorInput {
             scale: &view.scale,
             page: format!("{path}/edit"),
+            switch: Some((path.clone(), t(state, "recipe-done"))),
             notice: view.notice,
             saved: view.line_saved,
             add,
@@ -881,7 +900,6 @@ async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditView) -> Outc
                     ("n", loaded.version.version.to_string()),
                 ],
             ),
-            back: format!("{path}?{}", view.scale.query()),
             saved: view.details_saved,
             editor,
             details_action: format!("{path}/edit"),
@@ -983,7 +1001,8 @@ pub async fn save_details(
         let error = match result {
             Ok(_) => {
                 let path = version_path(loaded.recipe.id, loaded.version.id);
-                return Ok(saved(&headers, &format!("{path}/edit")));
+                let scale = Scale::read(&state, &fields, &loaded.products);
+                return Ok(saved(&headers, &format!("{path}/edit?{}", scale.query())));
             }
             Err(error) => error,
         };
@@ -1151,7 +1170,7 @@ impl Request<'_> {
     }
 }
 
-/// Makes the edit, creating the new ingredient first in the same transaction.
+/// Makes the edit; a new ingredient is created and added in one transaction.
 async fn apply(
     state: &AppState,
     version: RecipeVersionId,
@@ -1160,22 +1179,21 @@ async fn apply(
     new: Option<IngredientInput>,
 ) -> Step<Result<LineEdit, recipes::Error>> {
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
-    let mut tx = conn.begin().await.map_err(|e| fail(state, &e))?;
-    let edit = match (edit, new) {
-        (LineEdit::Add(line), Some(input)) => match ingredients::create(&mut tx, &input).await {
-            Ok(created) => LineEdit::Add(LineInput {
-                part: LinePart::Ingredient(created.id),
-                ..line
-            }),
-            Err(error) => return Ok(Err(error)),
-        },
-        (edit, _) => edit,
-    };
-    if let Err(error) = store::edit_line(&mut tx, version, seen, &edit).await {
-        return Ok(Err(error));
-    }
-    tx.commit().await.map_err(|e| fail(state, &e))?;
-    Ok(Ok(edit))
+    Ok(match (edit, new) {
+        (LineEdit::Add(line), Some(input)) => {
+            store::add_new_ingredient(&mut conn, version, seen, &input, line.pct)
+                .await
+                .map(|created| {
+                    LineEdit::Add(LineInput {
+                        part: LinePart::Ingredient(created.id),
+                        ..line
+                    })
+                })
+        }
+        (edit, _) => store::edit_line(&mut conn, version, seen, &edit)
+            .await
+            .map(|_| edit),
+    })
 }
 
 /// The scale after the edit: the same grams per percent, and the open sub-recipe lines
@@ -1284,7 +1302,12 @@ async fn change_line(
                     staff: &staff,
                     status: refused_status(&headers, Some(&error)),
                 };
-                return render_edit(&reply, &loaded, EditView::refused(scale, text, add)).await;
+                let current = if matches!(error, recipes::Error::Stale) {
+                    load(&state, &id, &version).await?
+                } else {
+                    loaded
+                };
+                return render_edit(&reply, &current, EditView::refused(scale, text, add)).await;
             }
         };
         let after = scale_after(&loaded.formula, &scale, &edit);

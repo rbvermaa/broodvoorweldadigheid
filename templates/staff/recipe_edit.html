@@ -6,7 +6,6 @@
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
 <h1>{{ heading }}</h1>
-<p><a href="{{ back }}">{{ layout.t("recipe-done")? }}</a></p>
 {% call s::status(saved) %}{% endcall %}
 <div class="recipe-page">
 <div class="recipe-main">
@@ -15,9 +14,8 @@
 </div>
 <div class="recipe-side">
 <h2>{{ layout.t("recipe-details")? }}</h2>
-<form method="post" action="{{ details_action }}">
+<form id="gegevens" method="post" action="{{ details_action }}">
 {% call s::csrf() %}{% endcall %}
-<input type="hidden" name="gewicht" value="{{ editor.grams }}">
 {% call f::field("number", "lead_time", layout.t("recipe-lead-time")?, value = lead_time, hint = layout.t("recipe-lead-time-hint")?, error = lead_time_error) %}{% endcall %}
 {% call f::field("textarea", "notes", layout.t("recipe-notes")?, value = notes) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}

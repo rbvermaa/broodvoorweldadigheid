@@ -1073,3 +1073,29 @@ async fn an_edit_from_an_out_of_date_page_is_refused(mut conn: PoolConnection<Po
     );
     assert_eq!(store::stamp(&[]).len(), 16);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_ingredient_is_created_and_added_together(mut conn: PoolConnection<Postgres>) {
+    let k = kitchen(&mut conn).await;
+    let (_, v1) = recipe(&mut conn, "Desembrood", RecipeKind::Dough).await;
+    let flour = line(LinePart::Ingredient(k.flour), 100);
+    store::save_draft(&mut conn, v1.id, &draft(vec![flour]))
+        .await
+        .unwrap();
+    let seen = store::stamp(&[flour]);
+    let spelt = ingredient_input("Speltbloem", IngredientRole::Flour);
+
+    let stale = store::add_new_ingredient(&mut conn, v1.id, "oud", &spelt, pct(10)).await;
+    assert!(matches!(stale, Err(Error::Stale)), "{stale:?}");
+    assert_eq!(ingredients::list(&mut conn).await.unwrap().len(), 3);
+
+    let created = store::add_new_ingredient(&mut conn, v1.id, &seen, &spelt, pct(10))
+        .await
+        .unwrap();
+    assert_eq!(
+        store::lines(&mut conn, v1.id).await.unwrap(),
+        vec![flour, line(LinePart::Ingredient(created.id), 10)]
+    );
+    let again = store::add_new_ingredient(&mut conn, v1.id, &seen, &spelt, pct(10)).await;
+    assert!(matches!(again, Err(Error::Duplicate)), "{again:?}");
+}

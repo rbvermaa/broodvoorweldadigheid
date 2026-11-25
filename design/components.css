@@ -1033,3 +1033,11 @@ textarea.field-input {
     padding: var(--space-2) var(--space-3);
   }
 }
+
+.recipe-switch {
+  margin: 0;
+}
+
+.recipe-switch .button {
+  text-decoration: none;
+}

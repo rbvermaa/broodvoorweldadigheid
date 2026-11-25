@@ -510,7 +510,7 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
             &[("lead_time", "36"), ("notes", "Desem om 20:00 aanzetten")],
         )
         .await
-        .redirects_to(&format!("{version}/edit?opgeslagen=1"));
+        .redirects_to(&format!("{version}/edit?gewicht=1000&opgeslagen=1"));
 
     let page = baker.get(&format!("{version}?gewicht=1770&open=3")).await;
     assert_eq!(page.status, StatusCode::OK);
@@ -1035,6 +1035,7 @@ async fn a_draft_line_is_edited_by_percent_or_by_grams(pool: PgPool) {
     by_pct.shows(&grams_input("gram-0", "900"));
     by_pct.shows("<td class=\"recipe-grams\">1.820</td>");
     assert_eq!(by_pct.replace_url(), format!("{version}/edit?gewicht=1820"));
+    by_pct.shows(&format!("href=\"{version}?gewicht=1820\""));
     assert_eq!(
         stored_lines(&pool, k.dough_v1).await[1].pct.thousandths(),
         70_000
@@ -1336,7 +1337,7 @@ async fn draft_details_save_without_touching_the_lines(pool: PgPool) {
             &[("lead_time", "36"), ("notes", "Desem om 20:00 aanzetten")],
         )
         .await
-        .redirects_to(&format!("{version}/edit?opgeslagen=1"));
+        .redirects_to(&format!("{version}/edit?gewicht=1000&opgeslagen=1"));
     let page = baker.get(&version).await;
     page.shows(&dutch_with("recipe-lead-time-value", &[("hours", "36")]));
     page.shows("Desem om 20:00 aanzetten");
