@@ -643,6 +643,7 @@ async fn a_recipe_change_blocks_checkout_until_the_baker_approves_again(pool: Pg
             conn,
             bread,
             &current.allergen_info,
+            current.allergen_revision,
             domain::StaffUserId::new(baker),
             &*shop.clock,
         )

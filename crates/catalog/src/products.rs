@@ -93,6 +93,9 @@ pub struct Product {
     pub approval: Option<Approval>,
     /// Why the approval was last taken away, until the next approval.
     pub approval_cleared: Option<ApprovalCleared>,
+    /// Goes up whenever the recipe changes in a way that clears the approval; an approval
+    /// names the revision it reviewed.
+    pub allergen_revision: i64,
     pub packaged: bool,
     pub sold_online: bool,
     pub estimated_cost: Option<Money>,
@@ -153,6 +156,7 @@ struct Row {
     allergens_approved_by: Option<i64>,
     allergens_approved_at_us: Option<i64>,
     allergens_cleared_reason: Option<String>,
+    allergens_recipe_rev: i64,
     packaged: bool,
     sold_online: bool,
     estimated_cost_cents: Option<i64>,
@@ -220,6 +224,7 @@ impl TryFrom<Row> for Product {
                 .as_deref()
                 .map(str::parse)
                 .transpose()?,
+            allergen_revision: row.allergens_recipe_rev,
             packaged: row.packaged,
             sold_online: row.sold_online,
             estimated_cost: row.estimated_cost_cents.map(Money::from_cents),
@@ -290,7 +295,7 @@ pub async fn create(conn: &mut PgConnection, input: &ProductInput) -> Result<Pro
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active"#,
         input.name_nl.trim(),
         input.description_nl,
@@ -341,7 +346,7 @@ pub async fn update(
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
         input.name_nl.trim(),
@@ -369,8 +374,9 @@ pub async fn update(
     row.try_into()
 }
 
-/// Approves the allergen data `reviewed`, which must be exactly what the product holds
-/// now, so an edit made while someone was reviewing is never approved unseen.
+/// Approves the allergen data `reviewed` at recipe revision `revision`
+/// ([`Product::allergen_revision`]); both must be what the product holds now, so an edit
+/// or recipe change made while someone was reviewing is never approved unseen.
 ///
 /// # Errors
 /// [`Error::NotFound`], or [`Error::AllergensChanged`] when `reviewed` is out of date.
@@ -378,6 +384,7 @@ pub async fn approve_allergens(
     conn: &mut PgConnection,
     id: ProductId,
     reviewed: &AllergenInfo,
+    revision: i64,
     by: StaffUserId,
     clock: &dyn Clock,
 ) -> Result<Product, Error> {
@@ -387,19 +394,20 @@ pub async fn approve_allergens(
             allergens_approved_by = $2,
             allergens_approved_at = timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
         WHERE id = $1 AND allergens @> $4 AND allergens <@ $4
-            AND ingredient_text = $5
+            AND ingredient_text = $5 AND allergens_recipe_rev = $6
         RETURNING id, name_nl, description_nl, photo_path, price_incl_cents, vat_rate,
             pay_what_you_want, min_price_cents, max_price_cents, unit_weight_g,
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active"#,
         id.get(),
         by.get(),
         db::time::to_micros(clock.now()),
         &allergens_to_db(&reviewed.allergens),
         reviewed.ingredient_text,
+        revision,
     )
     .fetch_optional(&mut *conn)
     .await?;
@@ -439,7 +447,7 @@ pub async fn get(conn: &mut PgConnection, id: ProductId) -> Result<Product, Erro
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE id = $1"#,
         id.get(),
@@ -462,7 +470,7 @@ pub async fn list_active(conn: &mut PgConnection) -> Result<Vec<Product>, Error>
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active ORDER BY name_nl, id"#,
     )
@@ -485,7 +493,7 @@ pub async fn list_all(conn: &mut PgConnection) -> Result<Vec<Product>, Error> {
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active
         FROM product ORDER BY name_nl, id"#,
     )
@@ -508,7 +516,7 @@ pub async fn list_sold_online(conn: &mut PgConnection) -> Result<Vec<Product>, E
             dough_g_per_piece, freezer_days, lead_time_hours, allergens,
             ingredient_text, allergens_approved_by,
             (extract(epoch FROM allergens_approved_at) * 1000000)::bigint AS allergens_approved_at_us,
-            allergens_cleared_reason,
+            allergens_cleared_reason, allergens_recipe_rev,
             packaged, sold_online, estimated_cost_cents, active
         FROM product WHERE active AND sold_online ORDER BY name_nl, id"#,
     )

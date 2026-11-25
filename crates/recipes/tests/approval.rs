@@ -444,3 +444,100 @@ async fn versions_not_in_use_and_other_edits_leave_the_approval(
     store::new_version(&mut conn, dough).await.unwrap();
     assert_eq!(state(&mut conn, bread).await, APPROVED);
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn any_writer_changing_a_line_in_use_clears_the_approval(mut conn: PoolConnection<Postgres>) {
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let (dough, v1) = recipe(&mut conn, "Wit", RecipeKind::Dough).await;
+    save(&mut conn, v1, &[(LinePart::Ingredient(flour), 100)]).await;
+    let bread = product(&mut conn, "Brood").await;
+    link(&mut conn, dough, bread).await;
+    approve(&mut conn, bread).await;
+
+    sqlx::query("UPDATE recipe_line SET bakers_pct_x1000 = 90000 WHERE recipe_version_id = $1")
+        .bind(v1.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(state(&mut conn, bread).await, cleared("recipe"));
+
+    approve(&mut conn, bread).await;
+    sqlx::query("DELETE FROM recipe_line WHERE recipe_version_id = $1")
+        .bind(v1.get())
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    assert_eq!(state(&mut conn, bread).await, cleared("recipe"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_sub_recipe_used_only_by_a_version_not_in_use_leaves_the_approval(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let clock = FakeClock::new(ts("2026-12-01T09:00:00Z"));
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let water = ingredient(&mut conn, "Water", IngredientRole::Water).await;
+    let (_, levain_v1) = recipe(&mut conn, "Desem", RecipeKind::Preferment).await;
+    save(&mut conn, levain_v1, &[(LinePart::Ingredient(flour), 100)]).await;
+    let (dough, v1) = recipe(&mut conn, "Wit", RecipeKind::Dough).await;
+    save(&mut conn, v1, &[(LinePart::Ingredient(flour), 100)]).await;
+    store::freeze(&mut conn, dough, v1, &clock).await.unwrap();
+    let v2 = store::new_version(&mut conn, dough).await.unwrap().id;
+    save(
+        &mut conn,
+        v2,
+        &[
+            (LinePart::Ingredient(flour), 100),
+            (LinePart::Sub(levain_v1), 20),
+        ],
+    )
+    .await;
+    let bread = product(&mut conn, "Brood").await;
+    link(&mut conn, dough, bread).await;
+    approve(&mut conn, bread).await;
+
+    save(
+        &mut conn,
+        levain_v1,
+        &[
+            (LinePart::Ingredient(flour), 100),
+            (LinePart::Ingredient(water), 100),
+        ],
+    )
+    .await;
+    assert_eq!(
+        state(&mut conn, bread).await,
+        APPROVED,
+        "only the draft v2 uses the levain"
+    );
+}
+
+async fn revision(conn: &mut PgConnection, product: ProductId) -> i64 {
+    sqlx::query_scalar("SELECT allergens_recipe_rev FROM product WHERE id = $1")
+        .bind(product.get())
+        .fetch_one(conn)
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn every_recipe_change_counts_even_without_an_approval(mut conn: PoolConnection<Postgres>) {
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let (dough, v1) = recipe(&mut conn, "Wit", RecipeKind::Dough).await;
+    let bread = product(&mut conn, "Brood").await;
+    assert_eq!(revision(&mut conn, bread).await, 0);
+    link(&mut conn, dough, bread).await;
+    assert_eq!(revision(&mut conn, bread).await, 1);
+    save(&mut conn, v1, &[(LinePart::Ingredient(flour), 100)]).await;
+    assert_eq!(revision(&mut conn, bread).await, 2);
+    update(&mut conn, flour, |i| {
+        i.allergens = [Allergen::CerealsContainingGluten].into();
+    })
+    .await;
+    assert_eq!(revision(&mut conn, bread).await, 3);
+    assert_eq!(
+        state(&mut conn, bread).await,
+        (false, None),
+        "never approved, so no reason to show"
+    );
+}

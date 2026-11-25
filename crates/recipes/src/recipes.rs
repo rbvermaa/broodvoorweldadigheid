@@ -782,17 +782,21 @@ pub async fn set_current(
     recipe_id: RecipeId,
     id: RecipeVersionId,
 ) -> Result<Recipe, Error> {
-    version(conn, recipe_id, id).await?;
-    sqlx::query_as!(
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    version(&mut tx, recipe_id, id).await?;
+    let recipe = sqlx::query_as!(
         RecipeRow,
         "UPDATE recipe SET current_version_id = $2 WHERE id = $1
         RETURNING id, name, kind, current_version_id",
         recipe_id.get(),
         id.get(),
     )
-    .fetch_one(conn)
+    .fetch_one(&mut *tx)
     .await?
-    .try_into()
+    .try_into()?;
+    tx.commit().await?;
+    Ok(recipe)
 }
 
 /// Versions of other recipes that a line of `recipe_id` can use, by recipe name and newest
@@ -857,17 +861,20 @@ pub async fn link_product(
     recipe_id: RecipeId,
     product_id: ProductId,
 ) -> Result<(), Error> {
-    get(conn, recipe_id).await?;
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
+    get(&mut tx, recipe_id).await?;
     let done = sqlx::query!(
         "UPDATE product SET recipe_id = $1 WHERE id = $2",
         recipe_id.get(),
         product_id.get(),
     )
-    .execute(conn)
+    .execute(&mut *tx)
     .await?;
     if done.rows_affected() == 0 {
         return Err(Error::NotFound);
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -880,13 +887,16 @@ pub async fn unlink_product(
     recipe_id: RecipeId,
     product_id: ProductId,
 ) -> Result<(), Error> {
+    let mut tx = conn.begin().await?;
+    lock_graph(&mut tx).await?;
     sqlx::query!(
         "UPDATE product SET recipe_id = NULL WHERE id = $1 AND recipe_id = $2",
         product_id.get(),
         recipe_id.get(),
     )
-    .execute(conn)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

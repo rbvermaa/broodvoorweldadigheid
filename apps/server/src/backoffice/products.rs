@@ -290,6 +290,7 @@ struct ApprovePage<'a> {
     back: String,
     allergens: Vec<&'static str>,
     ingredient_text: String,
+    revision: i64,
     changed: bool,
 }
 
@@ -628,6 +629,7 @@ async fn render_approve(
             back: product_path(product.id),
             allergens: codes(&info.allergens),
             ingredient_text: info.ingredient_text.clone(),
+            revision: product.allergen_revision,
             changed,
         },
     ))
@@ -666,6 +668,7 @@ pub async fn approve(
             &mut conn,
             product.id,
             &reviewed,
+            revision(&fields),
             staff.0.id,
             state.clock.as_ref(),
         )
@@ -680,6 +683,11 @@ pub async fn approve(
         }
     };
     run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// A missing or broken revision never matches, so the approval is refused.
+fn revision(fields: &Fields) -> i64 {
+    fields.raw("revisie").parse().unwrap_or(-1)
 }
 
 fn reviewed(fields: &Fields) -> AllergenInfo {

@@ -55,6 +55,14 @@ product page says so. Any approval resets it. It is a column, not an `audit_log`
 because a trigger would have to take the time from the database clock instead of the
 injected one.
 
+`product.allergens_recipe_rev` goes up with every change in the table, approved or not.
+The approve page sends it back, and `catalog::products::approve_allergens` refuses an
+approval for an older revision, so a page opened before a recipe change cannot approve
+what nobody looked at again. The triggers lock the affected products in id order, as
+checkout does (ADR 0038), and wait for an approval in progress. `set_current`,
+`link_product` and `unlink_product` take the graph lock too, so a line or ingredient
+change never reads a version in use or a recipe link that is about to change.
+
 Linking a product to a recipe needs the EditAllergens permission as well as Production.
 
 Open:

@@ -17,6 +17,7 @@
 <input type="hidden" name="allergens" value="{{ code }}">
 {%- endfor %}
 <input type="hidden" name="ingredient_text" value="{{ ingredient_text }}">
+<input type="hidden" name="revisie" value="{{ revision }}">
 {% call b::button(layout.t("approve-submit")?, kind = "submit") %}{% endcall %}
 </form>
 <p><a href="{{ back }}">{{ layout.t("approve-back")? }}</a></p>
