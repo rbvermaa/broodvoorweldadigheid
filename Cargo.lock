@@ -3365,6 +3365,16 @@ dependencies = [
 [[package]]
 name = "recipes"
 version = "0.1.0"
+dependencies = [
+ "db",
+ "domain",
+ "jiff",
+ "proptest",
+ "sqlx",
+ "testkit",
+ "thiserror 2.0.21",
+ "tokio",
+]
 
 [[package]]
 name = "redox_syscall"
@@ -3875,6 +3885,7 @@ dependencies = [
  "payments",
  "production",
  "rand 0.9.5",
+ "recipes",
  "reports",
  "serde",
  "serde_json",

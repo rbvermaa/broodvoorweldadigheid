@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE recipe SET current_version_id = $2 WHERE id = $1\n        RETURNING id, name, kind, current_version_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "current_version_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "recipe",
+            "name": "current_version_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "371c0b39d605a99f614394c0aaf0adf35cf6aa6c85f4b5e896e4422b7aa122a3"
+}

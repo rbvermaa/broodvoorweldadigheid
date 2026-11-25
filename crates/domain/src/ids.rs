@@ -36,6 +36,9 @@ id_type!(
     RefundId,
     PollId,
     PollOptionId,
+    IngredientId,
+    RecipeId,
+    RecipeVersionId,
 );
 
 #[cfg(test)]
