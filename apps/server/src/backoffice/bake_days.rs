@@ -918,7 +918,7 @@ async fn render_day(
         status,
         &DayPage {
             layout: layout(state, session).await?,
-            heading: date.clone(),
+            heading: t_with(state, "day-heading", &[("date", date.clone())]),
             status: t(state, status_message(day.status)),
             editable: !day.status.is_final(),
             saved: answer.saved,

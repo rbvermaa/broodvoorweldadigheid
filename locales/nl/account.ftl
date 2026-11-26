@@ -19,7 +19,7 @@ account-orders-title = Mijn bestellingen
 account-orders-signed-in-as = Je bent ingelogd als { $email }.
 account-orders-caption = Je bestellingen, de nieuwste bovenaan
 account-orders-number = Bestelling
-account-orders-date = Bakdag
+account-orders-date = Bakdatum
 account-orders-status = Status
 account-orders-total = Totaal
 account-orders-empty-title = Nog geen bestellingen
@@ -34,21 +34,21 @@ account-status-cancelled = Geannuleerd
 account-status-refunded = Terugbetaald
 # Choosing a charity for a saved donation (F4d).
 donation-choose-title = Kies een goed doel
-donation-choose-text = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor de drop van { $drop }. Kies vóór { $date } waar ze naartoe gaat. Kies je niets, dan gaat ze naar het goede doel van de eerstvolgende drop.
+donation-choose-text = Je bewaarde je donatie van { $amount } bij bestelling { $number } voor de Bread Drop van { $drop }. Kies vóór { $date } waar ze naartoe gaat. Kies je niets, dan gaat ze naar het goede doel van de eerstvolgende Bread Drop.
 donation-choose-field = Goed doel
 donation-choose-submit = Kies dit goede doel
 donation-choose-error = Kies een goed doel uit de lijst.
 donation-chosen-title = Bedankt!
 donation-chosen-text = Je keuze is opgeslagen. Je donatie gaat naar het goede doel dat je koos.
 donation-link-failed-title = Deze link werkt niet meer
-donation-link-failed-text = Je hebt al een goed doel gekozen, of de termijn om te kiezen is voorbij. Dan ging je donatie naar het goede doel van de eerstvolgende drop.
+donation-link-failed-text = Je hebt al een goed doel gekozen, of de termijn om te kiezen is voorbij. Dan ging je donatie naar het goede doel van de eerstvolgende Bread Drop.
 donation-saved-heading = Bewaarde donaties
 
 # Privacy tools on "Mijn bestellingen" (F12, ADR 0031).
 privacy-heading = Je gegevens
-privacy-intro = Download alles wat we van je bewaren, kies of je mails over nieuwe drops wilt, of verwijder je account.
+privacy-intro = Download alles wat we van je bewaren, kies of je mails over nieuwe Bread Drops wilt, of verwijder je account.
 privacy-download = Download mijn gegevens
-privacy-drop-alerts = Mail me als er een nieuwe drop is
+privacy-drop-alerts = Mail me als er een nieuwe Bread Drop is
 privacy-drop-alerts-save = Opslaan
 privacy-delete-heading = Account verwijderen
 privacy-delete-intro = We wissen je naam, e-mailadres en telefoonnummer. Je bestellingen moeten we 7 jaar bewaren voor de belastingdienst, maar zonder iets wat naar jou wijst. Je donaties blijven bij het goede doel.

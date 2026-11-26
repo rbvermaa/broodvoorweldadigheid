@@ -4388,3 +4388,13 @@ async fn a_refused_limit_on_a_final_day_reloads_the_page(pool: PgPool) {
     assert_eq!(refused.header("hx-redirect"), path);
     baker.get(&path).await.shows(&dutch("day-final"));
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn bake_day_page_is_titled_bread_drop_and_its_date(pool: PgPool) {
+    let app = app(pool.clone());
+    let day = saturday(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let page = owner.get(&format!("/staff/bake-days/{}", day.get())).await;
+    page.shows("<title>Bread Drop zaterdag 5 december 2026 ·");
+    page.shows("<h1>Bread Drop zaterdag 5 december 2026</h1>");
+}

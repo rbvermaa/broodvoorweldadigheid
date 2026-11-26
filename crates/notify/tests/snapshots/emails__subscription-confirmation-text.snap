@@ -3,13 +3,13 @@ source: crates/notify/tests/emails.rs
 expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
 ---
 To: abonnee@example.org
-Subject: Bevestig je aanmelding voor drop-alerts
+Subject: Bevestig je aanmelding voor Bread Drop-alerts
 
 Bevestig je aanmelding
 
 Hoi,
 
-Fijn dat je wilt horen wanneer er een nieuwe drop is! Bevestig je aanmelding via de link hieronder.
+Fijn dat je wilt horen wanneer er een nieuwe Bread Drop is! Bevestig je aanmelding via de link hieronder.
 
 Aanmelding bevestigen: https://broodvoorweldadigheid.nl/drop-alerts/bevestig/tok3n
 

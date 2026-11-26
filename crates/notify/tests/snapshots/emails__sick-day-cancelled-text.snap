@@ -3,20 +3,20 @@ source: crates/notify/tests/emails.rs
 expression: "format!(\"To: {}\\nSubject: {}\\n\\n{}\", email.to, email.subject, email.text)"
 ---
 To: sanne@example.org
-Subject: De drop van zaterdag 5 december 2026 gaat niet door
+Subject: De Bread Drop van zaterdag 5 december 2026 gaat niet door
 
-Helaas, deze drop gaat niet door
+Helaas, deze Bread Drop gaat niet door
 
 Hoi Sanne,
 
-De drop van zaterdag 5 december 2026 gaat niet door, dus we hebben je bestelling 2026-0042 geannuleerd. Dit is het bericht van de bakker:
+De Bread Drop van zaterdag 5 december 2026 gaat niet door, dus we hebben je bestelling 2026-0042 geannuleerd. Dit is het bericht van de bakker:
 
 > Ik ben ziek, dus de oven blijft koud.
 > Volgende week ben ik er weer!
 
 We storten € 32,75 terug. Het kan een paar werkdagen duren voor het op je rekening staat.
 
-Sorry voor het ongemak. Hopelijk tot de volgende drop!
+Sorry voor het ongemak. Hopelijk tot de volgende Bread Drop!
 
 Groetjes van de bakker
 

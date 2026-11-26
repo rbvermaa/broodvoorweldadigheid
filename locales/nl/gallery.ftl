@@ -22,7 +22,7 @@ gallery-cart = Mandje (2)
 
 gallery-primary = Opslaan
 gallery-secondary = Terug
-gallery-danger = Bakdag annuleren
+gallery-danger = Bread Drop annuleren
 gallery-long-word = Zuurdesemvolkorenbrood met zonnebloempitten
 gallery-long-button = Ophaalmomentvoorkeursinstellingen opslaan
 
@@ -52,8 +52,8 @@ gallery-product-ingredients = Tarwebloem, water, zuurdesem (tarwe), zeezout.
 gallery-pickup-legend = Wanneer haal je je bestelling op?
 gallery-pickup-place = Kerkweg, Frederiksoord
 
-gallery-table-caption = Bestellingen voor de bakdag
-gallery-chart-caption = Giften per bakdag
+gallery-table-caption = Bestellingen voor de Bread Drop
+gallery-chart-caption = Giften per Bread Drop
 gallery-chart-empty = Nog niets
 gallery-table-product = Product
 gallery-table-count = Aantal
@@ -61,16 +61,16 @@ gallery-table-total = Totaal
 
 gallery-alert-info = De bestel-deadline is vrijdag om 20:00.
 gallery-alert-success = Je bestelling is geplaatst.
-gallery-alert-warning = Nog maar 2 broden over voor deze bakdag.
+gallery-alert-warning = Nog maar 2 broden over voor deze Bread Drop.
 gallery-alert-error = Betalen lukte niet. Probeer het nog eens.
 
 gallery-empty-title = Nog geen bestellingen
 gallery-empty-text = Zodra iemand bestelt, zie je de bestelling hier.
 
-gallery-dialog-open = Bakdag annuleren
-gallery-dialog-title = Bakdag van zaterdag annuleren?
+gallery-dialog-open = Bread Drop annuleren
+gallery-dialog-title = Bread Drop van zaterdag annuleren?
 gallery-dialog-text = Alle 12 bestellingen worden geannuleerd en 12 klanten krijgen hun geld terug. Dit kun je niet ongedaan maken.
-gallery-dialog-confirm = Ja, annuleer de bakdag
+gallery-dialog-confirm = Ja, annuleer de Bread Drop
 
 gallery-pickup-fri = vrijdag 4 december
 gallery-pickup-sat = zaterdag 5 december
@@ -81,10 +81,10 @@ gallery-loading = Opslaan
 gallery-disabled = Niet beschikbaar
 gallery-pickup-error = Kies een ophaalmoment.
 gallery-charity-error = Kies een goed doel.
-gallery-drops = Drops
+gallery-drops = Bread Drops
 gallery-drop-open = Open voor bestellingen
 gallery-drop-planned = Gepland
 gallery-drop-deadline = Bestel-deadline: donderdag 3 december om 20:00
-gallery-drop-charity = Deze drop is voor de Voedselbank.
+gallery-drop-charity = Deze Bread Drop is voor de Voedselbank.
 gallery-cart-panel = Mandje
 gallery-cart-remove = Weghalen: Desem wit
