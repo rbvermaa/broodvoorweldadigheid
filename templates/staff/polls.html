@@ -1,15 +1,19 @@
 {% extends "staff/layout.html" %}
 {% import "components/feedback.html" as fb %}
 {% import "components/table.html" as tb %}
+{% import "components/search.html" as se %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("staff-nav-polls")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-polls")? }}</h1>
 {% call s::saved_row(saved) %}{% endcall %}
 <p><a href="/staff/polls/new">{{ layout.t("polls-new")? }}</a></p>
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
 {% if table.rows.is_empty() %}
-{% call fb::empty_state(layout.t("polls-empty-title")?, layout.t("polls-empty-text")?) %}{% endcall %}
+{% if search.q.is_empty() %}{% call fb::empty_state(layout.t("polls-empty-title")?, layout.t("polls-empty-text")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}
 {% else %}
 {% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
+</div>
 {% endblock %}

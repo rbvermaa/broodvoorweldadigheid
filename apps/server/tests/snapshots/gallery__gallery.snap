@@ -636,17 +636,39 @@ expression: without_asset_hashes(&gallery_html(&state))
 <section class="gallery-section" aria-labelledby="gallery-tables">
 <h2 id="gallery-tables">Tabellen</h2>
 
+<form class="search" method="get" action="/gallery" role="search">
+<label class="field-label" for="q">Zoeken</label>
+<div class="search-row">
+<input class="field-input" type="search" id="q" name="q" value="crème" maxlength="100" autocomplete="off" data-search hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-include="closest form" hx-target="#resultaten" hx-select="#resultaten" hx-swap="outerHTML" hx-push-url="true">
+
+<button type="submit" class="button button-secondary"><span class="button-label">Zoek</span></button>
+
+</div>
+</form>
+
+<div id="resultaten">
+
 <div class="table-wrap" role="region" aria-labelledby="bakdag-caption" tabindex="0">
 <table class="table">
 <caption class="table-caption" id="bakdag-caption">Bestellingen voor de Bread Drop</caption>
 <thead><tr><th scope="col">Product</th><th scope="col" class="table-number">Aantal</th><th scope="col" class="table-number">Totaal</th></tr></thead>
 <tbody>
-<tr><td><a href="#bakdag-caption">Zuurdesemvolkorenbrood met zonnebloempitten</a></td><td class="table-number">12</td><td class="table-number">€ 78,00</td></tr>
+<tr class="table-row-saved"><td><a href="#bakdag-caption">Zuurdesemvolkorenbrood met zonnebloempitten</a></td><td class="table-number">12</td><td class="table-number">€ 78,00</td></tr>
 <tr><td>Desem wit</td><td class="table-number">3</td><td class="table-number">€ 13,50</td></tr>
 </tbody>
 </table>
 </div>
 
+
+
+<div class="empty-state">
+<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+<p class="empty-state-title">Niets gevonden voor «crème»</p>
+<p class="empty-state-text">Probeer een ander woord, of maak het zoekveld leeg.</p>
+</div>
+
+
+</div>
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-charts">

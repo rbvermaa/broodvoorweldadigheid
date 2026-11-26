@@ -6,10 +6,12 @@
 #![forbid(unsafe_code)]
 
 mod format;
+mod search;
 mod translator;
 
 pub use fluent_bundle::{FluentArgs, FluentValue};
 pub use format::{Amsterdam, decimal, money, numeric_date, time, time_range};
+pub use search::search_key;
 pub use translator::{LOCALE, Translator, resource_files};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

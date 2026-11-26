@@ -17,8 +17,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, local_value, parse_local};
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved_to_list, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved_to_list, t, t_with,
 };
 use crate::components::{BarChart, Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -129,6 +129,7 @@ pub struct ProductChoice {
 #[template(path = "staff/polls.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
+    search: SearchBox,
     table: Table,
     saved: SavedRow,
 }
@@ -236,6 +237,7 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Polls)?;
@@ -252,6 +254,7 @@ pub async fn list(
             ],
             rows: all
                 .iter()
+                .filter(|p| search.matches(&[&p.title]))
                 .map(|p| {
                     vec![
                         Cell::link(p.title.clone(), poll_path(p.id)),
@@ -268,6 +271,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, PATH, Vec::new()),
                 table,
                 saved,
             },

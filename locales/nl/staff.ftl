@@ -486,3 +486,8 @@ settings-public-donations-title = Giftenpagina
 settings-public-donations-intro = Op de giftenpagina ziet iedereen hoeveel er per Bread Drop en per goed doel is opgehaald, zonder namen of losse bedragen. Zet hem aan als je er klaar voor bent; dan komt er ook een link onderaan de site.
 settings-public-donations = Giftenpagina op de site tonen
 settings-public-donations-view = Bekijk de giftenpagina
+# Search above a list (F24)
+search-label = Zoeken
+search-submit = Zoek
+search-none = Niets gevonden voor «{ $q }»
+search-none-text = Probeer een ander woord, of maak het zoekveld leeg.

@@ -19,8 +19,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, pct_value};
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved, saved_to_list, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -163,6 +163,7 @@ async fn load_version(
 #[template(path = "staff/recipes.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
+    search: SearchBox,
     table: Table,
     saved: SavedRow,
 }
@@ -172,6 +173,7 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::Production)?;
@@ -188,6 +190,9 @@ pub async fn list(
             ],
             rows: all
                 .iter()
+                .filter(|summary| {
+                    search.matches(&[&summary.recipe.name, &summary.products.join(" ")])
+                })
                 .map(|summary| {
                     vec![
                         Cell::link(summary.recipe.name.clone(), recipe_path(summary.recipe.id)),
@@ -207,6 +212,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, LIST, Vec::new()),
                 table,
                 saved,
             },

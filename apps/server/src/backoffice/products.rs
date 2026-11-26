@@ -19,8 +19,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, money_value, parse_money};
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved, saved_to_list, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, ListedIngredient as Listed, SelectOption, Table, listed};
 use crate::pages::{self, Layout};
@@ -301,6 +301,7 @@ struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
     saved: SavedRow,
+    search: SearchBox,
     kitchen_unapproved: bool,
 }
 
@@ -450,13 +451,20 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
-    run_list(&state, &staff, &session, &flash)
+    run_list(&state, &staff, &session, &flash, &search)
         .await
         .unwrap_or_else(Rejection::into_response)
 }
 
-async fn run_list(state: &AppState, staff: &Staff, session: &Session, flash: &Flash) -> Outcome {
+async fn run_list(
+    state: &AppState,
+    staff: &Staff,
+    session: &Session,
+    flash: &Flash,
+    search: &Search,
+) -> Outcome {
     require(state, staff, Permission::EditAllergens)?;
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let all = products::list_all(&mut conn)
@@ -479,6 +487,7 @@ async fn run_list(state: &AppState, staff: &Staff, session: &Session, flash: &Fl
         ],
         rows: all
             .iter()
+            .filter(|p| search.matches(&[&p.name_nl]))
             .map(|p| {
                 vec![
                     Cell::link(p.name_nl.clone(), product_path(p.id)),
@@ -506,6 +515,7 @@ async fn run_list(state: &AppState, staff: &Staff, session: &Session, flash: &Fl
             layout: layout(state, session).await?,
             table,
             saved,
+            search: search.view(state, LIST, Vec::new()),
             kitchen_unapproved: kitchen.approval.is_none(),
         },
     ))

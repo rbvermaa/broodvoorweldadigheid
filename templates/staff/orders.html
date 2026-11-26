@@ -3,6 +3,7 @@
 {% import "components/feedback.html" as fb %}
 {% import "components/field.html" as f %}
 {% import "components/table.html" as tb %}
+{% import "components/search.html" as se %}
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
 <h1>{{ heading }}</h1>
@@ -13,11 +14,15 @@
 <form method="get" action="{{ action }}">
 {% call f::select("status", layout.t("staff-order-status")?, statuses) %}{% endcall %}
 {% call f::select("locatie", layout.t("staff-orders-filter-location")?, locations) %}{% endcall %}
+{% if !search.q.is_empty() %}<input type="hidden" name="q" value="{{ search.q }}">{% endif %}
 {% call b::button(layout.t("staff-orders-filter")?, variant = "secondary", kind = "submit") %}{% endcall %}
 </form>
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
 {% if table.rows.is_empty() %}
-{% call fb::empty_state(layout.t("staff-orders-empty-title")?, layout.t("staff-orders-empty-text")?) %}{% endcall %}
+{% if search.q.is_empty() %}{% call fb::empty_state(layout.t("staff-orders-empty-title")?, layout.t("staff-orders-empty-text")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}
 {% else %}
 {% call tb::table(table) %}{% endcall %}
 {% endif %}
+</div>
 {% endblock %}

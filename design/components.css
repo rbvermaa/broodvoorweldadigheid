@@ -1430,3 +1430,18 @@ textarea.field-input {
 .table-row-saved td:first-child {
   box-shadow: inset var(--border-thick) 0 0 var(--color-ink);
 }
+
+.search {
+  margin: 0 0 var(--space-4);
+}
+
+.search-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.search-row .field-input {
+  flex: 1;
+  min-width: 0;
+}

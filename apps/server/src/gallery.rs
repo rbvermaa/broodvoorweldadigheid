@@ -7,6 +7,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use i18n::Translator;
 
+use crate::backoffice::SearchBox;
 use crate::components::{
     ApprovedAllergens, BarChart, Cart, CartRemove, Cell, Drop, DropCharity, Message, PickupWindow,
     PriceChoice, Product, ProductOrder, SelectOption, Table,
@@ -26,6 +27,7 @@ pub struct Gallery<'a> {
     prices: Vec<i64>,
     windows: Vec<PickupWindow>,
     table: Table,
+    search: SearchBox,
     chart: BarChart,
     drops: Vec<Drop>,
     carts: Vec<Cart>,
@@ -60,8 +62,17 @@ impl<'a> Gallery<'a> {
                 selected,
             })
         };
+        let mut query = i18n::FluentArgs::new();
+        query.set("q", "crème");
+        let search = SearchBox {
+            action: "/gallery".to_owned(),
+            q: "crème".to_owned(),
+            keep: Vec::new(),
+            none: i18n.t("search-none", Some(&query))?,
+        };
         Ok(Self {
             layout,
+            search,
             charities: vec![
                 SelectOption {
                     value: "voedselbank".to_string(),
