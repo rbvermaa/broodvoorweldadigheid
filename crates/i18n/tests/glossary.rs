@@ -58,7 +58,8 @@ fn bare_drop(text: &str) -> bool {
             .chars()
             .next()
             .is_some_and(char::is_alphanumeric);
-        if before_ok && after_ok && !text[..at].ends_with("Bread ") {
+        let named = text[..at].ends_with("Bread ") && text[at..].starts_with("Drop");
+        if before_ok && after_ok && !named {
             return true;
         }
         from = end;
@@ -76,6 +77,7 @@ fn bare_drop_spots_the_words_the_glossary_replaced() {
     assert!(!bare_drop("Bread Drop-alerts"));
     assert!(!bare_drop("dropdown en airdrop"));
     assert!(bare_drop("bread drop"));
+    assert!(bare_drop("Bread drop"));
 }
 
 #[test]

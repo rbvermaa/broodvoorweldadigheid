@@ -236,7 +236,7 @@ day-error-production-only-open = Sluit eerst het bestellen voordat je er een Bre
 day-error-weeks = Vul een aantal weken in van 1 tot en met 52.
 day-error-no-pickup-slot = Deze Bread Drop heeft geen ophaalmoment. Zonder ophaalmoment kan hij niet in de webshop.
 range-title = Aanbod
-range-empty = Nog geen producten op deze Bread Drop.
+range-empty = Nog geen producten voor deze Bread Drop.
 range-product = Product
 range-product-hint = In de onderste regel zet je een product dat nog niet in het aanbod staat erbij.
 range-max-qty = Maximaal aantal van dit brood
@@ -277,12 +277,12 @@ extra-remove-text = { $qty } × { $product } ({ $purpose }) gaat van de producti
 extra-error-qty = Vul een aantal in van 1 of meer.
 extra-error-purpose = Kies waarvoor de extra stuks zijn.
 extra-error-capacity = { $n ->
-    [0] Dat past niet meer: er kan niets meer bij van dit product op deze Bread Drop.
-    [one] Dat past niet: er kan nog maar 1 stuk bij van dit product op deze Bread Drop.
-   *[other] Dat past niet: er kunnen nog maar { $n } stuks bij van dit product op deze Bread Drop.
+    [0] Dat past niet meer: er kan niets meer bij van dit product voor deze Bread Drop.
+    [one] Dat past niet: er kan nog maar 1 stuk bij van dit product voor deze Bread Drop.
+   *[other] Dat past niet: er kunnen nog maar { $n } stuks bij van dit product voor deze Bread Drop.
 }
 extra-error-capacity-line = { $n ->
-    [0] Dat past niet: er kan niets meer bij van dit product op deze Bread Drop.
+    [0] Dat past niet: er kan niets meer bij van dit product voor deze Bread Drop.
     [one] Dat past niet: deze regel kan hoogstens 1 stuk zijn.
    *[other] Dat past niet: deze regel kan hoogstens { $n } stuks zijn.
 }
