@@ -76,7 +76,7 @@ async fn price(conn: &mut PgConnection, id: IngredientId, c: i64, from: Date) {
         &clock(),
         &NewPrice {
             ingredient_id: id,
-            per_kg: cents(c),
+            price: recipes::cost::UnitPrice::per_kg(cents(c)),
             valid_from: from,
             by: None,
         },

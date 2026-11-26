@@ -18,7 +18,11 @@
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
-{% call f::field("money", "per_kg", layout.t("costing-per-kg")?, value = form.per_kg, hint = layout.t("costing-per-kg-hint")?, error = errors.get("per_kg"), required = true) %}{% endcall %}
+<div hx-post="{{ preview }}" hx-trigger="input delay:300ms" hx-include="closest form" hx-target="#omrekening" hx-select="#omrekening > p" hx-swap="innerHTML">
+{% call f::field("money", "price", layout.t("costing-price")?, value = form.price, hint = layout.t("costing-price-hint")?, error = errors.get("price"), required = true) %}{% endcall %}
+{% call f::field("whole", "weight_g", layout.t("costing-weight")?, value = form.weight_g, hint = layout.t("costing-weight-hint")?, error = errors.get("weight_g"), required = true) %}{% endcall %}
+</div>
+<div class="field" id="omrekening" aria-live="polite"><p class="field-hint">{{ conversion }}</p></div>
 {% call f::field("date", "valid_from", layout.t("costing-valid-from")?, value = form.valid_from, hint = layout.t("costing-valid-from-hint")?, error = errors.get("valid_from"), required = true) %}{% endcall %}
 {% call b::button(layout.t("costing-save-price")?, kind = "submit") %}{% endcall %}
 </form>

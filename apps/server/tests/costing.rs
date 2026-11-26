@@ -20,6 +20,7 @@ use i18n::Translator;
 use jiff::civil::date;
 use orders::audit::Actor;
 use production::batches::{self, Actual};
+use recipes::cost::UnitPrice;
 use recipes::prices::{self, NewPrice};
 use recipes::{
     DraftInput, IngredientInput, IngredientRole, LineInput, LinePart, Pct, RecipeInput, RecipeKind,
@@ -261,7 +262,7 @@ async fn kitchen(pool: &PgPool) -> Kitchen {
             &clock,
             &NewPrice {
                 ingredient_id: id,
-                per_kg: Money::from_cents(cents),
+                price: UnitPrice::per_kg(Money::from_cents(cents)),
                 valid_from: date(2026, 12, 1),
                 by: None,
             },
@@ -332,9 +333,24 @@ async fn only_the_owner_sees_costs(pool: PgPool) {
             reply.shows(&dutch("staff-forbidden-text"));
         }
         let reply = staff
-            .post(&price, &[("per_kg", "2"), ("valid_from", "2026-12-06")])
+            .post(
+                &price,
+                &[
+                    ("price", "2"),
+                    ("weight_g", "1000"),
+                    ("valid_from", "2026-12-06"),
+                ],
+            )
             .await;
         assert_eq!(reply.status, StatusCode::FORBIDDEN, "{name}");
+        let preview = staff
+            .post(
+                &format!("{price}/preview"),
+                &[("price", "21,37"), ("weight_g", "25000")],
+            )
+            .await;
+        assert_eq!(preview.status, StatusCode::FORBIDDEN, "{name}");
+        assert!(!preview.text.contains("0,85"), "{name}");
     }
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(
@@ -353,9 +369,23 @@ async fn a_price_needs_the_csrf_token(pool: PgPool) {
     let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
     let path = format!("/staff/costing/ingredients/{}", k.flour.get());
     let reply = owner
-        .post_raw(&path, &[("per_kg", "2"), ("valid_from", "2026-12-06")])
+        .post_raw(
+            &path,
+            &[
+                ("price", "2"),
+                ("weight_g", "1000"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
         .await;
     assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    let preview = owner
+        .post_raw(
+            &format!("{path}/preview"),
+            &[("price", "21,37"), ("weight_g", "25000")],
+        )
+        .await;
+    assert_eq!(preview.status, StatusCode::FORBIDDEN);
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(
         prices::history(&mut conn, k.flour)
@@ -379,20 +409,36 @@ async fn the_owner_adds_a_price_and_keeps_the_history(pool: PgPool) {
     page.shows("€ 1,00");
 
     let refused = owner
-        .post(&path, &[("per_kg", "veel"), ("valid_from", "gisteren")])
+        .post(
+            &path,
+            &[
+                ("price", "veel"),
+                ("weight_g", "zak"),
+                ("valid_from", "gisteren"),
+            ],
+        )
         .await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
-    refused.shows(&dutch("costing-error-per-kg"));
+    refused.shows(&dutch("costing-error-price"));
+    refused.shows(&dutch("costing-error-weight"));
     refused.shows(&dutch("costing-error-valid-from"));
 
     let reply = owner
-        .post(&path, &[("per_kg", "1,25"), ("valid_from", "2026-12-06")])
+        .post(
+            &path,
+            &[
+                ("price", "1,25"),
+                ("weight_g", "1000"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
         .await;
     assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
     assert_eq!(reply.location, format!("{path}?opgeslagen=1"));
     let page = owner.get(&reply.location).await;
     page.shows("06-12-2026");
-    page.shows("€ 1,25");
+    page.shows("€ 1,25 per kg");
+    page.shows("€ 0,00125");
     page.shows("01-12-2026");
 
     let overview = owner.get("/staff/costing").await;
@@ -440,4 +486,226 @@ async fn product_and_batch_pages_show_cost_and_variance(pool: PgPool) {
             "{path}"
         );
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_owner_enters_what_a_sack_cost_and_its_weight(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let path = format!("/staff/costing/ingredients/{}", k.flour.get());
+
+    let page = owner.get(&path).await;
+    page.shows(&format!("hx-post=\"{path}/preview\""));
+    page.shows(&dutch("costing-conversion-empty"));
+    // The price from before is per kilo.
+    page.shows("€ 1,00 per kg");
+    page.shows("€ 0,00100");
+
+    let reply = owner
+        .post(
+            &path,
+            &[
+                ("price", "21,37"),
+                ("weight_g", "25000"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
+    let mut conn = pool.acquire().await.expect("conn");
+    let history = prices::history(&mut conn, k.flour).await.expect("history");
+    assert_eq!(
+        history[0].price,
+        UnitPrice::new(Money::from_cents(2137), 25_000).expect("price")
+    );
+    drop(conn);
+
+    let page = owner.get(&reply.location).await;
+    page.shows("€ 21,37 per 25 kg");
+    page.shows("€ 0,85");
+    page.shows("€ 0,00085");
+
+    // 500 g of flour a piece at €0,8548 a kilo: €0,4274.
+    let overview = owner.get("/staff/costing").await;
+    overview.shows("€ 21,37 per 25 kg");
+    overview.shows("€ 0,43");
+    let product = owner
+        .get(&format!("/staff/costing/products/{}", k.bread.get()))
+        .await;
+    product.shows("€ 21,37 per 25 kg");
+    product.shows("€ 0,4274");
+
+    let reply = owner
+        .post(
+            &path,
+            &[
+                ("price", "3,99"),
+                ("weight_g", "750"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
+    let page = owner.get(&reply.location).await;
+    page.shows("€ 3,99 per 750 g");
+    page.shows("€ 5,32");
+    page.shows("€ 0,00532");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_price_and_weight_must_be_sensible(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let path = format!("/staff/costing/ingredients/{}", k.flour.get());
+    for (price, weight, error) in [
+        ("", "1000", "costing-error-price"),
+        ("-1", "1000", "costing-error-price"),
+        ("100000,01", "1000", "costing-error-price"),
+        ("1,234", "1000", "costing-error-price"),
+        ("1", "", "costing-error-weight"),
+        ("1", "0", "costing-error-weight"),
+        ("1", "1000001", "costing-error-weight"),
+        ("1", "2,5", "costing-error-weight"),
+        ("1000", "1", "costing-error-per-kg-high"),
+    ] {
+        let reply = owner
+            .post(
+                &path,
+                &[
+                    ("price", price),
+                    ("weight_g", weight),
+                    ("valid_from", "2026-12-06"),
+                ],
+            )
+            .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{price} {weight}"
+        );
+        reply.shows(&dutch(error));
+        reply.shows(&format!(
+            "id=\"weight_g\" name=\"weight_g\" value=\"{weight}\""
+        ));
+    }
+    for (price, weight) in [
+        ("0", "1000"),
+        ("100000", "1000000"),
+        ("100", "1"),
+        ("21,37", "25.000"),
+    ] {
+        let reply = owner
+            .post(
+                &path,
+                &[
+                    ("price", price),
+                    ("weight_g", weight),
+                    ("valid_from", "2026-12-06"),
+                ],
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::SEE_OTHER, "{price} {weight}");
+    }
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        prices::history(&mut conn, k.flour)
+            .await
+            .expect("history")
+            .len(),
+        5
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_price_per_kilo_and_gram_show_while_typing(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let preview = format!("/staff/costing/ingredients/{}/preview", k.flour.get());
+
+    for (price, weight, shown) in [
+        (
+            "21,37",
+            "25000",
+            "Dat is € 0,85 per kilo en € 0,00085 per gram.",
+        ),
+        (
+            "3,99",
+            "750",
+            "Dat is € 5,32 per kilo en € 0,00532 per gram.",
+        ),
+        ("0", "1000", "Dat is € 0,00 per kilo en € 0,00000 per gram."),
+    ] {
+        let reply = owner
+            .post(&preview, &[("price", price), ("weight_g", weight)])
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{price} {weight}");
+        reply.shows("id=\"omrekening\"");
+        reply.shows(shown);
+        assert!(
+            !reply.text.contains(&dutch("form-has-errors")),
+            "{price} {weight}"
+        );
+    }
+    let half = owner
+        .post(&preview, &[("price", "21,37"), ("weight_g", "")])
+        .await;
+    half.shows(&dutch("costing-conversion-empty"));
+    let too_high = owner
+        .post(&preview, &[("price", "1000"), ("weight_g", "1")])
+        .await;
+    too_high.shows(&dutch("costing-error-per-kg-high"));
+    let bad_price = owner
+        .post(&preview, &[("price", "veel"), ("weight_g", "25000")])
+        .await;
+    bad_price.shows(&dutch("costing-error-price"));
+
+    let mut conn = pool.acquire().await.expect("conn");
+    assert_eq!(
+        prices::history(&mut conn, k.flour)
+            .await
+            .expect("history")
+            .len(),
+        1,
+        "a preview saves nothing"
+    );
+    let missing = owner
+        .post(
+            "/staff/costing/ingredients/999/preview",
+            &[("price", "1"), ("weight_g", "1000")],
+        )
+        .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_refused_weight_says_why_once(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let path = format!("/staff/costing/ingredients/{}", k.flour.get());
+    let reply = owner
+        .post(
+            &path,
+            &[
+                ("price", "1000"),
+                ("weight_g", "1"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        reply
+            .text
+            .matches(&dutch("costing-error-per-kg-high"))
+            .count(),
+        1
+    );
+    reply.shows(&dutch("costing-conversion-empty"));
+    let mut conn = pool.acquire().await.expect("conn");
+    let saved = prices::history(&mut conn, k.flour).await.expect("history");
+    assert_eq!(saved[0].price, UnitPrice::per_kg(Money::from_cents(100)));
 }
