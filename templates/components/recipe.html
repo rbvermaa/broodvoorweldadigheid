@@ -40,6 +40,12 @@
 <input type="hidden" name="part" value="{{ row.part }}"><input type="hidden" name="gewicht" value="{{ e.grams }}"><input type="hidden" name="seen" value="{{ e.stamp }}"></form>
 {% endmacro %}
 
+{% macro flour_row(e, row, label) %}
+<tr><td class="recipe-grams">{{ row.grams }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("wheat")? }}<span>{{ layout.t(label)? }}</span></span>
+{%- if !row.warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ row.warning }}</span></span>{% endif -%}
+</th><td class="recipe-pct">{{ row.pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+{%- endmacro %}
+
 {% macro editor(e) %}
 <section id="receptuur" class="recipe" aria-labelledby="receptuur-caption">
 <form id="schaal" class="recipe-scale" method="get" action="{{ e.page }}">
@@ -98,9 +104,12 @@
 {%- endfor %}
 {%- if let Some(ft) = e.footer %}
 <tfoot>
-<tr><td class="recipe-grams">{{ ft.flour }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("wheat")? }}<span>{{ layout.t("recipe-total-flour")? }}</span></span>
-{%- if !ft.flour_warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ ft.flour_warning }}</span></span>{% endif -%}
-</th><td class="recipe-pct">{{ ft.flour_pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+{%- if let Some(row) = ft.main_flour %}
+{% call flour_row(e, row, "recipe-main-flour") %}{% endcall %}
+{%- endif %}
+{%- if let Some(row) = ft.all_flour %}
+{% call flour_row(e, row, "recipe-total-flour") %}{% endcall %}
+{%- endif %}
 <tr><td class="recipe-grams">{{ ft.water }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("droplet")? }}<span>{{ layout.t("recipe-hydration")? }}</span></span>
 {%- if !ft.starter.is_empty() %}<span class="recipe-detail">{{ ft.starter }}</span>{% endif -%}
 </th><td class="recipe-pct">{{ ft.hydration }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>

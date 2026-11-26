@@ -13,11 +13,11 @@ use domain::{BatchId, IngredientId, ProductId, in_bakery_time};
 use orders::audit::Actor;
 use production::batches::{self, Actual, Adjustment, Batch, LineRef, Status};
 use recipes::schedule::default_start;
-use recipes::{Part, Pct, ScaleError, Scaled, ingredient_totals, ingredients};
+use recipes::{Part, ScaleError, Scaled, ingredient_totals, ingredients};
 use tower_sessions::Session;
 
 use super::bake_days::{self, day_path};
-use super::form::{Errors, Fields, parse_count, parse_pct, pct_value};
+use super::form::{Errors, Fields, parse_count, parse_pct, pct_text, pct_value};
 use super::recipes::method::{MethodView, Shown, load_view};
 use super::recipes::{Message, version_path};
 use super::{
@@ -79,10 +79,6 @@ fn kg_text(grams: u64) -> String {
 
 fn grams_text(grams: u64) -> String {
     i18n::decimal(i64::try_from(grams).unwrap_or(i64::MAX), 0)
-}
-
-fn pct_text(pct: Pct) -> String {
-    format!("{}%", pct_value(pct))
 }
 
 const fn status_message(status: Status) -> &'static str {

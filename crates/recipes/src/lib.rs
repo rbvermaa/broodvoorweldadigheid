@@ -15,7 +15,7 @@ pub mod schedule;
 
 pub use error::Error;
 pub use formula::{
-    Analysis, FlourWater, Formula, IngredientRef, IngredientRole, LeafGrams, Line,
+    Analysis, Base, FlourWater, Formula, IngredientRef, IngredientRole, LeafGrams, Line,
     MAX_STARTER_HYDRATION, Part, Pct, RecipeKind, ScaleError, Scaled, SubRecipe, dough_for_sum,
     ingredient_totals, leaf_grams, pct_for_grams,
 };

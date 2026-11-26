@@ -1,8 +1,9 @@
 //! Baker's percentages, sub-recipes, scaling and hydration (F14). Pure: no I/O.
 //!
-//! Every line's percentage is relative to the total flour of the recipe it is in, flour
-//! inside its sub-recipes included. A sub-recipe line at p% weighs p% of that flour, and
-//! its own lines split that weight in their own percentages.
+//! Every line's percentage is relative to the recipe's main-dough flour: its own flour
+//! lines, which together make 100%. Flour in starters and sub-recipes is not part of
+//! that base. A sub-recipe line at p% weighs p% of that flour, and its own lines split
+//! that weight in their own percentages, by the same rule ([`Base`], ADR 0053).
 
 use std::fmt;
 use std::str::FromStr;
@@ -24,6 +25,12 @@ impl Pct {
     #[must_use]
     pub const fn thousandths(self) -> u32 {
         self.0
+    }
+
+    /// In tenths of a percent, rounded half up: what screens and PDFs show.
+    #[must_use]
+    pub const fn tenths(self) -> u32 {
+        self.0 / 100 + (self.0 % 100) / 50
     }
 }
 
@@ -278,6 +285,7 @@ impl Formula {
         let scaled = self.scale(REFERENCE_GRAMS)?;
         let sums = leaf_grams(&scaled);
         let line_sum = self.line_sum();
+        let main_flour = Pct(u32::try_from(self.main_flour()).unwrap_or(u32::MAX));
         Ok(Analysis {
             hydration: percent_of(sums.water, sums.flour),
             prefermented_flour: percent_of(sums.prefermented_flour, sums.flour),
@@ -286,18 +294,42 @@ impl Formula {
                 u128::from(REFERENCE_GRAMS),
             )
             .unwrap_or_default(),
+            main_flour,
+            base: if main_flour.0 > 0 {
+                Base::MainFlour
+            } else if sums.flour > 0 {
+                Base::AllFlour
+            } else {
+                Base::Weight
+            },
         })
     }
 
+    /// The percentages of the recipe's own flour lines added up, in thousandths: the
+    /// main-dough flour. Starters and sub-recipes are not in it.
+    #[must_use]
+    pub fn main_flour(&self) -> u64 {
+        self.lines
+            .iter()
+            .filter(
+                |line| matches!(&line.part, Part::Ingredient(i) if i.role == IngredientRole::Flour),
+            )
+            .map(|line| u64::from(line.pct.0))
+            .sum()
+    }
+
     /// The percentages of this formula's own lines once the same lines count flour and
-    /// water as in `after` (an ingredient became a starter, or its hydration changed): every
-    /// line keeps its grams and the total flour stays what it was, so each percentage is
-    /// multiplied by old flour ÷ new flour and rounded half up to 0.001%, at least 0.001%. `None` when the
-    /// flour does not change, either formula has no flour or cannot be weighed, or the
-    /// lines differ in number.
+    /// water as in `after` (an ingredient became a starter, or its hydration changed), for
+    /// a recipe without flour lines of its own, whose base is all its flour ([`Base::AllFlour`]):
+    /// every line keeps its grams and the total flour stays what it was, so each percentage is
+    /// multiplied by old flour ÷ new flour and rounded half up to 0.001%, at least 0.001%.
+    /// `None` when either formula has flour lines of its own (the base is then those lines,
+    /// which a starter does not change), the flour does not change, either formula has no
+    /// flour or cannot be weighed, or the lines differ in number.
     #[must_use]
     pub fn rebased(&self, after: &Self) -> Option<Vec<Pct>> {
-        if self.lines.len() != after.lines.len() {
+        if self.lines.len() != after.lines.len() || self.main_flour() > 0 || after.main_flour() > 0
+        {
             return None;
         }
         let flour = |formula: &Self| {
@@ -427,9 +459,35 @@ pub struct Analysis {
     pub hydration: Option<Pct>,
     /// Flour inside preferments ÷ all flour; `None` without flour.
     pub prefermented_flour: Option<Pct>,
-    /// All flour in baker's percent of the recipe's own lines; 100% when the percentages
-    /// are consistent.
+    /// All flour, starters and sub-recipes included, in the units of the recipe's own lines.
     pub total_flour: Pct,
+    /// The recipe's own flour lines added up ([`Formula::main_flour`]).
+    pub main_flour: Pct,
+    pub base: Base,
+}
+
+/// What the percentages of a recipe's own lines are relative to (ADR 0053).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Base {
+    /// The recipe's own flour lines, which together make 100%.
+    MainFlour,
+    /// No flour lines of its own (a dough made from a levain, a starter on its own): all
+    /// its flour, from starters and sub-recipes, makes 100%.
+    AllFlour,
+    /// No flour at all (a filling, a topping): the percentages are shares of the weight.
+    Weight,
+}
+
+impl Analysis {
+    /// The figure that should be 100%; `None` for [`Base::Weight`], which has no check.
+    #[must_use]
+    pub const fn base_flour(&self) -> Option<Pct> {
+        match self.base {
+            Base::MainFlour => Some(self.main_flour),
+            Base::AllFlour => Some(self.total_flour),
+            Base::Weight => None,
+        }
+    }
 }
 
 /// Grams per ingredient over all levels, in order of first appearance.

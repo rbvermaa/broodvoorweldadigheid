@@ -3,8 +3,8 @@
 use domain::{IngredientId, RecipeId, RecipeVersionId};
 use proptest::prelude::*;
 use recipes::{
-    FlourWater, Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind, ScaleError,
-    Scaled, SubRecipe, ingredient_totals, leaf_grams,
+    Base, FlourWater, Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind,
+    ScaleError, Scaled, SubRecipe, ingredient_totals, leaf_grams,
 };
 
 fn pct(percent: u32) -> Pct {
@@ -524,48 +524,6 @@ fn a_starter_without_hydration_counts_as_neither() {
     assert_eq!(analysis.hydration, Some(pct(70)));
 }
 
-#[test]
-fn rebasing_keeps_the_grams_and_the_total_flour() {
-    let other = Formula {
-        lines: vec![
-            flour(100),
-            water(70),
-            salt(2),
-            ingredient(STARTER, "Desem", IngredientRole::Other, 20),
-        ],
-    };
-    let as_starter = Formula {
-        lines: vec![flour(100), water(70), salt(2), starter(20, 100)],
-    };
-    let pcts = other.rebased(&as_starter).unwrap();
-    let thousandths: Vec<u32> = pcts.iter().map(|p| p.thousandths()).collect();
-    assert_eq!(thousandths, vec![90_909, 63_636, 1_818, 18_182]);
-    let rebased = Formula {
-        lines: as_starter
-            .lines
-            .iter()
-            .zip(&pcts)
-            .map(|(line, pct)| Line {
-                pct: *pct,
-                part: line.part.clone(),
-            })
-            .collect(),
-    };
-    let analysis = rebased.analysis().unwrap();
-    assert_eq!(analysis.total_flour, pct(100));
-    assert_eq!(analysis.hydration, Some(Pct::from_thousandths(72_727)));
-    assert_eq!(
-        grams(&rebased.scale(1920).unwrap()),
-        vec![1000, 700, 20, 200]
-    );
-
-    assert_eq!(as_starter.rebased(&as_starter), None);
-    let no_flour = Formula {
-        lines: vec![water(100)],
-    };
-    assert_eq!(no_flour.rebased(&no_flour), None);
-}
-
 proptest! {
     #[test]
     fn a_starter_split_adds_up_and_is_within_a_gram(
@@ -623,73 +581,256 @@ proptest! {
         prop_assert_eq!(with_starter.analysis(), with_levain.analysis());
     }
 
+
     #[test]
     fn rebasing_keeps_total_flour_within_rounding(
-        own_flour in 1u32..=100,
         own_water in 0u32..=100,
-        starter_pct in 1u32..=100,
-        hydration in 0u32..=500,
+        starter_pct in 1u32..=200,
+        before_hydration in 0u32..=500,
+        after_hydration in 0u32..=500,
     ) {
-        let lines = |part: Part| vec![
-            flour(own_flour),
-            water(own_water),
-            Line { pct: pct(starter_pct), part },
-        ];
-        let before = Formula {
-            lines: lines(Part::Ingredient(IngredientRef {
-                role: IngredientRole::Other,
-                hydration: None,
-                ..starter_ref(None)
-            })),
-        };
-        let after = Formula {
-            lines: lines(Part::Ingredient(starter_ref(Some(hydration * 1000)))),
-        };
+        prop_assume!(before_hydration != after_hydration);
+        let lines = |hydration: u32| vec![water(own_water), salt(2), starter(starter_pct, hydration)];
+        let before = Formula { lines: lines(before_hydration) };
+        let after = Formula { lines: lines(after_hydration) };
         let pcts = before.rebased(&after).unwrap();
-        let rebased = Formula {
-            lines: after
-                .lines
-                .iter()
-                .zip(&pcts)
-                .map(|(line, pct)| Line { pct: *pct, part: line.part.clone() })
-                .collect(),
-        };
+        let rebased = with_pcts(&after, &pcts);
         let old = before.analysis().unwrap().total_flour.thousandths();
         let new = rebased.analysis().unwrap().total_flour.thousandths();
         prop_assert!(old.abs_diff(new) <= 2, "{old} vs {new}");
     }
 }
 
+fn with_pcts(formula: &Formula, pcts: &[Pct]) -> Formula {
+    Formula {
+        lines: formula
+            .lines
+            .iter()
+            .zip(pcts)
+            .map(|(line, pct)| Line {
+                pct: *pct,
+                part: line.part.clone(),
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn a_starter_does_not_rebase_a_recipe_with_its_own_flour() {
+    // The base is the dough's own flour, which a starter's role or hydration leaves alone.
+    let other = Formula {
+        lines: vec![
+            flour(100),
+            water(70),
+            salt(2),
+            ingredient(STARTER, "Desem", IngredientRole::Other, 20),
+        ],
+    };
+    let as_starter = Formula {
+        lines: vec![flour(100), water(70), salt(2), starter(20, 100)],
+    };
+    assert_eq!(other.rebased(&as_starter), None);
+    let stiffer = Formula {
+        lines: vec![flour(100), water(70), salt(2), starter(20, 50)],
+    };
+    assert_eq!(as_starter.rebased(&stiffer), None);
+}
+
+#[test]
+fn rebasing_keeps_the_grams_and_the_total_flour_without_own_flour() {
+    // A dough made from a starter only: its base is all its flour (ADR 0053).
+    let before = Formula {
+        lines: vec![starter(200, 100), water(50), salt(2)],
+    };
+    let after = Formula {
+        lines: vec![starter(200, 50), water(50), salt(2)],
+    };
+    assert_eq!(before.analysis().unwrap().base, Base::AllFlour);
+    let pcts = before.rebased(&after).unwrap();
+    let thousandths: Vec<u32> = pcts.iter().map(|p| p.thousandths()).collect();
+    assert_eq!(thousandths, vec![150_000, 37_500, 1_500]);
+    let rebased = with_pcts(&after, &pcts);
+    let analysis = rebased.analysis().unwrap();
+    assert_eq!(analysis.base_flour(), Some(pct(100)));
+    assert_eq!(
+        grams(&rebased.scale(2520).unwrap()),
+        grams(&before.scale(2520).unwrap())
+    );
+
+    assert_eq!(after.rebased(&after), None);
+    let no_flour = Formula {
+        lines: vec![water(100)],
+    };
+    assert_eq!(no_flour.rebased(&no_flour), None);
+}
+
 #[test]
 fn rebasing_never_drops_a_line_to_zero() {
-    let lines = |role, hydration| {
+    let lines = |hydration| {
         vec![
-            flour(1),
             Line {
                 pct: Pct::from_thousandths(1),
                 part: water(1).part,
             },
-            Line {
-                pct: pct(500),
-                part: Part::Ingredient(IngredientRef {
-                    role,
-                    hydration,
-                    ..starter_ref(None)
-                }),
-            },
+            starter(500, hydration),
         ]
     };
-    let before = Formula {
-        lines: lines(IngredientRole::Other, None),
-    };
-    let after = Formula {
-        lines: lines(IngredientRole::Starter, Some(Pct::from_thousandths(0))),
-    };
+    let before = Formula { lines: lines(500) };
+    let after = Formula { lines: lines(0) };
     let thousandths: Vec<u32> = before
         .rebased(&after)
         .unwrap()
         .iter()
         .map(|p| p.thousandths())
         .collect();
-    assert_eq!(thousandths, vec![2, 1, 998]);
+    assert_eq!(thousandths, vec![1, 83_333]);
+}
+
+fn named_flour(id: i64, name: &str, percent: u32) -> Line {
+    ingredient(id, name, IngredientRole::Flour, percent)
+}
+
+/// The owner's Landbrood: own flours 70/15/15, water 70%, salt 2% and 20% of a starter
+/// at 50% hydration.
+fn landbrood() -> Formula {
+    Formula {
+        lines: vec![
+            named_flour(FLOUR, "Tarwebloem", 70),
+            named_flour(6, "Speltmeel", 15),
+            named_flour(7, "Roggemeel", 15),
+            water(70),
+            salt(2),
+            starter(20, 50),
+        ],
+    }
+}
+
+#[test]
+fn percentages_are_relative_to_the_main_dough_flour() {
+    let dough = landbrood();
+    let analysis = dough.analysis().unwrap();
+    assert_eq!(analysis.base, Base::MainFlour);
+    assert_eq!(analysis.main_flour, pct(100));
+    assert_eq!(analysis.base_flour(), Some(pct(100)));
+    // The starter's 20% holds 13.333% flour and 6.667% water.
+    assert_eq!(analysis.total_flour, Pct::from_thousandths(113_333));
+    assert_eq!(analysis.hydration, Some(Pct::from_thousandths(67_647)));
+    assert_eq!(
+        analysis.prefermented_flour,
+        Some(Pct::from_thousandths(11_765))
+    );
+    assert_eq!(dough.main_flour(), 100_000);
+    let scaled = dough.scale(1920).unwrap();
+    assert_eq!(grams(&scaled), vec![700, 150, 150, 700, 20, 200]);
+    let leaves = leaf_grams(&scaled);
+    assert_eq!((leaves.flour, leaves.water), (1133, 767));
+}
+
+#[test]
+fn main_flour_off_shows_in_the_base() {
+    let dough = Formula {
+        lines: vec![flour(90), water(65), levain(20)],
+    };
+    let analysis = dough.analysis().unwrap();
+    assert_eq!(analysis.base_flour(), Some(pct(90)));
+    assert_eq!(analysis.total_flour, pct(100));
+}
+
+#[test]
+fn without_own_flour_the_base_is_all_flour_and_without_flour_the_weight() {
+    let from_levain = Formula {
+        lines: vec![levain(200), water(50), salt(2)],
+    };
+    let analysis = from_levain.analysis().unwrap();
+    assert_eq!(analysis.base, Base::AllFlour);
+    assert_eq!(analysis.main_flour, Pct::default());
+    assert_eq!(analysis.base_flour(), Some(pct(100)));
+
+    let filling = Formula {
+        lines: vec![salt(60), water(40)],
+    };
+    let analysis = filling.analysis().unwrap();
+    assert_eq!(analysis.base, Base::Weight);
+    assert_eq!(analysis.base_flour(), None);
+}
+
+#[test]
+fn percentages_show_with_one_decimal_rounded_half_up() {
+    let tenths = |t| Pct::from_thousandths(t).tenths();
+    assert_eq!(tenths(113_333), 1133);
+    assert_eq!(tenths(79_050), 791);
+    assert_eq!(tenths(2_249), 22);
+    assert_eq!(tenths(2_250), 23);
+    assert_eq!(tenths(100_000), 1000);
+    assert_eq!(tenths(49), 0);
+    assert_eq!(tenths(50), 1);
+}
+
+/// What the main-dough migration (ADR 0053) does to a version's own lines: each
+/// percentage times total flour ÷ main flour, rounded half up to 0.001%.
+fn migrated(formula: &Formula) -> Option<Formula> {
+    let main = u128::from(formula.main_flour());
+    let total = u128::from(formula.analysis().ok()?.total_flour.thousandths());
+    if main == 0 || main == total {
+        return None;
+    }
+    let pcts: Vec<Pct> = formula
+        .lines
+        .iter()
+        .map(|line| {
+            let value = (u128::from(line.pct.thousandths()) * total * 2 + main) / (main * 2);
+            u32::try_from(value).ok().map(Pct::from_thousandths)
+        })
+        .collect::<Option<_>>()?;
+    Some(with_pcts(formula, &pcts))
+}
+
+/// Every leaf's grams with its depth, in order.
+fn leaves(scaled: &[Scaled<'_>], depth: u64, out: &mut Vec<(u64, u64)>) {
+    for line in scaled {
+        match &line.line.part {
+            Part::Ingredient(_) => out.push((line.grams, depth)),
+            Part::Sub(_) => leaves(&line.lines, depth + 1, out),
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn one_decimal_is_within_half_a_tenth(thousandths in 0u32..=1_000_000) {
+        let tenths = Pct::from_thousandths(thousandths).tenths();
+        let diff = i64::from(tenths) * 100 - i64::from(thousandths);
+        prop_assert!((-49..=50).contains(&diff), "{thousandths} -> {tenths}");
+    }
+
+    #[test]
+    fn migrating_to_the_main_dough_base_keeps_the_grams(
+        formula in formula(),
+        target in 0u64..=200_000,
+    ) {
+        let Some(after) = migrated(&formula) else {
+            return Ok(());
+        };
+        prop_assume!(after.lines.iter().all(|l| l.pct.thousandths() <= 1_000_000));
+        let analysis = after.analysis().unwrap();
+        let old_total = formula.analysis().unwrap().total_flour.thousandths();
+        // The new main flour is the old total flour, give or take half a thousandth a line.
+        let lines = u32::try_from(after.lines.len()).unwrap();
+        prop_assert!(analysis.main_flour.thousandths().abs_diff(old_total) <= lines);
+        let (mut old, mut new) = (Vec::new(), Vec::new());
+        leaves(&formula.scale(target).unwrap(), 0, &mut old);
+        leaves(&after.scale(target).unwrap(), 0, &mut new);
+        // Each leaf's exact share moves by less than target · (n + 1) / (2 · S'), from
+        // rounding the n percentages; whole grams add less than depth + 1 on each side.
+        let sum = u128::from(after.line_sum());
+        let n = u128::from(lines);
+        for ((before, depth), (got, _)) in old.iter().zip(&new) {
+            let diff = u128::from(before.abs_diff(*got));
+            let slack = 2 * (u128::from(*depth) + 1);
+            prop_assert!(
+                2 * sum * diff.saturating_sub(slack) <= u128::from(target) * (n + 1),
+                "{before} g became {got} g at {target} g"
+            );
+        }
+    }
 }

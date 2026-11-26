@@ -1215,91 +1215,81 @@ async fn a_frozen_version_keeps_its_starter_hydration(mut conn: PoolConnection<P
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
-async fn a_draft_keeps_its_grams_when_an_ingredient_becomes_a_starter(
+async fn a_draft_keeps_its_main_dough_percentages_when_an_ingredient_becomes_a_starter(
     mut conn: PoolConnection<Postgres>,
 ) {
     let k = kitchen(&mut conn).await;
     let desem = ingredient(&mut conn, "Desem", IngredientRole::Other).await;
     let (_, v1) = recipe(&mut conn, "Landbrood", RecipeKind::Dough).await;
-    let lines = |desem_part: LinePart| {
-        vec![
+    store::save_draft(
+        &mut conn,
+        v1.id,
+        &draft(vec![
             line(LinePart::Ingredient(k.flour), 100),
             line(LinePart::Ingredient(k.water), 70),
             line(LinePart::Ingredient(k.salt), 2),
-            line(desem_part, 20),
-        ]
-    };
-    store::save_draft(&mut conn, v1.id, &draft(lines(LinePart::Ingredient(desem))))
-        .await
-        .unwrap();
-    let (_, bread) = recipe(&mut conn, "Brood met desembrood", RecipeKind::Dough).await;
-    store::save_draft(
-        &mut conn,
-        bread.id,
-        &draft(vec![
-            line(LinePart::Ingredient(k.flour), 100),
-            line(LinePart::Sub(v1.id), 50),
+            line(LinePart::Ingredient(desem), 20),
         ]),
     )
     .await
     .unwrap();
-    let outer_before = store::formula(&mut conn, bread.id)
-        .await
-        .unwrap()
-        .analysis()
-        .unwrap()
-        .total_flour;
+    // Without flour of its own, all its flour is the base (ADR 0053).
+    let (_, starter_only) = recipe(&mut conn, "Desemdeeg", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        starter_only.id,
+        &draft(vec![
+            line(LinePart::Ingredient(desem), 200),
+            line(LinePart::Ingredient(k.water), 50),
+            line(LinePart::Ingredient(k.salt), 2),
+        ]),
+    )
+    .await
+    .unwrap();
+    let thousandths =
+        |lines: Vec<LineInput>| -> Vec<u32> { lines.iter().map(|l| l.pct.thousandths()).collect() };
 
     ingredients::update(&mut conn, desem, &starter_input("Desem", Some(100)))
         .await
         .unwrap();
-    let thousandths =
-        |lines: Vec<LineInput>| -> Vec<u32> { lines.iter().map(|l| l.pct.thousandths()).collect() };
     assert_eq!(
         thousandths(store::lines(&mut conn, v1.id).await.unwrap()),
-        vec![90_909, 63_636, 1_818, 18_182]
+        vec![100_000, 70_000, 2_000, 20_000],
+        "the main dough's flour is still the base"
     );
     let analysis = store::formula(&mut conn, v1.id)
         .await
         .unwrap()
         .analysis()
         .unwrap();
-    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.main_flour, pct(100));
+    assert_eq!(analysis.total_flour, pct(110));
     assert_eq!(analysis.hydration, Some(Pct::from_thousandths(72_727)));
-    let outer = store::formula(&mut conn, bread.id)
-        .await
-        .unwrap()
-        .analysis()
-        .unwrap();
     assert_eq!(
-        outer.total_flour, outer_before,
-        "the dough using it keeps its total too"
+        thousandths(store::lines(&mut conn, starter_only.id).await.unwrap()),
+        vec![200_000, 50_000, 2_000],
+        "from no flour to flour: nothing to keep"
     );
 
-    ingredients::update(&mut conn, desem, &starter_input("Desem", Some(100)))
-        .await
-        .unwrap();
-    assert_eq!(
-        thousandths(store::lines(&mut conn, v1.id).await.unwrap()),
-        vec![90_909, 63_636, 1_818, 18_182],
-        "an unchanged hydration changes nothing"
-    );
     ingredients::update(&mut conn, desem, &starter_input("Desem", Some(50)))
         .await
         .unwrap();
-    let analysis = store::formula(&mut conn, v1.id)
-        .await
-        .unwrap()
-        .analysis()
-        .unwrap();
-    assert_eq!(analysis.total_flour, pct(100));
-    let scaled_grams: Vec<u64> = store::formula(&mut conn, v1.id)
-        .await
-        .unwrap()
-        .scale(1920)
+    assert_eq!(
+        thousandths(store::lines(&mut conn, v1.id).await.unwrap()),
+        vec![100_000, 70_000, 2_000, 20_000]
+    );
+    assert_eq!(
+        thousandths(store::lines(&mut conn, starter_only.id).await.unwrap()),
+        vec![150_000, 37_500, 1_500],
+        "keeps its grams and its total flour"
+    );
+    let formula = store::formula(&mut conn, starter_only.id).await.unwrap();
+    assert_eq!(formula.analysis().unwrap().total_flour, pct(100));
+    let scaled_grams: Vec<u64> = formula
+        .scale(1890)
         .unwrap()
         .iter()
         .map(|s| s.grams)
         .collect();
-    assert_eq!(scaled_grams, vec![1000, 700, 20, 200], "the grams stay");
+    assert_eq!(scaled_grams, vec![1500, 375, 15], "the grams stay");
 }

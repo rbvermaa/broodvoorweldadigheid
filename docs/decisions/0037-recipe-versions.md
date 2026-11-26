@@ -2,6 +2,10 @@
 
 Status: proposed, 2026-12-01
 
+Amended 2026-11-26: the percentage base (all flour), the total-flour warning and rebasing
+drafts on starter changes are superseded by ADR 0053: the base is a version's own flour
+lines, the main dough, at 100%.
+
 First slice of F14: ingredients, recipes with versions, sub-recipes, hydration and scaling,
 with back-office screens under `/staff/ingredients` and `/staff/recipes`. Costing (F16),
 the allergen roll-up (F17) and batches (F14a) come later.
