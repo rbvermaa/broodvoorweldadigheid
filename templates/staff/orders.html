@@ -11,13 +11,10 @@
 <p><a href="{{ pickup_list }}">{{ layout.t("pickup-list-title")? }}</a></p>
 {% if let Some(path) = production %}<p><a href="{{ path }}">{{ layout.t("production-title")? }}</a></p>{% endif %}
 {% if let Some(path) = cancel_day %}<p><a href="{{ path }}">{{ layout.t("staff-orders-cancel-day")? }}</a></p>{% endif %}
-<form method="get" action="{{ action }}">
+{% call se::search(search) %}
 {% call f::select("status", layout.t("staff-order-status")?, statuses) %}{% endcall %}
 {% call f::select("locatie", layout.t("staff-orders-filter-location")?, locations) %}{% endcall %}
-{% if !search.q.is_empty() %}<input type="hidden" name="q" value="{{ search.q }}">{% endif %}
-{% call b::button(layout.t("staff-orders-filter")?, variant = "secondary", kind = "submit") %}{% endcall %}
-</form>
-{% call se::search(search) %}{% endcall %}
+{% endcall %}
 <div id="resultaten">
 {% if table.rows.is_empty() %}
 {% if search.q.is_empty() %}{% call fb::empty_state(layout.t("staff-orders-empty-title")?, layout.t("staff-orders-empty-text")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}

@@ -636,14 +636,16 @@ expression: without_asset_hashes(&gallery_html(&state))
 <section class="gallery-section" aria-labelledby="gallery-tables">
 <h2 id="gallery-tables">Tabellen</h2>
 
-<form class="search" method="get" action="/gallery" role="search">
+<form class="search" method="get" action="/gallery" role="search" hx-get="/gallery" hx-trigger="submit, input changed delay:250ms from:#q, search from:#q, change" hx-sync="this:replace" hx-target="#resultaten" hx-select="#resultaten" hx-select-oob="#zoekresultaat:innerHTML" hx-swap="outerHTML" hx-replace-url="true">
+
 <label class="field-label" for="q">Zoeken</label>
 <div class="search-row">
-<input class="field-input" type="search" id="q" name="q" value="crème" maxlength="100" autocomplete="off" data-search hx-get="/gallery" hx-trigger="input changed delay:250ms, search" hx-include="closest form" hx-target="#resultaten" hx-select="#resultaten" hx-swap="outerHTML" hx-push-url="true">
+<input class="field-input" type="search" id="q" name="q" value="crème" maxlength="100" autocomplete="off" data-search>
 
 <button type="submit" class="button button-secondary"><span class="button-label">Zoek</span></button>
 
 </div>
+<p class="visually-hidden" id="zoekresultaat" aria-live="polite"></p>
 </form>
 
 <div id="resultaten">

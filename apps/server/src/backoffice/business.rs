@@ -166,7 +166,7 @@ pub async fn list(
             &ListPage {
                 layout: Layout::new(&state),
                 saved,
-                search: search.view(&state, LIST, Vec::new()),
+                search: search.view(&state, LIST, table.rows.len()),
                 invoicing,
                 table,
             },

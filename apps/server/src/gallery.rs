@@ -67,8 +67,8 @@ impl<'a> Gallery<'a> {
         let search = SearchBox {
             action: "/gallery".to_owned(),
             q: "crème".to_owned(),
-            keep: Vec::new(),
             none: i18n.t("search-none", Some(&query))?,
+            found: String::new(),
         };
         Ok(Self {
             layout,

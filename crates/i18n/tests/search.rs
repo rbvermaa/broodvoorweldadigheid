@@ -20,3 +20,9 @@ fn other_text_stays() {
     assert_eq!(search_key("  Twee  woorden "), "  twee  woorden ");
     assert_eq!(search_key("€ 5,25 🍞"), "€ 5,25 🍞");
 }
+
+#[test]
+fn combining_accents_are_dropped_too() {
+    assert_eq!(search_key("Cre\u{300}me"), "creme");
+    assert_eq!(search_key("İstanbul"), "istanbul");
+}

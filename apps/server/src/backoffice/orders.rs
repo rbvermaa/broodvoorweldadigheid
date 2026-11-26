@@ -210,7 +210,7 @@ pub async fn days_list(
             StatusCode::OK,
             &DaysPage {
                 layout: Layout::new(&state),
-                search: search.view(&state, "/staff/orders", Vec::new()),
+                search: search.view(&state, "/staff/orders", table.rows.len()),
                 table,
             },
         ))
@@ -354,18 +354,7 @@ pub async fn list(
                     "staff-orders-day-heading",
                     &[("date", state.i18n.long_date(day.date))],
                 ),
-                search: search.view(
-                    &state,
-                    &day_orders_path(&day),
-                    [
-                        ("status", query.status.clone()),
-                        ("locatie", query.locatie.clone()),
-                    ]
-                    .into_iter()
-                    .filter_map(|(name, value)| Some((name.to_owned(), value?)))
-                    .filter(|(_, value)| !value.is_empty())
-                    .collect(),
-                ),
+                search: search.view(&state, &day_orders_path(&day), table.rows.len()),
                 action: day_orders_path(&day),
                 statuses,
                 locations,

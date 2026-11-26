@@ -1,9 +1,12 @@
 /// `text` in lower case without accents, so "Crème" and "creme" compare equal (F24).
-/// Covers Latin-1 and Latin Extended-A, which is what Dutch names and addresses use;
-/// other characters stay as they are.
+/// Covers Latin-1 and Latin Extended-A, which is what Dutch names and addresses use, and
+/// drops combining accents; other characters stay as they are.
 pub fn search_key(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars().flat_map(char::to_lowercase) {
+        if ('\u{300}'..='\u{36f}').contains(&c) {
+            continue;
+        }
         match fold(c) {
             Some(plain) => out.push_str(plain),
             None => out.push(c),

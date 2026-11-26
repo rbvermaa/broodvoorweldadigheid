@@ -1,18 +1,19 @@
 {# search: backoffice::SearchBox. A GET form above a list (F24, ADR 0051). Without
-   JavaScript it is a normal form; with htmx the list swaps in while typing and the URL
-   follows, so a filtered list can be bookmarked. "/" focuses it (design/app.js). #}
+   JavaScript it is a normal form; with htmx the list swaps in while typing, the URL
+   follows and the live region says how many rows were found. Other filters of the list
+   go in the caller block, so every search sends them. "/" focuses the field
+   (design/app.js). #}
 {% import "components/button.html" as b %}
 {% import "components/feedback.html" as fb %}
 {% macro search(s) %}
-<form class="search" method="get" action="{{ s.action }}" role="search">
-{%- for (name, value) in s.keep %}
-<input type="hidden" name="{{ name }}" value="{{ value }}">
-{%- endfor %}
+<form class="search" method="get" action="{{ s.action }}" role="search" hx-get="{{ s.action }}" hx-trigger="submit, input changed delay:250ms from:#q, search from:#q, change" hx-sync="this:replace" hx-target="#resultaten" hx-select="#resultaten" hx-select-oob="#zoekresultaat:innerHTML" hx-swap="outerHTML" hx-replace-url="true">
+{{ caller() }}
 <label class="field-label" for="q">{{ layout.t("search-label")? }}</label>
 <div class="search-row">
-<input class="field-input" type="search" id="q" name="q" value="{{ s.q }}" maxlength="100" autocomplete="off" data-search hx-get="{{ s.action }}" hx-trigger="input changed delay:250ms, search" hx-include="closest form" hx-target="#resultaten" hx-select="#resultaten" hx-swap="outerHTML" hx-push-url="true">
+<input class="field-input" type="search" id="q" name="q" value="{{ s.q }}" maxlength="100" autocomplete="off" data-search>
 {% call b::button(layout.t("search-submit")?, variant = "secondary", kind = "submit") %}{% endcall %}
 </div>
+<p class="visually-hidden" id="zoekresultaat" aria-live="polite">{{ s.found }}</p>
 </form>
 {% endmacro %}
 

@@ -212,7 +212,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
-                search: search.view(&state, LIST, Vec::new()),
+                search: search.view(&state, LIST, table.rows.len()),
                 table,
                 saved,
             },

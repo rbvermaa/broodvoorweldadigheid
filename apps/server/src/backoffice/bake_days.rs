@@ -310,9 +310,9 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, LIST, table.rows.len()),
                 table,
                 saved,
-                search: search.view(&state, LIST, Vec::new()),
                 repeated: flash
                     .herhaald
                     .map(|n| t_count(&state, "day-repeated", n))

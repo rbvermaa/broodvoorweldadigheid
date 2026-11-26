@@ -4639,11 +4639,14 @@ async fn charities_are_found_ignoring_case_and_accents(pool: PgPool) {
     page.shows("Crème de la Crème");
     page.lacks("Voedselbank");
     page.shows(
-        "<form class=\"search\" method=\"get\" action=\"/staff/charities\" role=\"search\">",
+        "<form class=\"search\" method=\"get\" action=\"/staff/charities\" role=\"search\" hx-get=\"/staff/charities\" hx-trigger=\"submit, input changed delay:250ms from:#q, search from:#q, change\"",
     );
+    page.shows("hx-replace-url=\"true\"");
     page.shows("name=\"q\" value=\"CREME\"");
-    page.shows("hx-trigger=\"input changed delay:250ms, search\"");
-    page.shows("hx-push-url=\"true\"");
+    page.shows(&format!(
+        "<p class=\"visually-hidden\" id=\"zoekresultaat\" aria-live=\"polite\">{}</p>",
+        dutch_count("search-count", 1)
+    ));
 
     let both = owner.get("/staff/charities?q=").await;
     both.shows("Crème de la Crème");
@@ -4792,8 +4795,14 @@ async fn orders_of_a_bread_drop_are_found_by_number_name_or_email(pool: PgPool) 
     none.shows(&found_none("iemand@anders.nl"));
     none.lacks(&format!(">{number}<"));
     let filtered = owner.get(&format!("{list}?status=paid&q=klant")).await;
-    filtered.shows("<input type=\"hidden\" name=\"status\" value=\"paid\">");
-    filtered.shows("<input type=\"hidden\" name=\"q\" value=\"klant\">");
+    let form = filtered
+        .text
+        .split("<form class=\"search\"")
+        .nth(1)
+        .and_then(|rest| rest.split("</form>").next())
+        .expect("one search form");
+    assert!(form.contains("<option value=\"paid\" selected>"), "{form}");
+    assert!(form.contains("name=\"q\" value=\"klant\""), "{form}");
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -4844,14 +4853,19 @@ async fn a_searched_email_address_never_reaches_the_logs(pool: PgPool) {
     let paid = paid_order(&app).await;
     let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
     tracing::info!("search log test starts");
-    for path in [
-        format!(
-            "/staff/bake-days/{}/orders?q=geheim%40example.nl",
-            paid.day.get()
-        ),
-        "/staff/business-accounts?q=geheim%40example.nl".to_owned(),
-        "/staff/charities?q=geheim%40example.nl".to_owned(),
+    let orders = format!("/staff/bake-days/{}/orders", paid.day.get());
+    for list in [
+        orders.as_str(),
+        "/staff/orders",
+        "/staff/bake-days",
+        "/staff/business-accounts",
+        "/staff/products",
+        "/staff/ingredients",
+        "/staff/recipes",
+        "/staff/charities",
+        "/staff/polls",
     ] {
+        let path = format!("{list}?q=geheim%40example.nl");
         assert_eq!(owner.get(&path).await.status, StatusCode::OK, "{path}");
     }
     let logs = String::from_utf8(captured.0.lock().expect("lock").clone()).expect("utf-8");

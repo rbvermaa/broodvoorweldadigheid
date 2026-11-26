@@ -39,8 +39,10 @@ document.addEventListener("keydown", (event) => {
 // "/" jumps to the search field above a list (templates/components/search.html).
 document.addEventListener("keydown", (event) => {
   const field = document.querySelector("[data-search]");
-  if (event.key === "/" && field && !event.target.closest("input, textarea, select, [contenteditable]")) {
+  const typing = event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+  if (event.key === "/" && field && !typing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.defaultPrevented) {
     event.preventDefault();
     field.focus();
+    field.select();
   }
 });

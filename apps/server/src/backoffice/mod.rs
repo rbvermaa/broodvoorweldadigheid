@@ -143,8 +143,7 @@ pub struct SavedRow {
     pub href: String,
 }
 
-/// `?q=` above a long list (F24, ADR 0051). Filtering happens in Rust on the rows the
-/// list loads anyway, so the term never reaches SQL.
+/// `?q=` above a long list (F24, ADR 0051).
 #[derive(Debug, Default, Deserialize)]
 pub struct Search {
     #[serde(default)]
@@ -158,10 +157,6 @@ impl Search {
         self.q.trim().chars().take(Self::MAX_CHARS).collect()
     }
 
-    pub fn is_active(&self) -> bool {
-        !self.text().is_empty()
-    }
-
     /// Whether every word of the term is in one of `fields`, ignoring case and accents.
     pub fn matches(&self, fields: &[&str]) -> bool {
         let term = i18n::search_key(&self.text());
@@ -170,14 +165,22 @@ impl Search {
             .all(|word| haystack.iter().any(|field| field.contains(word)))
     }
 
-    /// The search field for the list at `action`; `keep` are other filters it sends along.
-    pub fn view(&self, state: &AppState, action: &str, keep: Vec<(String, String)>) -> SearchBox {
+    /// The search field for the list at `action`, which shows `found` rows.
+    pub fn view(&self, state: &AppState, action: &str, found: usize) -> SearchBox {
         let q = self.text();
         SearchBox {
             action: action.to_owned(),
             none: t_with(state, "search-none", &[("q", q.clone())]),
+            found: if q.is_empty() {
+                String::new()
+            } else {
+                t_count(
+                    state,
+                    "search-count",
+                    u32::try_from(found).unwrap_or(u32::MAX),
+                )
+            },
             q,
-            keep,
         }
     }
 }
@@ -187,9 +190,10 @@ impl Search {
 pub struct SearchBox {
     pub action: String,
     pub q: String,
-    pub keep: Vec<(String, String)>,
     /// "Niets gevonden voor «q»".
     pub none: String,
+    /// For the live region: how many rows the search found; empty without a search.
+    pub found: String,
 }
 
 pub enum RowChange {

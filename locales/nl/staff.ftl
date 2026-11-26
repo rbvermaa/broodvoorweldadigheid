@@ -293,7 +293,6 @@ staff-orders-days-empty = Er zijn geen Bread Drops in deze periode.
 staff-orders-day-heading = Bestellingen voor { $date }
 staff-orders-back = Andere Bread Drop kiezen
 staff-orders-caption = Bestellingen
-staff-orders-filter = Filteren
 staff-orders-filter-any = Alle
 staff-orders-filter-location = Ophaallocatie
 staff-orders-empty-title = Geen bestellingen
@@ -491,3 +490,8 @@ search-label = Zoeken
 search-submit = Zoek
 search-none = Niets gevonden voor «{ $q }»
 search-none-text = Probeer een ander woord, of maak het zoekveld leeg.
+search-count = { $n ->
+    [0] Niets gevonden
+    [one] 1 gevonden
+   *[other] { $n } gevonden
+}

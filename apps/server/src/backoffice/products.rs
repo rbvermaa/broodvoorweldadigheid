@@ -513,9 +513,9 @@ async fn run_list(
         StatusCode::OK,
         &ListPage {
             layout: layout(state, session).await?,
+            search: search.view(state, LIST, table.rows.len()),
             table,
             saved,
-            search: search.view(state, LIST, Vec::new()),
             kitchen_unapproved: kitchen.approval.is_none(),
         },
     ))
