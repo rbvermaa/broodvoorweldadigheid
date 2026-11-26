@@ -147,6 +147,14 @@ pub async fn update(
     let mut tx = conn.begin().await?;
     // Taken before reading, so no freeze or other edit can slip in before the update.
     lock_graph(&mut tx).await?;
+    // Batch lines take only their batch lock; their foreign key waits for this row lock,
+    // so a starter added to a batch meanwhile is seen by the check below.
+    sqlx::query!(
+        "SELECT id FROM ingredient WHERE id = $1 FOR UPDATE",
+        id.get()
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     let current = get(&mut tx, id).await?;
     let counts_differently = current.role != input.role || current.hydration != hydration;
     let mut drafts = Vec::new();
