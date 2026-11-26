@@ -29,6 +29,7 @@ fn leaf(id: i64, percent: u32) -> Line {
             id: IngredientId::new(id),
             name: format!("ingredient {id}"),
             role: IngredientRole::Other,
+            hydration: None,
         }),
     }
 }
@@ -53,6 +54,7 @@ fn known(id: i64, name: &str, label: &str, allergens: &[Allergen]) -> Ingredient
         name: name.to_owned(),
         label_name: label.to_owned(),
         role: IngredientRole::Other,
+        hydration: None,
         supplier_name: String::new(),
         allergens: allergens.iter().copied().collect(),
     }
@@ -230,6 +232,7 @@ fn ingredients_strategy() -> impl Strategy<Value = HashMap<IngredientId, Ingredi
                     name: format!("Ingrediënt {id}"),
                     label_name: format!("naam {}", id % 4),
                     role: IngredientRole::Other,
+                    hydration: None,
                     supplier_name: String::new(),
                     allergens,
                 })
@@ -357,6 +360,7 @@ async fn ingredient(
             name: name.to_owned(),
             label_name: label.to_owned(),
             role: IngredientRole::Other,
+            hydration: None,
             supplier_name: String::new(),
             allergens: allergens.iter().copied().collect(),
         },

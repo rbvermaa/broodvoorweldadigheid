@@ -22,6 +22,7 @@ fn leaf(id: i64, thousandths: u32) -> Line {
             id: IngredientId::new(id),
             name: format!("ingredient {id}"),
             role: IngredientRole::Other,
+            hydration: None,
         }),
     }
 }
