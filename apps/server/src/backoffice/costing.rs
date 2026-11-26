@@ -19,7 +19,7 @@ use recipes::prices::{self, NewPrice, NoCost, StandardCost};
 use recipes::{Ingredient, ingredients};
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields, parse_count, parse_date, parse_money};
+use super::form::{Errors, Fields, parse_date, parse_grams, parse_money};
 use super::reports::money;
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
@@ -327,7 +327,7 @@ impl PriceForm {
         if cents.is_none() {
             errors.add("price", t(state, "costing-error-price"));
         }
-        let weight = parse_count(&self.weight_g).filter(|g| (1..=prices::MAX_WEIGHT_G).contains(g));
+        let weight = parse_grams(&self.weight_g).filter(|g| (1..=prices::MAX_WEIGHT_G).contains(g));
         if weight.is_none() {
             errors.add("weight_g", t(state, "costing-error-weight"));
         }
@@ -339,10 +339,16 @@ impl PriceForm {
         Some(price)
     }
 
-    /// What the price comes to per kilo and per gram, or how to get there.
+    /// What the price comes to per kilo and per gram; else the problem with a field the
+    /// owner filled in, or how to get there.
     fn conversion(&self, state: &AppState) -> String {
         let mut errors = Errors::default();
-        match self.unit_price(state, &mut errors) {
+        let price = self.unit_price(state, &mut errors);
+        let filled = |field: &str, value: &str| {
+            (!value.trim().is_empty() && !errors.get(field).is_empty())
+                .then(|| errors.get(field).to_owned())
+        };
+        match price {
             Some(price) => t_with(
                 state,
                 "costing-conversion",
@@ -351,10 +357,9 @@ impl PriceForm {
                     ("per_gram", per_gram(price)),
                 ],
             ),
-            None if !errors.get("weight_g").is_empty() && !self.weight_g.trim().is_empty() => {
-                errors.get("weight_g").to_owned()
-            }
-            None => t(state, "costing-conversion-empty"),
+            None => filled("price", &self.price)
+                .or_else(|| filled("weight_g", &self.weight_g))
+                .unwrap_or_else(|| t(state, "costing-conversion-empty")),
         }
     }
 }
@@ -431,7 +436,11 @@ async fn render_ingredient(
             preview: format!("{action}/preview"),
             action,
             history,
-            conversion: form.conversion(state),
+            conversion: if errors.get("price").is_empty() && errors.get("weight_g").is_empty() {
+                form.conversion(state)
+            } else {
+                t(state, "costing-conversion-empty")
+            },
             form,
             errors,
             saved,

@@ -283,10 +283,13 @@ async fn prices_entered_per_kilo_keep_their_cost(pool: sqlx::PgPool) {
         .unwrap()[&flour];
     assert_eq!(price.cost(10_453).get(), 10_453 * 95);
     assert_eq!(price.per_kg_cents(), Money::from_cents(95));
-    let updated = sqlx::query("UPDATE ingredient_price SET weight_g = 1000")
-        .execute(&mut *conn)
-        .await;
-    assert!(updated.is_err(), "prices stay history");
+    let updated =
+        sqlx::query("UPDATE ingredient_price SET price_per_kg_cents = price_per_kg_cents")
+            .execute(&mut *conn)
+            .await
+            .expect_err("prices stay history");
+    let code = updated.as_database_error().and_then(|e| e.code());
+    assert_eq!(code.as_deref(), Some("23001"), "{updated}");
 }
 
 #[test]

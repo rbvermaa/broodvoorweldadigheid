@@ -1,4 +1,5 @@
-{# Form fields. kind: text, email, number, money or textarea. #}
+{# Form fields. kind: text, email, number, money, whole (a whole number typed as text, so
+   `25.000` reaches the server as typed) or textarea. #}
 {% macro label(name, label, required, currency = false) %}
 <label class="field-label" for="{{ name }}">{{ label }}
 {%- if currency %} <span class="visually-hidden">{{ layout.t("field-currency")? }}</span>{% endif %}
@@ -25,6 +26,8 @@
 <textarea class="field-input" id="{{ name }}" name="{{ name }}" rows="3"{% call described(name, hint, error, required, disabled) %}{% endcall %}>{{ value }}</textarea>
 {%- else if kind == "money" %}
 <div class="field-money"><span class="field-prefix" aria-hidden="true">€</span><input class="field-input" type="text" inputmode="decimal" autocomplete="off" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}></div>
+{%- else if kind == "whole" %}
+<input class="field-input" type="text" inputmode="numeric" autocomplete="off" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
 {%- else if kind == "number" %}
 <input class="field-input field-input-number" type="number" inputmode="numeric" id="{{ name }}" name="{{ name }}" value="{{ value }}"{% call described(name, hint, error, required, disabled) %}{% endcall %}>
 {%- else %}

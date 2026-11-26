@@ -585,9 +585,16 @@ async fn a_price_and_weight_must_be_sensible(pool: PgPool) {
             "{price} {weight}"
         );
         reply.shows(&dutch(error));
-        reply.shows(&format!("value=\"{weight}\""));
+        reply.shows(&format!(
+            "id=\"weight_g\" name=\"weight_g\" value=\"{weight}\""
+        ));
     }
-    for (price, weight) in [("0", "1000"), ("100000", "1000000"), ("100", "1")] {
+    for (price, weight) in [
+        ("0", "1000"),
+        ("100000", "1000000"),
+        ("100", "1"),
+        ("21,37", "25.000"),
+    ] {
         let reply = owner
             .post(
                 &path,
@@ -606,7 +613,7 @@ async fn a_price_and_weight_must_be_sensible(pool: PgPool) {
             .await
             .expect("history")
             .len(),
-        4
+        5
     );
 }
 
@@ -649,6 +656,10 @@ async fn the_price_per_kilo_and_gram_show_while_typing(pool: PgPool) {
         .post(&preview, &[("price", "1000"), ("weight_g", "1")])
         .await;
     too_high.shows(&dutch("costing-error-per-kg-high"));
+    let bad_price = owner
+        .post(&preview, &[("price", "veel"), ("weight_g", "25000")])
+        .await;
+    bad_price.shows(&dutch("costing-error-price"));
 
     let mut conn = pool.acquire().await.expect("conn");
     assert_eq!(
@@ -666,4 +677,34 @@ async fn the_price_per_kilo_and_gram_show_while_typing(pool: PgPool) {
         )
         .await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_refused_weight_says_why_once(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let path = format!("/staff/costing/ingredients/{}", k.flour.get());
+    let reply = owner
+        .post(
+            &path,
+            &[
+                ("price", "1000"),
+                ("weight_g", "1"),
+                ("valid_from", "2026-12-06"),
+            ],
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        reply
+            .text
+            .matches(&dutch("costing-error-per-kg-high"))
+            .count(),
+        1
+    );
+    reply.shows(&dutch("costing-conversion-empty"));
+    let mut conn = pool.acquire().await.expect("conn");
+    let saved = prices::history(&mut conn, k.flour).await.expect("history");
+    assert_eq!(saved[0].price, UnitPrice::per_kg(Money::from_cents(100)));
 }

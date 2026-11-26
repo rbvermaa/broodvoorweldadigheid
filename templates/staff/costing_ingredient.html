@@ -16,11 +16,13 @@
 {% endif %}
 <h2>{{ layout.t("costing-new-price")? }}</h2>
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
-<form method="post" action="{{ action }}" hx-post="{{ preview }}" hx-trigger="input delay:300ms" hx-target="#omrekening" hx-select="#omrekening" hx-swap="outerHTML">
+<form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+<div hx-post="{{ preview }}" hx-trigger="input delay:300ms" hx-include="closest form" hx-target="#omrekening" hx-select="#omrekening > p" hx-swap="innerHTML">
 {% call f::field("money", "price", layout.t("costing-price")?, value = form.price, hint = layout.t("costing-price-hint")?, error = errors.get("price"), required = true) %}{% endcall %}
-{% call f::field("number", "weight_g", layout.t("costing-weight")?, value = form.weight_g, hint = layout.t("costing-weight-hint")?, error = errors.get("weight_g"), required = true) %}{% endcall %}
-<p class="field-hint" id="omrekening" aria-live="polite">{{ conversion }}</p>
+{% call f::field("whole", "weight_g", layout.t("costing-weight")?, value = form.weight_g, hint = layout.t("costing-weight-hint")?, error = errors.get("weight_g"), required = true) %}{% endcall %}
+</div>
+<div class="field" id="omrekening" aria-live="polite"><p class="field-hint">{{ conversion }}</p></div>
 {% call f::field("date", "valid_from", layout.t("costing-valid-from")?, value = form.valid_from, hint = layout.t("costing-valid-from-hint")?, error = errors.get("valid_from"), required = true) %}{% endcall %}
 {% call b::button(layout.t("costing-save-price")?, kind = "submit") %}{% endcall %}
 </form>

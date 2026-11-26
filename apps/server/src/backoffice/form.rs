@@ -118,6 +118,15 @@ pub fn money_value(cents: i64) -> String {
     i18n::decimal(cents, 2)
 }
 
+/// Whole grams such as `25000` or `25.000`; `None` for anything else.
+pub fn parse_grams(input: &str) -> Option<u32> {
+    let digits = thousands(input.trim())?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
 /// A whole number of at least zero.
 pub fn parse_count(input: &str) -> Option<u32> {
     input.trim().parse().ok()
@@ -256,6 +265,12 @@ mod tests {
             Some(jiff::civil::date(2026, 12, 5))
         );
         assert_eq!(parse_count("3"), Some(3));
+        assert_eq!(parse_grams(" 25000 "), Some(25_000));
+        assert_eq!(parse_grams("25.000"), Some(25_000));
+        assert_eq!(parse_grams("1.000.000"), Some(1_000_000));
+        for bad in ["", "25,5", "2.50", "-1", ".500", "25 000", "abc"] {
+            assert_eq!(parse_grams(bad), None, "{bad}");
+        }
         assert_eq!(parse_count("-3"), None);
     }
 
