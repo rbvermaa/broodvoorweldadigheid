@@ -66,13 +66,13 @@ BEGIN
         ORDER BY l.position
     LOOP
         IF line.sub IS NULL THEN
-            RETURN QUERY SELECT p_path || lpad(line.position::text, 4, '0'),
+            RETURN QUERY SELECT p_path || lpad(line.position::text, 10, '0'),
                 line.ingredient_id, p_weight * line.pct / total, p_compound;
         ELSE
             RETURN QUERY SELECT * FROM main_dough_leaves(line.sub, p_weight * line.pct / total,
                 coalesce(p_compound,
                     CASE WHEN line.compound_name IS NOT NULL THEN line.recipe_id END),
-                p_path || lpad(line.position::text, 4, '0') || '.');
+                p_path || lpad(line.position::text, 10, '0') || '.');
         END IF;
     END LOOP;
 END;
@@ -84,7 +84,7 @@ $$;
 -- or for a batch's own lines when `batch` is given.
 CREATE FUNCTION main_dough_list_order(version bigint, batch bigint) RETURNS text
 LANGUAGE sql STABLE AS $$
-    WITH one AS (SELECT 1.0000000000000000000000000000000000000000::numeric AS w),
+    WITH one AS (SELECT 1.00000000000000000000000000000000000000000000000000::numeric AS w),
     top AS (
         SELECT l.position, l.actual_pct_x1000 AS pct, l.ingredient_id,
             l.sub_recipe_version_id AS sub
@@ -97,7 +97,7 @@ LANGUAGE sql STABLE AS $$
         FROM one CROSS JOIN LATERAL main_dough_leaves(main_dough_list_order.version, one.w, NULL, '') x
         WHERE main_dough_list_order.batch IS NULL
         UNION ALL
-        SELECT lpad(t.position::text, 4, '0'), t.ingredient_id, one.w * t.pct / s.total, NULL
+        SELECT lpad(t.position::text, 10, '0'), t.ingredient_id, one.w * t.pct / s.total, NULL
         FROM top t CROSS JOIN one CROSS JOIN top_sum s
         WHERE t.ingredient_id IS NOT NULL
         UNION ALL
@@ -108,10 +108,10 @@ LANGUAGE sql STABLE AS $$
         CROSS JOIN LATERAL main_dough_leaves(t.sub, one.w * t.pct / s.total,
             CASE WHEN recipe_compound_name(r.kind, r.label_compound, r.label_name, r.name)
                 IS NOT NULL THEN r.id END,
-            lpad(t.position::text, 4, '0') || '.') x
+            lpad(t.position::text, 10, '0') || '.') x
     ),
     named AS (
-        SELECT l.leaf_path, round(l.leaf_weight, 30) AS weight,
+        SELECT l.leaf_path, l.leaf_weight AS weight,
             lower(coalesce(nullif(i.label_name, ''), i.name)) AS label,
             lower(recipe_compound_name(r.kind, r.label_compound, r.label_name, r.name)) AS compound
         FROM leaves l
@@ -120,11 +120,12 @@ LANGUAGE sql STABLE AS $$
     ),
     entries AS (
         SELECT CASE WHEN compound IS NULL THEN 'i:' || label ELSE 'c:' || compound END AS key,
-            sum(weight) AS weight, min(leaf_path) AS first
+            round(sum(weight), 38) AS weight, min(leaf_path) AS first
         FROM named GROUP BY 1
     ),
     parts AS (
-        SELECT 'c:' || compound AS key, label, sum(weight) AS weight, min(leaf_path) AS first
+        SELECT 'c:' || compound AS key, label, round(sum(weight), 38) AS weight,
+            min(leaf_path) AS first
         FROM named WHERE compound IS NOT NULL GROUP BY 1, 2
     )
     SELECT coalesce(string_agg(e.key || coalesce('(' || (

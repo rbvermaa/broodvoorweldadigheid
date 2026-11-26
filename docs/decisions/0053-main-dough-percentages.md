@@ -38,6 +38,10 @@ and so reorder an ingredient list. The migration works out each list's order bef
 after, the way `recipes::rollup` does, with exact weights: a product whose recipe's list
 changes order loses its allergen approval (reason "recipe"), a batch whose own approved
 list changes loses that approval. Every other approval stays: its list is the same.
+Weights are summed exactly and rounded to 38 decimals only to compare. Known gap: the
+database lowercases only ASCII, so two label names that differ only in the case of a
+non-ASCII letter count as two entries there; a missed reorder still blocks labels,
+because the label check compares the computed list with the approved one.
 
 The SQL is not idempotent by itself (a second run would rescale again); like every
 migration it runs once, recorded in `_sqlx_migrations`. A db test covers grams before and

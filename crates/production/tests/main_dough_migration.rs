@@ -436,6 +436,23 @@ async fn old_way_versions_and_batches_keep_their_grams_and_new_way_drafts_their_
         tie,
     ];
     let batch_ids = [mixed, planned];
+    let staff: i64 = sqlx::query_scalar(
+        "INSERT INTO staff_user (oidc_sub, name, role) VALUES ('bakker', 'Bakker', 'baker')
+         RETURNING id",
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    for update in [
+        "UPDATE product SET ingredient_names = ARRAY['x'], ingredient_emphasis = ARRAY[false]",
+        "UPDATE product SET allergens_approved_by = $1, allergens_approved_at = now()",
+    ] {
+        sqlx::query(update)
+            .bind(staff)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+    }
     let old = snapshot(&mut conn, &versions, &batch_ids).await;
     assert_eq!(
         store::formula(&mut conn, bread)
@@ -526,6 +543,12 @@ async fn old_way_versions_and_batches_keep_their_grams_and_new_way_drafts_their_
         [old.allergen_revs[0], old.allergen_revs[1] + 1],
         "only the product whose ingredient order changed loses its approval"
     );
+    let approved: Vec<bool> =
+        sqlx::query_scalar("SELECT allergens_approved_by IS NOT NULL FROM product ORDER BY id")
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
+    assert_eq!(approved, [true, false]);
     let frozen: bool =
         sqlx::query_scalar("SELECT frozen_at IS NOT NULL FROM recipe_version WHERE id = $1")
             .bind(bread.get())
