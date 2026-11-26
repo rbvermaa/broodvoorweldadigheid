@@ -481,6 +481,7 @@ struct FormulaRow {
     ingredient_id: Option<i64>,
     ingredient_name: Option<String>,
     ingredient_role: Option<String>,
+    ingredient_hydration: Option<i32>,
     sub_recipe_version_id: Option<i64>,
     sub_recipe_id: Option<i64>,
     sub_name: Option<String>,
@@ -505,6 +506,7 @@ pub async fn formula(conn: &mut PgConnection, id: RecipeVersionId) -> Result<For
         )
         SELECT l.recipe_version_id, l.bakers_pct_x1000,
             l.ingredient_id, i.name AS "ingredient_name?", i.role AS "ingredient_role?",
+            i.starter_hydration_x1000 AS ingredient_hydration,
             l.sub_recipe_version_id, sv.recipe_id AS "sub_recipe_id?", sr.name AS "sub_name?",
             sv.version AS "sub_version?", sr.kind AS "sub_kind?"
         FROM recipe_line l
@@ -549,6 +551,7 @@ fn build(
                     id: IngredientId::new(*id),
                     name: name.clone(),
                     role: role.parse()?,
+                    hydration: row.ingredient_hydration.map(pct_from_db).transpose()?,
                 }),
                 FormulaRow {
                     sub_recipe_version_id: Some(sub_id),
@@ -694,6 +697,33 @@ async fn write_lines(
         formula(conn, user).await?;
     }
     Ok(())
+}
+
+/// Gives the lines of a draft these percentages, in order. A draft whose new percentages
+/// fall outside what a line may hold keeps its own, and its footer shows the total flour.
+/// The caller holds the graph lock.
+pub(crate) async fn set_pcts(
+    conn: &mut PgConnection,
+    id: RecipeVersionId,
+    pcts: &[Pct],
+) -> Result<(), Error> {
+    let recipe_id = lock_draft(conn, id).await?;
+    let mut new_lines = lines(conn, id).await?;
+    if new_lines.len() != pcts.len() {
+        return Ok(());
+    }
+    for (line, pct) in new_lines.iter_mut().zip(pcts) {
+        line.pct = *pct;
+    }
+    let draft = DraftInput {
+        lines: new_lines,
+        lead_time_hours: None,
+        notes: String::new(),
+    };
+    if validate_draft(&draft).is_err() {
+        return Ok(());
+    }
+    replace_lines(conn, recipe_id, id, &draft.lines).await
 }
 
 /// One change to one line of a draft. `position` counts from 0 in the version's order,

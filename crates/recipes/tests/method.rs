@@ -21,6 +21,7 @@ async fn flour(conn: &mut PgConnection) -> IngredientId {
             name: "Tarwebloem".to_owned(),
             label_name: String::new(),
             role: IngredientRole::Flour,
+            hydration: None,
             supplier_name: String::new(),
             allergens: BTreeSet::new(),
         },

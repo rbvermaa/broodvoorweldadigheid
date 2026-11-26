@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT l.id, l.batch_id,\n            l.ingredient_id, i.name AS \"ingredient_name?\", i.role AS \"ingredient_role?\",\n            l.sub_recipe_version_id, sv.recipe_id AS \"sub_recipe_id?\", sr.name AS \"sub_name?\",\n            sv.version AS \"sub_version?\", sr.kind AS \"sub_kind?\",\n            l.base_pct_x1000, l.actual_pct_x1000, l.reason\n        FROM batch_line l\n        LEFT JOIN ingredient i ON i.id = l.ingredient_id\n        LEFT JOIN recipe_version sv ON sv.id = l.sub_recipe_version_id\n        LEFT JOIN recipe sr ON sr.id = sv.recipe_id\n        WHERE l.batch_id = ANY($1)\n        ORDER BY l.batch_id, l.position",
+  "query": "SELECT l.id, l.batch_id,\n            l.ingredient_id, i.name AS \"ingredient_name?\", i.role AS \"ingredient_role?\",\n            i.starter_hydration_x1000 AS ingredient_hydration,\n            l.sub_recipe_version_id, sv.recipe_id AS \"sub_recipe_id?\", sr.name AS \"sub_name?\",\n            sv.version AS \"sub_version?\", sr.kind AS \"sub_kind?\",\n            l.base_pct_x1000, l.actual_pct_x1000, l.reason\n        FROM batch_line l\n        LEFT JOIN ingredient i ON i.id = l.ingredient_id\n        LEFT JOIN recipe_version sv ON sv.id = l.sub_recipe_version_id\n        LEFT JOIN recipe sr ON sr.id = sv.recipe_id\n        WHERE l.batch_id = ANY($1)\n        ORDER BY l.batch_id, l.position",
   "describe": {
     "columns": [
       {
@@ -60,6 +60,17 @@
       },
       {
         "ordinal": 5,
+        "name": "ingredient_hydration",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ingredient",
+            "name": "starter_hydration_x1000"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "sub_recipe_version_id",
         "type_info": "Int8",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "sub_recipe_id?",
         "type_info": "Int8",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "sub_name?",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "sub_version?",
         "type_info": "Int4",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "sub_kind?",
         "type_info": "Text",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "base_pct_x1000",
         "type_info": "Int4",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "actual_pct_x1000",
         "type_info": "Int4",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "reason",
         "type_info": "Text",
         "origin": {
@@ -159,6 +170,7 @@
       false,
       false,
       true,
+      true,
       false,
       false,
       false,
@@ -168,5 +180,5 @@
       true
     ]
   },
-  "hash": "2dd6a3743d0a4273e4b680f0d054f73e8225ea0702efc5b56f4fe483a9c26f63"
+  "hash": "cca15e613ae56055ab8c459ad28f8209041950264d803a9f2b478931deaaa54e"
 }

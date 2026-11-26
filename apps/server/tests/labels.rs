@@ -240,6 +240,7 @@ async fn ingredient(
             name: name.to_owned(),
             label_name: name.to_lowercase(),
             role,
+            hydration: None,
             supplier_name: String::new(),
             allergens: allergens.iter().copied().collect(),
         },

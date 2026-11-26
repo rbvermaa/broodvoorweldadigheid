@@ -27,12 +27,14 @@ impl Pct {
     }
 }
 
-/// How an ingredient counts for hydration and total flour.
+/// How an ingredient counts for hydration and total flour. A starter brings flour and
+/// water in the proportion of its hydration ([`IngredientRef::flour_and_water`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IngredientRole {
     Flour,
     Water,
     Other,
+    Starter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -40,7 +42,7 @@ pub enum IngredientRole {
 pub struct UnknownCode(pub String);
 
 impl IngredientRole {
-    pub const ALL: [Self; 3] = [Self::Flour, Self::Water, Self::Other];
+    pub const ALL: [Self; 4] = [Self::Flour, Self::Water, Self::Starter, Self::Other];
 
     /// Stored in the database; never change.
     #[must_use]
@@ -49,6 +51,7 @@ impl IngredientRole {
             Self::Flour => "flour",
             Self::Water => "water",
             Self::Other => "other",
+            Self::Starter => "starter",
         }
     }
 }
@@ -143,6 +146,45 @@ pub struct IngredientRef {
     pub id: IngredientId,
     pub name: String,
     pub role: IngredientRole,
+    /// Water per 100 g of flour in a starter; `None` for other roles.
+    pub hydration: Option<Pct>,
+}
+
+/// The highest hydration a starter may have: 500%.
+pub const MAX_STARTER_HYDRATION: Pct = Pct(500_000);
+
+/// Grams of flour and water.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FlourWater {
+    pub flour: u64,
+    pub water: u64,
+}
+
+impl IngredientRef {
+    /// The flour and water in `grams` of this ingredient. A starter at hydration h splits
+    /// into `grams · 100 / (100 + h)` flour and the rest water, in whole grams with the
+    /// largest-remainder rule (ADR 0037), so the two add up to `grams`. A starter without
+    /// a hydration counts as neither.
+    #[must_use]
+    pub fn flour_and_water(&self, grams: u64) -> FlourWater {
+        match (self.role, self.hydration) {
+            (IngredientRole::Flour, _) => FlourWater {
+                flour: grams,
+                water: 0,
+            },
+            (IngredientRole::Water, _) => FlourWater {
+                flour: 0,
+                water: grams,
+            },
+            (IngredientRole::Starter, Some(hydration)) => {
+                match apportion(grams, &[Pct::HUNDRED.0, hydration.0]).as_deref() {
+                    Some(&[flour, water]) => FlourWater { flour, water },
+                    _ => FlourWater::default(),
+                }
+            }
+            (IngredientRole::Other | IngredientRole::Starter, _) => FlourWater::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -247,6 +289,37 @@ impl Formula {
         })
     }
 
+    /// The percentages of this formula's own lines once the same lines count flour and
+    /// water as in `after` (an ingredient became a starter, or its hydration changed): every
+    /// line keeps its grams and the total flour stays what it was, so each percentage is
+    /// multiplied by old flour ÷ new flour and rounded half up to 0.001%, at least 0.001%. `None` when the
+    /// flour does not change, either formula has no flour or cannot be weighed, or the
+    /// lines differ in number.
+    #[must_use]
+    pub fn rebased(&self, after: &Self) -> Option<Vec<Pct>> {
+        if self.lines.len() != after.lines.len() {
+            return None;
+        }
+        let flour = |formula: &Self| {
+            formula
+                .scale(REFERENCE_GRAMS)
+                .ok()
+                .map(|scaled| leaf_grams(&scaled).flour)
+                .filter(|flour| *flour > 0)
+        };
+        let (old, new) = (flour(self)?, flour(after)?);
+        if old == new {
+            return None;
+        }
+        self.lines
+            .iter()
+            .map(|line| {
+                rounded(u128::from(line.pct.0) * u128::from(old), u128::from(new))
+                    .map(|pct| pct.max(Pct(1)))
+            })
+            .collect()
+    }
+
     /// The percentages of the recipe's own lines added up, in thousandths.
     #[must_use]
     pub fn line_sum(&self) -> u64 {
@@ -292,8 +365,10 @@ const REFERENCE_GRAMS: u64 = 1_000_000_000_000;
 pub struct LeafGrams {
     pub flour: u64,
     pub water: u64,
-    /// Flour inside recipes of kind [`RecipeKind::Preferment`].
+    /// Flour inside recipes of kind [`RecipeKind::Preferment`] and in starters.
     pub prefermented_flour: u64,
+    /// The part of `flour` and `water` that comes from starters.
+    pub starter: FlourWater,
 }
 
 #[must_use]
@@ -306,16 +381,19 @@ pub fn leaf_grams(scaled: &[Scaled<'_>]) -> LeafGrams {
 fn add_up(scaled: &[Scaled<'_>], in_preferment: bool, sums: &mut LeafGrams) {
     for line in scaled {
         match &line.line.part {
-            Part::Ingredient(ingredient) => match ingredient.role {
-                IngredientRole::Flour => {
-                    sums.flour += line.grams;
-                    if in_preferment {
-                        sums.prefermented_flour += line.grams;
-                    }
+            Part::Ingredient(ingredient) => {
+                let split = ingredient.flour_and_water(line.grams);
+                sums.flour += split.flour;
+                sums.water += split.water;
+                let starter = ingredient.role == IngredientRole::Starter;
+                if starter {
+                    sums.starter.flour += split.flour;
+                    sums.starter.water += split.water;
                 }
-                IngredientRole::Water => sums.water += line.grams,
-                IngredientRole::Other => {}
-            },
+                if in_preferment || starter {
+                    sums.prefermented_flour += split.flour;
+                }
+            }
             Part::Sub(sub) => add_up(
                 &line.lines,
                 in_preferment || sub.kind == RecipeKind::Preferment,

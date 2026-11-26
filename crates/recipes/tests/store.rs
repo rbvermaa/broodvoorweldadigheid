@@ -25,6 +25,7 @@ fn ingredient_input(name: &str, role: IngredientRole) -> IngredientInput {
         name: name.to_owned(),
         label_name: String::new(),
         role,
+        hydration: None,
         supplier_name: String::new(),
         allergens: BTreeSet::new(),
     }
@@ -101,6 +102,7 @@ async fn ingredients_round_trip_and_names_are_unique(mut conn: PoolConnection<Po
         name: " Speltbloem ".to_owned(),
         label_name: "SPELTbloem".to_owned(),
         role: IngredientRole::Flour,
+        hydration: None,
         supplier_name: "Molen De Hoop".to_owned(),
         allergens: BTreeSet::from([Allergen::CerealsContainingGluten]),
     };
@@ -1098,4 +1100,206 @@ async fn a_new_ingredient_is_created_and_added_together(mut conn: PoolConnection
     );
     let again = store::add_new_ingredient(&mut conn, v1.id, &seen, &spelt, pct(10)).await;
     assert!(matches!(again, Err(Error::Duplicate)), "{again:?}");
+}
+
+fn starter_input(name: &str, hydration: Option<u32>) -> IngredientInput {
+    IngredientInput {
+        hydration: hydration.map(pct),
+        ..ingredient_input(name, IngredientRole::Starter)
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_starter_has_a_hydration_and_only_a_starter(mut conn: PoolConnection<Postgres>) {
+    let missing = ingredients::create(&mut conn, &starter_input("Desem", None)).await;
+    assert!(
+        matches!(missing, Err(Error::Invalid("hydration"))),
+        "{missing:?}"
+    );
+    let too_wet = ingredients::create(&mut conn, &starter_input("Desem", Some(501))).await;
+    assert!(
+        matches!(too_wet, Err(Error::Invalid("hydration"))),
+        "{too_wet:?}"
+    );
+    let starter = ingredients::create(&mut conn, &starter_input("Desem", Some(100)))
+        .await
+        .unwrap();
+    assert_eq!(
+        (starter.role, starter.hydration),
+        (IngredientRole::Starter, Some(pct(100)))
+    );
+    let stiff = ingredients::create(&mut conn, &starter_input("Stijve desem", Some(0)))
+        .await
+        .unwrap();
+    assert_eq!(stiff.hydration, Some(pct(0)));
+
+    let flour = ingredients::create(
+        &mut conn,
+        &IngredientInput {
+            hydration: Some(pct(100)),
+            ..ingredient_input("Tarwebloem", IngredientRole::Flour)
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(flour.hydration, None, "only a starter keeps a hydration");
+    let as_flour = ingredients::update(
+        &mut conn,
+        starter.id,
+        &ingredient_input("Desem", IngredientRole::Flour),
+    )
+    .await
+    .unwrap();
+    assert_eq!(as_flour.hydration, None);
+
+    for (role, hydration) in [
+        ("starter", None),
+        ("flour", Some(100_000)),
+        ("starter", Some(500_001)),
+    ] {
+        let refused = sqlx::query(
+            "INSERT INTO ingredient (name, role, starter_hydration_x1000) VALUES ($1, $2, $3)",
+        )
+        .bind(format!("Los {role} {hydration:?}"))
+        .bind(role)
+        .bind(hydration)
+        .execute(&mut *conn)
+        .await;
+        assert!(refused.is_err(), "{role} {hydration:?}");
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_frozen_version_keeps_its_starter_hydration(mut conn: PoolConnection<Postgres>) {
+    let clock = FakeClock::new(ts("2026-12-01T09:00:00Z"));
+    let k = kitchen(&mut conn).await;
+    let desem = ingredients::create(&mut conn, &starter_input("Desem", Some(100)))
+        .await
+        .unwrap();
+    let (dough, v1) = recipe(&mut conn, "Landbrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        v1.id,
+        &draft(vec![
+            line(LinePart::Ingredient(k.flour), 90),
+            line(LinePart::Ingredient(k.water), 65),
+            line(LinePart::Ingredient(desem.id), 20),
+        ]),
+    )
+    .await
+    .unwrap();
+    store::freeze(&mut conn, dough, v1.id, &clock)
+        .await
+        .unwrap();
+
+    let wetter = ingredients::update(&mut conn, desem.id, &starter_input("Desem", Some(120))).await;
+    assert!(matches!(wetter, Err(Error::InUse)), "{wetter:?}");
+    let other = ingredients::update(
+        &mut conn,
+        desem.id,
+        &ingredient_input("Desem", IngredientRole::Other),
+    )
+    .await;
+    assert!(matches!(other, Err(Error::InUse)), "{other:?}");
+    let renamed = ingredients::update(&mut conn, desem.id, &starter_input("Zuurdesem", Some(100)))
+        .await
+        .unwrap();
+    assert_eq!(renamed.name, "Zuurdesem", "a new name keeps the figures");
+    let analysis = store::formula(&mut conn, v1.id)
+        .await
+        .unwrap()
+        .analysis()
+        .unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.hydration, Some(pct(75)));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_draft_keeps_its_grams_when_an_ingredient_becomes_a_starter(
+    mut conn: PoolConnection<Postgres>,
+) {
+    let k = kitchen(&mut conn).await;
+    let desem = ingredient(&mut conn, "Desem", IngredientRole::Other).await;
+    let (_, v1) = recipe(&mut conn, "Landbrood", RecipeKind::Dough).await;
+    let lines = |desem_part: LinePart| {
+        vec![
+            line(LinePart::Ingredient(k.flour), 100),
+            line(LinePart::Ingredient(k.water), 70),
+            line(LinePart::Ingredient(k.salt), 2),
+            line(desem_part, 20),
+        ]
+    };
+    store::save_draft(&mut conn, v1.id, &draft(lines(LinePart::Ingredient(desem))))
+        .await
+        .unwrap();
+    let (_, bread) = recipe(&mut conn, "Brood met desembrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        bread.id,
+        &draft(vec![
+            line(LinePart::Ingredient(k.flour), 100),
+            line(LinePart::Sub(v1.id), 50),
+        ]),
+    )
+    .await
+    .unwrap();
+    let outer_before = store::formula(&mut conn, bread.id)
+        .await
+        .unwrap()
+        .analysis()
+        .unwrap()
+        .total_flour;
+
+    ingredients::update(&mut conn, desem, &starter_input("Desem", Some(100)))
+        .await
+        .unwrap();
+    let thousandths =
+        |lines: Vec<LineInput>| -> Vec<u32> { lines.iter().map(|l| l.pct.thousandths()).collect() };
+    assert_eq!(
+        thousandths(store::lines(&mut conn, v1.id).await.unwrap()),
+        vec![90_909, 63_636, 1_818, 18_182]
+    );
+    let analysis = store::formula(&mut conn, v1.id)
+        .await
+        .unwrap()
+        .analysis()
+        .unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.hydration, Some(Pct::from_thousandths(72_727)));
+    let outer = store::formula(&mut conn, bread.id)
+        .await
+        .unwrap()
+        .analysis()
+        .unwrap();
+    assert_eq!(
+        outer.total_flour, outer_before,
+        "the dough using it keeps its total too"
+    );
+
+    ingredients::update(&mut conn, desem, &starter_input("Desem", Some(100)))
+        .await
+        .unwrap();
+    assert_eq!(
+        thousandths(store::lines(&mut conn, v1.id).await.unwrap()),
+        vec![90_909, 63_636, 1_818, 18_182],
+        "an unchanged hydration changes nothing"
+    );
+    ingredients::update(&mut conn, desem, &starter_input("Desem", Some(50)))
+        .await
+        .unwrap();
+    let analysis = store::formula(&mut conn, v1.id)
+        .await
+        .unwrap()
+        .analysis()
+        .unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    let scaled_grams: Vec<u64> = store::formula(&mut conn, v1.id)
+        .await
+        .unwrap()
+        .scale(1920)
+        .unwrap()
+        .iter()
+        .map(|s| s.grams)
+        .collect();
+    assert_eq!(scaled_grams, vec![1000, 700, 20, 200], "the grams stay");
 }

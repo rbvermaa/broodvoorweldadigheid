@@ -16,14 +16,14 @@ use domain::{Allergen, IngredientId, ProductId, RecipeVersionId};
 use recipes::recipes::{self as store, MAX_LEAD_TIME_HOURS, MAX_LINE_PCT};
 use recipes::schedule::default_start;
 use recipes::{
-    Formula, Ingredient, IngredientInput, IngredientRole, Line, LineEdit, LineInput, LinePart,
-    Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum, ingredients,
-    leaf_grams, pct_for_grams,
+    FlourWater, Formula, Ingredient, IngredientInput, IngredientRole, Line, LineEdit, LineInput,
+    LinePart, Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum,
+    ingredients, leaf_grams, pct_for_grams,
 };
 use tower_sessions::Session;
 
 use super::super::form::{Fields, parse_pct, pct_value};
-use super::super::ingredients::role_label;
+use super::super::ingredients::{parse_hydration, role_label};
 use super::super::products::AllergenBox;
 use super::super::{
     Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, require, saved, t,
@@ -153,6 +153,8 @@ pub struct Row {
     pub link: String,
     pub icon: &'static str,
     pub icon_label: String,
+    /// A starter's hydration or a sub-recipe's; empty for none.
+    pub detail: String,
     pub grams: String,
     pub grams_value: String,
     pub pct: String,
@@ -173,6 +175,8 @@ pub struct Footer {
     pub flour_pct: String,
     pub flour_warning: String,
     pub water: String,
+    /// The flour and water from starters; empty without a starter.
+    pub starter: String,
     pub hydration: String,
     pub dough: String,
     pub total_pct: String,
@@ -193,6 +197,8 @@ pub struct Suggestions {
     pub new_open: bool,
     pub roles: Vec<SelectOption>,
     pub role_error: String,
+    pub hydration: String,
+    pub hydration_error: String,
     pub allergens: Vec<AllergenBox>,
 }
 
@@ -259,7 +265,7 @@ fn role_icon(state: &AppState, role: IngredientRole) -> (&'static str, String) {
     match role {
         IngredientRole::Flour => ("wheat", t(state, role_label(role))),
         IngredientRole::Water => ("droplet", t(state, role_label(role))),
-        IngredientRole::Other => ("", String::new()),
+        IngredientRole::Other | IngredientRole::Starter => ("", String::new()),
     }
 }
 
@@ -371,6 +377,24 @@ fn sub_warning(
     }
 }
 
+/// "Desem 100%" for a starter, "Hydratatie 75%" for a sub-recipe with flour.
+fn line_detail(state: &AppState, line: &Line) -> String {
+    let pct = match &line.part {
+        Part::Ingredient(i) if i.role == IngredientRole::Starter => {
+            i.hydration.map(|h| ("recipe-starter-detail", h))
+        }
+        Part::Ingredient(_) => None,
+        Part::Sub(sub) => sub
+            .formula
+            .analysis()
+            .ok()
+            .and_then(|a| a.hydration)
+            .map(|h| ("recipe-sub-hydration", h)),
+    };
+    pct.map(|(id, h)| t_with(state, id, &[("pct", pct_text(h))]))
+        .unwrap_or_default()
+}
+
 fn rows(state: &AppState, loaded: &Loaded, scale: &Scale) -> Vec<Row> {
     let formula = &loaded.formula;
     let base = version_path(loaded.recipe.id, loaded.version.id);
@@ -392,7 +416,11 @@ fn rows(state: &AppState, loaded: &Loaded, scale: &Scale) -> Vec<Row> {
                     i.name.clone(),
                     String::new(),
                     role_icon(state, i.role),
-                    String::new(),
+                    if i.role == IngredientRole::Starter && i.hydration.is_none() {
+                        t(state, "recipe-warning-starter-hydration")
+                    } else {
+                        String::new()
+                    },
                 ),
                 Part::Sub(sub) => {
                     children(
@@ -427,6 +455,7 @@ fn rows(state: &AppState, loaded: &Loaded, scale: &Scale) -> Vec<Row> {
                 link,
                 icon,
                 icon_label,
+                detail: line_detail(state, line),
                 grams: scaled_line.map_or_else(|| t(state, "recipe-none"), |s| grams_text(s.grams)),
                 grams_value: scaled_line.map(|s| s.grams.to_string()).unwrap_or_default(),
                 pct: pct_text(line.pct),
@@ -458,6 +487,18 @@ fn footer(state: &AppState, formula: &Formula, grams: u64) -> Option<Footer> {
             )
         },
         water: grams_text(leaves.water),
+        starter: if leaves.starter == FlourWater::default() {
+            String::new()
+        } else {
+            t_with(
+                state,
+                "recipe-starter-split",
+                &[
+                    ("flour", grams_text(leaves.starter.flour)),
+                    ("water", grams_text(leaves.starter.water)),
+                ],
+            )
+        },
         hydration: analysis
             .hydration
             .map_or_else(|| t(state, "recipe-none"), pct_text),
@@ -571,9 +612,11 @@ struct AddState {
     pct: String,
     gram: String,
     role: String,
+    hydration: String,
     allergens: BTreeSet<Allergen>,
     new: bool,
     role_error: String,
+    hydration_error: String,
 }
 
 impl AddState {
@@ -587,9 +630,11 @@ impl AddState {
             pct: String::new(),
             gram: String::new(),
             role: String::new(),
+            hydration: String::new(),
             allergens: BTreeSet::new(),
             new: false,
             role_error: String::new(),
+            hydration_error: String::new(),
         }
     }
 
@@ -599,12 +644,14 @@ impl AddState {
             pct: fields.text("pct").to_owned(),
             gram: fields.text("gram").to_owned(),
             role: fields.text("role").to_owned(),
+            hydration: fields.text("hydration").to_owned(),
             allergens: Allergen::ALL
                 .into_iter()
                 .filter(|a| fields.checked(&format!("allergen_{}", a.code())))
                 .collect(),
             new: fields.text("new") == "1",
             role_error: String::new(),
+            hydration_error: String::new(),
         }
     }
 }
@@ -677,6 +724,8 @@ fn suggestions(
             })
             .collect(),
         role_error: add.role_error.clone(),
+        hydration: add.hydration.clone(),
+        hydration_error: add.hydration_error.clone(),
         allergens: Allergen::ALL
             .into_iter()
             .map(|allergen| AllergenBox {
@@ -1214,10 +1263,20 @@ impl Request<'_> {
             add.role_error = t(self.state, "ingredient-error-role");
             return Err(add.role_error.clone());
         };
+        let hydration = if role == IngredientRole::Starter {
+            let Some(hydration) = parse_hydration(&add.hydration) else {
+                add.hydration_error = t(self.state, "ingredient-error-hydration");
+                return Err(add.hydration_error.clone());
+            };
+            Some(hydration)
+        } else {
+            None
+        };
         let input = IngredientInput {
             name: add.q.clone(),
             label_name: String::new(),
             role,
+            hydration,
             supplier_name: String::new(),
             allergens: add.allergens.clone(),
         };

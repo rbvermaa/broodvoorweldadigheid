@@ -25,6 +25,7 @@ fn leaf(id: i64, thousandths: u32) -> Line {
             id: IngredientId::new(id),
             name: format!("ingredient {id}"),
             role: IngredientRole::Other,
+            hydration: None,
         }),
     }
 }
@@ -49,6 +50,7 @@ fn known(id: i64, label: &str, allergens: &[Allergen]) -> Ingredient {
         name: format!("Ingrediënt {id}"),
         label_name: label.to_owned(),
         role: IngredientRole::Other,
+        hydration: None,
         supplier_name: String::new(),
         allergens: allergens.iter().copied().collect(),
     }
@@ -426,6 +428,7 @@ async fn ingredient(conn: &mut PgConnection, label: &str, allergens: &[Allergen]
             name: label.to_owned(),
             label_name: String::new(),
             role: IngredientRole::Other,
+            hydration: None,
             supplier_name: String::new(),
             allergens: allergens.iter().copied().collect(),
         },

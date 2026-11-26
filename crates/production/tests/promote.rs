@@ -18,6 +18,7 @@ fn leaf(min: u32) -> impl Strategy<Value = Line> {
             id: IngredientId::new(id),
             name: format!("Ingrediënt {id}"),
             role: IngredientRole::ALL[role],
+            hydration: None,
         }),
     })
 }

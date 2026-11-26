@@ -101,3 +101,17 @@ gone.
 | The scale (`gewicht`, or `stuks` × a linked product's dough per piece) and the open sub-recipes live in the URL | Remembered per viewer without storing anything |
 | A new ingredient is created and added in one transaction from the add row, with role and allergens; it needs EditAllergens as well as Production | Same rule as the ingredient pages (ADR 0010) |
 | Hydration and total flour show in the table footer; warnings sit on their line | Owner: like the baking app on the phone |
+
+**Starters with a hydration (F14, amended 2026-11-26).** Owner: a starter entered as one
+ingredient should count in total flour and hydration, with its own hydration.
+
+| Choice | Why |
+|---|---|
+| A fourth ingredient role, starter ("Desem/starter"), with `ingredient.starter_hydration_x1000`: grams of water per 100 g of flour, 0–500%, in thousandths like `Pct`. The database requires a hydration for a starter and none for other roles | The row in the table above that made a mother starter "other" left its flour and water out. A starter as its own preferment recipe still works |
+| A starter line of G g holds `G · 100 / (100 + h)` g flour and the rest water. `IngredientRef::flour_and_water` is the one place that splits any ingredient line into flour and water; total flour, hydration and prefermented flour all add up its result, so the editor, scaling by pieces and batches agree | The same rounding as everything else: whole grams with the largest-remainder rule, so flour + water = G and each is less than 1 g off; analysis splits on the reference weight of 10^12 g. A 1:1 starter at p% gives the same figures as a 1:1 levain recipe at p% (property test) |
+| Starter flour counts as prefermented flour | It is fermented flour, like flour in a preferment recipe |
+| Ingredient needs (F15), costing (F16) and the allergen roll-up (F17) keep the starter as one ingredient | It is bought or kept and priced per kg, and its allergens are its own |
+| Changing a starter's hydration follows the rule for role changes: refused while a frozen version uses the ingredient. Both are now also refused while a batch line holds it | A frozen version keeps its figures. A batch reads the role and hydration of its ingredients, and a baker can add any ingredient to a batch (F14a) |
+| When a change involves a starter (to or from the role, or its hydration), every draft that holds the ingredient, directly or through sub-recipes, keeps its grams and its total flour: all its own percentages are multiplied by old flour ÷ new flour (`Formula::rebased`), half up to 0.001% and at least 0.001%. All new percentages are worked out before any draft is written. A draft whose new percentages go above 1000% keeps its own and shows the total-flour warning | The baker weighed grams; the percentages follow the new flour base. Rewriting the lines clears the allergen approval of products whose version in use is that draft, like any line change |
+| Other role changes (flour, water, other) keep the percentages as before | Unchanged behaviour |
+| The starter's row shows "Desem 100%" (a missing hydration is a warning on the row), a sub-recipe row its own hydration, and the footer "Waarvan uit desem: x g bloem en y g water" | Compact, on the phone too |
