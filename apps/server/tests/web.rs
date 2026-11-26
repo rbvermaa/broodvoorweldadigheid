@@ -7,7 +7,7 @@ use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::extract::ConnectInfo;
 use axum::http::header::{
-    CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, ETAG, IF_NONE_MATCH,
+    CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, ETAG, IF_NONE_MATCH, LOCATION,
     REFERRER_POLICY, RETRY_AFTER, SET_COOKIE, X_CONTENT_TYPE_OPTIONS,
 };
 use axum::http::{HeaderMap, Request, StatusCode};
@@ -195,6 +195,61 @@ async fn unknown_pages_and_assets_get_the_dutch_404_page() {
         );
         assert!(reply.body.contains(&dutch("error-back-home")), "{path}");
     }
+}
+
+#[tokio::test]
+async fn unmatched_paths_with_a_trailing_slash_redirect_without_it() {
+    let app = server::router(state(unused_pool()));
+    for (path, target) in [
+        ("/staff/", "/staff"),
+        ("/drops/?x=1", "/drops?x=1"),
+        ("/staff//", "/staff"),
+        ("/nope/", "/nope"),
+        ("/health/", "/health"),
+    ] {
+        let reply = get_path(&app, path).await;
+        assert_eq!(reply.status, StatusCode::PERMANENT_REDIRECT, "{path}");
+        assert_eq!(header(&reply, LOCATION), target, "{path}");
+    }
+    let head = send(
+        &app,
+        Request::head("/staff/")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(head.status, StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(header(&head, LOCATION), "/staff");
+}
+
+#[tokio::test]
+async fn trailing_slash_redirects_stay_on_this_site_and_skip_other_methods() {
+    let app = server::router(state(unused_pool()));
+    for path in ["//evil.example/", "///evil.example/", "/\\evil.example/"] {
+        let reply = get_path(&app, path).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
+        assert!(reply.headers.get(LOCATION).is_none(), "{path}");
+    }
+    let post = send(
+        &app,
+        Request::post("/staff/")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_ne!(post.status, StatusCode::PERMANENT_REDIRECT);
+    assert!(post.headers.get(LOCATION).is_none());
+    let options = send(
+        &app,
+        Request::options("/staff/")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(options.status, StatusCode::NOT_FOUND);
+    assert!(options.headers.get(LOCATION).is_none());
+    let unknown = get_path(&app, "/nope").await;
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
