@@ -4605,3 +4605,270 @@ async fn a_new_bread_drop_the_list_does_not_show_opens_on_its_own_page(pool: PgP
         "{location}"
     );
 }
+
+fn found_none(q: &str) -> String {
+    dutch_with("search-none", &[("q", q)])
+}
+
+async fn charity_named(pool: &PgPool, name: &str) -> CharityId {
+    let mut conn = pool.acquire().await.expect("conn");
+    charities::create(
+        &mut conn,
+        &CharityInput {
+            name: name.to_owned(),
+            description: String::new(),
+            url: "https://example.org".to_owned(),
+            logo_path: None,
+            iban: None,
+            anbi_rsin: None,
+        },
+    )
+    .await
+    .expect("charity")
+    .id
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn charities_are_found_ignoring_case_and_accents(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    charity_named(&pool, "Crème de la Crème").await;
+    charity_named(&pool, "Voedselbank").await;
+
+    let page = owner.get("/staff/charities?q=CREME").await;
+    page.shows("Crème de la Crème");
+    page.lacks("Voedselbank");
+    page.shows(
+        "<form class=\"search\" method=\"get\" action=\"/staff/charities\" role=\"search\" hx-get=\"/staff/charities\" hx-trigger=\"submit, input changed delay:250ms from:#q, search from:#q, change\"",
+    );
+    page.shows("hx-replace-url=\"true\"");
+    page.shows("name=\"q\" value=\"CREME\"");
+    page.shows(&format!(
+        "<p class=\"visually-hidden\" id=\"zoekresultaat\" aria-live=\"polite\">{}</p>",
+        dutch_count("search-count", 1)
+    ));
+
+    let both = owner.get("/staff/charities?q=").await;
+    both.shows("Crème de la Crème");
+    both.shows("Voedselbank");
+
+    let none = owner.get("/staff/charities?q=rogge").await;
+    none.shows(&found_none("rogge"));
+    none.lacks("Voedselbank");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_search_term_is_only_text(pool: PgPool) {
+    let app = app(pool.clone());
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    charity_named(&pool, "Voedselbank").await;
+    let attack = "%27%3B+DROP+TABLE+charity%3B+--+%3Cscript%3E";
+    let page = owner.get(&format!("/staff/charities?q={attack}")).await;
+    assert_eq!(page.status, StatusCode::OK);
+    page.shows(&found_none("'; DROP TABLE charity; -- &#60;script&#62;"));
+    page.lacks("<script>");
+    owner.get("/staff/charities").await.shows("Voedselbank");
+
+    let long = "a".repeat(300);
+    let page = owner.get(&format!("/staff/charities?q={long}")).await;
+    page.shows(&format!("value=\"{}\"", "a".repeat(100)));
+    page.lacks(&"a".repeat(101));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn products_ingredients_recipes_and_polls_are_searched_by_name(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    product(&pool).await;
+    baker
+        .post("/staff/products/new", &product_form(&[]))
+        .await
+        .back_to_list("/staff/products", "toegevoegd");
+    let page = baker.get("/staff/products?q=desem").await;
+    page.shows("Desembrood wit");
+    page.lacks(">Spelt<");
+    baker
+        .get("/staff/products?q=haver")
+        .await
+        .shows(&found_none("haver"));
+
+    for (name, role) in [("Speltbloem", "flour"), ("Zeezout", "other")] {
+        baker
+            .post("/staff/ingredients/new", &[("name", name), ("role", role)])
+            .await
+            .back_to_list("/staff/ingredients", "toegevoegd");
+    }
+    let page = baker.get("/staff/ingredients?q=spelt").await;
+    page.shows("Speltbloem");
+    page.lacks("Zeezout");
+
+    for name in ["Rogge", "Desem"] {
+        baker
+            .post("/staff/recipes/new", &[("name", name), ("kind", "dough")])
+            .await
+            .back_to_list("/staff/recipes", "toegevoegd");
+    }
+    let page = baker.get("/staff/recipes?q=rog").await;
+    page.shows(">Rogge<");
+    page.lacks(">Desem<");
+
+    for title in ["Welk brood?", "Welke taart?"] {
+        baker
+            .post(
+                "/staff/polls/new",
+                &[
+                    ("title", title),
+                    ("closes_at", "2026-12-01T20:00"),
+                    ("options", "Spelt\nRogge"),
+                ],
+            )
+            .await
+            .back_to_list("/staff/polls", "toegevoegd");
+    }
+    let page = baker.get("/staff/polls?q=taart").await;
+    page.shows("Welke taart?");
+    page.lacks("Welk brood?");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn business_customers_are_found_by_name_kvk_or_email(pool: PgPool) {
+    let app = app(pool);
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    business_account(&owner).await;
+    owner
+        .post(
+            "/staff/business-accounts/new",
+            &business_form(&[
+                ("company_name", "Bakkerij Om De Hoek"),
+                ("kvk", "87654321"),
+                ("invoice_email", "boeken@omdehoek.example"),
+                ("contact_email", "inkoop@omdehoek.example"),
+            ]),
+        )
+        .await
+        .back_to_list("/staff/business-accounts", "toegevoegd");
+    for q in ["cafe", "12345678", "FACTUUR@dehoek"] {
+        let page = owner.get(&format!("/staff/business-accounts?q={q}")).await;
+        page.shows("Café De Hoek");
+        page.lacks("Bakkerij Om De Hoek");
+    }
+    owner
+        .get("/staff/business-accounts?q=boeken%40omdehoek.example")
+        .await
+        .shows("Bakkerij Om De Hoek");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn bread_drops_are_found_by_date(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    saturday(&pool).await;
+    saturday_after(&pool).await;
+    for q in ["5+december", "05-12", "zaterdag+5"] {
+        let page = baker.get(&format!("/staff/bake-days?q={q}")).await;
+        page.shows("zaterdag 5 december 2026");
+        page.lacks("12 december 2026");
+    }
+    baker
+        .get("/staff/bake-days?q=juli")
+        .await
+        .shows(&found_none("juli"));
+    let orders = baker.get("/staff/orders?q=05-12").await;
+    orders.shows("zaterdag 5 december 2026");
+    orders.lacks("12 december 2026");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn orders_of_a_bread_drop_are_found_by_number_name_or_email(pool: PgPool) {
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let list = format!("/staff/bake-days/{}/orders", paid.day.get());
+    let number = paid.order.number.to_string();
+    for q in [number.as_str(), "test+klant", "KLANT%40example.org"] {
+        owner
+            .get(&format!("{list}?q={q}"))
+            .await
+            .shows(&format!(">{number}<"));
+    }
+    let none = owner.get(&format!("{list}?q=iemand%40anders.nl")).await;
+    none.shows(&found_none("iemand@anders.nl"));
+    none.lacks(&format!(">{number}<"));
+    let filtered = owner.get(&format!("{list}?status=paid&q=klant")).await;
+    let form = filtered
+        .text
+        .split("<form class=\"search\"")
+        .nth(1)
+        .and_then(|rest| rest.split("</form>").next())
+        .expect("one search form");
+    assert!(form.contains("<option value=\"paid\" selected>"), "{form}");
+    assert!(form.contains("name=\"q\" value=\"klant\""), "{form}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn searching_keeps_the_role_guards(pool: PgPool) {
+    let app = app(pool);
+    let counter = client(&app, "Balie Bo", Role::Counter).await;
+    for path in [
+        "/staff/products?q=a",
+        "/staff/ingredients?q=a",
+        "/staff/recipes?q=a",
+        "/staff/charities?q=a",
+        "/staff/business-accounts?q=a",
+    ] {
+        assert_eq!(
+            counter.get(path).await.status,
+            StatusCode::FORBIDDEN,
+            "{path}"
+        );
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_searched_email_address_never_reaches_the_logs(pool: PgPool) {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+    impl Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("lock").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(move || writer.clone())
+        .finish();
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    let app = app(pool.clone());
+    let paid = paid_order(&app).await;
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    tracing::info!("search log test starts");
+    let orders = format!("/staff/bake-days/{}/orders", paid.day.get());
+    for list in [
+        orders.as_str(),
+        "/staff/orders",
+        "/staff/bake-days",
+        "/staff/business-accounts",
+        "/staff/products",
+        "/staff/ingredients",
+        "/staff/recipes",
+        "/staff/charities",
+        "/staff/polls",
+    ] {
+        let path = format!("{list}?q=geheim%40example.nl");
+        assert_eq!(owner.get(&path).await.status, StatusCode::OK, "{path}");
+    }
+    let logs = String::from_utf8(captured.0.lock().expect("lock").clone()).expect("utf-8");
+    assert!(logs.contains("search log test starts"), "the capture works");
+    assert!(!logs.contains("geheim"), "{logs}");
+}

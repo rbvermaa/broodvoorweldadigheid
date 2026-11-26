@@ -1,12 +1,16 @@
 {% extends "staff/layout.html" %}
 {% import "components/feedback.html" as fb %}
 {% import "components/table.html" as tb %}
+{% import "components/search.html" as se %}
 {% block title %}{{ layout.t("staff-nav-orders")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-orders")? }}</h1>
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
 {% if table.rows.is_empty() %}
-{% call fb::empty_state(layout.t("days-empty-title")?, layout.t("staff-orders-days-empty")?) %}{% endcall %}
+{% if search.q.is_empty() %}{% call fb::empty_state(layout.t("days-empty-title")?, layout.t("staff-orders-days-empty")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}
 {% else %}
 {% call tb::table(table) %}{% endcall %}
 {% endif %}
+</div>
 {% endblock %}

@@ -24,8 +24,8 @@ use tower_sessions::Session;
 use super::bake_days::{self, alert_fragment, day_path, status_message};
 use super::form::Fields;
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id,
-    require, saved, t, t_with,
+    Flash, Outcome, Rejection, Search, SearchBox, Step, fail, invalid_status, is_htmx, layout,
+    not_found, path_id, require, saved, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -162,10 +162,15 @@ fn when(at: jiff::Timestamp) -> String {
 struct DaysPage<'a> {
     layout: Layout<'a>,
     table: Table,
+    search: SearchBox,
 }
 
 /// The bake days of the last four weeks and ahead, each linking to its orders.
-pub async fn days_list(State(state): State<AppState>, staff: Staff) -> Response {
+pub async fn days_list(
+    State(state): State<AppState>,
+    staff: Staff,
+    Query(search): Query<Search>,
+) -> Response {
     let run = async {
         require(&state, &staff, Permission::ViewOrders)?;
         let today = state.clock.now_in_bakery().date();
@@ -178,6 +183,12 @@ pub async fn days_list(State(state): State<AppState>, staff: Staff) -> Response 
         drop(conn);
         let rows = list
             .iter()
+            .filter(|day| {
+                search.matches(&[
+                    &state.i18n.long_date(day.date),
+                    &i18n::numeric_date(day.date),
+                ])
+            })
             .map(|day| {
                 vec![
                     Cell::link(state.i18n.long_date(day.date), day_orders_path(day)),
@@ -199,6 +210,7 @@ pub async fn days_list(State(state): State<AppState>, staff: Staff) -> Response 
             StatusCode::OK,
             &DaysPage {
                 layout: Layout::new(&state),
+                search: search.view(&state, "/staff/orders", table.rows.len()),
                 table,
             },
         ))
@@ -217,13 +229,13 @@ pub struct ListQuery {
 struct ListPage<'a> {
     layout: Layout<'a>,
     heading: String,
-    action: String,
     cancel_day: Option<String>,
     pickup_list: String,
     production: Option<String>,
     statuses: Vec<SelectOption>,
     locations: Vec<SelectOption>,
     table: Table,
+    search: SearchBox,
 }
 
 fn any_option(state: &AppState, selected: bool) -> SelectOption {
@@ -241,6 +253,7 @@ pub async fn list(
     staff: Staff,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::ViewOrders)?;
@@ -285,6 +298,14 @@ pub async fn list(
         let amsterdam = i18n::Amsterdam::new();
         let rows = list
             .iter()
+            .filter(|o| {
+                let number = o.number.to_string();
+                if o.customer_erased {
+                    search.matches(&[&number])
+                } else {
+                    search.matches(&[&number, &o.customer_name, &o.email])
+                }
+            })
             .map(|o| {
                 let range = amsterdam
                     .time_range(o.pickup_starts, o.pickup_ends)
@@ -332,7 +353,7 @@ pub async fn list(
                     "staff-orders-day-heading",
                     &[("date", state.i18n.long_date(day.date))],
                 ),
-                action: day_orders_path(&day),
+                search: search.view(&state, &day_orders_path(&day), table.rows.len()),
                 statuses,
                 locations,
                 table,

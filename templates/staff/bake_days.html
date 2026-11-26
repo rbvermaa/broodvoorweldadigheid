@@ -1,6 +1,7 @@
 {% extends "staff/layout.html" %}
 {% import "components/feedback.html" as fb %}
 {% import "components/table.html" as tb %}
+{% import "components/search.html" as se %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("staff-nav-bake-days")? }}{% endblock %}
 {% block page %}
@@ -8,9 +9,12 @@
 {% call s::saved_row(saved) %}{% endcall %}
 {% if !repeated.is_empty() %}{% call fb::alert("success", repeated) %}{% endcall %}{% endif %}
 <p><a href="/staff/bake-days/new">{{ layout.t("day-new")? }}</a></p>
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
 {% if table.rows.is_empty() %}
-{% call fb::empty_state(layout.t("days-empty-title")?, layout.t("days-empty-text")?) %}{% endcall %}
+{% if search.q.is_empty() %}{% call fb::empty_state(layout.t("days-empty-title")?, layout.t("days-empty-text")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}
 {% else %}
 {% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
+</div>
 {% endblock %}

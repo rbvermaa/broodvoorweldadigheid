@@ -4,6 +4,7 @@
 {% import "components/product.html" as p %}
 {% import "components/picker.html" as pick %}
 {% import "components/table.html" as t %}
+{% import "components/search.html" as se %}
 {% import "components/chart.html" as ch %}
 {% import "components/feedback.html" as fb %}
 {% import "components/dialog.html" as d %}
@@ -109,7 +110,11 @@
 
 <section class="gallery-section" aria-labelledby="gallery-tables">
 <h2 id="gallery-tables">{{ layout.t("gallery-tables")? }}</h2>
-{% call t::table(table) %}{% endcall %}
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
+{% call t::table(table, "#bakdag-caption") %}{% endcall %}
+{% call se::none(search) %}{% endcall %}
+</div>
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-charts">

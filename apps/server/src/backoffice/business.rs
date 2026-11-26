@@ -28,8 +28,8 @@ use super::lists::pdf_response;
 use super::orders::{order_path, queue_email};
 use super::reports::{Chosen, PeriodForm, PeriodQuery, choose, csv_response, money, report_error};
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved, saved_to_list, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -88,6 +88,7 @@ fn yes_no(state: &AppState, yes: bool) -> String {
 #[template(path = "staff/business_accounts.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
+    search: SearchBox,
     saved: SavedRow,
     /// The viewer may open and change accounts.
     invoicing: bool,
@@ -98,6 +99,7 @@ pub async fn list(
     State(state): State<AppState>,
     staff: Staff,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::EditOrders)?;
@@ -109,6 +111,7 @@ pub async fn list(
         drop(conn);
         let rows = all
             .iter()
+            .filter(|a| search.matches(&[&a.company_name, &a.kvk, &a.invoice_email]))
             .map(|a| {
                 let path = account_path(a.id);
                 let mut row = vec![
@@ -163,6 +166,7 @@ pub async fn list(
             &ListPage {
                 layout: Layout::new(&state),
                 saved,
+                search: search.view(&state, LIST, table.rows.len()),
                 invoicing,
                 table,
             },

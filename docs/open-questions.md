@@ -194,3 +194,6 @@ Questions about the spec. The spec is only changed when the owner asks.
   as a new recipe version before mixing as well as after baking. Restrict it to baked
   batches?
   **Owner, 2026-11-25:** no, any status (ADR 0037, ADR 0042).
+- [ ] **Find an order without knowing its Bread Drop** (F24, ADR 0051). The search is on
+  each Bread Drop's order list; `/staff/orders` only filters its Bread Drops by date. A
+  search across all orders by number, name or email needs its own query. Wanted?

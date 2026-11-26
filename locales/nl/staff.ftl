@@ -293,7 +293,6 @@ staff-orders-days-empty = Er zijn geen Bread Drops in deze periode.
 staff-orders-day-heading = Bestellingen voor { $date }
 staff-orders-back = Andere Bread Drop kiezen
 staff-orders-caption = Bestellingen
-staff-orders-filter = Filteren
 staff-orders-filter-any = Alle
 staff-orders-filter-location = Ophaallocatie
 staff-orders-empty-title = Geen bestellingen
@@ -486,3 +485,13 @@ settings-public-donations-title = Giftenpagina
 settings-public-donations-intro = Op de giftenpagina ziet iedereen hoeveel er per Bread Drop en per goed doel is opgehaald, zonder namen of losse bedragen. Zet hem aan als je er klaar voor bent; dan komt er ook een link onderaan de site.
 settings-public-donations = Giftenpagina op de site tonen
 settings-public-donations-view = Bekijk de giftenpagina
+# Search above a list (F24)
+search-label = Zoeken
+search-submit = Zoek
+search-none = Niets gevonden voor «{ $q }»
+search-none-text = Probeer een ander woord, of maak het zoekveld leeg.
+search-count = { $n ->
+    [0] Niets gevonden
+    [one] 1 gevonden
+   *[other] { $n } gevonden
+}

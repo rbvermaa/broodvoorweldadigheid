@@ -1,6 +1,7 @@
 {% extends "staff/layout.html" %}
 {% import "components/feedback.html" as fb %}
 {% import "components/table.html" as tb %}
+{% import "components/search.html" as se %}
 {% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("staff-nav-products")? }}{% endblock %}
 {% block page %}
@@ -9,9 +10,12 @@
 {% if kitchen_unapproved %}{% call fb::alert("warning", layout.t("kitchen-may-contain-unapproved")?) %}{% endcall %}{% endif %}
 <p><a href="/staff/products/may-contain">{{ layout.t("kitchen-may-contain-link")? }}</a></p>
 <p><a href="/staff/products/new">{{ layout.t("product-new")? }}</a></p>
+{% call se::search(search) %}{% endcall %}
+<div id="resultaten">
 {% if table.rows.is_empty() %}
-{% call fb::empty_state(layout.t("products-empty-title")?, layout.t("products-empty-text")?) %}{% endcall %}
+{% if search.q.is_empty() %}{% call fb::empty_state(layout.t("products-empty-title")?, layout.t("products-empty-text")?) %}{% endcall %}{% else %}{% call se::none(search) %}{% endcall %}{% endif %}
 {% else %}
 {% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
+</div>
 {% endblock %}

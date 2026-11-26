@@ -18,8 +18,8 @@ use tower_sessions::Session;
 use super::form::{Errors, Fields, parse_pct, pct_value};
 use super::products::AllergenBox;
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved_to_list, t,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved_to_list, t,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -157,6 +157,7 @@ impl IngredientForm {
 #[template(path = "staff/ingredients.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
+    search: SearchBox,
     table: Table,
     saved: SavedRow,
 }
@@ -193,6 +194,7 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::EditAllergens)?;
@@ -211,6 +213,7 @@ pub async fn list(
             ],
             rows: all
                 .iter()
+                .filter(|i| search.matches(&[&i.name, &i.supplier_name]))
                 .map(|i| {
                     vec![
                         Cell::link(i.name.clone(), ingredient_path(i.id)),
@@ -227,6 +230,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, LIST, table.rows.len()),
                 table,
                 saved,
             },

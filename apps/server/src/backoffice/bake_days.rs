@@ -30,8 +30,9 @@ use super::form::{
 };
 use super::orders::queue_email;
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, is_htmx, layout,
-    not_found, path_id, redirect, require, saved, saved_to_list, t, t_count, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    is_htmx, layout, not_found, path_id, redirect, require, saved, saved_to_list, t, t_count,
+    t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -223,6 +224,7 @@ struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
     saved: SavedRow,
+    search: SearchBox,
     repeated: String,
 }
 
@@ -232,6 +234,7 @@ pub async fn list(
     session: Session,
     Query(flash): Query<DayFlash>,
     Query(added): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::ManageBakeDays)?;
@@ -264,9 +267,19 @@ pub async fn list(
                 .collect();
             places.sort_unstable();
             places.dedup();
+            let date = state.i18n.long_date(day.date);
+            let places = places.join(", ");
+            let charity = day
+                .charity_id
+                .and_then(|id| charity_names.get(&id).cloned())
+                .unwrap_or_else(|| t(&state, "day-no-charity"));
+            let numeric = i18n::numeric_date(day.date);
+            if !search.matches(&[&date, &numeric, &places, &charity]) {
+                continue;
+            }
             rows.push(vec![
-                Cell::link(state.i18n.long_date(day.date), day_path(day.id)),
-                Cell::text(places.join(", ")),
+                Cell::link(date, day_path(day.id)),
+                Cell::text(places),
                 Cell::text(t(&state, status_message(day.status))),
                 Cell::text(t(
                     &state,
@@ -276,11 +289,7 @@ pub async fn list(
                         "day-production-only"
                     },
                 )),
-                Cell::text(
-                    day.charity_id
-                        .and_then(|id| charity_names.get(&id).cloned())
-                        .unwrap_or_else(|| t(&state, "day-no-charity")),
-                ),
+                Cell::text(charity),
             ]);
         }
         let table = Table {
@@ -301,6 +310,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, LIST, table.rows.len()),
                 table,
                 saved,
                 repeated: flash

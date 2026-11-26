@@ -13,8 +13,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields};
 use super::{
-    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
-    path_id, require, saved_to_list, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
+    layout, not_found, path_id, require, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, Table};
 use crate::pages::{self, Layout};
@@ -106,6 +106,7 @@ impl CharityForm {
 #[template(path = "staff/charities.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
+    search: SearchBox,
     table: Table,
     saved: SavedRow,
 }
@@ -149,6 +150,7 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<Flash>,
+    Query(search): Query<Search>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::ManageCharities)?;
@@ -166,6 +168,7 @@ pub async fn list(
             ],
             rows: all
                 .iter()
+                .filter(|c| search.matches(&[&c.name, &c.url]))
                 .map(|c| {
                     vec![
                         Cell::link(c.name.clone(), charity_path(c.id)),
@@ -188,6 +191,7 @@ pub async fn list(
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
+                search: search.view(&state, LIST, table.rows.len()),
                 table,
                 saved,
             },

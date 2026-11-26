@@ -35,3 +35,14 @@ document.addEventListener("keydown", (event) => {
     event.target.value = event.target.defaultValue;
   }
 });
+
+// "/" jumps to the search field above a list (templates/components/search.html).
+document.addEventListener("keydown", (event) => {
+  const field = document.querySelector("[data-search]");
+  const typing = event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+  if (event.key === "/" && field && !typing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.defaultPrevented) {
+    event.preventDefault();
+    field.focus();
+    field.select();
+  }
+});
