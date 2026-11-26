@@ -1,9 +1,9 @@
 use askama::Template;
 use axum::extract::Request;
 use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::{HeaderValue, Method, StatusCode, Uri};
 use axum::middleware::Next;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use i18n::{FluentArgs, Translator};
 use tower_sessions::Session;
 
@@ -267,8 +267,35 @@ pub async fn home(
     )
 }
 
-pub async fn not_found(axum::extract::State(state): axum::extract::State<AppState>) -> Response {
+/// An unmatched GET or HEAD with a trailing slash redirects to the path without it.
+pub async fn not_found(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    method: Method,
+    uri: Uri,
+) -> Response {
+    if (method == Method::GET || method == Method::HEAD)
+        && let Some(target) = without_trailing_slash(&uri)
+    {
+        return Redirect::permanent(&target).into_response();
+    }
     error(&state, StatusCode::NOT_FOUND)
+}
+
+/// `None` unless the path ends in a slash and the trimmed path stays on this site:
+/// browsers read `//host` and `/\host` as another host.
+fn without_trailing_slash(uri: &Uri) -> Option<String> {
+    let path = uri.path();
+    if path.len() <= 1 || !path.ends_with('/') {
+        return None;
+    }
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/\\") {
+        return None;
+    }
+    Some(match uri.query() {
+        Some(query) => format!("{trimmed}?{query}"),
+        None => trimmed.to_owned(),
+    })
 }
 
 pub async fn method_not_allowed(
@@ -308,6 +335,22 @@ mod tests {
     #[template(source = "{{ layout.t(\"no-such-message\")? }}", ext = "html")]
     struct Broken<'a> {
         layout: Layout<'a>,
+    }
+
+    #[test]
+    fn only_trailing_slashes_on_local_paths_are_trimmed() {
+        for (uri, trimmed) in [
+            ("/", None),
+            ("/staff", None),
+            ("/staff/", Some("/staff")),
+            ("/staff///?a=1&b=2", Some("/staff?a=1&b=2")),
+            ("//", None),
+            ("//evil.example/", None),
+            ("/\\evil.example/", None),
+        ] {
+            let uri: Uri = uri.parse().expect("uri");
+            assert_eq!(without_trailing_slash(&uri).as_deref(), trimmed, "{uri}");
+        }
     }
 
     #[tokio::test]
