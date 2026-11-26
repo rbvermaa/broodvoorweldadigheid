@@ -20,6 +20,11 @@
 <div id="status" role="status">{% if saved %}{% call fb::saved() %}{% endcall %}{% endif %}</div>
 {% endmacro %}
 
+{# A list's live region after a save on an object's own page: backoffice::SavedRow. #}
+{% macro saved_row(saved) %}
+<div id="status" role="status">{% if !saved.text.is_empty() %}<p class="saved">{{ layout.icon("check")? }}<span>{{ saved.text }}</span></p>{% endif %}</div>
+{% endmacro %}
+
 {# The period above a report: backoffice::reports::PeriodForm. #}
 {% macro period(form) %}
 <form method="get" action="{{ form.action }}">

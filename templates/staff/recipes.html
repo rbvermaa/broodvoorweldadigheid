@@ -5,11 +5,11 @@
 {% block title %}{{ layout.t("staff-nav-recipes")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-recipes")? }}</h1>
-{% call s::status(saved) %}{% endcall %}
+{% call s::saved_row(saved) %}{% endcall %}
 <p><a href="/staff/recipes/new">{{ layout.t("recipe-new")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("recipes-empty-title")?, layout.t("recipes-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endblock %}

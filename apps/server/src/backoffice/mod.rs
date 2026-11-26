@@ -1,5 +1,6 @@
 //! The back office under `/staff`. Every handler takes [`Staff`] and checks a permission
-//! (ADR 0010). Forms post normally and redirect with `?opgeslagen=1`; htmx only adds inline
+//! (ADR 0010). Forms post normally and redirect: to the list after an object's own form, else
+//! back with `?opgeslagen=1` (ADR 0052); htmx only adds inline
 //! checks and partial updates on top (ADR 0019).
 
 pub mod bake_days;
@@ -38,6 +39,7 @@ use i18n::FluentArgs;
 use serde::Deserialize;
 use tower_sessions::Session;
 
+use crate::components::Table;
 use crate::csrf;
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
@@ -94,16 +96,77 @@ impl Rejection {
 pub type Step<T> = Result<T, Rejection>;
 pub type Outcome = Step<Response>;
 
-/// `?opgeslagen=1` after a save, so the page shows the save confirmation.
+/// `?opgeslagen=1` after a save that stays on its page. On a list, `?opgeslagen=<id>` or
+/// `?toegevoegd=<id>` names the row that was saved on its own page (ADR 0052).
 #[derive(Debug, Default, Deserialize)]
 pub struct Flash {
     opgeslagen: Option<String>,
+    toegevoegd: Option<String>,
 }
 
 impl Flash {
     pub fn saved(&self) -> bool {
         self.opgeslagen.is_some()
     }
+
+    /// What a list shows after a save: the row that links to `path(id)`, highlighted and
+    /// named. When that row is not in `table`, only the plain confirmation.
+    pub fn row(&self, state: &AppState, table: &Table, path: impl Fn(i64) -> String) -> SavedRow {
+        let (id, added) = match (&self.toegevoegd, &self.opgeslagen) {
+            (Some(id), _) => (id, true),
+            (None, Some(id)) => (id, false),
+            (None, None) => return SavedRow::default(),
+        };
+        let href = id.parse().map(path).unwrap_or_default();
+        match table.name_of(&href) {
+            Some(name) => SavedRow {
+                text: t_with(
+                    state,
+                    if added { "added-row" } else { "saved-row" },
+                    &[("name", name.to_owned())],
+                ),
+                href,
+            },
+            None => SavedRow {
+                text: t(state, "saved"),
+                href: String::new(),
+            },
+        }
+    }
+}
+
+/// The confirmation on a list after a save; `href` is the highlighted row's link.
+#[derive(Debug, Default)]
+pub struct SavedRow {
+    pub text: String,
+    pub href: String,
+}
+
+pub enum RowChange {
+    Saved,
+    Added,
+}
+
+impl RowChange {
+    /// `Saved` for an object that existed before the form, else `Added`.
+    pub const fn of(existed: bool) -> Self {
+        if existed { Self::Saved } else { Self::Added }
+    }
+}
+
+/// After saving one object on its own page: back to `list`, which names and highlights
+/// the row of object `id` (ADR 0052).
+pub fn saved_to_list(headers: &HeaderMap, list: &str, change: RowChange, id: i64) -> Response {
+    redirect(headers, list_after_save(list, change, id))
+}
+
+/// The link to `list` that names and highlights the row of object `id`.
+pub fn list_after_save(list: &str, change: RowChange, id: i64) -> String {
+    let key = match change {
+        RowChange::Saved => "opgeslagen",
+        RowChange::Added => "toegevoegd",
+    };
+    with_query(list, &format!("{key}={id}"))
 }
 
 pub fn require(state: &AppState, staff: &Staff, permission: Permission) -> Step<()> {
@@ -133,10 +196,18 @@ pub fn is_htmx(headers: &HeaderMap) -> bool {
     headers.contains_key("hx-request")
 }
 
-/// After a save: a 303 to `path` with `opgeslagen=1` added to its query, or for htmx an `HX-Redirect` there.
+/// After a save that stays on its page: back to `path` with `opgeslagen=1`.
 pub fn saved(headers: &HeaderMap, path: &str) -> Response {
+    redirect(headers, with_query(path, "opgeslagen=1"))
+}
+
+fn with_query(path: &str, pair: &str) -> String {
     let separator = if path.contains('?') { '&' } else { '?' };
-    let target = format!("{path}{separator}opgeslagen=1");
+    format!("{path}{separator}{pair}")
+}
+
+/// A 303 to `target`, or for htmx an `HX-Redirect` there.
+pub fn redirect(headers: &HeaderMap, target: String) -> Response {
     if is_htmx(headers) {
         match HeaderValue::try_from(target) {
             Ok(value) => (

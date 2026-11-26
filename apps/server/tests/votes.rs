@@ -14,7 +14,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, LOCATION, SET_COOK
 use axum::http::{HeaderMap, Request, StatusCode};
 use db::PgPool;
 use domain::PollId;
-use i18n::Translator;
+use i18n::{FluentArgs, Translator};
 use jiff::{SignedDuration, Timestamp};
 use notify::polls::{self, NewOption, PollInput};
 use server::AppState;
@@ -32,6 +32,14 @@ fn ts(s: &str) -> Timestamp {
 
 fn dutch(id: &str) -> String {
     Translator::dutch().unwrap().t(id, None).unwrap()
+}
+
+fn dutch_with(id: &str, args: &[(&str, &str)]) -> String {
+    let mut fluent = FluentArgs::new();
+    for (name, value) in args {
+        fluent.set(*name, *value);
+    }
+    Translator::dutch().unwrap().t(id, Some(&fluent)).unwrap()
 }
 
 async fn app(pool: &PgPool) -> Router {
@@ -528,12 +536,19 @@ async fn the_baker_creates_a_poll_and_sees_results_and_wishes(pool: PgPool) {
     assert_eq!(created.status, StatusCode::SEE_OTHER);
     let location = created.headers.get(LOCATION).unwrap().to_str().unwrap();
     let id: i64 = location
-        .trim_start_matches("/staff/polls/")
-        .split('?')
-        .next()
-        .unwrap()
-        .parse()
-        .unwrap();
+        .strip_prefix("/staff/polls?toegevoegd=")
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| panic!("{location}"));
+    let list = get(&app, location, Some(&cookie)).await;
+    assert!(
+        list.body
+            .contains(&dutch_with("added-row", &[("name", "Welk brood?")])),
+        "{}",
+        list.body
+    );
+    assert!(list.body.contains(&format!(
+        "<tr class=\"table-row-saved\"><td><a href=\"/staff/polls/{id}\">"
+    )));
     let mut conn = pool.acquire().await.unwrap();
     let poll = polls::get(&mut conn, PollId::new(id)).await.unwrap();
     assert_eq!(
@@ -555,7 +570,7 @@ async fn the_baker_creates_a_poll_and_sees_results_and_wishes(pool: PgPool) {
     .execute(&pool)
     .await
     .unwrap();
-    let page = get(&app, location, Some(&cookie)).await;
+    let page = get(&app, &format!("/staff/polls/{id}"), Some(&cookie)).await;
     assert_eq!(page.status, StatusCode::OK);
     assert!(page.body.contains("Spelt-walnoot: 1"));
     assert!(page.body.contains("Graag met zaden"));
@@ -572,6 +587,10 @@ async fn the_baker_creates_a_poll_and_sees_results_and_wishes(pool: PgPool) {
     )
     .await;
     assert_eq!(closed.status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        closed.headers.get(LOCATION).unwrap(),
+        format!("/staff/polls?opgeslagen={id}").as_str()
+    );
     let poll = polls::get(&mut conn, PollId::new(id)).await.unwrap();
     assert!(!poll.is_open(ts(NOW)), "closed early");
     assert!(!poll.public_results);

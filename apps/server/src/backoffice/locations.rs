@@ -16,8 +16,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, parse_time, time_value};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_count, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved_to_list, t, t_count, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -26,7 +26,7 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/locations", get(list))
+        .route(LIST, get(list))
         .route("/staff/locations/new", get(new_form).post(create))
         .route("/staff/locations/{id}", get(edit_form).post(update))
         .route(
@@ -40,6 +40,7 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
+const LIST: &str = "/staff/locations";
 const CHECK_WINDOW: &str = "/staff/locations/windows/check";
 const MAX_DAYS_BEFORE: i16 = 28;
 
@@ -190,6 +191,7 @@ fn weekday_name(state: &AppState, n: i8) -> String {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
+    saved: SavedRow,
 }
 
 #[derive(Template)]
@@ -200,7 +202,7 @@ struct LocationPage<'a> {
     action: String,
     form: LocationForm,
     errors: Errors,
-    saved: bool,
+    saved: SavedRow,
     /// Only for an existing location: its windows and where to add one.
     windows: Option<(Table, String)>,
 }
@@ -221,6 +223,10 @@ struct WindowPage<'a> {
 
 fn location_path(id: PickupLocationId) -> String {
     format!("/staff/locations/{}", id.get())
+}
+
+fn window_path(location: PickupLocationId, window: i64) -> String {
+    format!("{}/windows/{window}", location_path(location))
 }
 
 fn bakedays_error(state: &AppState, error: &bakedays::Error) -> Response {
@@ -253,7 +259,12 @@ async fn load_window(
         .ok_or_else(|| not_found(state).into())
 }
 
-pub async fn list(State(state): State<AppState>, staff: Staff, session: Session) -> Response {
+pub async fn list(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Query(flash): Query<Flash>,
+) -> Response {
     let run = async {
         require(&state, &staff, Permission::ManageBakeDays)?;
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
@@ -277,12 +288,16 @@ pub async fn list(State(state): State<AppState>, staff: Staff, session: Session)
                 })
                 .collect(),
         };
+        let saved = flash.row(&state, &table, |id| {
+            location_path(PickupLocationId::new(id))
+        });
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
+                saved,
             },
         ))
     };
@@ -305,10 +320,7 @@ fn window_table(state: &AppState, location: &PickupLocation, windows: &[PickupWi
                 let day = weekday_name(state, w.weekday.to_monday_one_offset());
                 let range = i18n::time_range(w.starts, w.ends).unwrap_or_default();
                 vec![
-                    Cell::link(
-                        day,
-                        format!("{}/windows/{}", location_path(location.id), w.id.get()),
-                    ),
+                    Cell::link(day, window_path(location.id, w.id.get())),
                     Cell::text(range),
                     Cell::text(t_with(
                         state,
@@ -332,20 +344,22 @@ async fn render_location(
     location: Option<&PickupLocation>,
     form: LocationForm,
     errors: Errors,
-    saved: bool,
+    flash: &Flash,
 ) -> Outcome {
-    let windows = match location {
+    let (windows, saved) = match location {
         Some(location) => {
             let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
             let windows = pickup::list_windows(&mut conn, location.id)
                 .await
                 .map_err(|e| fail(state, &e))?;
-            Some((
-                window_table(state, location, &windows),
-                format!("{}/windows/new", location_path(location.id)),
-            ))
+            let table = window_table(state, location, &windows);
+            let saved = flash.row(state, &table, |id| window_path(location.id, id));
+            (
+                Some((table, format!("{}/windows/new", location_path(location.id)))),
+                saved,
+            )
         }
-        None => None,
+        None => (None, SavedRow::default()),
     };
     let (heading, action) = match location {
         Some(l) => (l.name.clone(), location_path(l.id)),
@@ -381,7 +395,7 @@ pub async fn new_form(State(state): State<AppState>, staff: Staff, session: Sess
             None,
             form,
             Errors::default(),
-            false,
+            &Flash::default(),
         )
         .await
     };
@@ -402,14 +416,28 @@ pub async fn create(
             Ok(input) => input,
             Err(errors) => {
                 let status = invalid_status(&headers);
-                return render_location(&state, &session, status, None, form, errors, false).await;
+                return render_location(
+                    &state,
+                    &session,
+                    status,
+                    None,
+                    form,
+                    errors,
+                    &Flash::default(),
+                )
+                .await;
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
         let location = pickup::create_location(&mut conn, &input)
             .await
             .map_err(|e| fail(&state, &e))?;
-        Ok(saved(&headers, &location_path(location.id)))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Added,
+            location.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -436,7 +464,7 @@ pub async fn edit_form(
             Some(&location),
             form,
             Errors::default(),
-            flash.saved(),
+            &flash,
         )
         .await
     };
@@ -466,7 +494,7 @@ pub async fn update(
                     Some(&location),
                     form,
                     errors,
-                    false,
+                    &Flash::default(),
                 )
                 .await;
             }
@@ -475,7 +503,12 @@ pub async fn update(
         pickup::update_location(&mut conn, location.id, &input)
             .await
             .map_err(|e| bakedays_error(&state, &e))?;
-        Ok(saved(&headers, &location_path(location.id)))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Saved,
+            location.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -598,10 +631,15 @@ pub async fn create_window(
             }
         };
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
-        pickup::create_window(&mut conn, location.id, &input)
+        let window = pickup::create_window(&mut conn, location.id, &input)
             .await
             .map_err(|e| fail(&state, &e))?;
-        Ok(saved(&headers, &location_path(location.id)))
+        Ok(saved_to_list(
+            &headers,
+            &location_path(location.id),
+            RowChange::Added,
+            window.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -664,7 +702,12 @@ pub async fn update_window(
         pickup::update_window(&mut conn, window.id, &input)
             .await
             .map_err(|e| bakedays_error(&state, &e))?;
-        Ok(saved(&headers, &location_path(location.id)))
+        Ok(saved_to_list(
+            &headers,
+            &location_path(location.id),
+            RowChange::Saved,
+            window.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

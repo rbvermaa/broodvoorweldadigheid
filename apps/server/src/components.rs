@@ -143,6 +143,22 @@ pub struct Table {
     pub rows: Vec<Vec<Cell>>,
 }
 
+impl Table {
+    /// Whether a cell in `row` links to `href`: the row a save came from (ADR 0052).
+    pub fn links_to(&self, row: &[Cell], href: &str) -> bool {
+        !href.is_empty() && row.iter().any(|cell| cell.href.as_deref() == Some(href))
+    }
+
+    /// The text of the first cell in a row that links to `href`.
+    pub fn name_of(&self, href: &str) -> Option<&str> {
+        self.rows
+            .iter()
+            .flatten()
+            .find(|cell| cell.href.as_deref() == Some(href))
+            .map(|cell| cell.text.as_str())
+    }
+}
+
 pub struct Cell {
     pub text: String,
     /// Right-aligned with tabular figures: amounts and counts.

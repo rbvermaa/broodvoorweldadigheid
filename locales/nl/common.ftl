@@ -1,5 +1,7 @@
 app-name = Brood voor Weldadigheid
 saved = Opgeslagen
+saved-row = «{ $name }» opgeslagen
+added-row = «{ $name }» toegevoegd
 customer-erased = verwijderd
 order-thanks = Bedankt voor je bestelling, { $name }!
 order-deadline = Bestel-deadline: { $deadline }

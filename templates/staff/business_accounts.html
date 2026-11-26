@@ -5,12 +5,12 @@
 {% block title %}{{ layout.t("b2b-title")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("b2b-title")? }}</h1>
-{% call s::status(saved) %}{% endcall %}
+{% call s::saved_row(saved) %}{% endcall %}
 <p>{{ layout.t("b2b-intro")? }}</p>
 {% if invoicing %}<p><a href="/staff/business-accounts/new">{{ layout.t("b2b-new")? }}</a></p>{% endif %}
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("b2b-empty-title")?, layout.t("b2b-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endblock %}

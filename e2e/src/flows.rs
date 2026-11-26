@@ -316,14 +316,22 @@ async fn staff_bake_day(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error> {
         "form[action=\"/staff/bake-days/new\"] button[type=submit]",
     )
     .await?;
-    let day: i64 = wait_for("the new bake day's page", || async {
-        Ok(path(driver)
-            .await?
-            .strip_prefix("/staff/bake-days/")
-            .and_then(|rest| rest.parse().ok()))
+    let day: i64 = wait_for("the Bread Drops list naming the new one", || async {
+        let url = driver.current_url().await?;
+        Ok((url.path() == "/staff/bake-days")
+            .then(|| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "toegevoegd")
+                    .and_then(|(_, id)| id.parse().ok())
+            })
+            .flatten())
     })
     .await?;
+    let date = ctx.i18n.long_date(seed::drop_date()?);
+    wait_for_text(driver, ".table-row-saved", &date).await?;
+    axe(ctx, driver, "Bread Drops after a save").await?;
     let page = format!("/staff/bake-days/{day}");
+    driver.goto(ctx.url(&page)).await?;
     wait_for_text(driver, "main", &ctx.t("day-status-draft")?).await?;
     axe(ctx, driver, "bake day").await?;
 

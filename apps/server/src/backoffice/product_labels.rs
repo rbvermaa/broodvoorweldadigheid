@@ -14,8 +14,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields};
 use super::{
-    Flash, Outcome, Rejection, fail, invalid_status, layout, not_found, path_id, require, saved,
-    t_with,
+    Flash, Outcome, Rejection, RowChange, fail, invalid_status, layout, not_found, path_id,
+    require, saved_to_list, t_with,
 };
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
@@ -218,7 +218,12 @@ pub async fn save(
             product = product.get(),
             "label settings saved"
         );
-        Ok(saved(&headers, &path(product)))
+        Ok(saved_to_list(
+            &headers,
+            super::products::LIST,
+            RowChange::Saved,
+            product.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

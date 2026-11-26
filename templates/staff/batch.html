@@ -28,8 +28,9 @@
 <h2>{{ layout.t("batch-adjust-title")? }}</h2>
 <p class="field-hint">{{ layout.t("batch-adjust-hint")? }}</p>
 {% if has_errors %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
-<form method="post" action="{{ action }}" hx-post="{{ preview }}" hx-trigger="input delay:400ms" hx-target="#grams" hx-select="#grams" hx-swap="outerHTML">
+<form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
+<div hx-post="{{ preview }}" hx-trigger="input delay:400ms" hx-include="closest form" hx-target="#grams" hx-select="#grams" hx-swap="outerHTML">
 {% call l::form_grid() %}
 {%- for field in line_fields %}
 {% call f::field("text", field.name, field.label, value = field.value, error = field.error) %}{% endcall %}
@@ -40,6 +41,7 @@
 {% call f::field("text", "reason", layout.t("batch-reason")?, value = reason, hint = layout.t("batch-reason-hint")?, error = reason_error) %}{% endcall %}
 {% call b::button(layout.t("form-save")?, kind = "submit") %}{% endcall %}
 {% endcall %}
+</div>
 </form>
 <h2>{{ layout.t("batch-add-title")? }}</h2>
 {% if !add_errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
