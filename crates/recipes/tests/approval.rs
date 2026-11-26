@@ -23,6 +23,7 @@ fn input(name: &str, role: IngredientRole) -> IngredientInput {
         name: name.to_owned(),
         label_name: String::new(),
         role,
+        hydration: None,
         supplier_name: String::new(),
         allergens: BTreeSet::new(),
     }
@@ -296,6 +297,7 @@ async fn update(
         name: current.name,
         label_name: current.label_name,
         role: current.role,
+        hydration: None,
         supplier_name: current.supplier_name,
         allergens: current.allergens,
     };

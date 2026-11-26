@@ -46,6 +46,7 @@ async fn ingredient(conn: &mut PgConnection, name: &str, role: IngredientRole) -
             name: name.to_owned(),
             label_name: String::new(),
             role,
+            hydration: None,
             supplier_name: String::new(),
             allergens: BTreeSet::new(),
         },

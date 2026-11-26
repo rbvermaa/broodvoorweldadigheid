@@ -16,6 +16,7 @@ fn ingredient(id: i64, name: &str, role: IngredientRole) -> IngredientRef {
         id: IngredientId::new(id),
         name: name.to_owned(),
         role,
+        hydration: None,
     }
 }
 
@@ -139,6 +140,7 @@ fn any_leaf() -> impl Strategy<Value = Line> {
             id: IngredientId::new(id),
             name: format!("Ingrediënt {id}"),
             role: IngredientRole::ALL[role],
+            hydration: None,
         }),
     })
 }

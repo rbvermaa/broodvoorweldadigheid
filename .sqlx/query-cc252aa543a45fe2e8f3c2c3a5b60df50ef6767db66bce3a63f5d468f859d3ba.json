@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE ingredient SET name = $2, label_name = $3, role = $4, supplier_name = $5,\n            allergens = $6\n        WHERE id = $1\n        RETURNING id, name, label_name, role, supplier_name, allergens",
+  "query": "SELECT id, name, label_name, role, starter_hydration_x1000, supplier_name, allergens\n        FROM ingredient WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "starter_hydration_x1000",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ingredient",
+            "name": "starter_hydration_x1000"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "supplier_name",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "allergens",
         "type_info": "TextArray",
         "origin": {
@@ -72,12 +83,7 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "TextArray"
+        "Int8"
       ]
     },
     "nullable": [
@@ -85,9 +91,10 @@
       false,
       false,
       false,
+      true,
       false,
       false
     ]
   },
-  "hash": "fa99b1e53774b15d9d4aa98c600e649730394c54119349200b7f70b808d37046"
+  "hash": "cc252aa543a45fe2e8f3c2c3a5b60df50ef6767db66bce3a63f5d468f859d3ba"
 }

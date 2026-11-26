@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, label_name, role, supplier_name, allergens\n        FROM ingredient WHERE id = $1",
+  "query": "INSERT INTO ingredient\n            (name, label_name, role, starter_hydration_x1000, supplier_name, allergens)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        RETURNING id, name, label_name, role, starter_hydration_x1000, supplier_name, allergens",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,17 @@
       },
       {
         "ordinal": 4,
+        "name": "starter_hydration_x1000",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ingredient",
+            "name": "starter_hydration_x1000"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "supplier_name",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "allergens",
         "type_info": "TextArray",
         "origin": {
@@ -72,7 +83,12 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -80,9 +96,10 @@
       false,
       false,
       false,
+      true,
       false,
       false
     ]
   },
-  "hash": "8e153acbb0178d3ab59b24a5c8634ece4d72a8d3c8db70c93d9f59526c5146cc"
+  "hash": "4d0cd65c76947d77b0138cdb6e65bdc0f8e2035852077fba6975151d5acaeb61"
 }

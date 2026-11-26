@@ -244,6 +244,7 @@ async fn ingredient(pool: &PgPool, name: &str, role: IngredientRole) -> Ingredie
             name: name.to_owned(),
             label_name: String::new(),
             role,
+            hydration: None,
             supplier_name: String::new(),
             allergens: BTreeSet::new(),
         },
@@ -1448,4 +1449,188 @@ async fn search_finds_a_sub_recipe_version_by_its_number(pool: PgPool) {
     found.shows(&format!("value=\"v{}\"", k.levain_v1.get()));
     let none = baker.htmx_get(&format!("{version}/search?q=desem+7")).await;
     none.lacks(&format!("value=\"v{}\"", k.levain_v1.get()));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_starter_is_added_with_its_hydration_and_counts_in_the_footer(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    store::save_draft(
+        &mut conn,
+        k.dough_v1,
+        &DraftInput {
+            lines: vec![
+                line(LinePart::Ingredient(k.flour), 90_000),
+                line(LinePart::Ingredient(k.water), 65_000),
+                line(LinePart::Ingredient(k.salt), 2_000),
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("dough");
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+
+    let search = baker
+        .htmx_get(&format!("{version}/search?q=Desem+wit"))
+        .await;
+    search.shows("<option value=\"starter\">");
+    search.shows("name=\"hydration\"");
+
+    let fields = |hydration: &'static str| {
+        [
+            ("gewicht", "1570"),
+            ("q", "Desem wit"),
+            ("pct", "20"),
+            ("new", "1"),
+            ("role", "starter"),
+            ("hydration", hydration),
+        ]
+    };
+    for wrong in ["", "501", "veel"] {
+        let refused = baker
+            .htmx_post(&format!("{version}/lines"), &fields(wrong))
+            .await;
+        refused.shows(&dutch("ingredient-error-hydration"));
+        refused.shows("value=\"Desem wit\"");
+    }
+    assert_eq!(ingredients::list(&mut conn).await.expect("list").len(), 3);
+    assert_eq!(stored_lines(&pool, k.dough_v1).await.len(), 3);
+
+    let added = baker
+        .htmx_post(&format!("{version}/lines"), &fields("100"))
+        .await;
+    assert_eq!(added.status, StatusCode::OK, "{}", added.text);
+    let desem = ingredients::list(&mut conn)
+        .await
+        .expect("list")
+        .into_iter()
+        .find(|i| i.name == "Desem wit")
+        .expect("created");
+    assert_eq!(desem.role, IngredientRole::Starter);
+    assert_eq!(desem.hydration, Some(Pct::HUNDRED));
+
+    let page = baker.get(&format!("{version}?gewicht=1770")).await;
+    page.shows("<td class=\"recipe-grams\">200</td>");
+    page.shows(&dutch_with("recipe-starter-detail", &[("pct", "100%")]));
+    page.shows("<td class=\"recipe-grams\">1.000</td>");
+    page.shows("<td class=\"recipe-grams\">750</td>");
+    page.shows(&dutch_with(
+        "recipe-starter-split",
+        &[("flour", "100"), ("water", "100")],
+    ));
+    page.shows("<td class=\"recipe-pct\">75%</td>");
+    page.lacks(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_starter_hydration_is_edited_on_its_ingredient_page(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    desembrood(&pool, &k).await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let counter = client(&app, "Toonbank Tineke", Role::Counter).await;
+
+    let missing = baker
+        .post(
+            "/staff/ingredients/new",
+            &[("name", "Roggedesem"), ("role", "starter")],
+        )
+        .await;
+    assert_eq!(missing.status, StatusCode::UNPROCESSABLE_ENTITY);
+    missing.shows(&dutch("ingredient-error-hydration"));
+    let fields = [
+        ("name", "Roggedesem"),
+        ("role", "starter"),
+        ("hydration", "80"),
+    ];
+    assert_eq!(
+        baker
+            .post_raw("/staff/ingredients/new", &fields)
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        counter.post("/staff/ingredients/new", &fields).await.status,
+        StatusCode::FORBIDDEN
+    );
+    let created = baker.post("/staff/ingredients/new", &fields).await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+    let path = created
+        .location()
+        .split('?')
+        .next()
+        .expect("path")
+        .to_owned();
+    baker
+        .get(&path)
+        .await
+        .shows("name=\"hydration\" value=\"80\"");
+    baker
+        .get("/staff/ingredients")
+        .await
+        .shows(&dutch("ingredient-role-starter"));
+
+    let id = IngredientId::new(path.rsplit('/').next().expect("id").parse().expect("id"));
+    let mut conn = pool.acquire().await.expect("conn");
+    let (rye, rye_v1) = recipe(&pool, "Roggebrood", RecipeKind::Dough).await;
+    store::save_draft(
+        &mut conn,
+        rye_v1,
+        &DraftInput {
+            lines: vec![
+                line(LinePart::Ingredient(k.flour), 90_000),
+                line(LinePart::Ingredient(id), 18_000),
+            ],
+            lead_time_hours: None,
+            notes: String::new(),
+        },
+    )
+    .await
+    .expect("rye");
+    let wetter = baker
+        .post(
+            &path,
+            &[
+                ("name", "Roggedesem"),
+                ("role", "starter"),
+                ("hydration", "100"),
+            ],
+        )
+        .await;
+    assert_eq!(wetter.status, StatusCode::SEE_OTHER, "{}", wetter.text);
+    assert_eq!(
+        ingredients::get(&mut conn, id)
+            .await
+            .expect("get")
+            .hydration,
+        Some(Pct::HUNDRED)
+    );
+
+    store::freeze(&mut conn, rye, rye_v1, app.clock.as_ref())
+        .await
+        .expect("freeze");
+    let frozen = baker
+        .post(
+            &path,
+            &[
+                ("name", "Roggedesem"),
+                ("role", "starter"),
+                ("hydration", "120"),
+            ],
+        )
+        .await;
+    assert_eq!(frozen.status, StatusCode::UNPROCESSABLE_ENTITY);
+    frozen.shows(&dutch("ingredient-error-hydration-frozen"));
+    assert_eq!(
+        ingredients::get(&mut conn, id)
+            .await
+            .expect("get")
+            .hydration,
+        Some(Pct::HUNDRED)
+    );
 }

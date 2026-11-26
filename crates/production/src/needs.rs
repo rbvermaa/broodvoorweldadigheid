@@ -409,6 +409,7 @@ mod tests {
                         id: IngredientId::new(id),
                         name: format!("Ingrediënt {id}"),
                         role: IngredientRole::Other,
+                        hydration: None,
                     }),
                 })
                 .collect(),

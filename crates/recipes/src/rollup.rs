@@ -390,6 +390,7 @@ mod tests {
                 id: IngredientId::new(id),
                 name: String::new(),
                 role: IngredientRole::Other,
+                hydration: None,
             }),
         }
     }

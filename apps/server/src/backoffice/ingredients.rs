@@ -10,10 +10,12 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::get;
 use domain::{Allergen, IngredientId};
-use recipes::{Ingredient, IngredientInput, IngredientRole, ingredients};
+use recipes::{
+    Ingredient, IngredientInput, IngredientRole, MAX_STARTER_HYDRATION, Pct, ingredients,
+};
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields};
+use super::form::{Errors, Fields, parse_pct, pct_value};
 use super::products::AllergenBox;
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
@@ -38,13 +40,20 @@ pub const fn role_label(role: IngredientRole) -> &'static str {
         IngredientRole::Flour => "ingredient-role-flour",
         IngredientRole::Water => "ingredient-role-water",
         IngredientRole::Other => "ingredient-role-other",
+        IngredientRole::Starter => "ingredient-role-starter",
     }
+}
+
+/// A starter's hydration as typed, from 0 to 500%.
+pub fn parse_hydration(input: &str) -> Option<Pct> {
+    parse_pct(input).filter(|h| *h <= MAX_STARTER_HYDRATION)
 }
 
 pub struct IngredientForm {
     pub name: String,
     pub label_name: String,
     pub role: String,
+    pub hydration: String,
     pub supplier: String,
     pub allergens: Vec<AllergenBox>,
 }
@@ -66,6 +75,7 @@ impl IngredientForm {
             name: String::new(),
             label_name: String::new(),
             role: String::new(),
+            hydration: String::new(),
             supplier: String::new(),
             allergens: boxes(|_| false),
         }
@@ -76,6 +86,7 @@ impl IngredientForm {
             name: ingredient.name.clone(),
             label_name: ingredient.label_name.clone(),
             role: ingredient.role.code().to_owned(),
+            hydration: ingredient.hydration.map(pct_value).unwrap_or_default(),
             supplier: ingredient.supplier_name.clone(),
             allergens: boxes(|a| ingredient.allergens.contains(&a)),
         }
@@ -86,6 +97,7 @@ impl IngredientForm {
             name: fields.text("name").to_owned(),
             label_name: fields.text("label_name").to_owned(),
             role: fields.text("role").to_owned(),
+            hydration: fields.text("hydration").to_owned(),
             supplier: fields.text("supplier").to_owned(),
             allergens: boxes(|a| fields.checked(&format!("allergen_{}", a.code()))),
         }
@@ -100,11 +112,22 @@ impl IngredientForm {
         if role.is_err() {
             errors.add("role", t(state, "ingredient-error-role"));
         }
+        let hydration = match role {
+            Ok(IngredientRole::Starter) => {
+                let parsed = parse_hydration(&self.hydration);
+                if parsed.is_none() {
+                    errors.add("hydration", t(state, "ingredient-error-hydration"));
+                }
+                parsed
+            }
+            _ => None,
+        };
         match role {
             Ok(role) if errors.is_empty() => Ok(IngredientInput {
                 name: self.name.clone(),
                 label_name: self.label_name.clone(),
                 role,
+                hydration,
                 supplier_name: self.supplier.clone(),
                 allergens: Allergen::ALL
                     .into_iter()
@@ -353,7 +376,11 @@ async fn save(
             }
             Err(recipes::Error::InUse) => {
                 let mut errors = Errors::default();
-                errors.add("role", t(&state, "ingredient-error-role-frozen"));
+                if existing.as_ref().is_some_and(|i| i.role == input.role) {
+                    errors.add("hydration", t(&state, "ingredient-error-hydration-frozen"));
+                } else {
+                    errors.add("role", t(&state, "ingredient-error-role-frozen"));
+                }
                 refused(form, errors).await
             }
             Err(other) => Err(fail(&state, &other).into()),

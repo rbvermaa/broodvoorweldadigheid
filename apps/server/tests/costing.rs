@@ -209,6 +209,7 @@ async fn kitchen(pool: &PgPool) -> Kitchen {
                 name: name.to_owned(),
                 label_name: String::new(),
                 role,
+                hydration: None,
                 supplier_name: String::new(),
                 allergens: BTreeSet::new(),
             },

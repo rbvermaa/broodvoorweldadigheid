@@ -103,6 +103,7 @@ async fn flour_bread(conn: &mut sqlx::PgConnection, bread: domain::ProductId) {
             name: "Tarwebloem".into(),
             label_name: String::new(),
             role: recipes::IngredientRole::Flour,
+            hydration: None,
             supplier_name: String::new(),
             allergens: std::collections::BTreeSet::new(),
         },

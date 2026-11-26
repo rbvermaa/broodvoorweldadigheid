@@ -513,6 +513,7 @@ struct LineRow {
     ingredient_id: Option<i64>,
     ingredient_name: Option<String>,
     ingredient_role: Option<String>,
+    ingredient_hydration: Option<i32>,
     sub_recipe_version_id: Option<i64>,
     sub_recipe_id: Option<i64>,
     sub_name: Option<String>,
@@ -547,6 +548,7 @@ impl TryFrom<LineRow> for BatchLine {
                 id: IngredientId::new(id),
                 name: name.clone(),
                 role: role.parse().map_err(|e| Error::Corrupt(format!("{e}")))?,
+                hydration: row.ingredient_hydration.map(pct).transpose()?,
             }),
             LineRow {
                 sub_recipe_version_id: Some(version_id),
@@ -581,6 +583,7 @@ async fn load(conn: &mut PgConnection, rows: Vec<BatchRow>) -> Result<Vec<Batch>
         LineRow,
         r#"SELECT l.id, l.batch_id,
             l.ingredient_id, i.name AS "ingredient_name?", i.role AS "ingredient_role?",
+            i.starter_hydration_x1000 AS ingredient_hydration,
             l.sub_recipe_version_id, sv.recipe_id AS "sub_recipe_id?", sr.name AS "sub_name?",
             sv.version AS "sub_version?", sr.kind AS "sub_kind?",
             l.base_pct_x1000, l.actual_pct_x1000, l.reason

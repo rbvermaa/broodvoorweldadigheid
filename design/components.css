@@ -892,6 +892,13 @@ textarea.field-input {
   background: var(--color-surface-muted);
 }
 
+.recipe-detail {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+}
+
 .recipe-warning {
   display: flex;
   align-items: flex-start;

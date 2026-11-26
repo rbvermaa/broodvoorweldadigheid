@@ -45,6 +45,7 @@ async fn ingredient(conn: &mut PgConnection, name: &str, role: IngredientRole) -
             name: name.to_owned(),
             label_name: String::new(),
             role,
+            hydration: None,
             supplier_name: String::new(),
             allergens: BTreeSet::new(),
         },
@@ -979,4 +980,88 @@ async fn a_promoted_version_keeps_the_instructions(pool: PgPool) {
         method::method(&mut conn, version.id).await.unwrap(),
         Method::Text("Vouwen om het half uur.".to_owned())
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_starter_in_a_batch_keeps_its_hydration(pool: PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+    let k = kitchen(&mut conn).await;
+    let starter = IngredientInput {
+        hydration: Some(pct(100)),
+        ..IngredientInput {
+            name: "Desem".to_owned(),
+            label_name: String::new(),
+            role: IngredientRole::Starter,
+            hydration: None,
+            supplier_name: String::new(),
+            allergens: BTreeSet::new(),
+        }
+    };
+    let desem = ingredients::create(&mut conn, &starter).await.unwrap();
+    let id = batches::start_manual(&mut conn, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    batches::add_line(&mut conn, id, desem.id, pct(20), None, BAKER, &clock())
+        .await
+        .unwrap();
+    let batch = batches::get(&mut conn, id).await.unwrap();
+    assert!(matches!(
+        &batch.lines.last().unwrap().part,
+        LineRef::Ingredient(i) if i.hydration == Some(pct(100))
+    ));
+
+    let wetter = ingredients::update(
+        &mut conn,
+        desem.id,
+        &IngredientInput {
+            hydration: Some(pct(120)),
+            ..starter.clone()
+        },
+    )
+    .await;
+    assert!(
+        matches!(wetter, Err(recipes::Error::InUse)),
+        "a batch counts on it: {wetter:?}"
+    );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_hydration_change_waits_for_a_starter_being_added_to_a_batch(pool: PgPool) {
+    let mut setup = pool.acquire().await.unwrap();
+    let k = kitchen(&mut setup).await;
+    let starter = IngredientInput {
+        name: "Desem".to_owned(),
+        label_name: String::new(),
+        role: IngredientRole::Starter,
+        hydration: Some(pct(100)),
+        supplier_name: String::new(),
+        allergens: BTreeSet::new(),
+    };
+    let desem = ingredients::create(&mut setup, &starter).await.unwrap();
+    let id = batches::start_manual(&mut setup, k.day, k.bread, 10, BAKER, &clock())
+        .await
+        .unwrap();
+    drop(setup);
+
+    let mut adder = pool.acquire().await.unwrap();
+    let mut tx = sqlx::Connection::begin(&mut *adder).await.unwrap();
+    batches::add_line(&mut tx, id, desem.id, pct(20), None, BAKER, &clock())
+        .await
+        .unwrap();
+
+    let other = pool.clone();
+    let wetter = IngredientInput {
+        hydration: Some(pct(120)),
+        ..starter
+    };
+    let change = tokio::spawn(async move {
+        let mut conn = other.acquire().await.unwrap();
+        ingredients::update(&mut conn, desem.id, &wetter).await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(!change.is_finished(), "the change waits for the batch line");
+    tx.commit().await.unwrap();
+
+    let result = change.await.unwrap();
+    assert!(matches!(result, Err(recipes::Error::InUse)), "{result:?}");
 }
