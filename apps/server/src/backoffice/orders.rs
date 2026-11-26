@@ -229,7 +229,6 @@ pub struct ListQuery {
 struct ListPage<'a> {
     layout: Layout<'a>,
     heading: String,
-    action: String,
     cancel_day: Option<String>,
     pickup_list: String,
     production: Option<String>,
@@ -355,7 +354,6 @@ pub async fn list(
                     &[("date", state.i18n.long_date(day.date))],
                 ),
                 search: search.view(&state, &day_orders_path(&day), table.rows.len()),
-                action: day_orders_path(&day),
                 statuses,
                 locations,
                 table,
