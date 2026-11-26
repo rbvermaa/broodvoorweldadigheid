@@ -3,8 +3,8 @@
 use domain::{IngredientId, RecipeId, RecipeVersionId};
 use proptest::prelude::*;
 use recipes::{
-    Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind, ScaleError, Scaled,
-    SubRecipe, ingredient_totals,
+    FlourWater, Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind, ScaleError,
+    Scaled, SubRecipe, ingredient_totals, leaf_grams,
 };
 
 fn pct(percent: u32) -> Pct {
@@ -18,6 +18,7 @@ fn ingredient(id: i64, name: &str, role: IngredientRole, percent: u32) -> Line {
             id: IngredientId::new(id),
             name: name.to_owned(),
             role,
+            hydration: None,
         }),
     }
 }
@@ -200,14 +201,21 @@ fn rounding_spreads_the_leftover_grams() {
 }
 
 fn leaf() -> impl Strategy<Value = Line> {
-    (1u32..=200_000, 0usize..3, 1i64..6).prop_map(|(thousandths, role, id)| Line {
-        pct: Pct::from_thousandths(thousandths),
-        part: Part::Ingredient(IngredientRef {
-            id: IngredientId::new(id),
-            name: format!("Ingrediënt {id}"),
-            role: IngredientRole::ALL[role],
-        }),
-    })
+    (1u32..=200_000, 0usize..4, 1i64..6, 0u32..=500_000).prop_map(
+        |(thousandths, role, id, hydration)| {
+            let role = IngredientRole::ALL[role];
+            Line {
+                pct: Pct::from_thousandths(thousandths),
+                part: Part::Ingredient(IngredientRef {
+                    id: IngredientId::new(id),
+                    name: format!("Ingrediënt {id}"),
+                    role,
+                    hydration: (role == IngredientRole::Starter)
+                        .then_some(Pct::from_thousandths(hydration)),
+                }),
+            }
+        },
+    )
 }
 
 fn formula() -> impl Strategy<Value = Formula> {
@@ -376,6 +384,7 @@ proptest! {
                     id: IngredientId::new(i64::try_from(i).unwrap()),
                     name: format!("Ingrediënt {i}"),
                     role: IngredientRole::Other,
+                    hydration: None,
                 }),
             })
             .collect();
@@ -394,4 +403,293 @@ proptest! {
         let rhs = u128::from(dough) + 3 * u128::from(sum);
         prop_assert!(lhs <= rhs, "typed {typed} g, got {got} g at {new_dough} g");
     }
+}
+
+const STARTER: i64 = 5;
+
+fn starter_ref(hydration: Option<u32>) -> IngredientRef {
+    IngredientRef {
+        id: IngredientId::new(STARTER),
+        name: "Desem".to_owned(),
+        role: IngredientRole::Starter,
+        hydration: hydration.map(Pct::from_thousandths),
+    }
+}
+
+fn starter(percent: u32, hydration: u32) -> Line {
+    Line {
+        pct: pct(percent),
+        part: Part::Ingredient(starter_ref(Some(hydration * 1000))),
+    }
+}
+
+#[test]
+fn a_starter_splits_into_flour_and_water_by_its_hydration() {
+    let split = |hydration, grams| starter_ref(hydration).flour_and_water(grams);
+    assert_eq!(
+        split(Some(100_000), 180),
+        FlourWater {
+            flour: 90,
+            water: 90
+        }
+    );
+    assert_eq!(
+        split(Some(50_000), 150),
+        FlourWater {
+            flour: 100,
+            water: 50
+        }
+    );
+    // 100 g at 200%: 33.33 g flour and 66.67 g water.
+    assert_eq!(
+        split(Some(200_000), 100),
+        FlourWater {
+            flour: 33,
+            water: 67
+        }
+    );
+    assert_eq!(
+        split(Some(0), 100),
+        FlourWater {
+            flour: 100,
+            water: 0
+        }
+    );
+    assert_eq!(split(None, 100), FlourWater::default());
+}
+
+#[test]
+fn starter_flour_and_water_count_in_total_flour_and_hydration() {
+    // Landbrood with 20% of a 100% starter that is not yet counted in the flour: 110% flour.
+    let dough = Formula {
+        lines: vec![flour(100), water(65), salt(2), starter(20, 100)],
+    };
+    let analysis = dough.analysis().unwrap();
+    assert_eq!(analysis.total_flour, pct(110));
+    assert_eq!(analysis.hydration, Some(Pct::from_thousandths(68_182)));
+    assert_eq!(
+        analysis.prefermented_flour,
+        Some(Pct::from_thousandths(9_091))
+    );
+
+    // Written against all flour, a 1:1 starter at 20% is the levain at 20%.
+    let dough = Formula {
+        lines: vec![flour(90), water(65), salt(2), starter(20, 100)],
+    };
+    let levain_dough = Formula {
+        lines: vec![flour(90), water(65), salt(2), levain(20)],
+    };
+    assert_eq!(dough.analysis(), levain_dough.analysis());
+    let analysis = dough.analysis().unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.hydration, Some(pct(75)));
+    let scaled = dough.scale(1770).unwrap();
+    assert_eq!(grams(&scaled), vec![900, 650, 20, 200]);
+    let leaves = leaf_grams(&scaled);
+    assert_eq!(
+        (leaves.flour, leaves.water, leaves.starter),
+        (
+            1000,
+            750,
+            FlourWater {
+                flour: 100,
+                water: 100
+            }
+        )
+    );
+    // Priced and listed as itself: the starter stays one ingredient.
+    assert_eq!(
+        ingredient_totals(&scaled)
+            .into_iter()
+            .map(|(i, g)| (i.id.get(), g))
+            .collect::<Vec<_>>(),
+        vec![(FLOUR, 900), (WATER, 650), (SALT, 20), (STARTER, 200)]
+    );
+}
+
+#[test]
+fn a_starter_without_hydration_counts_as_neither() {
+    let dough = Formula {
+        lines: vec![
+            flour(100),
+            water(70),
+            Line {
+                pct: pct(20),
+                part: Part::Ingredient(starter_ref(None)),
+            },
+        ],
+    };
+    let analysis = dough.analysis().unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.hydration, Some(pct(70)));
+}
+
+#[test]
+fn rebasing_keeps_the_grams_and_the_total_flour() {
+    let other = Formula {
+        lines: vec![
+            flour(100),
+            water(70),
+            salt(2),
+            ingredient(STARTER, "Desem", IngredientRole::Other, 20),
+        ],
+    };
+    let as_starter = Formula {
+        lines: vec![flour(100), water(70), salt(2), starter(20, 100)],
+    };
+    let pcts = other.rebased(&as_starter).unwrap();
+    let thousandths: Vec<u32> = pcts.iter().map(|p| p.thousandths()).collect();
+    assert_eq!(thousandths, vec![90_909, 63_636, 1_818, 18_182]);
+    let rebased = Formula {
+        lines: as_starter
+            .lines
+            .iter()
+            .zip(&pcts)
+            .map(|(line, pct)| Line {
+                pct: *pct,
+                part: line.part.clone(),
+            })
+            .collect(),
+    };
+    let analysis = rebased.analysis().unwrap();
+    assert_eq!(analysis.total_flour, pct(100));
+    assert_eq!(analysis.hydration, Some(Pct::from_thousandths(72_727)));
+    assert_eq!(
+        grams(&rebased.scale(1920).unwrap()),
+        vec![1000, 700, 20, 200]
+    );
+
+    assert_eq!(as_starter.rebased(&as_starter), None);
+    let no_flour = Formula {
+        lines: vec![water(100)],
+    };
+    assert_eq!(no_flour.rebased(&no_flour), None);
+}
+
+proptest! {
+    #[test]
+    fn a_starter_split_adds_up_and_is_within_a_gram(
+        grams in 0u64..=10_000_000,
+        hydration in 0u32..=500_000,
+    ) {
+        let split = starter_ref(Some(hydration)).flour_and_water(grams);
+        prop_assert_eq!(split.flour + split.water, grams);
+        let exact_numerator = u128::from(grams) * 100_000;
+        let denominator = 100_000 + u128::from(hydration);
+        let flour = u128::from(split.flour) * denominator;
+        prop_assert!(flour.abs_diff(exact_numerator) < denominator);
+    }
+
+    #[test]
+    fn a_starter_counts_like_a_preferment_of_flour_and_water(
+        own_flour in 1u32..=100,
+        own_water in 0u32..=100,
+        starter_pct in 1u32..=100,
+        hydration in 0u32..=500_000,
+    ) {
+        let with_starter = Formula {
+            lines: vec![
+                flour(own_flour),
+                water(own_water),
+                Line {
+                    pct: pct(starter_pct),
+                    part: Part::Ingredient(starter_ref(Some(hydration))),
+                },
+            ],
+        };
+        let with_levain = Formula {
+            lines: vec![
+                flour(own_flour),
+                water(own_water),
+                sub(
+                    10,
+                    RecipeKind::Preferment,
+                    starter_pct,
+                    vec![
+                        flour(100),
+                        Line {
+                            pct: Pct::from_thousandths(hydration),
+                            part: Part::Ingredient(IngredientRef {
+                                id: IngredientId::new(WATER),
+                                name: "Water".to_owned(),
+                                role: IngredientRole::Water,
+                                hydration: None,
+                            }),
+                        },
+                    ],
+                ),
+            ],
+        };
+        prop_assert_eq!(with_starter.analysis(), with_levain.analysis());
+    }
+
+    #[test]
+    fn rebasing_keeps_total_flour_within_rounding(
+        own_flour in 1u32..=100,
+        own_water in 0u32..=100,
+        starter_pct in 1u32..=100,
+        hydration in 0u32..=500,
+    ) {
+        let lines = |part: Part| vec![
+            flour(own_flour),
+            water(own_water),
+            Line { pct: pct(starter_pct), part },
+        ];
+        let before = Formula {
+            lines: lines(Part::Ingredient(IngredientRef {
+                role: IngredientRole::Other,
+                hydration: None,
+                ..starter_ref(None)
+            })),
+        };
+        let after = Formula {
+            lines: lines(Part::Ingredient(starter_ref(Some(hydration * 1000)))),
+        };
+        let pcts = before.rebased(&after).unwrap();
+        let rebased = Formula {
+            lines: after
+                .lines
+                .iter()
+                .zip(&pcts)
+                .map(|(line, pct)| Line { pct: *pct, part: line.part.clone() })
+                .collect(),
+        };
+        let old = before.analysis().unwrap().total_flour.thousandths();
+        let new = rebased.analysis().unwrap().total_flour.thousandths();
+        prop_assert!(old.abs_diff(new) <= 2, "{old} vs {new}");
+    }
+}
+
+#[test]
+fn rebasing_never_drops_a_line_to_zero() {
+    let lines = |role, hydration| {
+        vec![
+            flour(1),
+            Line {
+                pct: Pct::from_thousandths(1),
+                part: water(1).part,
+            },
+            Line {
+                pct: pct(500),
+                part: Part::Ingredient(IngredientRef {
+                    role,
+                    hydration,
+                    ..starter_ref(None)
+                }),
+            },
+        ]
+    };
+    let before = Formula {
+        lines: lines(IngredientRole::Other, None),
+    };
+    let after = Formula {
+        lines: lines(IngredientRole::Starter, Some(Pct::from_thousandths(0))),
+    };
+    let thousandths: Vec<u32> = before
+        .rebased(&after)
+        .unwrap()
+        .iter()
+        .map(|p| p.thousandths())
+        .collect();
+    assert_eq!(thousandths, vec![2, 1, 998]);
 }

@@ -242,6 +242,7 @@ async fn ingredient(pool: &PgPool, name: &str, role: IngredientRole) -> Ingredie
             name: name.to_owned(),
             label_name: String::new(),
             role,
+            hydration: None,
             supplier_name: String::new(),
             allergens: BTreeSet::new(),
         },

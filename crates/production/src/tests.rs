@@ -238,6 +238,7 @@ fn ingredient_needs() -> IngredientNeeds {
         id: IngredientId::new(id),
         name: name.to_owned(),
         role,
+        hydration: None,
     };
     let flour = ingredient(1, "Tarwebloem", IngredientRole::Flour);
     let water = ingredient(2, "Water", IngredientRole::Water);

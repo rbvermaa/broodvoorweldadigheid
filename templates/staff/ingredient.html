@@ -14,6 +14,7 @@
 {% call f::field("text", "name", layout.t("ingredient-name")?, value = form.name, error = errors.get("name"), required = true) %}{% endcall %}
 {% call f::field("text", "label_name", layout.t("ingredient-label-name")?, value = form.label_name, hint = layout.t("ingredient-label-name-hint")?) %}{% endcall %}
 {% call f::select("role", layout.t("ingredient-role")?, roles, hint = layout.t("ingredient-role-hint")?, error = errors.get("role"), required = true) %}{% endcall %}
+{% call f::field("text", "hydration", layout.t("ingredient-hydration")?, value = form.hydration, hint = layout.t("ingredient-hydration-hint")?, error = errors.get("hydration")) %}{% endcall %}
 {% call f::field("text", "supplier", layout.t("ingredient-supplier")?, value = form.supplier) %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ layout.t("ingredient-allergens")? }}</legend>

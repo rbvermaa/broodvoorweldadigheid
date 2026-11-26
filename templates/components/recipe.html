@@ -21,6 +21,7 @@
 <details class="recipe-new"{% if s.new_open %} open{% endif %}>
 <summary class="recipe-new-summary">{{ s.new_label }}</summary>
 {% call f::select("role", layout.t("ingredient-role")?, s.roles.iter(), hint = layout.t("ingredient-role-hint")?, error = s.role_error) %}{% endcall %}
+{% call f::field("text", "hydration", layout.t("ingredient-hydration")?, value = s.hydration, hint = layout.t("ingredient-hydration-hint")?, error = s.hydration_error) %}{% endcall %}
 <fieldset class="field-group">
 <legend class="field-label">{{ layout.t("ingredient-allergens")? }}</legend>
 <p class="field-hint">{{ layout.t("ingredient-allergens-hint")? }}</p>
@@ -76,6 +77,7 @@
 {%- if !row.link.is_empty() %}<a href="{{ row.link }}">{{ row.name }}</a>{% else %}<span>{{ row.name }}</span>{% endif %}
 {%- if !row.children.is_empty() %}<input class="visually-hidden recipe-toggle" type="checkbox" id="open-{{ row.index }}" name="open" form="schaal" value="{{ row.index }}"{% if row.open %} checked{% endif %}><label class="recipe-toggle-label" for="open-{{ row.index }}">{{ layout.icon("chevron-down")? }}<span class="visually-hidden">{{ row.toggle_label }}</span></label>{% endif -%}
 </span>
+{%- if !row.detail.is_empty() %}<span class="recipe-detail">{{ row.detail }}</span>{% endif -%}
 {%- if !row.warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ row.warning }}</span></span>{% endif -%}
 </td>
 <td class="recipe-pct">{% if e.editable %}<label class="visually-hidden" for="pct-{{ row.index }}">{{ row.pct_label }}</label><input class="recipe-input" id="pct-{{ row.index }}" name="pct" value="{{ row.pct_value }}" form="regel-{{ row.index }}-pct" type="text" inputmode="decimal" autocomplete="off">{% else %}{{ row.pct }}{% endif %}</td>
@@ -99,7 +101,9 @@
 <tr><td class="recipe-grams">{{ ft.flour }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("wheat")? }}<span>{{ layout.t("recipe-total-flour")? }}</span></span>
 {%- if !ft.flour_warning.is_empty() %}<span class="recipe-warning">{{ layout.icon_labelled("triangle-alert", layout.t("alert-warning")?.as_str())? }}<span>{{ ft.flour_warning }}</span></span>{% endif -%}
 </th><td class="recipe-pct">{{ ft.flour_pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
-<tr><td class="recipe-grams">{{ ft.water }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("droplet")? }}<span>{{ layout.t("recipe-hydration")? }}</span></span></th><td class="recipe-pct">{{ ft.hydration }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
+<tr><td class="recipe-grams">{{ ft.water }}</td><th scope="row" class="recipe-name"><span class="recipe-name-line">{{ layout.icon("droplet")? }}<span>{{ layout.t("recipe-hydration")? }}</span></span>
+{%- if !ft.starter.is_empty() %}<span class="recipe-detail">{{ ft.starter }}</span>{% endif -%}
+</th><td class="recipe-pct">{{ ft.hydration }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
 <tr class="recipe-total"><td class="recipe-grams">{{ ft.dough }}</td><th scope="row" class="recipe-name">{{ layout.t("recipe-footer-dough")? }}</th><td class="recipe-pct">{{ ft.total_pct }}</td>{% if e.editable %}<td class="recipe-actions"></td>{% endif %}</tr>
 </tfoot>
 {%- endif %}
