@@ -133,8 +133,8 @@ pub async fn create(conn: &mut PgConnection, input: &IngredientInput) -> Result<
 
 /// A frozen recipe version or a batch keeps its hydration, so the role of an ingredient
 /// it uses, or a starter's hydration, cannot change. When a starter is involved, every draft that
-/// uses the ingredient, directly or through sub-recipes, keeps its grams and total flour
-/// ([`crate::Formula::rebased`], ADR 0037).
+/// uses the ingredient and has no flour lines of its own keeps its grams and total flour
+/// ([`crate::Formula::rebased`], ADR 0053).
 ///
 /// # Errors
 /// [`Error::NotFound`], [`Error::Invalid`], [`Error::Duplicate`] or [`Error::InUse`].

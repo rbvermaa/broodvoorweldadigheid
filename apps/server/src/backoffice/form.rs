@@ -160,6 +160,16 @@ pub fn pct_value(pct: recipes::Pct) -> String {
     }
 }
 
+/// A percentage as shown on screens and PDFs: at most one decimal, rounded half up, with
+/// no trailing `,0`: `113,3%`, `2,2%`, `100%`. Inputs keep [`pct_value`].
+pub fn pct_text(pct: recipes::Pct) -> String {
+    let tenths = pct.tenths();
+    match tenths % 10 {
+        0 => format!("{}%", tenths / 10),
+        digit => format!("{},{digit}%", tenths / 10),
+    }
+}
+
 /// `HH:MM` from a time input.
 pub fn parse_time(input: &str) -> Option<Time> {
     Time::strptime("%H:%M", input.trim()).ok()
@@ -238,6 +248,22 @@ mod tests {
         }
         assert_eq!(pct_value(recipes::Pct::from_thousandths(75_500)), "75,5");
         assert_eq!(pct_value(recipes::Pct::from_thousandths(0)), "0");
+    }
+
+    #[test]
+    fn percentages_show_with_at_most_one_decimal() {
+        for (thousandths, shown) in [
+            (113_333, "113,3%"),
+            (79_050, "79,1%"),
+            (2_200, "2,2%"),
+            (100_000, "100%"),
+            (99_960, "100%"),
+            (66_667, "66,7%"),
+            (40, "0%"),
+            (1_000_000, "1000%"),
+        ] {
+            assert_eq!(pct_text(recipes::Pct::from_thousandths(thousandths)), shown);
+        }
     }
 
     #[test]

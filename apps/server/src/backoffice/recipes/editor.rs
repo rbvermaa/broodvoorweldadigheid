@@ -16,8 +16,8 @@ use domain::{Allergen, IngredientId, ProductId, RecipeVersionId};
 use recipes::recipes::{self as store, MAX_LEAD_TIME_HOURS, MAX_LINE_PCT};
 use recipes::schedule::default_start;
 use recipes::{
-    FlourWater, Formula, Ingredient, IngredientInput, IngredientRole, Line, LineEdit, LineInput,
-    LinePart, Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum,
+    Base, FlourWater, Formula, Ingredient, IngredientInput, IngredientRole, Line, LineEdit,
+    LineInput, LinePart, Part, Pct, Recipe, ScaleError, Scaled, SubChoice, Version, dough_for_sum,
     ingredients, leaf_grams, pct_for_grams,
 };
 use tower_sessions::Session;
@@ -170,10 +170,19 @@ pub struct Row {
     pub toggle_label: String,
 }
 
+/// A flour row of the footer: grams, percentage and a warning when it should be 100%.
+pub struct FlourRow {
+    pub grams: String,
+    pub pct: String,
+    pub warning: String,
+}
+
 pub struct Footer {
-    pub flour: String,
-    pub flour_pct: String,
-    pub flour_warning: String,
+    /// The recipe's own flour lines; `None` without any (ADR 0053).
+    pub main_flour: Option<FlourRow>,
+    /// All flour with starters and sub-recipes; `None` when it is the main flour or there
+    /// is no flour.
+    pub all_flour: Option<FlourRow>,
     pub water: String,
     /// The flour and water from starters; empty without a starter.
     pub starter: String,
@@ -474,18 +483,39 @@ fn footer(state: &AppState, formula: &Formula, grams: u64) -> Option<Footer> {
     let scaled = formula.scale(grams).ok()?;
     let analysis = formula.analysis().ok()?;
     let leaves = leaf_grams(&scaled);
-    Some(Footer {
-        flour: grams_text(leaves.flour),
-        flour_pct: pct_text(analysis.total_flour),
-        flour_warning: if analysis.total_flour == Pct::HUNDRED {
+    // Off by less than what the screen shows is not off: a migrated version (ADR 0053)
+    // can be a thousandth away from 100%.
+    let warning = |id: &str, pct: Pct| {
+        if pct.tenths() == Pct::HUNDRED.tenths() {
             String::new()
         } else {
-            t_with(
-                state,
-                "recipe-flour-off",
-                &[("pct", pct_text(analysis.total_flour))],
-            )
-        },
+            t_with(state, id, &[("pct", pct_text(pct))])
+        }
+    };
+    let main_grams: u64 = scaled
+        .iter()
+        .filter(|s| matches!(&s.line.part, Part::Ingredient(i) if i.role == IngredientRole::Flour))
+        .map(|s| s.grams)
+        .sum();
+    let main_flour = (analysis.base == Base::MainFlour).then(|| FlourRow {
+        grams: grams_text(main_grams),
+        pct: pct_text(analysis.main_flour),
+        warning: warning("recipe-main-flour-off", analysis.main_flour),
+    });
+    let all_flour = (analysis.base == Base::AllFlour
+        || (analysis.base == Base::MainFlour && analysis.total_flour != analysis.main_flour))
+        .then(|| FlourRow {
+            grams: grams_text(leaves.flour),
+            pct: pct_text(analysis.total_flour),
+            warning: if analysis.base == Base::AllFlour {
+                warning("recipe-flour-off", analysis.total_flour)
+            } else {
+                String::new()
+            },
+        });
+    Some(Footer {
+        main_flour,
+        all_flour,
         water: grams_text(leaves.water),
         starter: if leaves.starter == FlourWater::default() {
             String::new()

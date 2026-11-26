@@ -14,10 +14,10 @@ use catalog::products as catalog_products;
 use domain::{ProductId, RecipeId, RecipeVersionId, in_bakery_time};
 use jiff::Timestamp;
 use recipes::recipes as store;
-use recipes::{LabelSetting, Pct, Recipe, RecipeInput, RecipeKind, Version};
+use recipes::{LabelSetting, Recipe, RecipeInput, RecipeKind, Version};
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields, pct_value};
+use super::form::{Errors, Fields, pct_text};
 use super::{
     Flash, Outcome, Rejection, RowChange, SavedRow, Search, SearchBox, Step, fail, invalid_status,
     layout, not_found, path_id, require, saved, saved_to_list, t, t_with,
@@ -124,10 +124,6 @@ pub(super) fn version_path(recipe: RecipeId, version: RecipeVersionId) -> String
 
 fn date_text(at: Timestamp) -> String {
     i18n::numeric_date(in_bakery_time(at).date())
-}
-
-fn pct_text(pct: Pct) -> String {
-    format!("{}%", pct_value(pct))
 }
 
 fn recipe_error(state: &AppState, error: &recipes::Error) -> Rejection {

@@ -521,7 +521,9 @@ async fn baker_writes_a_recipe_with_levain_and_scales_it(pool: PgPool) {
     page.shows(&dutch_with("recipe-lead-time-value", &[("hours", "36")]));
     page.shows("Desem om 20:00 aanzetten");
     page.shows(&dutch("recipe-draft-info"));
-    page.lacks(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
+    // Typed against all flour, the old way: the main dough's flour is 90%.
+    page.shows(&dutch_with("recipe-main-flour-off", &[("pct", "90%")]));
+    page.shows("<td class=\"recipe-pct\">100%</td>");
 
     baker
         .post(&format!("{version}/freeze"), &[])
@@ -1249,10 +1251,10 @@ async fn warnings_sit_on_the_line_they_are_about(pool: PgPool) {
     baker
         .htmx_post(
             &format!("{version}/lines/0"),
-            &[("part", &flour), ("pct", "100"), ("gewicht", "1770")],
+            &[("part", &flour), ("pct", "95"), ("gewicht", "1770")],
         )
         .await
-        .shows(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
+        .shows(&dutch_with("recipe-main-flour-off", &[("pct", "95%")]));
     let tiny = baker.get(&format!("{version}?gewicht=10")).await;
     tiny.shows(&dutch("recipe-warning-zero"));
     let (empty, empty_v1) = recipe(&pool, "Leeg", RecipeKind::Dough).await;
@@ -1514,7 +1516,7 @@ async fn a_starter_is_added_with_its_hydration_and_counts_in_the_footer(pool: Pg
         &[("flour", "100"), ("water", "100")],
     ));
     page.shows("<td class=\"recipe-pct\">75%</td>");
-    page.lacks(&dutch_with("recipe-flour-off", &[("pct", "110%")]));
+    page.shows(&dutch_with("recipe-main-flour-off", &[("pct", "90%")]));
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -1724,4 +1726,123 @@ async fn an_ingredient_form_goes_back_to_the_ingredient_list(pool: PgPool) {
     );
     let refused = baker.post(&path, &fields("")).await;
     assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_footer_shows_main_dough_flour_and_all_flour(pool: PgPool) {
+    let app = app(pool.clone());
+    let k = kitchen(&pool).await;
+    let spelt = ingredient(&pool, "Speltmeel", IngredientRole::Flour).await;
+    let rye = ingredient(&pool, "Roggemeel", IngredientRole::Flour).await;
+    let mut conn = pool.acquire().await.expect("conn");
+    let desem = ingredients::create(
+        &mut conn,
+        &IngredientInput {
+            name: "Desem".to_owned(),
+            label_name: String::new(),
+            role: IngredientRole::Starter,
+            hydration: Some(Pct::from_thousandths(50_000)),
+            supplier_name: String::new(),
+            allergens: BTreeSet::new(),
+        },
+    )
+    .await
+    .expect("desem")
+    .id;
+    let save = |version: RecipeVersionId, lines: Vec<LineInput>| {
+        let pool = pool.clone();
+        async move {
+            let mut conn = pool.acquire().await.expect("conn");
+            store::save_draft(
+                &mut conn,
+                version,
+                &DraftInput {
+                    lines,
+                    lead_time_hours: None,
+                    notes: String::new(),
+                },
+            )
+            .await
+            .expect("draft");
+        }
+    };
+    let i = LinePart::Ingredient;
+    save(
+        k.dough_v1,
+        vec![
+            line(i(k.flour), 70_000),
+            line(i(spelt), 15_000),
+            line(i(rye), 15_000),
+            line(i(k.water), 70_000),
+            line(i(k.salt), 2_000),
+            line(i(desem), 20_000),
+        ],
+    )
+    .await;
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let version = version_path(k.dough, k.dough_v1);
+    for path in [
+        format!("{version}?gewicht=1920"),
+        format!("{version}/edit?gewicht=1920"),
+    ] {
+        let page = baker.get(&path).await;
+        assert_eq!(page.status, StatusCode::OK, "{path}");
+        page.shows(&dutch("recipe-main-flour"));
+        page.shows(&dutch("recipe-total-flour"));
+        page.shows("<td class=\"recipe-grams\">1.000</td>");
+        page.shows("<td class=\"recipe-grams\">1.133</td>");
+        page.shows("<td class=\"recipe-pct\">113,3%</td>");
+        // (700 + 67) g water on 1133 g flour.
+        page.shows("<td class=\"recipe-pct\">67,6%</td>");
+        page.shows("<td class=\"recipe-grams\">1.920</td>");
+        page.shows("<td class=\"recipe-pct\">192%</td>");
+        page.lacks(&dutch_with("recipe-main-flour-off", &[("pct", "100%")]));
+        page.lacks(&dutch_with("recipe-flour-off", &[("pct", "113,3%")]));
+    }
+    let edit = baker.get(&format!("{version}/edit?gewicht=1920")).await;
+    edit.shows("value=\"70\"");
+
+    save(
+        k.dough_v1,
+        vec![
+            line(i(k.flour), 60_000),
+            line(i(spelt), 15_000),
+            line(i(rye), 15_000),
+            line(i(k.water), 70_000),
+            line(i(desem), 20_000),
+        ],
+    )
+    .await;
+    baker
+        .get(&format!("{version}?gewicht=1000"))
+        .await
+        .shows(&dutch_with("recipe-main-flour-off", &[("pct", "90%")]));
+
+    // No flour of its own: all flour is the base.
+    let (levain_dough, levain_dough_v1) = recipe(&pool, "Levaindeeg", RecipeKind::Dough).await;
+    save(
+        levain_dough_v1,
+        vec![
+            line(LinePart::Sub(k.levain_v1), 180_000),
+            line(i(k.water), 50_000),
+        ],
+    )
+    .await;
+    let page = baker
+        .get(&version_path(levain_dough, levain_dough_v1))
+        .await;
+    page.lacks(&dutch("recipe-main-flour"));
+    page.shows(&dutch("recipe-total-flour"));
+    page.shows(&dutch_with("recipe-flour-off", &[("pct", "90%")]));
+
+    // No flour at all: no flour rows and no warning.
+    let (filling, filling_v1) = recipe(&pool, "Vulling", RecipeKind::Filling).await;
+    save(
+        filling_v1,
+        vec![line(i(k.salt), 30_000), line(i(k.water), 50_000)],
+    )
+    .await;
+    let page = baker.get(&version_path(filling, filling_v1)).await;
+    page.lacks(&dutch("recipe-main-flour"));
+    page.lacks(&dutch("recipe-total-flour"));
 }
