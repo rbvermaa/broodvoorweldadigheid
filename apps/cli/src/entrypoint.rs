@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io::Write;
+use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -32,6 +33,8 @@ pub struct Plan {
     pub init: Option<Step>,
     /// PGDATA to pass to [`finish_init`] after `init`, if any, succeeds.
     pub finish: Option<PathBuf>,
+    /// Created (mode 0750) before `exec` if missing: Kanidm refuses a missing online backup path.
+    pub backup_dir: Option<PathBuf>,
     pub exec: Step,
 }
 
@@ -61,6 +64,7 @@ pub fn postgres_plan(lookup: impl Fn(&str) -> Option<String>) -> Result<Plan, Pl
         return Ok(Plan {
             init: None,
             finish: Some(pgdata.clone()),
+            backup_dir: None,
             exec: postgres_exec(pgdata),
         });
     } else {
@@ -90,6 +94,7 @@ pub fn postgres_plan(lookup: impl Fn(&str) -> Option<String>) -> Result<Plan, Pl
     Ok(Plan {
         finish: init.as_ref().map(|_| pgdata.clone()),
         init,
+        backup_dir: None,
         exec: postgres_exec(pgdata),
     })
 }
@@ -116,6 +121,7 @@ pub fn kanidm_plan(lookup: impl Fn(&str) -> Option<String>) -> Plan {
             args: vec!["cert-generate".into()],
         }),
         finish: None,
+        backup_dir: non_empty(&lookup, "KANIDM_ONLINE_BACKUP_PATH").map(PathBuf::from),
         exec: Step {
             program: "kanidmd",
             args: vec!["server".into()],
@@ -148,6 +154,15 @@ pub fn run(service: Service) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
+    }
+    if let Some(dir) = &plan.backup_dir
+        && let Err(error) = std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o750)
+            .create(dir)
+    {
+        eprintln!("entrypoint: cannot create {}: {error}", dir.display());
+        return ExitCode::FAILURE;
     }
     if let Some(pgdata) = plan.finish
         && let Err(error) = finish_init(&pgdata)
@@ -453,6 +468,7 @@ mod tests {
                     args: args(&["cert-generate"]),
                 }),
                 finish: None,
+                backup_dir: None,
                 exec: Step {
                     program: "kanidmd",
                     args: args(&["server"]),
@@ -470,6 +486,18 @@ mod tests {
         ]));
         assert_eq!(plan.init, None);
         assert_eq!(plan.exec.args, args(&["server"]));
+    }
+
+    #[test]
+    fn kanidm_creates_the_online_backup_path_when_set() {
+        let dir = TempDir::new("kanidm-backups");
+        let plan = kanidm_plan(lookup(vec![(
+            "KANIDM_ONLINE_BACKUP_PATH",
+            dir.path("backups"),
+        )]));
+        assert_eq!(plan.backup_dir, Some(PathBuf::from(dir.path("backups"))));
+        let plan = kanidm_plan(lookup(vec![("KANIDM_ONLINE_BACKUP_PATH", String::new())]));
+        assert_eq!(plan.backup_dir, None);
     }
 
     #[test]

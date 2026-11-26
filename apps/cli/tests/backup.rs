@@ -71,6 +71,7 @@ impl Fixture {
             password_file: &self.password_file,
             database_url: &self.source_url,
             uploads: Some(&self.uploads),
+            kanidm: None,
             run_id,
         }
     }
@@ -770,6 +771,7 @@ async fn missing_uploads_forget_the_run_and_restore_test_uses_the_previous_run()
     let missing = fixture.dir.join("no-such-uploads");
     let error = backup::run(&BackupRun {
         uploads: Some(&missing),
+        kanidm: None,
         ..fixture.backup(&repos, "2")
     })
     .await
@@ -868,6 +870,7 @@ async fn restore_test_needs_no_uploads_snapshot_when_none_were_backed_up() {
     let repos = [repo.clone()];
     backup::run(&BackupRun {
         uploads: None,
+        kanidm: None,
         ..fixture.backup(&repos, "1")
     })
     .await
@@ -878,4 +881,214 @@ async fn restore_test_needs_no_uploads_snapshot_when_none_were_backed_up() {
         .await
         .expect("restore test");
     assert_eq!(verified.run, "1");
+}
+
+impl Fixture {
+    fn restore<'a>(&'a self, repo: &'a str, run: Option<&'a str>) -> backup::Restore<'a> {
+        backup::Restore {
+            repo,
+            password_file: &self.password_file,
+            database_url: &self.source_url,
+            run,
+            scratch_database: &self.scratch_database,
+            confirmed: true,
+            now: Timestamp::now(),
+        }
+    }
+
+    async fn loaves(&self) -> Vec<String> {
+        let mut source = PgConnection::connect(&self.source_url)
+            .await
+            .expect("connect source");
+        sqlx::query_scalar("SELECT name FROM loaves ORDER BY id")
+            .fetch_all(&mut source)
+            .await
+            .expect("read loaves")
+    }
+}
+
+#[tokio::test]
+async fn restore_replaces_the_database_with_the_chosen_run() {
+    let fixture = Fixture::new("restore_live", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("first backup");
+    let mut source = PgConnection::connect(&fixture.source_url)
+        .await
+        .expect("connect");
+    source
+        .execute("INSERT INTO loaves VALUES (4, 'wholewheat')")
+        .await
+        .expect("insert");
+    backup::run(&fixture.backup(&repos, "2"))
+        .await
+        .expect("second backup");
+    source
+        .execute("DELETE FROM loaves; DROP TABLE bakery.\"Sentinel\"")
+        .await
+        .expect("lose data");
+
+    let restored = backup::restore(&fixture.restore(&repos[0], Some("1")))
+        .await
+        .expect("restore run 1");
+    assert_eq!(restored.run, "1");
+    assert_eq!(restored.tables, 2);
+    assert_eq!(restored.database, "source_restore_live");
+    assert_eq!(fixture.loaves().await, ["sourdough", "spelt", "rye"]);
+    assert!(!scratch_exists("scratch_restore_live").await);
+    assert!(
+        restored.previous.starts_with("source_restore_live_before_"),
+        "{}",
+        restored.previous
+    );
+    let previous_url = backup::with_database(&admin_url(), &restored.previous).expect("url");
+    let mut previous = PgConnection::connect(&previous_url)
+        .await
+        .expect("the data from before is kept");
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM loaves")
+        .fetch_one(&mut previous)
+        .await
+        .expect("count loaves from before");
+    assert_eq!(left, 0);
+    previous.close().await.expect("close");
+
+    let restored = backup::restore(&fixture.restore(&repos[0], Some("latest")))
+        .await
+        .expect("restore the latest run");
+    assert_eq!(restored.run, "2");
+    assert_eq!(
+        fixture.loaves().await,
+        ["sourdough", "spelt", "rye", "wholewheat"]
+    );
+    let mut source = PgConnection::connect(&fixture.source_url)
+        .await
+        .expect("connect restored");
+    let sentinel: String = sqlx::query_scalar("SELECT value FROM bakery.\"Sentinel\"")
+        .fetch_one(&mut source)
+        .await
+        .expect("sentinel restored");
+    assert_eq!(sentinel, "restore-sentinel");
+}
+
+#[tokio::test]
+async fn restore_refuses_without_confirmation_and_keeps_the_database() {
+    let fixture = Fixture::new("restore_unconfirmed", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+    let mut source = PgConnection::connect(&fixture.source_url)
+        .await
+        .expect("connect");
+    source
+        .execute("INSERT INTO loaves VALUES (4, 'wholewheat')")
+        .await
+        .expect("insert");
+
+    let unconfirmed = backup::Restore {
+        confirmed: false,
+        ..fixture.restore(&repos[0], None)
+    };
+    let error = backup::restore(&unconfirmed)
+        .await
+        .expect_err("needs confirmation");
+    assert!(matches!(error, Error::NotConfirmed), "{error}");
+    assert_eq!(
+        fixture.loaves().await,
+        ["sourdough", "spelt", "rye", "wholewheat"]
+    );
+}
+
+#[tokio::test]
+async fn restore_keeps_the_database_when_the_backup_does_not_verify() {
+    let fixture = Fixture::new("restore_forged", SEED).await;
+    let repos = [fixture.repo("local")];
+    backup::run(&fixture.backup(&repos, "1"))
+        .await
+        .expect("backup");
+    let forged = br#"{"tables":{"bakery.Sentinel":{"rows":1,"fingerprint":"0"},"public.loaves":{"rows":4,"fingerprint":"0"}}}"#;
+    store(
+        &fixture.rustic_repo(&repos[0]),
+        backup::MANIFEST_FILE,
+        &[backup::MANIFEST_TAG, "run-1"],
+        forged,
+    );
+    let mut source = PgConnection::connect(&fixture.source_url)
+        .await
+        .expect("connect");
+    source
+        .execute("INSERT INTO loaves VALUES (4, 'wholewheat')")
+        .await
+        .expect("insert");
+
+    let error = backup::restore(&fixture.restore(&repos[0], None))
+        .await
+        .expect_err("forged manifest");
+    assert!(matches!(error, Error::Mismatch { .. }), "{error}");
+    assert_eq!(
+        fixture.loaves().await,
+        ["sourdough", "spelt", "rye", "wholewheat"]
+    );
+    assert!(!scratch_exists("scratch_restore_forged").await);
+
+    let error = backup::restore(&fixture.restore(&repos[0], Some("9")))
+        .await
+        .expect_err("no such run");
+    assert!(matches!(error, Error::NoSuchRun { .. }), "{error}");
+}
+
+#[tokio::test]
+async fn prune_keeps_the_policy_runs_and_list_shows_what_is_left() {
+    let fixture = Fixture::new("prune", SEED).await;
+    let repo = fixture.repo("local");
+    let repos = [repo.clone()];
+    let kanidm = fixture.dir.join("kanidm");
+    std::fs::create_dir_all(&kanidm).expect("kanidm dir");
+    assert!(!backup::has_files(&kanidm));
+    assert!(!backup::has_files(&fixture.dir.join("no-such-dir")));
+    std::fs::write(kanidm.join("backup-1.json"), "{}").expect("kanidm backup");
+    assert!(backup::has_files(&kanidm));
+
+    for run in ["1", "2", "3"] {
+        backup::run(&BackupRun {
+            kanidm: Some(&kanidm),
+            ..fixture.backup(&repos, run)
+        })
+        .await
+        .expect("backup");
+    }
+    let rustic_repo = fixture.rustic_repo(&repo);
+    let time_zone = domain::bakery_time_zone();
+    let runs = backup::list(&rustic_repo).expect("list");
+    assert_eq!(
+        runs.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(),
+        ["3", "2", "1"]
+    );
+    assert_eq!(runs[0].parts, ["db", "kanidm", "manifest", "uploads"]);
+    assert!(runs.iter().all(|run| run.complete));
+
+    let policy = backup::Policy {
+        hourly: 1,
+        daily: 0,
+        weekly: 0,
+    };
+    let plan = backup::prune(&rustic_repo, policy, &time_zone, Timestamp::now()).expect("prune");
+    assert_eq!(plan.keep, ["3"]);
+    assert_eq!(plan.forget_runs, ["2", "1"]);
+    assert_eq!(plan.forget.len(), 8);
+    let left = backup::list(&rustic_repo).expect("list after prune");
+    assert_eq!(
+        left.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(),
+        ["3"]
+    );
+    let again =
+        backup::prune(&rustic_repo, policy, &time_zone, Timestamp::now()).expect("prune again");
+    assert!(again.forget.is_empty());
+
+    let admin = admin_url();
+    let verified = backup::restore_test(&fixture.restore_test(&repo, &admin))
+        .await
+        .expect("restore test after prune");
+    assert_eq!(verified.run, "3");
 }

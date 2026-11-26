@@ -7,6 +7,10 @@
 #   make migrations-lock        record new migrations; a db test refuses edited or unlisted ones
 #   make logo                   remake design/logo.png, favicon.png and apple-touch-icon.png
 #   make up / make down         run the Compose stack in deploy/ (needs deploy/secrets, see deploy/README.md)
+#   make backup                 back up the running stack to ~/Backups/bvw (BVW_BACKUP_DIR), then thin out old runs
+#   make backup-schedule        run `make backup` every hour through a LaunchAgent (macOS); backup-unschedule stops it
+#   make backup-list            list the backup runs
+#   make restore-local SNAPSHOT=<run> CONFIRM=yes   put a backup run back into the running stack (default: latest)
 #   make staff-add SUB=<uuid> NAME="Bas van 't Hof" ROLE=baker   let a person into the back office (stack must be up)
 #   make kanidm-setup           register the staff login client in the running stack (once)
 #   make kanidm-person NAME=bas DISPLAY_NAME="Bas" MAIL=bas@example.org   a person + passkey link
@@ -76,11 +80,22 @@ OIDC_DIR := $(SECRETS_DIR)/oidc
 SHOP_URL := https://localhost:$(BVW_HTTPS_PORT)
 IDM_URL := https://idm.localhost:$(BVW_HTTPS_PORT)
 
+# Local backups (ADR 0050): a rustic repository in a host directory outside the checkout, so
+# `docker compose down -v` and `git clean` leave it alone.
+BVW_BACKUP_DIR ?= $(HOME)/Backups/bvw
+BACKUP_KEEP ?= --keep-hourly=24 --keep-daily=14 --keep-weekly=8
+BACKUP_PLIST ?= $(HOME)/Library/LaunchAgents/nl.broodvoorweldadigheid.backup.plist
+SNAPSHOT ?= latest
+BACKUP_CLI = BVW_BACKUP_DIR="$(BVW_BACKUP_DIR)" $(COMPOSE) --profile backup run --rm --no-deps backup backup
+BACKUP_REPO_ARGS := --repo=/backup/repo --password-file=/run/secrets/rustic_password
+STACK_RUNNING = $(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres
+
 .DEFAULT_GOAL := help
 .PHONY: help check test fmt fmt-check lint nextest layers unsafe-forbid adr-numbers deny audit coverage-report coverage server db-up \
 	db-down sqlx-prepare sqlx-check migrations-lock permissions-doc logo restore-test mollie-contract ci-deps image-contents linux-check \
 	images $(addprefix image-,$(IMAGES)) up down smoke staff-add e2e e2e-local \
-	kanidm-setup kanidm-person
+	kanidm-setup kanidm-person backup backup-now backup-password backup-list restore-local backup-plist backup-schedule \
+	backup-unschedule
 
 help: ## List targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -90,6 +105,10 @@ help: ## List targets
 	@echo "  ARCH=$(ARCH)  system the images are built for"
 	@echo "  LINUX_BUILDER=$(LINUX_BUILDER)  remote builder for ARCH (empty: local)"
 	@echo "  LINUX_STORE=$(LINUX_STORE)  Nix store that builds instead of LINUX_BUILDER"
+	@echo "  BVW_BACKUP_DIR=$(BVW_BACKUP_DIR)  where make backup keeps the backups"
+	@echo
+	@echo "make down keeps the data. docker compose down -v (--volumes) deletes it, Kanidm included;"
+	@echo "get it back with: make up && make restore-local CONFIRM=yes (deploy/README.md)."
 
 check: ## Everything CI runs (nix flake check)
 	nix flake check --print-build-logs
@@ -154,8 +173,64 @@ server: ## Build the server binary
 up: ## Start the Compose stack on BVW_HTTP_PORT/BVW_HTTPS_PORT (default 8080/8443)
 	$(COMPOSE) up --detach --wait
 
-down: ## Stop the Compose stack (volumes stay)
+down: ## Stop the Compose stack; the data volumes stay (never add -v, see make help)
 	$(COMPOSE) down
+
+backup: ## Back up the running stack (database, Kanidm) to BVW_BACKUP_DIR and thin out old runs; skips a stopped stack
+	@echo "== $$(date '+%F %T') make backup, stack $(COMPOSE_PROJECT)"
+	@if $(STACK_RUNNING); then $(MAKE) --no-print-directory backup-now; \
+	else echo "stack $(COMPOSE_PROJECT) is not running; no backup"; fi
+
+backup-now: backup-password
+	$(BACKUP_CLI) run $(BACKUP_REPO_ARGS) --kanidm=/kanidm/backups
+	$(BACKUP_CLI) prune $(BACKUP_REPO_ARGS) $(BACKUP_KEEP)
+
+# A copy of the password sits next to the repository, which only opens with it (ADR 0050).
+backup-password:
+	@case "$(BVW_BACKUP_DIR)" in /*) ;; *) echo "BVW_BACKUP_DIR must be an absolute path" >&2; exit 2;; esac
+	@test -s $(SECRETS_DIR)/rustic-password || { echo "no $(SECRETS_DIR)/rustic-password (deploy/README.md)" >&2; exit 1; }
+	@mkdir -p "$(BVW_BACKUP_DIR)"
+	@if [ ! -e "$(BVW_BACKUP_DIR)/rustic-password" ]; then \
+		install -m 600 $(SECRETS_DIR)/rustic-password "$(BVW_BACKUP_DIR)/rustic-password"; \
+	elif ! cmp -s $(SECRETS_DIR)/rustic-password "$(BVW_BACKUP_DIR)/rustic-password"; then \
+		echo "$(SECRETS_DIR)/rustic-password differs from $(BVW_BACKUP_DIR)/rustic-password, which opens" \
+			"the backups there. Copy that one to $(SECRETS_DIR)/ to use them." >&2; exit 1; \
+	fi
+
+backup-list: ## List the backup runs in BVW_BACKUP_DIR, newest first
+	@$(BACKUP_CLI) list $(BACKUP_REPO_ARGS)
+
+restore-local: ## Replace the running stack's database with backup run SNAPSHOT (default latest); needs CONFIRM=yes
+	@test "$(CONFIRM)" = yes || { \
+		echo "restore-local replaces the database of stack $(COMPOSE_PROJECT) with backup run $(SNAPSHOT) from $(BVW_BACKUP_DIR)."; \
+		echo "The current data is kept as a second database. To go ahead:"; \
+		echo "  make restore-local SNAPSHOT=$(SNAPSHOT) CONFIRM=yes"; exit 2; }
+	@$(STACK_RUNNING) || { echo "stack $(COMPOSE_PROJECT) is not running; start it with make up" >&2; exit 1; }
+	@$(MAKE) --no-print-directory backup-password
+	$(COMPOSE) stop server
+	$(BACKUP_CLI) restore $(BACKUP_REPO_ARGS) --run=$(SNAPSHOT) --yes-overwrite; \
+		status=$$?; $(COMPOSE) up --detach --wait && exit $$status
+
+backup-plist: ## Write the LaunchAgent for backup-schedule to BACKUP_PLIST (from deploy/launchd/)
+	@make_path=$$(command -v $(MAKE)) && \
+	for value in "$$make_path" "$(CURDIR)" "$(BVW_BACKUP_DIR)" "$(COMPOSE_PROJECT)" "$(BVW_IMAGE_TAG)" "$(BVW_SECRETS_DIR)" "$$PATH"; do \
+		case "$$value" in *[\&\<\>\|]*) echo "cannot put $$value in the plist" >&2; exit 2;; esac; \
+	done && mkdir -p "$(dir $(BACKUP_PLIST))" && \
+	sed -e "s|@MAKE@|$$make_path|" -e "s|@REPO@|$(CURDIR)|" -e "s|@BACKUP_DIR@|$(BVW_BACKUP_DIR)|" \
+		-e "s|@PROJECT@|$(COMPOSE_PROJECT)|" -e "s|@IMAGE_TAG@|$(BVW_IMAGE_TAG)|" -e "s|@SECRETS_DIR@|$(BVW_SECRETS_DIR)|" -e "s|@PATH@|$$PATH|" \
+		-e "s|@LOG@|$(BVW_BACKUP_DIR)/backup.log|" deploy/launchd/nl.broodvoorweldadigheid.backup.plist.in > "$(BACKUP_PLIST)"
+	@echo "wrote $(BACKUP_PLIST)"
+	@case "$$(command -v $(MAKE))" in /nix/store/*) echo "warning: the plist runs make from the Nix store; it breaks after garbage collection." \
+		"Run backup-schedule with a make from your profile." >&2;; esac
+
+backup-schedule: backup-password backup-plist ## Run make backup every hour (macOS LaunchAgent); log in BVW_BACKUP_DIR/backup.log
+	-launchctl bootout gui/$$(id -u) "$(BACKUP_PLIST)" 2>/dev/null
+	launchctl bootstrap gui/$$(id -u) "$(BACKUP_PLIST)" || { sleep 2; launchctl bootstrap gui/$$(id -u) "$(BACKUP_PLIST)"; }
+	@echo "make backup now runs every hour; log: $(BVW_BACKUP_DIR)/backup.log"
+
+backup-unschedule: ## Stop the hourly backups and remove the LaunchAgent
+	-launchctl bootout gui/$$(id -u) "$(BACKUP_PLIST)" 2>/dev/null
+	rm -f "$(BACKUP_PLIST)"
 
 # The values reach the cli as environment variables, never spliced into the command line,
 # so names like "Bas van 't Hof" survive.

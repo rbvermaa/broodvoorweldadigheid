@@ -1,8 +1,9 @@
 # Images come from `make images` (nix/images.nix). Secrets come from `cli dev-secrets`.
 # Overrides for local runs, with defaults: BVW_IMAGE_TAG (dev), BVW_SECRETS_DIR (./secrets),
 # BVW_BIND_ADDRESS (127.0.0.1), BVW_HTTP_PORT (8080), BVW_HTTPS_PORT (8443),
-# BVW_SUBNET (10.89.0.0/24), BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET) and
-# BVW_PUBLIC_URL (https://localhost:$BVW_HTTPS_PORT).
+# BVW_SUBNET (10.89.0.0/24), BVW_CADDY_IP (10.89.0.10, must be inside BVW_SUBNET),
+# BVW_PUBLIC_URL (https://localhost:$BVW_HTTPS_PORT), BVW_BACKUP_DIR (volume `backup`) and
+# BVW_KANIDM_BACKUP_SCHEDULE (every 15 minutes).
 # Staff login: BVW_BOOTSTRAP_OWNER_EMAIL or BVW_BOOTSTRAP_OWNER_SUB names the first owner;
 # `make kanidm-setup` fills secrets/oidc/ (deploy/README.md).
 name: bvw
@@ -33,6 +34,10 @@ services:
     environment:
       KANIDM_CONFIG: /etc/kanidm/server.toml
       KANIDM_BINDADDRESS: 0.0.0.0:${BVW_HTTPS_PORT:-8443}
+      # The backup service stores the newest copies with each run (ADR 0050).
+      KANIDM_ONLINE_BACKUP_PATH: /data/backups
+      KANIDM_ONLINE_BACKUP_SCHEDULE: "${BVW_KANIDM_BACKUP_SCHEDULE:-*/15 * * * *}"
+      KANIDM_ONLINE_BACKUP_VERSIONS: "4"
     configs:
       - source: kanidm_server
         target: /etc/kanidm/server.toml
@@ -139,10 +144,13 @@ services:
       - run
       - --repo=/backup/repo
       - --password-file=/run/secrets/rustic_password
+      - --kanidm=/kanidm/backups
     secrets:
       - rustic_password
+    # BVW_BACKUP_DIR: a volume name, or an absolute host path for a bind mount (`make backup`).
     volumes:
-      - backup:/backup
+      - ${BVW_BACKUP_DIR:-backup}:/backup
+      - kanidm:/kanidm:ro
     depends_on:
       postgres:
         condition: service_healthy
