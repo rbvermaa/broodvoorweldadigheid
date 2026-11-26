@@ -659,6 +659,7 @@ pub async fn edit_form(
             &Flash {
                 opgeslagen: flash.opgeslagen,
                 toegevoegd: None,
+                gearchiveerd: None,
             },
         )
         .await

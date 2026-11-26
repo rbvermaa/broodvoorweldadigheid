@@ -382,7 +382,7 @@ pub async fn archive(
         charities::archive(&mut conn, id, state.clock.as_ref())
             .await
             .map_err(|e| catalog_error(&state, &e))?;
-        Ok(saved_to_list(&headers, LIST, RowChange::Saved, id.get()))
+        Ok(saved_to_list(&headers, LIST, RowChange::Archived, id.get()))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

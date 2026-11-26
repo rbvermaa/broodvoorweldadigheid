@@ -96,12 +96,13 @@ impl Rejection {
 pub type Step<T> = Result<T, Rejection>;
 pub type Outcome = Step<Response>;
 
-/// `?opgeslagen=1` after a save that stays on its page. On a list, `?opgeslagen=<id>` or
-/// `?toegevoegd=<id>` names the row that was saved on its own page (ADR 0052).
+/// `?opgeslagen=1` after a save that stays on its page. On a list, `?opgeslagen=<id>`,
+/// `?toegevoegd=<id>` or `?gearchiveerd=<id>` names the row saved on its own page (ADR 0052).
 #[derive(Debug, Default, Deserialize)]
 pub struct Flash {
     opgeslagen: Option<String>,
     toegevoegd: Option<String>,
+    gearchiveerd: Option<String>,
 }
 
 impl Flash {
@@ -112,19 +113,19 @@ impl Flash {
     /// What a list shows after a save: the row that links to `path(id)`, highlighted and
     /// named. When that row is not in `table`, only the plain confirmation.
     pub fn row(&self, state: &AppState, table: &Table, path: impl Fn(i64) -> String) -> SavedRow {
-        let (id, added) = match (&self.toegevoegd, &self.opgeslagen) {
-            (Some(id), _) => (id, true),
-            (None, Some(id)) => (id, false),
-            (None, None) => return SavedRow::default(),
+        let (id, message) = match (&self.toegevoegd, &self.gearchiveerd, &self.opgeslagen) {
+            (Some(id), _, _) => (id, "added-row"),
+            (None, Some(id), _) => (id, "archived-row"),
+            (None, None, Some(id)) => (id, "saved-row"),
+            (None, None, None) => return SavedRow::default(),
         };
-        let href = id.parse().map(path).unwrap_or_default();
+        let Ok(id) = id.parse() else {
+            return SavedRow::default();
+        };
+        let href = path(id);
         match table.name_of(&href) {
             Some(name) => SavedRow {
-                text: t_with(
-                    state,
-                    if added { "added-row" } else { "saved-row" },
-                    &[("name", name.to_owned())],
-                ),
+                text: t_with(state, message, &[("name", name.to_owned())]),
                 href,
             },
             None => SavedRow {
@@ -145,6 +146,7 @@ pub struct SavedRow {
 pub enum RowChange {
     Saved,
     Added,
+    Archived,
 }
 
 impl RowChange {
@@ -165,6 +167,7 @@ pub fn list_after_save(list: &str, change: RowChange, id: i64) -> String {
     let key = match change {
         RowChange::Saved => "opgeslagen",
         RowChange::Added => "toegevoegd",
+        RowChange::Archived => "gearchiveerd",
     };
     with_query(list, &format!("{key}={id}"))
 }

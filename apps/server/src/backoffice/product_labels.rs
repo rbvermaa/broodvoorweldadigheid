@@ -15,7 +15,7 @@ use tower_sessions::Session;
 use super::form::{Errors, Fields};
 use super::{
     Flash, Outcome, Rejection, RowChange, fail, invalid_status, layout, not_found, path_id,
-    require, saved_to_list, t_with,
+    require, saved, saved_to_list, t_with,
 };
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
@@ -218,6 +218,9 @@ pub async fn save(
             product = product.get(),
             "label settings saved"
         );
+        if !staff.0.role.can(Permission::EditAllergens) {
+            return Ok(saved(&headers, &path(product)));
+        }
         Ok(saved_to_list(
             &headers,
             super::products::LIST,

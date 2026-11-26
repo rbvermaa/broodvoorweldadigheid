@@ -778,12 +778,15 @@ async fn owner_adds_edits_and_archives_a_charity(pool: PgPool) {
 
     let archived = owner.htmx(&format!("{path}/archive"), &[]).await;
     assert_eq!(archived.status, StatusCode::OK);
-    let back = format!("/staff/charities?opgeslagen={id}");
+    let back = format!("/staff/charities?gearchiveerd={id}");
     assert_eq!(archived.header("hx-redirect"), back);
 
     let list = owner.get(&back).await;
     list.shows(&dutch("charity-archived"));
-    list.names_saved_row(&saved_row("Voedselbank Frederiksoord"), &path);
+    list.names_saved_row(
+        &dutch_with("archived-row", &[("name", "Voedselbank Frederiksoord")]),
+        &path,
+    );
     let after = owner.get(&path).await;
     after.shows(&dutch("charity-is-archived"));
     after.lacks(&dutch("charity-archive-confirm"));
@@ -4573,11 +4576,32 @@ async fn a_business_account_form_goes_back_to_the_list(pool: PgPool) {
 async fn a_list_ignores_a_saved_id_it_does_not_show(pool: PgPool) {
     let app = app(pool);
     let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
-    for query in ["opgeslagen=999999", "toegevoegd=x", "opgeslagen=%3Cb%3E"] {
+    let missing = owner.get("/staff/charities?opgeslagen=999999").await;
+    missing.shows(&dutch("saved"));
+    missing.lacks("table-row-saved");
+    for query in ["toegevoegd=x", "opgeslagen=%3Cb%3E"] {
         let page = owner.get(&format!("/staff/charities?{query}")).await;
         assert_eq!(page.status, StatusCode::OK);
-        page.shows(&dutch("saved"));
+        page.shows("<div id=\"status\" role=\"status\"></div>");
         page.lacks("table-row-saved");
         page.lacks("<b>");
     }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_bread_drop_the_list_does_not_show_opens_on_its_own_page(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let created = baker
+        .post(
+            "/staff/bake-days/new",
+            &[("date", "2028-12-02"), ("location_id", "1")],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+    let location = created.header(LOCATION.as_str());
+    assert!(
+        location.starts_with("/staff/bake-days/") && location.ends_with("?opgeslagen=1"),
+        "{location}"
+    );
 }

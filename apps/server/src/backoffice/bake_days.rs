@@ -196,6 +196,12 @@ fn today(state: &AppState) -> Date {
     state.clock.now_in_bakery().date()
 }
 
+/// Whether the list shows a Bread Drop on `date`; one outside it opens on its own page.
+fn listed(state: &AppState, date: Date) -> bool {
+    let from = today(state);
+    (from..=from.saturating_add(jiff::Span::new().days(DAYS_AHEAD))).contains(&date)
+}
+
 fn optional_id(value: &str) -> Result<Option<i64>, ()> {
     if value.is_empty() {
         Ok(None)
@@ -426,12 +432,13 @@ pub async fn create(
         let result = days::create(&mut conn, &input).await;
         drop(conn);
         match result {
-            Ok(day) => Ok(saved_to_list(
+            Ok(day) if listed(&state, day.date) => Ok(saved_to_list(
                 &headers,
                 LIST,
                 RowChange::Added,
                 day.id.get(),
             )),
+            Ok(day) => Ok(saved(&headers, &day_path(day.id))),
             Err(bakedays::Error::NotFound) => {
                 errors.add("location_id", t(&state, "day-error-location"));
                 let status = invalid_status(&headers);
