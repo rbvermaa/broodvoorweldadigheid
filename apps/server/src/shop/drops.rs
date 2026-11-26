@@ -37,6 +37,7 @@ struct Calendar<'a> {
 #[template(path = "shop/drop.html")]
 struct DropPage<'a> {
     layout: Layout<'a>,
+    heading: String,
     drop: components::Drop,
     /// `None` until the menu is published.
     menu: Option<Vec<components::Product>>,
@@ -228,8 +229,12 @@ pub(crate) async fn menu_page(
         StatusCode::OK
     };
     let page = drop_view(state, &drop, false).and_then(|view| {
+        let mut args = FluentArgs::new();
+        args.set("date", view.date.clone());
+        let heading = state.i18n.t("drop-heading", Some(&args))?;
         Ok(DropPage {
             layout: Layout::new(state).with_csrf_token(token),
+            heading,
             drop: view,
             menu: tiles,
             orderable,

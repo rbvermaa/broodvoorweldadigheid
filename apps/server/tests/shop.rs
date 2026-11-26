@@ -2086,3 +2086,27 @@ async fn a_compound_ingredient_shows_its_parts_in_brackets(pool: PgPool) {
         reply.body
     );
 }
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_drop_page_is_titled_bread_drop_and_its_date(pool: PgPool) {
+    let shop = shop(pool);
+    let drop = {
+        let mut conn = shop.pool.acquire().await.unwrap();
+        open_drop(&mut conn, &shop.clock, &saturday(None, true)).await
+    };
+    let (_, reply) = Browser::open(&shop, &format!("/drops/{}", drop.day.get())).await;
+    assert!(
+        reply
+            .body
+            .contains("<title>Bread Drop zaterdag 31 oktober 2026 ·"),
+        "{}",
+        reply.body
+    );
+    assert!(
+        reply
+            .body
+            .contains("<h1>Bread Drop zaterdag 31 oktober 2026</h1>"),
+        "{}",
+        reply.body
+    );
+}

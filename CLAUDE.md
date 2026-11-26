@@ -23,8 +23,8 @@ If this file and the spec disagree, stop and ask.
 - **Time** uses jiff with Europe/Amsterdam. Domain code never reads the clock directly;
   the clock is injected so tests can control it (including summer/winter time changes).
 - **Dutch UI.** All user-facing text lives in `locales/nl/*.ftl` (Fluent). Never hard-code
-  Dutch strings. Use the glossary: bakdag/drop, bestel-deadline, ophaalmoment, bestelling,
-  batch. Tone: "je", friendly and short.
+  Dutch strings. Use the glossary: Bread Drop (plural Bread Drops; "bakdatum" for its
+  date), bestel-deadline, ophaalmoment, bestelling, batch. Tone: "je", friendly and short.
 - **UI** uses only the design tokens and components in `design/` and `templates/`.
   No inline styles, no ad-hoc colours or classes.
 - **Allergens, nutrition and labels** are never published or printed without the approval

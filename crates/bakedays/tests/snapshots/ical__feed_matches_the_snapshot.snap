@@ -7,7 +7,7 @@ VERSION:2.0
 PRODID:-//Brood voor Weldadigheid//Bakdagen//NL
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
-X-WR-CALNAME:Bakdagen van Brood voor Weldadigheid
+X-WR-CALNAME:Bread Drops van Brood voor Weldadigheid
 REFRESH-INTERVAL;VALUE=DURATION:PT1H
 X-PUBLISHED-TTL:PT1H
 BEGIN:VEVENT
@@ -17,10 +17,10 @@ DTSTART:20261031T100000Z
 DTEND:20261031T110000Z
 SUMMARY:Brood ophalen bij De Proef
 LOCATION:De Proef\, Majoor van Swietenlaan 15\, 8382 CE Frederiksoord
-DESCRIPTION:Deze drop is voor Stichting Voorbeeld\; met\, tekens\\.\nEen la
- nge beschrijving van een voorbeeldstichting die net iets te lang is voor 
- één regel in een agenda.\nhttps://example.org/doel\nBestel-deadline: don
- derdag 29 oktober 2026 om 20:00\nOp het menu:\nDesem wit\nSpelt-rogge
+DESCRIPTION:Deze Bread Drop is voor Stichting Voorbeeld\; met\, tekens\\.\n
+ Een lange beschrijving van een voorbeeldstichting die net iets te lang is 
+ voor één regel in een agenda.\nhttps://example.org/doel\nBestel-deadline
+ : donderdag 29 oktober 2026 om 20:00\nOp het menu:\nDesem wit\nSpelt-rogge
 STATUS:CONFIRMED
 SEQUENCE:0
 TRANSP:TRANSPARENT
@@ -32,10 +32,10 @@ DTSTART:20261031T110000Z
 DTEND:20261031T113000Z
 SUMMARY:Brood ophalen bij De Proef
 LOCATION:De Proef\, Majoor van Swietenlaan 15\, 8382 CE Frederiksoord
-DESCRIPTION:Deze drop is voor Stichting Voorbeeld\; met\, tekens\\.\nEen la
- nge beschrijving van een voorbeeldstichting die net iets te lang is voor 
- één regel in een agenda.\nhttps://example.org/doel\nBestel-deadline: don
- derdag 29 oktober 2026 om 20:00\nOp het menu:\nDesem wit\nSpelt-rogge
+DESCRIPTION:Deze Bread Drop is voor Stichting Voorbeeld\; met\, tekens\\.\n
+ Een lange beschrijving van een voorbeeldstichting die net iets te lang is 
+ voor één regel in een agenda.\nhttps://example.org/doel\nBestel-deadline
+ : donderdag 29 oktober 2026 om 20:00\nOp het menu:\nDesem wit\nSpelt-rogge
 STATUS:CONFIRMED
 SEQUENCE:0
 TRANSP:TRANSPARENT
@@ -47,8 +47,8 @@ DTSTART:20261107T100000Z
 DTEND:20261107T110000Z
 SUMMARY:Brood ophalen bij De Proef
 LOCATION:De Proef\, Majoor van Swietenlaan 15\, 8382 CE Frederiksoord
-DESCRIPTION:Normale verkoop: deze drop is niet voor een goed doel.\nBestel-
- deadline: donderdag 5 november 2026 om 20:00
+DESCRIPTION:Normale verkoop: deze Bread Drop is niet voor een goed doel.\nB
+ estel-deadline: donderdag 5 november 2026 om 20:00
 STATUS:CONFIRMED
 SEQUENCE:0
 TRANSP:TRANSPARENT
@@ -60,8 +60,8 @@ DTSTART:20261114T100000Z
 DTEND:20261114T110000Z
 SUMMARY:Gaat niet door: brood ophalen bij De Proef
 LOCATION:De Proef\, Majoor van Swietenlaan 15\, 8382 CE Frederiksoord
-DESCRIPTION:Deze bakdag gaat niet door.\nNormale verkoop: deze drop is niet
-  voor een goed doel.
+DESCRIPTION:Deze Bread Drop gaat niet door.\nNormale verkoop: deze Bread Dr
+ op is niet voor een goed doel.
 STATUS:CANCELLED
 SEQUENCE:1
 TRANSP:TRANSPARENT

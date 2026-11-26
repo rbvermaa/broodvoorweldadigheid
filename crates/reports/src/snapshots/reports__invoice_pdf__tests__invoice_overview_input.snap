@@ -1,6 +1,6 @@
 ---
 source: crates/reports/src/invoice_pdf.rs
-expression: "serde_json::to_string_pretty(&data).unwrap()"
+expression: "serde_json::to_string_pretty(&sorted(data)).unwrap()"
 ---
 {
   "customer": {
@@ -13,11 +13,11 @@ expression: "serde_json::to_string_pretty(&data).unwrap()"
       "factuur@example.nl"
     ]
   },
-  "intro": "Alle bestellingen op rekening die nog niet gefactureerd zijn, per bakdag in de periode. Prijzen zijn excl. BTW.",
+  "intro": "Alle bestellingen op rekening die nog niet gefactureerd zijn, per Bread Drop in de periode. Prijzen zijn excl. BTW.",
   "labels": {
     "columns": [
       "Bestelling",
-      "Bakdag",
+      "Bakdatum",
       "Product",
       "Aantal",
       "Prijs per stuk excl. BTW",

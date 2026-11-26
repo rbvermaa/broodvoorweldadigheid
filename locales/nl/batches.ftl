@@ -2,8 +2,8 @@
 batches-title = Batches
 # $date: zaterdag 5 december 2026
 batches-heading = Batches voor { $date }
-batches-back = Terug naar de bakdag
-batches-caption = Batches van deze bakdag
+batches-back = Terug naar de Bread Drop
+batches-caption = Batches van deze Bread Drop
 batches-empty-title = Nog geen batches
 batches-empty-text = Start hieronder een batch met de hand.
 batches-manual-title = Batch met de hand starten
@@ -29,7 +29,7 @@ batch-recipe-version = { $name } versie { $n }
 batch-kg = { $kg } kg
 # $code: 261205-2
 batch-heading = Batch { $code }
-batch-back = Alle batches van deze bakdag
+batch-back = Alle batches van deze Bread Drop
 batch-facts = Over deze batch
 # $grams is preformatted: 9.000
 batch-lines-caption = Regels voor { $grams } g deeg

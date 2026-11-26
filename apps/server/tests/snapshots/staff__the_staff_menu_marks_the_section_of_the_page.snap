@@ -7,7 +7,7 @@ expression: staff_menu(&home.body)
 <h2 class="visually-hidden" id="staff-nav-title">Beheer</h2>
 <ul class="staff-nav">
 <li><a href="/staff" aria-current="page">Medewerkers</a></li>
-<li><a href="/staff/bake-days">Bakdagen</a></li>
+<li><a href="/staff/bake-days">Bread Drops</a></li>
 <li><a href="/staff/orders">Bestellingen</a></li>
 <li><a href="/staff/customers">Klanten</a></li>
 <li><a href="/staff/products">Producten</a></li>

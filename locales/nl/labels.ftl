@@ -40,7 +40,7 @@ product-labels-link = Etiketgegevens
 product-labels-intro = Wat er naast de allergenen en ingrediënten op het etiket komt. Een productetiket heeft houdbaarheid en bewaaradvies nodig; een vriezeretiket een vriestermijn.
 product-labels-packaged = Verpakt verkocht (krijgt een productetiket)
 product-labels-shelf-life = Houdbaarheid (dagen)
-product-labels-shelf-life-hint = Ten minste houdbaar tot = bakdag plus dit aantal dagen.
+product-labels-shelf-life-hint = Ten minste houdbaar tot = bakdatum plus dit aantal dagen.
 product-labels-storage = Bewaaradvies
 product-labels-storage-hint = Bijvoorbeeld: Droog en koel bewaren.
 product-labels-freezer-days = Vriestermijn (dagen)

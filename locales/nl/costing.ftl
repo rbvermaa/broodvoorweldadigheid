@@ -33,7 +33,7 @@ costing-batches-heading = Gebakken batches
 costing-batches-caption = Gebakken batches van de laatste { $days } dagen
 costing-batches-empty = Nog geen gebakken batches in deze periode.
 costing-col-code = Batch
-costing-col-bake-date = Bakdag
+costing-col-bake-date = Bakdatum
 
 costing-ingredient-heading = Prijzen van { $name }
 costing-history-caption = Alle prijzen, de laatste eerst. Prijzen worden nooit overschreven.
@@ -55,7 +55,7 @@ costing-total = Totaal per stuk
 costing-missing = Geen prijs voor: { $ingredients }.
 
 costing-batch-heading = Kosten van batch { $code }
-costing-batch-facts = { $recipe } (versie { $n }), bakdag { $date }, prijzen van de bakdag.
+costing-batch-facts = { $recipe } (versie { $n }), bakdatum { $date }, prijzen op de bakdatum.
 costing-batch-caption = Ingrediënten van deze batch
 costing-col-batch-grams = Gram
 costing-batch-total = Werkelijke kosten
@@ -70,7 +70,7 @@ costing-col-part = Onderdeel
 costing-col-amount = Bedrag
 costing-variance-standard = Standaard voor de goede stuks
 costing-variance-recipe = Recept: aanpassingen in de batch
-costing-variance-price = Prijs: bakdag tegenover standaard
+costing-variance-price = Prijs: op de bakdatum tegenover standaard
 costing-variance-yield = Opbrengst: minder goede stuks dan gepland
 costing-variance-actual = Werkelijke kosten
 costing-variance-total = Afwijking

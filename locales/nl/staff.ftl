@@ -22,7 +22,7 @@ staff-login-down-text = Het inloggen voor medewerkers werkt even niet. Probeer h
 
 # Back office: shared
 staff-nav-label = Beheer
-staff-nav-bake-days = Bakdagen
+staff-nav-bake-days = Bread Drops
 staff-nav-orders = Bestellingen
 staff-nav-products = Producten
 staff-nav-locations = Ophaallocaties
@@ -106,10 +106,10 @@ charity-anbi = ANBI-nummer (RSIN)
 charity-status = Status
 charity-active = Actief
 charity-archived = Gearchiveerd
-charity-is-archived = Dit goede doel is gearchiveerd. Klanten kunnen het niet meer kiezen. Eerdere drops en totalen blijven bewaard.
+charity-is-archived = Dit goede doel is gearchiveerd. Klanten kunnen het niet meer kiezen. Eerdere Bread Drops en totalen blijven bewaard.
 charity-archive = Archiveren
 charity-archive-confirm = Ja, archiveren
-charity-archive-text = { $name } wordt gearchiveerd. Klanten en nieuwe drops kunnen het dan niet meer kiezen. Drops die het al hebben, en alle totalen, blijven bewaard.
+charity-archive-text = { $name } wordt gearchiveerd. Klanten en nieuwe Bread Drops kunnen het dan niet meer kiezen. Bread Drops die het al hebben, en alle totalen, blijven bewaard.
 charity-error-name = Geef het goede doel een naam.
 charity-error-url = Vul het webadres in, beginnend met https://
 
@@ -124,9 +124,9 @@ location-notes = Opmerkingen
 location-error-name = Geef de locatie een naam.
 location-error-address = Vul het adres in.
 windows-caption = Ophaalvensters
-windows-intro = Een nieuwe bakdag krijgt deze ophaalmomenten en bestel-deadline. Per bakdag kun je ze nog aanpassen.
+windows-intro = Een nieuwe Bread Drop krijgt deze ophaalmomenten en bestel-deadline. Per Bread Drop kun je ze nog aanpassen.
 windows-empty-title = Nog geen ophaalvensters
-windows-empty-text = Zonder ophaalvenster kun je hier geen bakdag met webshop plannen.
+windows-empty-text = Zonder ophaalvenster kun je hier geen Bread Drop met webshop plannen.
 window-new = Nieuw ophaalvenster
 window-heading = Ophaalvenster bij { $location }
 window-weekday = Dag
@@ -144,12 +144,13 @@ window-error-order = Het ophaalmoment moet eindigen na het begin.
 window-error-days = Vul een aantal dagen in van 0 tot en met 28.
 
 # Back office: bake days (F1, F1a, F3, F4c)
-days-caption = Komende bakdagen
-days-empty-title = Nog geen bakdagen gepland
-days-empty-text = Plan je eerste bakdag.
-day-new = Nieuwe bakdag
-day-new-intro = De ophaalmomenten en de bestel-deadline komen uit de ophaalvensters van de locatie. Daarna kun je ze per bakdag aanpassen.
-day-create = Bakdag maken
+days-caption = Komende Bread Drops
+days-empty-title = Nog geen Bread Drops gepland
+days-empty-text = Plan je eerste Bread Drop.
+day-heading = Bread Drop { $date }
+day-new = Nieuwe Bread Drop
+day-new-intro = De ophaalmomenten en de bestel-deadline komen uit de ophaalvensters van de locatie. Daarna kun je ze per Bread Drop aanpassen.
+day-create = Bread Drop maken
 day-date = Datum
 day-location = Ophaallocatie
 day-status = Status
@@ -166,12 +167,12 @@ day-status-closed = Gesloten
 day-status-cancelled = Geannuleerd
 day-status-done = Klaar
 day-repeated = { $n ->
-    [one] 1 bakdag gemaakt.
-   *[other] { $n } bakdagen gemaakt.
+    [one] 1 Bread Drop gemaakt.
+   *[other] { $n } Bread Drops gemaakt.
 }
-day-final = Deze bakdag is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
+day-final = Deze Bread Drop is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
 day-slots = Ophaalmomenten
-day-no-slots = Geen ophaalmomenten: deze bakdag is alleen voor productie.
+day-no-slots = Geen ophaalmomenten: deze Bread Drop is alleen voor productie.
 slot-date = Datum
 slot-add = Ophaalmoment toevoegen
 slot-orders = { $n ->
@@ -186,10 +187,10 @@ slot-move-text = { $n ->
 slot-move-confirm = Verplaatsen en klanten mailen
 slot-remove = Ophaalmoment verwijderen
 # $slot: 11:00–12:00, De Proef
-slot-remove-text = Het ophaalmoment { $slot } verdwijnt van deze bakdag.
+slot-remove-text = Het ophaalmoment { $slot } verdwijnt van deze Bread Drop.
 slot-error-order = Het ophaalmoment moet eindigen na het begin.
 # $time: 05:00
-slot-error-before-bake = Het ophaalmoment kan niet beginnen voor het bakken begint, om { $time } op de bakdag.
+slot-error-before-bake = Het ophaalmoment kan niet beginnen voor het bakken begint, om { $time } op de bakdatum.
 slot-error-past = Dit ophaalmoment is dan al voorbij. Kies een tijd die nog moet komen.
 slot-error-confirm = Er zijn intussen bestellingen voor dit ophaalmoment. Kijk of je het nog steeds wilt verplaatsen.
 slot-error-has-orders =Er zijn bestellingen voor dit ophaalmoment. Verplaats het ophaalmoment of zet de bestellingen eerst over.
@@ -201,12 +202,12 @@ day-opens-hint = Leeg laten om zelf te openen met de knop hierboven.
 day-cutoff = Bestel-deadline
 day-moment = { $date } om { $time }
 day-lead-time-warning-sourdough = Let op: de bestel-deadline ({ $cutoff }) is later dan het zuurdesem toelaat. Zet de deadline uiterlijk op { $latest }.
-day-charity-dropped = Het goede doel van de oorspronkelijke bakdag is gearchiveerd en is niet meegekopieerd. Kies hieronder een goed doel, of laat het een gewone verkoop.
+day-charity-dropped = Het goede doel van de oorspronkelijke Bread Drop is gearchiveerd en is niet meegekopieerd. Kies hieronder een goed doel, of laat het een gewone verkoop.
 day-open = Bestellen openen
 day-open-text = Bestellen gaat nu open voor { $date }. Klanten kunnen bestellen tot de bestel-deadline.
 day-close = Bestellen sluiten
 day-close-text = Bestellen sluit nu voor { $date }. Klanten kunnen daarna niet meer bestellen, ook niet voor de bestel-deadline.
-day-close-production = Bakdag afsluiten
+day-close-production = Bread Drop afsluiten
 day-close-production-text = { $date } wordt afgesloten. Je kunt daarna geen tijden of aanbod meer instellen voor bestellingen; extra productie blijft mogelijk.
 day-copy-title = Kopiëren
 day-copy-date = Kopiëren naar datum
@@ -217,25 +218,25 @@ day-repeat-hint = Maakt een kopie op dezelfde dag in elk van de komende weken (1
 day-repeat = Herhalen
 day-error-location = Kies een ophaallocatie.
 day-error-no-window = Deze locatie heeft geen actief ophaalvenster op { $weekday }. Voeg eerst een ophaalvenster toe, of kies alleen productie.
-day-error-date-taken = Er is al een bakdag op { $date } bij deze ophaallocatie.
+day-error-date-taken = Er is al een Bread Drop op { $date } bij deze ophaallocatie.
 day-error-charity-unknown = Kies een goed doel uit de lijst.
 day-error-charity-archived = Dit goede doel is gearchiveerd. Kies een ander goed doel.
-day-error-orders-exist = Er zijn al bestellingen voor deze bakdag. Het goede doel kan niet meer veranderen.
-day-error-final = Deze bakdag is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
-day-error-transition = Dat kan niet in de huidige status van deze bakdag.
-day-error-production-only = Een bakdag voor alleen productie gaat nooit open in de webshop.
+day-error-orders-exist = Er zijn al bestellingen voor deze Bread Drop. Het goede doel kan niet meer veranderen.
+day-error-final = Deze Bread Drop is klaar of geannuleerd. Je kunt hem niet meer wijzigen.
+day-error-transition = Dat kan niet in de huidige status van deze Bread Drop.
+day-error-production-only = Een Bread Drop voor alleen productie gaat nooit open in de webshop.
 day-error-deadline-passed = De bestel-deadline is al voorbij. Zet eerst een latere bestel-deadline.
 day-error-not-baked = Het bakken is nog niet begonnen.
-day-error-deadline-missing = Een bakdag in de webshop heeft een bestel-deadline nodig.
-day-error-opens-production-only = Een bakdag voor alleen productie gaat niet open. Laat dit leeg.
+day-error-deadline-missing = Een Bread Drop in de webshop heeft een bestel-deadline nodig.
+day-error-opens-production-only = Een Bread Drop voor alleen productie gaat niet open. Laat dit leeg.
 day-error-opens-after-deadline = Bestellen moet openen voor de bestel-deadline.
 day-error-menu-after-deadline = Het menu moet zichtbaar zijn voor de bestel-deadline.
-day-error-deadline-after-bake = De bestel-deadline moet uiterlijk om { $time } op de bakdag liggen. Dan begint het bakken.
-day-error-production-only-open = Sluit eerst het bestellen voordat je er een bakdag voor alleen productie van maakt.
+day-error-deadline-after-bake = De bestel-deadline moet uiterlijk om { $time } op de bakdatum liggen. Dan begint het bakken.
+day-error-production-only-open = Sluit eerst het bestellen voordat je er een Bread Drop voor alleen productie van maakt.
 day-error-weeks = Vul een aantal weken in van 1 tot en met 52.
-day-error-no-pickup-slot = Deze bakdag heeft geen ophaalmoment. Zonder ophaalmoment kan hij niet in de webshop.
+day-error-no-pickup-slot = Deze Bread Drop heeft geen ophaalmoment. Zonder ophaalmoment kan hij niet in de webshop.
 range-title = Aanbod
-range-empty = Nog geen producten op deze bakdag.
+range-empty = Nog geen producten op deze Bread Drop.
 range-product = Product
 range-product-hint = In de onderste regel zet je een product dat nog niet in het aanbod staat erbij.
 range-max-qty = Maximaal aantal van dit brood
@@ -247,16 +248,16 @@ range-ordered = Besteld
 range-left = Over
 range-actions = Acties
 range-table-hint = Pas een maximum aan en druk op Enter of klik ernaast; dan is het opgeslagen.
-day-lists = Lijsten voor deze bakdag
+day-lists = Lijsten voor deze Bread Drop
 range-remove = Uit het aanbod halen
 range-remove-confirm = Ja, uit het aanbod
-range-remove-text = { $product } verdwijnt uit het aanbod van { $date }. Klanten kunnen het dan niet meer bestellen voor deze bakdag.
+range-remove-text = { $product } verdwijnt uit het aanbod van { $date }. Klanten kunnen het dan niet meer bestellen voor deze Bread Drop.
 range-error-product = Kies een product.
 
 # Back office: extra production (F7a)
 extras-title = Extra productie
 extras-heading = Extra productie voor { $date }
-extras-back = Terug naar de bakdag
+extras-back = Terug naar de Bread Drop
 extras-capacity = Wat er nog past
 extras-extra = Extra
 extras-left = Nog over
@@ -276,21 +277,21 @@ extra-remove-text = { $qty } × { $product } ({ $purpose }) gaat van de producti
 extra-error-qty = Vul een aantal in van 1 of meer.
 extra-error-purpose = Kies waarvoor de extra stuks zijn.
 extra-error-capacity = { $n ->
-    [0] Dat past niet meer: er kan niets meer bij van dit product op deze bakdag.
-    [one] Dat past niet: er kan nog maar 1 stuk bij van dit product op deze bakdag.
-   *[other] Dat past niet: er kunnen nog maar { $n } stuks bij van dit product op deze bakdag.
+    [0] Dat past niet meer: er kan niets meer bij van dit product op deze Bread Drop.
+    [one] Dat past niet: er kan nog maar 1 stuk bij van dit product op deze Bread Drop.
+   *[other] Dat past niet: er kunnen nog maar { $n } stuks bij van dit product op deze Bread Drop.
 }
 extra-error-capacity-line = { $n ->
-    [0] Dat past niet: er kan niets meer bij van dit product op deze bakdag.
+    [0] Dat past niet: er kan niets meer bij van dit product op deze Bread Drop.
     [one] Dat past niet: deze regel kan hoogstens 1 stuk zijn.
    *[other] Dat past niet: deze regel kan hoogstens { $n } stuks zijn.
 }
 
 # Back office: orders (F6)
-staff-orders-days-caption = Bakdagen
-staff-orders-days-empty = Er zijn geen bakdagen in deze periode.
+staff-orders-days-caption = Bread Drops
+staff-orders-days-empty = Er zijn geen Bread Drops in deze periode.
 staff-orders-day-heading = Bestellingen voor { $date }
-staff-orders-back = Andere bakdag kiezen
+staff-orders-back = Andere Bread Drop kiezen
 staff-orders-caption = Bestellingen
 staff-orders-filter = Filteren
 staff-orders-filter-any = Alle
@@ -338,8 +339,8 @@ staff-order-refund-failed = Mislukt
 staff-order-refund-retry = Terugbetaling opnieuw versturen
 staff-order-refund-retry-text = We vragen Mollie opnieuw om { $amount } terug te betalen voor bestelling { $number }.
 staff-order-error-status = Dat kan niet meer: de status van deze bestelling is intussen veranderd.
-staff-order-error-day = Deze bakdag is klaar of geannuleerd, dus deze bestelling kan niet meer veranderen.
-staff-order-error-slot = Kies een ophaalmoment van deze bakdag.
+staff-order-error-day = Deze Bread Drop is klaar of geannuleerd, dus deze bestelling kan niet meer veranderen.
+staff-order-error-slot = Kies een ophaalmoment van deze Bread Drop.
 staff-order-error-slot-full = Dit ophaalmoment is vol. Kies een ander.
 staff-order-error-invoiced = Deze bestelling is al gefactureerd, dus het ophaalmoment kan niet meer veranderen.
 staff-order-history-caption = Geschiedenis
@@ -360,19 +361,19 @@ staff-order-action-pickup_moved = Ophaalmoment veranderd
 staff-order-action-invoiced = Gefactureerd
 staff-order-action-refund_done = Terugbetaling verstuurd
 staff-order-action-refund_failed = Terugbetaling mislukt
-staff-orders-cancel-day = Bakdag afzeggen
-staff-day-cancel-sick = Bakdag annuleren (ziek)
-staff-sick-day-heading = Bakdag van { $date } afzeggen
+staff-orders-cancel-day = Bread Drop afzeggen
+staff-day-cancel-sick = Bread Drop annuleren (ziek)
+staff-sick-day-heading = Bread Drop van { $date } afzeggen
 staff-sick-day-orders = Bestellingen die we annuleren
 staff-sick-day-refunds = Bestellingen die geld terugkrijgen
 staff-sick-day-amount = Totaal terug te betalen
-staff-sick-day-warning = De bakdag gaat dicht en elke open bestelling wordt geannuleerd. Betaalde bestellingen krijgen hun geld terug via Mollie, en elke klant krijgt een mail met je bericht. Dit kun je niet terugdraaien.
+staff-sick-day-warning = De Bread Drop gaat dicht en elke open bestelling wordt geannuleerd. Betaalde bestellingen krijgen hun geld terug via Mollie, en elke klant krijgt een mail met je bericht. Dit kun je niet terugdraaien.
 staff-sick-day-message = Je bericht aan de klanten
 staff-sick-day-message-hint = Dit staat in de mail aan elke klant.
-staff-sick-day-confirm = Bakdag afzeggen
+staff-sick-day-confirm = Bread Drop afzeggen
 staff-sick-day-error-message = Schrijf een bericht voor je klanten.
-staff-sick-day-error-done = Deze bakdag is al klaar, dus je kunt hem niet meer afzeggen.
-staff-sick-day-cancelled = Deze bakdag is afgezegd. Alle bestellingen zijn geannuleerd en de klanten krijgen een mail.
+staff-sick-day-error-done = Deze Bread Drop is al klaar, dus je kunt hem niet meer afzeggen.
+staff-sick-day-cancelled = Deze Bread Drop is afgezegd. Alle bestellingen zijn geannuleerd en de klanten krijgen een mail.
 staff-sick-day-open-refunds = Terugbetalingen die nog niet gelukt zijn
 staff-sick-day-retry = Terugbetalingen opnieuw versturen
 staff-sick-day-retry-text = We vragen Mollie opnieuw om de terugbetalingen hierboven te versturen. Wat al verstuurd is, gaat niet nog een keer.
@@ -385,7 +386,7 @@ lists-production-heading = Productielijst voor { $date }
 lists-pickup-heading = Ophaallijst voor { $date }
 lists-needs-heading = Boodschappenlijst voor { $date }
 lists-pdf = Pdf openen
-lists-back-day = Terug naar de bakdag
+lists-back-day = Terug naar de Bread Drop
 lists-back-orders = Terug naar de bestellingen
 lists-undo = Toch niet opgehaald
 
@@ -410,13 +411,13 @@ reports-pwyw-title = Betaal wat je wilt
 # $orders: order numbers, comma separated
 reports-estimated = Deels terugbetaald over beide BTW-tarieven, naar schatting verdeeld: { $orders }.
 reports-donations-title = Giften
-reports-donations-drops-title = Giften per drop
+reports-donations-drops-title = Giften per Bread Drop
 reports-donations-charities-title = Giften per goed doel
-reports-donations-drops-chart = Gedoneerd per drop
+reports-donations-drops-chart = Gedoneerd per Bread Drop
 reports-donations-charity-chart = { $charity }: gedoneerd per periode
 reports-contribution-title = Jouw bijdrage
 reports-contribution-total = Wat je betaalt zodat het goede doel alles krijgt
-reports-contribution-drops = Per drop
+reports-contribution-drops = Per Bread Drop
 reports-contribution-charities = Per goed doel
 reports-fees = Mollie-kosten
 reports-ingredients = Ingrediënten
@@ -430,9 +431,9 @@ reports-unknown-fees = { $n ->
    *[other] Van { $n } bestellingen zijn de Mollie-kosten nog niet bekend. Je bijdrage is daardoor te laag.
 }
 reports-missing-estimates = Geen kostprijs bekend voor: { $products }. De ingrediënten tellen daardoor te laag.
-reports-cost-title = Kosten van een drop toevoegen
-reports-cost-no-days = Er zijn geen drops met een goed doel in deze periode.
-reports-cost-day = Drop
+reports-cost-title = Kosten van een Bread Drop toevoegen
+reports-cost-no-days = Er zijn geen Bread Drops met een goed doel in deze periode.
+reports-cost-day = Bread Drop
 reports-cost-kind = Soort
 reports-cost-packaging = Verpakking
 reports-cost-energy = Energie
@@ -440,10 +441,10 @@ reports-cost-other = Overig
 reports-cost-note = Notitie
 reports-cost-add = Kosten toevoegen
 reports-error-cost = Vul een bedrag boven nul in, bijvoorbeeld 2,50.
-reports-error-cost-day = Kies een drop met een goed doel.
+reports-error-cost-day = Kies een Bread Drop met een goed doel.
 reports-error-cost-kind = Kies een soort kosten.
 reports-payouts-title = Uitbetalingen aan goede doelen
-reports-payouts-intro = Een goed doel krijgt alles wat klanten betaalden, min terugbetalingen. Nog over te maken geldt voor drops tot en met de einddatum.
+reports-payouts-intro = Een goed doel krijgt alles wat klanten betaalden, min terugbetalingen. Nog over te maken geldt voor Bread Drops tot en met de einddatum.
 reports-payouts-back = Terug naar de uitbetalingen
 reports-payout-heading = Uitbetaling aan { $charity }
 reports-payout-facts = Giften in deze periode
@@ -482,6 +483,6 @@ staff-customers-refused-business = Dit is een zakelijke klant. Die gegevens staa
 # Back office: company settings
 settings-title = Instellingen
 settings-public-donations-title = Giftenpagina
-settings-public-donations-intro = Op de giftenpagina ziet iedereen hoeveel er per drop en per goed doel is opgehaald, zonder namen of losse bedragen. Zet hem aan als je er klaar voor bent; dan komt er ook een link onderaan de site.
+settings-public-donations-intro = Op de giftenpagina ziet iedereen hoeveel er per Bread Drop en per goed doel is opgehaald, zonder namen of losse bedragen. Zet hem aan als je er klaar voor bent; dan komt er ook een link onderaan de site.
 settings-public-donations = Giftenpagina op de site tonen
 settings-public-donations-view = Bekijk de giftenpagina

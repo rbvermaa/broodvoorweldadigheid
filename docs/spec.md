@@ -564,7 +564,7 @@ The style is “Stempel”: ink #111111 on white, taken from the logo, with no a
 
 - One way to do each thing: forms check input as you type, with Dutch messages; destructive actions such as a sick-day cancel or a refund ask for confirmation and say exactly what will happen; every save shows the same short confirmation.
 
-- Words: all text lives in the Fluent files, with a glossary (bakdag or drop, bestel-deadline, ophaalmoment, bestelling, batch), one tone (“je”, friendly and short) and Dutch formats for money, dates and times.
+- Words: all text lives in the Fluent files, with a glossary (Bread Drop, plural Bread Drops, for a bake day; bakdatum for its date; bestel-deadline, ophaalmoment, bestelling, batch), one tone (“je”, friendly and short) and Dutch formats for money, dates and times.
 
 - One icon set: Lucide (ISC licence), plus one fixed set of 14 allergen icons.
 
