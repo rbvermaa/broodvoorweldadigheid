@@ -183,6 +183,12 @@ const ROUTES: &[(&str, &str, &str, After)] = &[
         "add_price",
         Hub,
     ),
+    (
+        "costing.rs",
+        "/staff/costing/ingredients/{id}/preview",
+        "preview_price",
+        Inline,
+    ),
     ("customers.rs", "PATH", "search", Action),
     (
         "customers.rs",

@@ -11,7 +11,8 @@ everywhere. Agreed rule:
 | An object's own create or edit form: product, ingredient, recipe ("Klaar met aanpassen" too), charity (archive too), pickup location, business account, poll, new Bread Drop, a product's label settings | 303 (htmx: `HX-Redirect`) to the list above it, `?toegevoegd=<id>`, `?opgeslagen=<id>` or `?gearchiveerd=<id>`. The list says "«naam» toegevoegd", "opgeslagen" or "gearchiveerd" in its `role="status"` region and highlights that row |
 | A pickup window | Its location page, which lists the windows: the window's row is named and highlighted |
 | Inline htmx edits in a table (recipe lines and steps, Aanbod maximum, extras, pickup list) and live field checks | Stay in place |
-| Sections of a hub page: Bread Drop (schedule, slots, charity, Aanbod, open/close, copy, repeat), batch (adjust, mix, actuals), order, recipe page (versions, label, products), version page (details, freeze, in use), product approval, price of an ingredient | Stay in place with `?opgeslagen=1` |
+| Sections of a hub page: Bread Drop (schedule, slots, charity, Aanbod, open/close, copy, repeat), batch (adjust, mix, actuals), order, recipe page (versions, label, products), version page (details, freeze, in use), product approval | Stay in place with `?opgeslagen=1` |
+| A new price for an ingredient (costing) | Its costing page, which is the list of its prices, with "Opgeslagen" |
 | Settings and the kitchen may-contain list | Stay, "Opgeslagen" |
 | A form with mistakes | Always the form again, with the input and the errors (422; htmx 200) |
 
