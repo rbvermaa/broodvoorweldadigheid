@@ -148,8 +148,8 @@ async fn kitchen_traces_shown(ctx: &Ctx, driver: &WebDriver) -> Result<(), Error
 }
 
 /// Orders `qty` loaves on `drop` as `email`, with `donation` as the donation choice if
-/// given, pays in the mock and sends the webhook. With `audit`, axe-core checks the drop
-/// and checkout pages.
+/// given, pays in the mock and sends the webhook. With `audit`, it opens the drop from the
+/// Bread Drops list, and axe-core checks the home page, that list, the drop and checkout.
 async fn order_and_pay(
     ctx: &Ctx,
     driver: &WebDriver,
@@ -158,9 +158,21 @@ async fn order_and_pay(
     donation: Option<&str>,
     audit: bool,
 ) -> Result<Paid, Error> {
-    driver
-        .goto(ctx.url(&format!("/drops/{}", drop.day)))
+    if audit {
+        driver.goto(ctx.url("/")).await?;
+        axe(ctx, driver, "home").await?;
+        driver.goto(ctx.url("/drops")).await?;
+        axe(ctx, driver, "Bread Drops").await?;
+        click(
+            driver,
+            &format!(".drop-rows a[href=\"/drops/{}\"]", drop.day),
+        )
         .await?;
+    } else {
+        driver
+            .goto(ctx.url(&format!("/drops/{}", drop.day)))
+            .await?;
+    }
     wait_for_text(driver, ".product-name", &drop.product_name).await?;
     kitchen_traces_shown(ctx, driver).await?;
     if audit {

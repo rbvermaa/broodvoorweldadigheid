@@ -133,6 +133,26 @@ async fn home_renders_dutch_text_through_the_layout(pool: PgPool) {
     assert!(reply.body.contains("<meta name=\"csrf-token\" content=\""));
 }
 
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn the_footer_links_to_instagram_without_loading_anything_from_it(pool: PgPool) {
+    let app = server::router(state(pool));
+    let reply = get_path(&app, "/").await;
+    let footer = &reply.body[reply.body.find("<footer").expect("footer")..];
+    let start = footer
+        .find("<a class=\"site-footer-social\" href=\"https://www.instagram.com/brood.voor.weldadigheid/\" rel=\"me noopener\"")
+        .unwrap_or_else(|| panic!("{footer}"));
+    let link = &footer[start..start + footer[start..].find("</a>").expect("closed link")];
+    assert!(link.contains(&dutch("footer-instagram")), "{link}");
+    assert!(link.contains("<svg"), "{link}");
+    assert!(link.contains("aria-hidden=\"true\""), "{link}");
+    assert_eq!(
+        reply.body.matches("instagram.com").count(),
+        1,
+        "{}",
+        reply.body
+    );
+}
+
 #[tokio::test]
 async fn assets_and_unknown_pages_set_no_cookie() {
     let app = server::router(state(unused_pool()));

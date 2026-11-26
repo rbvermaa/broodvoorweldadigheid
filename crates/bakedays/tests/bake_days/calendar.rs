@@ -58,6 +58,7 @@ async fn planned_drop_shows_date_pickup_and_normal_sale_but_no_menu(
             date: date("2026-10-31"),
             status: PublicStatus::Planned,
             cutoff_at: Some(ts("2026-10-29T19:00:00Z")),
+            opens_at: None,
             pickups: vec![PublicPickup {
                 slot_id: slot.id,
                 location_name: "De Proef".to_owned(),
@@ -260,4 +261,21 @@ async fn products_not_sold_online_stay_off_the_menu_and_out_of_sold_out(
         menu.iter().map(|m| m.product_id).collect::<Vec<_>>(),
         [bread]
     );
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_planned_drop_tells_when_ordering_opens(mut conn: PoolConnection<Postgres>) {
+    let day = create_day(&mut conn, &saturday()).await;
+    with_schedule(
+        &mut conn,
+        &day,
+        Schedule {
+            opens_at: Some(ts("2026-10-26T08:00:00Z")),
+            ..schedule_of(&day)
+        },
+    )
+    .await;
+
+    let drops = drops_at(&mut conn, "2026-10-20T12:00:00Z", &FixedOrders::default()).await;
+    assert_eq!(drops[0].opens_at, Some(ts("2026-10-26T08:00:00Z")));
 }

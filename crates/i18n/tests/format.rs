@@ -67,6 +67,12 @@ fn short_date_uses_dutch_abbreviations() {
 }
 
 #[test]
+fn short_date_with_year_adds_the_year() {
+    let t = nl();
+    assert_eq!(t.short_date_with_year(date(2027, 1, 9)), "za 9 jan 2027");
+}
+
+#[test]
 fn every_weekday_and_month_has_a_dutch_name() {
     let t = nl();
     let longs: Vec<String> = (1..=7).map(|d| t.long_date(date(2026, 6, d))).collect();

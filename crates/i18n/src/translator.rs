@@ -78,6 +78,10 @@ impl Translator {
         let sample = Date::constant(2026, 12, 5);
         translator.t("date-long", Some(&translator.date_args(sample, true)))?;
         translator.t("date-short", Some(&translator.date_args(sample, false)))?;
+        translator.t(
+            "date-short-year",
+            Some(&translator.date_args(sample, false)),
+        )?;
         Ok(translator)
     }
 
@@ -135,6 +139,12 @@ impl Translator {
     #[must_use]
     pub fn short_date(&self, date: Date) -> String {
         self.checked("date-short", &self.date_args(date, false))
+    }
+
+    /// `za 9 jan 2027`
+    #[must_use]
+    pub fn short_date_with_year(&self, date: Date) -> String {
+        self.checked("date-short-year", &self.date_args(date, false))
     }
 
     fn date_args(&self, date: Date, long: bool) -> FluentArgs<'_> {

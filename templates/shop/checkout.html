@@ -9,8 +9,10 @@
 {% block title %}{{ layout.t("checkout-title")? }}{% endblock %}
 {% block content %}
 <h1>{{ layout.t("checkout-title")? }}</h1>
-<h2>{{ drop.date }}</h2>
+<div class="drop-header">
+<h2>{{ drop.heading }}</h2>
 {% call dr::drop_facts(drop) %}{% endcall %}
+</div>
 {% call l::split(aside_first = true) %}
 {% call c::cart_panel(cart) %}{% endcall %}
 <div>

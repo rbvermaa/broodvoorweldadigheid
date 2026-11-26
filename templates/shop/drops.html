@@ -8,11 +8,7 @@
 {%- if drops.is_empty() %}
 {% call fb::empty_state(layout.t("drops-empty-title")?, layout.t("drops-empty-text")?) %}{% endcall %}
 {%- else %}
-<ul class="drop-list">
-{%- for drop in drops %}
-<li>{% call dr::drop_card(drop) %}{% endcall %}</li>
-{%- endfor %}
-</ul>
+{% call dr::drop_rows(drops) %}{% endcall %}
 {%- endif %}
 <p><a href="/drops.ics">{{ layout.t("drops-ical")? }}</a></p>
 {% endblock %}
