@@ -81,13 +81,12 @@ SHOP_URL := https://localhost:$(BVW_HTTPS_PORT)
 IDM_URL := https://idm.localhost:$(BVW_HTTPS_PORT)
 
 # Local backups (ADR 0050): a rustic repository in a host directory outside the checkout, so
-# `docker compose down -v` and `git clean` leave it alone. Not exported: `make smoke` must keep
-# its own volume.
+# `docker compose down -v` and `git clean` leave it alone.
 BVW_BACKUP_DIR ?= $(HOME)/Backups/bvw
 BACKUP_KEEP ?= --keep-hourly=24 --keep-daily=14 --keep-weekly=8
 BACKUP_PLIST ?= $(HOME)/Library/LaunchAgents/nl.broodvoorweldadigheid.backup.plist
 SNAPSHOT ?= latest
-BACKUP_CLI = BVW_BACKUP_DIR=$(BVW_BACKUP_DIR) $(COMPOSE) --profile backup run --rm --no-deps backup backup
+BACKUP_CLI = BVW_BACKUP_DIR="$(BVW_BACKUP_DIR)" $(COMPOSE) --profile backup run --rm --no-deps backup backup
 BACKUP_REPO_ARGS := --repo=/backup/repo --password-file=/run/secrets/rustic_password
 STACK_RUNNING = $(COMPOSE) ps --status running --services 2>/dev/null | grep -qx postgres
 
@@ -186,15 +185,14 @@ backup-now: backup-password
 	$(BACKUP_CLI) run $(BACKUP_REPO_ARGS) --kanidm=/kanidm/backups
 	$(BACKUP_CLI) prune $(BACKUP_REPO_ARGS) $(BACKUP_KEEP)
 
-# The repository opens only with the password it was made with. A copy sits next to it, so a
-# new deploy/secrets (for example after `git clean -x`) cannot lock the backups away.
+# A copy of the password sits next to the repository, which only opens with it (ADR 0050).
 backup-password:
 	@case "$(BVW_BACKUP_DIR)" in /*) ;; *) echo "BVW_BACKUP_DIR must be an absolute path" >&2; exit 2;; esac
 	@test -s $(SECRETS_DIR)/rustic-password || { echo "no $(SECRETS_DIR)/rustic-password (deploy/README.md)" >&2; exit 1; }
-	@mkdir -p $(BVW_BACKUP_DIR)
-	@if [ ! -e $(BVW_BACKUP_DIR)/rustic-password ]; then \
-		install -m 600 $(SECRETS_DIR)/rustic-password $(BVW_BACKUP_DIR)/rustic-password; \
-	elif ! cmp -s $(SECRETS_DIR)/rustic-password $(BVW_BACKUP_DIR)/rustic-password; then \
+	@mkdir -p "$(BVW_BACKUP_DIR)"
+	@if [ ! -e "$(BVW_BACKUP_DIR)/rustic-password" ]; then \
+		install -m 600 $(SECRETS_DIR)/rustic-password "$(BVW_BACKUP_DIR)/rustic-password"; \
+	elif ! cmp -s $(SECRETS_DIR)/rustic-password "$(BVW_BACKUP_DIR)/rustic-password"; then \
 		echo "$(SECRETS_DIR)/rustic-password differs from $(BVW_BACKUP_DIR)/rustic-password, which opens" \
 			"the backups there. Copy that one to $(SECRETS_DIR)/ to use them." >&2; exit 1; \
 	fi
@@ -204,7 +202,7 @@ backup-list: ## List the backup runs in BVW_BACKUP_DIR, newest first
 
 restore-local: ## Replace the running stack's database with backup run SNAPSHOT (default latest); needs CONFIRM=yes
 	@test "$(CONFIRM)" = yes || { \
-		echo "restore-local replaces the database of stack $(COMPOSE_PROJECT) with backup run $(SNAPSHOT)."; \
+		echo "restore-local replaces the database of stack $(COMPOSE_PROJECT) with backup run $(SNAPSHOT) from $(BVW_BACKUP_DIR)."; \
 		echo "The current data is kept as a second database. To go ahead:"; \
 		echo "  make restore-local SNAPSHOT=$(SNAPSHOT) CONFIRM=yes"; exit 2; }
 	@$(STACK_RUNNING) || { echo "stack $(COMPOSE_PROJECT) is not running; start it with make up" >&2; exit 1; }
@@ -222,10 +220,12 @@ backup-plist: ## Write the LaunchAgent for backup-schedule to BACKUP_PLIST (from
 		-e "s|@PROJECT@|$(COMPOSE_PROJECT)|" -e "s|@IMAGE_TAG@|$(BVW_IMAGE_TAG)|" -e "s|@PATH@|$$PATH|" \
 		-e "s|@LOG@|$(BVW_BACKUP_DIR)/backup.log|" deploy/launchd/nl.broodvoorweldadigheid.backup.plist.in > "$(BACKUP_PLIST)"
 	@echo "wrote $(BACKUP_PLIST)"
+	@case "$$(command -v $(MAKE))" in /nix/store/*) echo "warning: the plist runs make from the Nix store; it breaks after garbage collection." \
+		"Run backup-schedule with a make from your profile." >&2;; esac
 
 backup-schedule: backup-password backup-plist ## Run make backup every hour (macOS LaunchAgent); log in BVW_BACKUP_DIR/backup.log
 	-launchctl bootout gui/$$(id -u) "$(BACKUP_PLIST)" 2>/dev/null
-	launchctl bootstrap gui/$$(id -u) "$(BACKUP_PLIST)"
+	launchctl bootstrap gui/$$(id -u) "$(BACKUP_PLIST)" || { sleep 2; launchctl bootstrap gui/$$(id -u) "$(BACKUP_PLIST)"; }
 	@echo "make backup now runs every hour; log: $(BVW_BACKUP_DIR)/backup.log"
 
 backup-unschedule: ## Stop the hourly backups and remove the LaunchAgent

@@ -99,7 +99,8 @@ pub fn choose(repo: &str, dumps: &[Snapshot], manifests: &[Snapshot]) -> Result<
     }
 }
 
-/// `latest` (or `None`) is [`choose`]; otherwise the run with that id, `run-` prefix optional.
+/// `latest` (or `None`) is the newest run with a manifest, skipping newer incomplete ones (unlike
+/// [`choose`]); otherwise the run with that id, `run-` prefix optional.
 pub fn choose_run(
     repo: &str,
     dumps: &[Snapshot],
@@ -107,7 +108,23 @@ pub fn choose_run(
     run: Option<&str>,
 ) -> Result<Choice, Error> {
     let wanted = match run.map(str::trim) {
-        None | Some("latest") => return choose(repo, dumps, manifests),
+        None | Some("latest") => {
+            let complete: Vec<Snapshot> = dumps
+                .iter()
+                .filter(|dump| {
+                    run_of(dump).is_some_and(|run| {
+                        manifests
+                            .iter()
+                            .any(|manifest| run_of(manifest) == Some(run))
+                    })
+                })
+                .cloned()
+                .collect();
+            if complete.is_empty() {
+                return choose(repo, dumps, manifests);
+            }
+            return choose(repo, &complete, manifests);
+        }
         Some(run) => run.strip_prefix(RUN_TAG_PREFIX).unwrap_or(run),
     };
     let newest_of = |snapshots: &[Snapshot]| {
@@ -286,6 +303,9 @@ mod tests {
         }
         let latest = choose_run("/repo", &dumps[..2], &manifests, Some("latest")).expect("latest");
         assert_eq!(latest.run, "2");
+        let past_incomplete =
+            choose_run("/repo", &dumps, &manifests, Some("latest")).expect("skips run 3");
+        assert_eq!(past_incomplete.run, "2");
         assert_eq!(
             choose_run("/repo", &dumps[..2], &manifests, None)
                 .expect("none")

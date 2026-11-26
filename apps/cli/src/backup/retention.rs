@@ -1,12 +1,16 @@
 use std::collections::BTreeMap;
 
-use jiff::Timestamp;
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
+use jiff::{SignedDuration, Timestamp};
 
 use super::rustic::Snapshot;
 use super::select::run_of;
-use super::{Error, MANIFEST_TAG};
+use super::{DB_TAG, Error, MANIFEST_TAG};
+
+/// A run without its manifest this young may still be running (`make backup` by hand while
+/// the hourly one runs).
+pub const INCOMPLETE_GRACE: SignedDuration = SignedDuration::from_hours(1);
 
 /// How many hourly, daily and weekly runs to keep, counted like restic's `--keep-*`: the
 /// newest run of each hour, day or ISO week in the bakery's time zone.
@@ -48,13 +52,13 @@ pub fn runs(snapshots: &[Snapshot]) -> Vec<Run> {
             if run_of_tag(tag).is_none() && !run.parts.contains(tag) {
                 run.parts.push(tag.clone());
             }
-            if tag == MANIFEST_TAG {
-                run.complete = true;
-            }
         }
     }
     let mut runs: Vec<Run> = by_run.into_values().collect();
     for run in &mut runs {
+        run.complete = [DB_TAG, MANIFEST_TAG]
+            .iter()
+            .all(|part| run.parts.iter().any(|have| have == part));
         run.parts.sort();
         run.snapshots.sort();
     }
@@ -82,9 +86,14 @@ enum Bucket {
     Week(i16, i8),
 }
 
-/// Complete runs are thinned out by the policy. Incomplete runs older than the newest
-/// complete run are forgotten; newer ones may still be running and stay.
-pub fn plan(snapshots: &[Snapshot], policy: Policy, time_zone: &TimeZone) -> Result<Plan, Error> {
+/// Complete runs (db and manifest) are thinned out by the policy. An incomplete run is
+/// forgotten once it is older than the newest complete run and than [`INCOMPLETE_GRACE`].
+pub fn plan(
+    snapshots: &[Snapshot],
+    policy: Policy,
+    time_zone: &TimeZone,
+    now: Timestamp,
+) -> Result<Plan, Error> {
     if policy.hourly == 0 && policy.daily == 0 && policy.weekly == 0 {
         return Err(Error::KeepsNothing);
     }
@@ -113,6 +122,7 @@ pub fn plan(snapshots: &[Snapshot], policy: Policy, time_zone: &TimeZone) -> Res
             keep
         } else {
             newest_complete.is_none_or(|newest| run.time > newest)
+                || now.duration_since(run.time) < INCOMPLETE_GRACE
         };
         if keep {
             result.keep.push(run.id.clone());
@@ -172,6 +182,8 @@ mod tests {
         daily: 14,
         weekly: 8,
     };
+
+    const LATER: Timestamp = Timestamp::constant(1_830_000_000, 0);
 
     fn amsterdam() -> TimeZone {
         jiff::tz::get!("Europe/Amsterdam")
@@ -248,7 +260,7 @@ mod tests {
     fn a_week_of_hourly_runs_keeps_24_hours_then_one_per_day() {
         // 2026-11-19 00:30 to 2026-11-25 23:30 Amsterdam time (UTC+1), 168 runs.
         let snapshots = hourly_runs(ts("2026-11-18T23:30:00Z"), 168);
-        let plan = plan(&snapshots, LOCAL, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, LOCAL, &amsterdam(), LATER).expect("plan");
         let expected: Vec<String> = (144..168)
             .rev()
             .chain([143, 119, 95, 71, 47, 23])
@@ -272,7 +284,7 @@ mod tests {
             daily: 2,
             weekly: 0,
         };
-        let plan = plan(&snapshots, policy, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, policy, &amsterdam(), LATER).expect("plan");
         assert_eq!(plan.keep, ["b", "a"]);
         assert!(plan.forget.is_empty());
     }
@@ -295,7 +307,7 @@ mod tests {
             daily: 0,
             weekly: 3,
         };
-        let plan = plan(&snapshots, policy, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, policy, &amsterdam(), LATER).expect("plan");
         assert_eq!(plan.keep, ["5", "3", "1"]);
         assert_eq!(plan.forget_runs, ["4", "2"]);
     }
@@ -310,7 +322,7 @@ mod tests {
             daily: 0,
             weekly: 0,
         };
-        let plan = plan(&snapshots, policy, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, policy, &amsterdam(), LATER).expect("plan");
         assert_eq!(plan.keep, ["cet"]);
         assert_eq!(plan.forget_runs, ["cest"]);
     }
@@ -329,20 +341,43 @@ mod tests {
             &["db", "run-2"],
         ));
         snapshots.push(snapshot("foreign", ts("2026-11-25T07:00:00Z"), &["db"]));
-        let plan = plan(&snapshots, LOCAL, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, LOCAL, &amsterdam(), LATER).expect("plan");
         assert_eq!(plan.keep, ["2", "1"]);
         assert_eq!(plan.forget_runs, ["0"]);
         assert_eq!(plan.forget, ["old"]);
     }
 
     #[test]
+    fn a_young_incomplete_run_stays_while_another_backup_finishes() {
+        let mut snapshots = vec![snapshot(
+            "slow",
+            ts("2026-11-25T08:59:00Z"),
+            &["db", "run-0"],
+        )];
+        snapshots.extend(complete("1", ts("2026-11-25T09:00:00Z")));
+        let at = |now: &str| plan(&snapshots, LOCAL, &amsterdam(), ts(now)).expect("plan");
+        assert_eq!(at("2026-11-25T09:58:59Z").keep, ["1", "0"]);
+        assert_eq!(at("2026-11-25T09:59:00Z").forget, ["slow"]);
+    }
+
+    #[test]
+    fn a_run_needs_both_db_and_manifest_to_be_complete() {
+        let snapshots = [
+            snapshot("m1", ts("2026-11-25T08:00:00Z"), &["manifest", "run-1"]),
+            snapshot("d2", ts("2026-11-25T09:00:00Z"), &["db", "run-2"]),
+            snapshot("k2", ts("2026-11-25T09:00:01Z"), &["kanidm", "run-2"]),
+        ];
+        assert!(runs(&snapshots).iter().all(|run| !run.complete));
+    }
+
+    #[test]
     fn without_a_complete_run_nothing_is_forgotten() {
         let snapshots = [snapshot("d1", ts("2026-11-25T08:00:00Z"), &["db", "run-1"])];
-        let plan = plan(&snapshots, LOCAL, &amsterdam()).expect("plan");
+        let plan = plan(&snapshots, LOCAL, &amsterdam(), LATER).expect("plan");
         assert_eq!(plan.keep, ["1"]);
         assert!(plan.forget.is_empty());
         assert_eq!(
-            super::plan(&[], LOCAL, &amsterdam()).expect("empty"),
+            super::plan(&[], LOCAL, &amsterdam(), LATER).expect("empty"),
             Plan::default()
         );
     }
@@ -355,7 +390,7 @@ mod tests {
             daily: 0,
             weekly: 0,
         };
-        let error = plan(&snapshots, none, &amsterdam()).expect_err("keeps nothing");
+        let error = plan(&snapshots, none, &amsterdam(), LATER).expect_err("keeps nothing");
         assert_eq!(
             error.to_string(),
             "the retention policy keeps no backups; set at least one --keep-* above 0"

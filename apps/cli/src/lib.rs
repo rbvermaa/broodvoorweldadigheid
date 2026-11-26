@@ -139,7 +139,10 @@ pub struct RestoreArgs {
         help = "run id from `backup list`, or latest"
     )]
     pub run: String,
-    #[arg(long, help = "required: the current database is dropped")]
+    #[arg(
+        long,
+        help = "required: the current database is replaced (kept as <name>_before_<n>)"
+    )]
     pub yes_overwrite: bool,
 }
 
@@ -273,7 +276,7 @@ async fn execute_backup(command: BackupCommand, now: jiff::Timestamp) -> Result<
                 daily: args.keep_daily,
                 weekly: args.keep_weekly,
             };
-            let plan = backup::prune(&rustic_repo(&args.repo), policy, &time_zone)?;
+            let plan = backup::prune(&rustic_repo(&args.repo), policy, &time_zone, now)?;
             println!(
                 "kept {} runs, forgot {} runs ({} snapshots) in {}",
                 plan.keep.len(),

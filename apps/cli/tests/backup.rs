@@ -1073,7 +1073,7 @@ async fn prune_keeps_the_policy_runs_and_list_shows_what_is_left() {
         daily: 0,
         weekly: 0,
     };
-    let plan = backup::prune(&rustic_repo, policy, &time_zone).expect("prune");
+    let plan = backup::prune(&rustic_repo, policy, &time_zone, Timestamp::now()).expect("prune");
     assert_eq!(plan.keep, ["3"]);
     assert_eq!(plan.forget_runs, ["2", "1"]);
     assert_eq!(plan.forget.len(), 8);
@@ -1082,7 +1082,8 @@ async fn prune_keeps_the_policy_runs_and_list_shows_what_is_left() {
         left.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(),
         ["3"]
     );
-    let again = backup::prune(&rustic_repo, policy, &time_zone).expect("prune again");
+    let again =
+        backup::prune(&rustic_repo, policy, &time_zone, Timestamp::now()).expect("prune again");
     assert!(again.forget.is_empty());
 
     let admin = admin_url();

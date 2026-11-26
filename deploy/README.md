@@ -70,7 +70,7 @@ the backup volume. `make down` never does.
 the backup directory; keep it, since the backups only open with it.
 
 To put a run back (the server stops for a moment; the data from before stays as a second
-database, `postgres_before_<run>`):
+database, `postgres_before_<number>`):
 
     make restore-local CONFIRM=yes                          # the newest run
     make restore-local SNAPSHOT=1795640400000000000 CONFIRM=yes   # a run from backup-list

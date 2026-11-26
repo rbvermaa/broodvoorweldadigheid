@@ -419,8 +419,13 @@ pub fn list(repo: &Repo<'_>) -> Result<Vec<Run>, Error> {
 }
 
 /// Forgets the runs the policy does not keep, then removes their data.
-pub fn prune(repo: &Repo<'_>, policy: Policy, time_zone: &TimeZone) -> Result<Plan, Error> {
-    let plan = retention::plan(&rustic::list_snapshots(repo, &[])?, policy, time_zone)?;
+pub fn prune(
+    repo: &Repo<'_>,
+    policy: Policy,
+    time_zone: &TimeZone,
+    now: Timestamp,
+) -> Result<Plan, Error> {
+    let plan = retention::plan(&rustic::list_snapshots(repo, &[])?, policy, time_zone, now)?;
     if !plan.forget.is_empty() {
         process::run(rustic::forget(repo, &plan.forget))?;
         process::run(rustic::prune(repo))?;
@@ -492,7 +497,8 @@ pub async fn restore(restore: &Restore<'_>) -> Result<Restored, Error> {
                 .execute(AssertSqlSafe(format!(
                     "DROP DATABASE {scratch} WITH (FORCE)"
                 )))
-                .await?;
+                .await
+                .ok();
             return Err(error);
         }
     };
@@ -508,8 +514,9 @@ pub async fn restore(restore: &Restore<'_>) -> Result<Restored, Error> {
     let mut admin =
         PgConnection::connect(&with_database(restore.database_url, maintenance)?).await?;
     let swapped = swap(&mut admin, &database, restore.scratch_database, &previous).await;
-    admin.close().await?;
+    let closed = admin.close().await;
     swapped?;
+    closed?;
     Ok(Restored {
         database,
         previous,
@@ -519,7 +526,7 @@ pub async fn restore(restore: &Restore<'_>) -> Result<Restored, Error> {
 }
 
 /// Keeps the current database as `previous` instead of dropping it. Renaming needs it to
-/// have no connections; the server is stopped, so only stragglers are ended.
+/// have no connections, and the healthcheck or an hourly backup may connect at any time.
 async fn swap(
     admin: &mut PgConnection,
     database: &str,
@@ -528,6 +535,11 @@ async fn swap(
 ) -> Result<(), Error> {
     let target = postgres::quote_ident(database);
     let kept = postgres::quote_ident(previous);
+    admin
+        .execute(AssertSqlSafe(format!(
+            "ALTER DATABASE {target} ALLOW_CONNECTIONS false"
+        )))
+        .await?;
     sqlx::query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
          WHERE datname = $1 AND pid <> pg_backend_pid()",
@@ -535,11 +547,18 @@ async fn swap(
     .bind(database)
     .execute(&mut *admin)
     .await?;
-    admin
+    let set_aside = admin
         .execute(AssertSqlSafe(format!(
             "ALTER DATABASE {target} RENAME TO {kept}"
         )))
+        .await;
+    let open = if set_aside.is_ok() { &kept } else { &target };
+    admin
+        .execute(AssertSqlSafe(format!(
+            "ALTER DATABASE {open} ALLOW_CONNECTIONS true"
+        )))
         .await?;
+    set_aside?;
     let renamed = admin
         .execute(AssertSqlSafe(format!(
             "ALTER DATABASE {} RENAME TO {target}",
