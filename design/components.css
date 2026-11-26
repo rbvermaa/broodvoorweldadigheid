@@ -1430,7 +1430,7 @@ textarea.field-input {
   .drop-rows {
     display: grid;
     grid-template-columns:
-      [date] max-content [pickup] auto [order] max-content [status] max-content
+      [date] max-content [pickup] auto [status] max-content [order] max-content
       [charity] auto [row-end];
     column-gap: var(--space-5);
   }
@@ -1440,6 +1440,7 @@ textarea.field-input {
     grid-column: date / row-end;
     grid-template-columns: subgrid;
     align-items: center;
+    column-gap: var(--space-5);
   }
 
   .drop-row-info {

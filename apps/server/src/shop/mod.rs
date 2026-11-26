@@ -139,11 +139,12 @@ pub(crate) fn drop_view(
         (PublicStatus::Planned | PublicStatus::MenuAnnounced, Some(opens), _) if opens > now => {
             Some(("drop-label-order-from", "drop-order-from", opens))
         }
-        (
-            PublicStatus::Planned | PublicStatus::MenuAnnounced | PublicStatus::Open,
-            _,
-            Some(cutoff),
-        ) => Some(("drop-label-order-until", "drop-order-until", cutoff)),
+        (PublicStatus::Open, _, Some(cutoff)) => {
+            Some(("drop-label-order-until", "drop-order-until", cutoff))
+        }
+        (PublicStatus::Planned | PublicStatus::MenuAnnounced, _, Some(cutoff)) => {
+            Some(("drop-label-deadline", "drop-deadline", cutoff))
+        }
         _ => None,
     };
     let ordering = match ordering {

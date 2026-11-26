@@ -12,10 +12,12 @@ drop-status-cancelled = Gaat niet door
 drop-label-pickup = Ophalen
 drop-label-order-until = Bestellen tot
 drop-label-order-from = Bestellen vanaf
+drop-label-deadline = Bestel-deadline
 drop-label-charity = Goed doel
 # $when: short date and time, such as "do 10 dec 20:00"
 drop-order-until = bestellen tot { $when }
 drop-order-from = bestellen vanaf { $when }
+drop-deadline = bestel-deadline { $when }
 drop-for-charity = voor { $charity }
 # Pickup moments the list leaves out
 drop-more-pickups = { $n ->

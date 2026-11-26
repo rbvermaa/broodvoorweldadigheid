@@ -44,7 +44,9 @@
 </span>
 {%- if let Some(status) = drop.status %}<span class="drop-row-status drop-status{% if status.open %} drop-status-open{% endif %}">{{ status.text }}</span>{% endif %}
 <span class="drop-row-info">
-<span class="drop-row-order">{% if let Some(ordering) = drop.ordering %}<time datetime="{{ ordering.datetime }}">{{ ordering.text }}</time>{% endif %}</span>
+{%- if let Some(ordering) = drop.ordering %}
+<span class="drop-row-order"><time datetime="{{ ordering.datetime }}">{{ ordering.text }}</time></span>
+{%- endif %}
 {%- if let Some(charity) = drop.charity %}
 <span class="drop-row-charity">{{ charity.list_text }}</span>
 {%- endif %}

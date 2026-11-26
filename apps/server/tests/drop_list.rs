@@ -137,6 +137,14 @@ fn link(day: BakeDayId) -> String {
     format!("href=\"/drops/{}\"", day.get())
 }
 
+/// The row in `list` that links to `day`.
+fn row_of(list: &str, day: BakeDayId) -> &str {
+    let at = list.find(&link(day)).unwrap();
+    let start = list[..at].rfind("<li").unwrap();
+    let end = list[at..].find("</li>").unwrap() + at;
+    &list[start..end]
+}
+
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn the_calendar_lists_one_short_row_per_drop(pool: PgPool) {
     let shop = shop(pool);
@@ -173,7 +181,13 @@ async fn the_calendar_lists_one_short_row_per_drop(pool: PgPool) {
     )
     .await
     .unwrap();
+    opens_at(&mut conn, two_places, "2026-10-27T08:00:00Z").await;
     let next_year = drop_on(&mut conn, "2027-01-09", None).await;
+    let closed = drop_on(&mut conn, "2026-11-28", None).await;
+    open(&mut conn, &shop.clock, closed).await;
+    days::close(&mut conn, shop.clock.as_ref(), closed)
+        .await
+        .unwrap();
 
     let html = get(&shop, "/drops").await;
     let list = rows(&html);
@@ -208,7 +222,25 @@ async fn the_calendar_lists_one_short_row_per_drop(pool: PgPool) {
         &[("when", "ma 2 nov 09:00")]
     )));
 
-    assert_eq!(list.matches("drop-row-status").count(), 2, "{list}");
+    assert_eq!(list.matches("drop-row-status").count(), 3, "{list}");
+    assert!(
+        row_of(list, closed).contains(&dutch("drop-status-closed")),
+        "{list}"
+    );
+    for day in [cancelled, closed] {
+        assert!(!row_of(list, day).contains("drop-row-order"), "{list}");
+    }
+    for (day, when) in [
+        (next_year, "do 7 jan 2027 20:00"),
+        (two_places, "do 19 nov 20:00"),
+    ] {
+        let row = row_of(list, day);
+        assert!(
+            row.contains(&dutch_with("drop-deadline", &[("when", when)])),
+            "{row}"
+        );
+        assert!(!row.contains("bestellen tot"), "{row}");
+    }
     assert!(list.contains(&dutch("drop-status-open")), "{list}");
     assert!(list.contains(&dutch("drop-status-cancelled")), "{list}");
 

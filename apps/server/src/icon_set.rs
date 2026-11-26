@@ -86,6 +86,13 @@ pub fn generate(
         }
     }
     for (name, shapes) in &file.own {
+        if !name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            problems.push(format!("{name:?} is not a valid icon name"));
+            continue;
+        }
         if names.contains(name.as_str()) {
             problems.push(format!("own icon {name} is also a Lucide icon"));
             continue;
@@ -132,7 +139,11 @@ fn inner_svg(svg: &str) -> Result<String, String> {
     if inner.is_empty() {
         return Err("empty icon".to_string());
     }
-    for element in inner.split('<').skip(1) {
+    let mut elements = inner.split('<');
+    if elements.next().is_some_and(|text| !text.trim().is_empty()) {
+        return Err("text outside the shapes".to_string());
+    }
+    for element in elements {
         let element = element.trim_end();
         let body = element
             .strip_suffix("/>")
@@ -232,6 +243,7 @@ mod tests {
             "<svg><path d=\"M\"\tonload=\"x\" /></svg>",
             "<svg><path d=\"url(#x)\" /></svg>",
             "<svg><path d=M /></svg>",
+            "<svg>hello<path d=\"M\" /></svg>",
         ] {
             assert!(inner_svg(bad).is_err(), "{bad}");
         }
@@ -281,12 +293,16 @@ mod tests {
         );
 
         let mut toml = toml_with_all("\"check\"");
-        toml.push_str("[own]\ncheck = '<circle r=\"1\" />'\nbad = '<script>alert(1)</script>'\n");
+        toml.push_str("[own]\ncheck = '<circle r=\"1\" />'\nbad = '<script>alert(1)</script>'\n\"Bad Name\" = '<circle r=\"1\" />'\n");
         let error = generate(&toml, |_| Ok(WHEAT.to_string())).expect_err("invalid");
         assert!(
             error.contains("own icon check is also a Lucide icon"),
             "{error}"
         );
         assert!(error.contains("own icon bad:"), "{error}");
+        assert!(
+            error.contains("\"Bad Name\" is not a valid icon name"),
+            "{error}"
+        );
     }
 }
