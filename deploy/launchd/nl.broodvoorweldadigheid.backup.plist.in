@@ -15,6 +15,7 @@
     <string>BVW_BACKUP_DIR=@BACKUP_DIR@</string>
     <string>COMPOSE_PROJECT=@PROJECT@</string>
     <string>BVW_IMAGE_TAG=@IMAGE_TAG@</string>
+    <string>BVW_SECRETS_DIR=@SECRETS_DIR@</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>

@@ -213,11 +213,11 @@ restore-local: ## Replace the running stack's database with backup run SNAPSHOT 
 
 backup-plist: ## Write the LaunchAgent for backup-schedule to BACKUP_PLIST (from deploy/launchd/)
 	@make_path=$$(command -v $(MAKE)) && \
-	for value in "$$make_path" "$(CURDIR)" "$(BVW_BACKUP_DIR)" "$(COMPOSE_PROJECT)" "$(BVW_IMAGE_TAG)" "$$PATH"; do \
+	for value in "$$make_path" "$(CURDIR)" "$(BVW_BACKUP_DIR)" "$(COMPOSE_PROJECT)" "$(BVW_IMAGE_TAG)" "$(BVW_SECRETS_DIR)" "$$PATH"; do \
 		case "$$value" in *[\&\<\>\|]*) echo "cannot put $$value in the plist" >&2; exit 2;; esac; \
 	done && mkdir -p "$(dir $(BACKUP_PLIST))" && \
 	sed -e "s|@MAKE@|$$make_path|" -e "s|@REPO@|$(CURDIR)|" -e "s|@BACKUP_DIR@|$(BVW_BACKUP_DIR)|" \
-		-e "s|@PROJECT@|$(COMPOSE_PROJECT)|" -e "s|@IMAGE_TAG@|$(BVW_IMAGE_TAG)|" -e "s|@PATH@|$$PATH|" \
+		-e "s|@PROJECT@|$(COMPOSE_PROJECT)|" -e "s|@IMAGE_TAG@|$(BVW_IMAGE_TAG)|" -e "s|@SECRETS_DIR@|$(BVW_SECRETS_DIR)|" -e "s|@PATH@|$$PATH|" \
 		-e "s|@LOG@|$(BVW_BACKUP_DIR)/backup.log|" deploy/launchd/nl.broodvoorweldadigheid.backup.plist.in > "$(BACKUP_PLIST)"
 	@echo "wrote $(BACKUP_PLIST)"
 	@case "$$(command -v $(MAKE))" in /nix/store/*) echo "warning: the plist runs make from the Nix store; it breaks after garbage collection." \

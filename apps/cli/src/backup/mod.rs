@@ -418,7 +418,8 @@ pub fn list(repo: &Repo<'_>) -> Result<Vec<Run>, Error> {
     Ok(retention::runs(&rustic::list_snapshots(repo, &[])?))
 }
 
-/// Forgets the runs the policy does not keep, then removes their data.
+/// Forgets the runs the policy does not keep, then removes their data. rustic deletes unused
+/// packs only on a later prune, so prune runs every time.
 pub fn prune(
     repo: &Repo<'_>,
     policy: Policy,
@@ -428,8 +429,8 @@ pub fn prune(
     let plan = retention::plan(&rustic::list_snapshots(repo, &[])?, policy, time_zone, now)?;
     if !plan.forget.is_empty() {
         process::run(rustic::forget(repo, &plan.forget))?;
-        process::run(rustic::prune(repo))?;
     }
+    process::run(rustic::prune(repo))?;
     Ok(plan)
 }
 
@@ -540,18 +541,23 @@ async fn swap(
             "ALTER DATABASE {target} ALLOW_CONNECTIONS false"
         )))
         .await?;
-    sqlx::query(
+    let terminated = sqlx::query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
          WHERE datname = $1 AND pid <> pg_backend_pid()",
     )
     .bind(database)
     .execute(&mut *admin)
-    .await?;
-    let set_aside = admin
-        .execute(AssertSqlSafe(format!(
-            "ALTER DATABASE {target} RENAME TO {kept}"
-        )))
-        .await;
+    .await;
+    let set_aside = match terminated {
+        Ok(_) => {
+            admin
+                .execute(AssertSqlSafe(format!(
+                    "ALTER DATABASE {target} RENAME TO {kept}"
+                )))
+                .await
+        }
+        Err(error) => Err(error),
+    };
     let open = if set_aside.is_ok() { &kept } else { &target };
     admin
         .execute(AssertSqlSafe(format!(
