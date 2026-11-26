@@ -227,7 +227,8 @@ impl Admin {
 }
 
 pub fn entry_found(output: &str) -> bool {
-    !output.trim().is_empty() && !output.contains("No matching entries")
+    let output = output.trim();
+    !output.is_empty() && !output.starts_with("No matching")
 }
 
 fn describe(step: &Step) -> String {
@@ -422,8 +423,10 @@ mod tests {
     }
 
     #[test]
-    fn no_matching_entries_is_not_an_entry() {
+    fn a_no_matching_reply_is_not_an_entry() {
         assert!(!entry_found("No matching entries\n"));
+        assert!(!entry_found("No matching group 'bvw_staff'\n"));
+        assert!(!entry_found("No matching oauth2 client 'bvw-staff'\n"));
         assert!(!entry_found(""));
         assert!(entry_found("---\nclass: group\nname: bvw_staff\n"));
     }
