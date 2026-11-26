@@ -456,7 +456,10 @@ async fn grams_recalculate_on_the_server_without_saving(pool: PgPool) {
     let batch = stored(&pool, id).await;
     let path = batch_path(b.day, id);
     let page = baker.get(&path).await;
-    page.shows(&format!("hx-post=\"{path}/preview\""));
+    page.shows(&format!(
+        "<div hx-post=\"{path}/preview\" hx-trigger=\"input delay:400ms\" hx-include=\"closest form\""
+    ));
+    page.lacks(&format!("<form method=\"post\" action=\"{path}\" hx-post"));
     page.shows(&dutch_with("batch-lines-caption", &[("grams", "9.000")]));
 
     let pct = |i: usize| format!("pct-{}", batch.lines[i].id.get());

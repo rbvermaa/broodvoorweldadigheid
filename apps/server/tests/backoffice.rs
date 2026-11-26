@@ -127,6 +127,38 @@ impl Reply {
         assert_eq!(self.status, StatusCode::SEE_OTHER, "{}", self.text);
         assert_eq!(self.header(LOCATION.as_str()), location);
     }
+
+    /// After an object's own form: a 303 to `list` with `key=<id>` (ADR 0052). Returns the id.
+    #[track_caller]
+    fn back_to_list(&self, list: &str, key: &str) -> i64 {
+        assert_eq!(self.status, StatusCode::SEE_OTHER, "{}", self.text);
+        let location = self.header(LOCATION.as_str());
+        location
+            .strip_prefix(&format!("{list}?{key}="))
+            .and_then(|id| id.parse().ok())
+            .unwrap_or_else(|| panic!("expected {list}?{key}=<id>, got {location}"))
+    }
+
+    /// The path of the object a create form added, from the list it went back to.
+    #[track_caller]
+    fn added_path(&self, list: &str) -> String {
+        format!("{list}/{}", self.back_to_list(list, "toegevoegd"))
+    }
+
+    /// The list names the saved row in its live region and highlights the row linking to `href`.
+    #[track_caller]
+    fn names_saved_row(&self, message: &str, href: &str) {
+        self.shows("<div id=\"status\" role=\"status\"><p class=\"saved\">");
+        self.shows(message);
+        let row = self
+            .text
+            .split("<tr class=\"table-row-saved\">")
+            .nth(1)
+            .and_then(|rest| rest.split("</tr>").next())
+            .unwrap_or_else(|| panic!("no highlighted row in:\n{}", self.text));
+        assert!(row.contains(&format!("href=\"{href}\"")), "{row}");
+        assert_eq!(self.text.matches("table-row-saved").count(), 1);
+    }
 }
 
 fn decode(html: &str) -> String {
@@ -424,13 +456,8 @@ async fn a_new_product_is_saved_but_not_approved(pool: PgPool) {
     page.lacks("name=\"lead_time\"");
 
     let reply = baker.post("/staff/products/new", &product_form(&[])).await;
-    let location = reply.header("location").to_owned();
-    assert!(
-        location.starts_with("/staff/products/") && location.ends_with("?opgeslagen=1"),
-        "{location}"
-    );
-    let saved = baker.get(&location).await;
-    saved.shows(&dutch("saved"));
+    let id = reply.back_to_list("/staff/products", "toegevoegd");
+    let saved = baker.get(&format!("/staff/products/{id}")).await;
     saved.shows(&dutch("product-not-approved"));
 
     let list = baker.get("/staff/products").await;
@@ -530,8 +557,8 @@ async fn pay_what_you_want_saves_its_bounds(pool: PgPool) {
             &product_form(&[("pwyw", "ja"), ("min_price", "2,50"), ("max_price", "25")]),
         )
         .await;
-    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
-    let edit = baker.get(reply.header("location")).await;
+    let id = reply.back_to_list("/staff/products", "toegevoegd");
+    let edit = baker.get(&format!("/staff/products/{id}")).await;
     edit.shows("value=\"2,50\"");
     edit.shows("value=\"25,00\"");
     let mut conn = pool.acquire().await.expect("conn");
@@ -690,10 +717,7 @@ async fn ingredient_text_with_line_breaks_can_be_approved(pool: PgPool) {
             &product_form(&[("ingredient_text", "SPELTbloem\r\nwater")]),
         )
         .await;
-    let path = created
-        .header("location")
-        .trim_end_matches("?opgeslagen=1")
-        .to_owned();
+    let path = created.added_path("/staff/products");
     let reply = baker
         .post(
             &format!("{path}/approve"),
@@ -732,11 +756,7 @@ async fn owner_adds_edits_and_archives_a_charity(pool: PgPool) {
             ],
         )
         .await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
-    let path = created
-        .header("location")
-        .trim_end_matches("?opgeslagen=1")
-        .to_owned();
+    let path = created.added_path("/staff/charities");
     let edited = owner
         .post(
             &path,
@@ -746,7 +766,8 @@ async fn owner_adds_edits_and_archives_a_charity(pool: PgPool) {
             ],
         )
         .await;
-    edited.redirects_to(&format!("{path}?opgeslagen=1"));
+    let id = path.trim_start_matches("/staff/charities/");
+    edited.redirects_to(&format!("/staff/charities?opgeslagen={id}"));
 
     let page = owner.get(&path).await;
     page.shows(&dutch("charity-archive"));
@@ -757,15 +778,15 @@ async fn owner_adds_edits_and_archives_a_charity(pool: PgPool) {
 
     let archived = owner.htmx(&format!("{path}/archive"), &[]).await;
     assert_eq!(archived.status, StatusCode::OK);
-    assert_eq!(
-        archived.header("hx-redirect"),
-        "/staff/charities?opgeslagen=1"
-    );
+    let back = format!("/staff/charities?gearchiveerd={id}");
+    assert_eq!(archived.header("hx-redirect"), back);
 
-    let list = owner.get("/staff/charities?opgeslagen=1").await;
-    list.shows("Voedselbank Frederiksoord");
+    let list = owner.get(&back).await;
     list.shows(&dutch("charity-archived"));
-    list.shows(&dutch("saved"));
+    list.names_saved_row(
+        &dutch_with("archived-row", &[("name", "Voedselbank Frederiksoord")]),
+        &path,
+    );
     let after = owner.get(&path).await;
     after.shows(&dutch("charity-is-archived"));
     after.lacks(&dutch("charity-archive-confirm"));
@@ -805,11 +826,7 @@ async fn locations_and_pickup_windows_are_edited(pool: PgPool) {
             &[("name", "Markt"), ("address", "Plein 1, Frederiksoord")],
         )
         .await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER);
-    let path = created
-        .header("location")
-        .trim_end_matches("?opgeslagen=1")
-        .to_owned();
+    let path = created.added_path("/staff/locations");
 
     let wrong = baker
         .post(
@@ -841,8 +858,8 @@ async fn locations_and_pickup_windows_are_edited(pool: PgPool) {
             ],
         )
         .await;
-    window.redirects_to(&format!("{path}?opgeslagen=1"));
-    let page = baker.get(&path).await;
+    let window_id = window.back_to_list(&path, "toegevoegd");
+    let page = baker.get(&format!("{path}?toegevoegd={window_id}")).await;
     page.shows("vrijdag");
     page.shows("16:00–17:30");
 
@@ -883,10 +900,8 @@ async fn a_new_bake_day_gets_its_slots_and_deadline_from_the_location(pool: PgPo
             &[("date", "2026-12-05"), ("location_id", "1")],
         )
         .await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
-    let day = baker.get(created.header("location")).await;
+    let day = baker.get(&created.added_path("/staff/bake-days")).await;
     day.shows("zaterdag 5 december 2026");
-    day.shows(&dutch("saved"));
     day.shows("11:00–12:00, De Proef");
     day.shows("value=\"2026-12-03T20:00\"");
     day.lacks("name=\"bake_starts_at\"");
@@ -1378,7 +1393,7 @@ async fn copy_and_repeat_make_new_drops_and_refuse_taken_dates(pool: PgPool) {
     let repeated = baker
         .post(&format!("{source}/repeat"), &[("weeks", "3")])
         .await;
-    repeated.redirects_to("/staff/bake-days?herhaald=3&opgeslagen=1");
+    repeated.redirects_to("/staff/bake-days?herhaald=3");
     let list = baker.get(repeated.header("location")).await;
     list.shows(&dutch_count("day-repeated", 3));
     for day in ["19 december", "26 december", "2 januari 2027"] {
@@ -3473,11 +3488,8 @@ async fn business_account(owner: &Client<'_>) -> String {
     let reply = owner
         .post("/staff/business-accounts/new", &business_form(&[]))
         .await;
-    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
-    reply
-        .header(LOCATION.as_str())
-        .trim_end_matches("?opgeslagen=1")
-        .to_owned()
+    let id = reply.back_to_list("/staff/business-accounts", "toegevoegd");
+    format!("/staff/business-accounts/{id}")
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -4397,4 +4409,199 @@ async fn bake_day_page_is_titled_bread_drop_and_its_date(pool: PgPool) {
     let page = owner.get(&format!("/staff/bake-days/{}", day.get())).await;
     page.shows("<title>Bread Drop zaterdag 5 december 2026 ·");
     page.shows("<h1>Bread Drop zaterdag 5 december 2026</h1>");
+}
+
+fn added(name: &str) -> String {
+    dutch_with("added-row", &[("name", name)])
+}
+
+fn saved_row(name: &str) -> String {
+    dutch_with("saved-row", &[("name", name)])
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_product_form_goes_back_to_the_product_list(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let list = "/staff/products";
+
+    let id = baker
+        .post("/staff/products/new", &product_form(&[]))
+        .await
+        .back_to_list(list, "toegevoegd");
+    let path = format!("{list}/{id}");
+    baker
+        .get(&format!("{list}?toegevoegd={id}"))
+        .await
+        .names_saved_row(&added("Spelt"), &path);
+
+    let edited = baker
+        .post(&path, &product_form(&[("name", "Spelt rond")]))
+        .await;
+    assert_eq!(edited.back_to_list(list, "opgeslagen"), id);
+    baker
+        .get(&format!("{list}?opgeslagen={id}"))
+        .await
+        .names_saved_row(&saved_row("Spelt rond"), &path);
+    baker.get(list).await.lacks("table-row-saved");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_charity_form_goes_back_to_the_charity_list(pool: PgPool) {
+    let app = app(pool);
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let list = "/staff/charities";
+    let fields = |name| [("name", name), ("url", "https://voedselbank.example")];
+
+    let id = owner
+        .post("/staff/charities/new", &fields("Voedselbank"))
+        .await
+        .back_to_list(list, "toegevoegd");
+    let path = format!("{list}/{id}");
+    owner
+        .get(&format!("{list}?toegevoegd={id}"))
+        .await
+        .names_saved_row(&added("Voedselbank"), &path);
+
+    let edited = owner
+        .htmx(&path, &fields("Voedselbank Frederiksoord"))
+        .await;
+    assert_eq!(edited.status, StatusCode::OK);
+    assert_eq!(
+        edited.header("hx-redirect"),
+        format!("{list}?opgeslagen={id}")
+    );
+    owner
+        .get(&format!("{list}?opgeslagen={id}"))
+        .await
+        .names_saved_row(&saved_row("Voedselbank Frederiksoord"), &path);
+
+    let refused = owner.post(&path, &fields("")).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    refused.shows("value=\"https://voedselbank.example\"");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn location_and_window_forms_go_back_one_level(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let list = "/staff/locations";
+    let fields = |name| [("name", name), ("address", "Plein 1, Frederiksoord")];
+
+    let id = baker
+        .post("/staff/locations/new", &fields("Markt"))
+        .await
+        .back_to_list(list, "toegevoegd");
+    let path = format!("{list}/{id}");
+    baker
+        .get(&format!("{list}?toegevoegd={id}"))
+        .await
+        .names_saved_row(&added("Markt"), &path);
+    let edited = baker.post(&path, &fields("Markt Steenwijk")).await;
+    assert_eq!(edited.back_to_list(list, "opgeslagen"), id);
+    baker
+        .get(&format!("{list}?opgeslagen={id}"))
+        .await
+        .names_saved_row(&saved_row("Markt Steenwijk"), &path);
+
+    let window = |starts| {
+        [
+            ("weekday", "5"),
+            ("starts", starts),
+            ("ends", "17:30"),
+            ("days_before", "1"),
+            ("deadline_time", "12:00"),
+            ("active", "ja"),
+        ]
+    };
+    let window_id = baker
+        .post(&format!("{path}/windows/new"), &window("16:00"))
+        .await
+        .back_to_list(&path, "toegevoegd");
+    let window_path = format!("{path}/windows/{window_id}");
+    baker
+        .get(&format!("{path}?toegevoegd={window_id}"))
+        .await
+        .names_saved_row(&added("vrijdag"), &window_path);
+    let moved = baker.post(&window_path, &window("15:00")).await;
+    assert_eq!(moved.back_to_list(&path, "opgeslagen"), window_id);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_bread_drop_goes_back_to_the_list(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let list = "/staff/bake-days";
+    let id = baker
+        .post(
+            "/staff/bake-days/new",
+            &[("date", "2026-12-05"), ("location_id", "1")],
+        )
+        .await
+        .back_to_list(list, "toegevoegd");
+    baker
+        .get(&format!("{list}?toegevoegd={id}"))
+        .await
+        .names_saved_row(&added("zaterdag 5 december 2026"), &format!("{list}/{id}"));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_business_account_form_goes_back_to_the_list(pool: PgPool) {
+    let app = app(pool);
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let list = "/staff/business-accounts";
+    let id = owner
+        .post("/staff/business-accounts/new", &business_form(&[]))
+        .await
+        .back_to_list(list, "toegevoegd");
+    let path = format!("{list}/{id}");
+    owner
+        .get(&format!("{list}?toegevoegd={id}"))
+        .await
+        .names_saved_row(&added("Café De Hoek"), &path);
+    let edited = owner
+        .post(
+            &path,
+            &business_form(&[("company_name", "Café De Hoek BV")]),
+        )
+        .await;
+    assert_eq!(edited.back_to_list(list, "opgeslagen"), id);
+    owner
+        .get(&format!("{list}?opgeslagen={id}"))
+        .await
+        .names_saved_row(&saved_row("Café De Hoek BV"), &path);
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_list_ignores_a_saved_id_it_does_not_show(pool: PgPool) {
+    let app = app(pool);
+    let owner = client(&app, "Eigenaar Eva", Role::Owner).await;
+    let missing = owner.get("/staff/charities?opgeslagen=999999").await;
+    missing.shows(&dutch("saved"));
+    missing.lacks("table-row-saved");
+    for query in ["toegevoegd=x", "opgeslagen=%3Cb%3E"] {
+        let page = owner.get(&format!("/staff/charities?{query}")).await;
+        assert_eq!(page.status, StatusCode::OK);
+        page.shows("<div id=\"status\" role=\"status\"></div>");
+        page.lacks("table-row-saved");
+        page.lacks("<b>");
+    }
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_new_bread_drop_the_list_does_not_show_opens_on_its_own_page(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let created = baker
+        .post(
+            "/staff/bake-days/new",
+            &[("date", "2028-12-02"), ("location_id", "1")],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+    let location = created.header(LOCATION.as_str());
+    assert!(
+        location.starts_with("/staff/bake-days/") && location.ends_with("?opgeslagen=1"),
+        "{location}"
+    );
 }

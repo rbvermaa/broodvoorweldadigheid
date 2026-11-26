@@ -19,17 +19,19 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, money_value, parse_money};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, ListedIngredient as Listed, SelectOption, Table, listed};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
 
+pub const LIST: &str = "/staff/products";
+
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/products", get(list))
+        .route(LIST, get(list))
         .route("/staff/products/new", get(new_form).post(create))
         .route("/staff/products/check", post(check))
         .route("/staff/products/{id}", get(edit_form).post(update))
@@ -298,6 +300,7 @@ struct ProductPage<'a> {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
+    saved: SavedRow,
     kitchen_unapproved: bool,
 }
 
@@ -442,13 +445,18 @@ async fn load(state: &AppState, raw_id: &str) -> Step<Product> {
         .map_err(|e| catalog_error(state, &e).into())
 }
 
-pub async fn list(State(state): State<AppState>, staff: Staff, session: Session) -> Response {
-    run_list(&state, &staff, &session)
+pub async fn list(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Query(flash): Query<Flash>,
+) -> Response {
+    run_list(&state, &staff, &session, &flash)
         .await
         .unwrap_or_else(Rejection::into_response)
 }
 
-async fn run_list(state: &AppState, staff: &Staff, session: &Session) -> Outcome {
+async fn run_list(state: &AppState, staff: &Staff, session: &Session, flash: &Flash) -> Outcome {
     require(state, staff, Permission::EditAllergens)?;
     let mut conn = state.pool.acquire().await.map_err(|e| fail(state, &e))?;
     let all = products::list_all(&mut conn)
@@ -490,12 +498,14 @@ async fn run_list(state: &AppState, staff: &Staff, session: &Session) -> Outcome
             })
             .collect(),
     };
+    let saved = flash.row(state, &table, |id| product_path(ProductId::new(id)));
     Ok(pages::render(
         state,
         StatusCode::OK,
         &ListPage {
             layout: layout(state, session).await?,
             table,
+            saved,
             kitchen_unapproved: kitchen.approval.is_none(),
         },
     ))
@@ -592,7 +602,12 @@ pub async fn create(
         let product = products::create(&mut conn, &input)
             .await
             .map_err(|e| fail(&state, &e))?;
-        Ok(saved(&headers, &product_path(product.id)))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Added,
+            product.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -643,6 +658,8 @@ pub async fn edit_form(
             Errors::default(),
             &Flash {
                 opgeslagen: flash.opgeslagen,
+                toegevoegd: None,
+                gearchiveerd: None,
             },
         )
         .await
@@ -685,7 +702,12 @@ pub async fn update(
         if before.approval.is_some() && after.approval.is_none() {
             return Ok(saved(&headers, &format!("{path}?herkeuren=1")));
         }
-        Ok(saved(&headers, &path))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Saved,
+            after.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

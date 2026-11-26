@@ -5,12 +5,12 @@
 {% block title %}{{ layout.t("staff-nav-bake-days")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-bake-days")? }}</h1>
-{% call s::status(saved) %}{% endcall %}
+{% call s::saved_row(saved) %}{% endcall %}
 {% if !repeated.is_empty() %}{% call fb::alert("success", repeated) %}{% endcall %}{% endif %}
 <p><a href="/staff/bake-days/new">{{ layout.t("day-new")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("days-empty-title")?, layout.t("days-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endblock %}

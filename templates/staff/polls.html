@@ -1,13 +1,15 @@
 {% extends "staff/layout.html" %}
 {% import "components/feedback.html" as fb %}
 {% import "components/table.html" as tb %}
+{% import "staff/macros.html" as s %}
 {% block title %}{{ layout.t("staff-nav-polls")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-polls")? }}</h1>
+{% call s::saved_row(saved) %}{% endcall %}
 <p><a href="/staff/polls/new">{{ layout.t("polls-new")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("polls-empty-title")?, layout.t("polls-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endblock %}

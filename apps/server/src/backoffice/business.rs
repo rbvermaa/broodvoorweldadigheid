@@ -28,8 +28,8 @@ use super::lists::pdf_response;
 use super::orders::{order_path, queue_email};
 use super::reports::{Chosen, PeriodForm, PeriodQuery, choose, csv_response, money, report_error};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -88,7 +88,7 @@ fn yes_no(state: &AppState, yes: bool) -> String {
 #[template(path = "staff/business_accounts.html")]
 struct ListPage<'a> {
     layout: Layout<'a>,
-    saved: bool,
+    saved: SavedRow,
     /// The viewer may open and change accounts.
     invoicing: bool,
     table: Table,
@@ -148,19 +148,23 @@ pub async fn list(
         if invoicing {
             head.push(Cell::text(t(&state, "b2b-links-invoice")));
         }
+        let table = Table {
+            id: "zakelijke-klanten".to_owned(),
+            caption: t(&state, "b2b-title"),
+            head,
+            rows,
+        };
+        let saved = flash.row(&state, &table, |id| {
+            account_path(BusinessAccountId::new(id))
+        });
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: Layout::new(&state),
-                saved: flash.saved(),
+                saved,
                 invoicing,
-                table: Table {
-                    id: "zakelijke-klanten".to_owned(),
-                    caption: t(&state, "b2b-title"),
-                    head,
-                    rows,
-                },
+                table,
             },
         ))
     };
@@ -399,7 +403,12 @@ pub async fn create(
         .await;
         drop(conn);
         match result {
-            Ok(account) => Ok(saved(&headers, &account_path(account.id))),
+            Ok(account) => Ok(saved_to_list(
+                &headers,
+                LIST,
+                RowChange::Added,
+                account.id.get(),
+            )),
             Err(error) => match refused_field(&state, &error) {
                 Some(errors) => {
                     render_account(&state, &session, status, None, form, errors, false).await
@@ -476,7 +485,12 @@ pub async fn update(
         .await;
         drop(conn);
         match result {
-            Ok(_) => Ok(saved(&headers, &account_path(account.id))),
+            Ok(_) => Ok(saved_to_list(
+                &headers,
+                LIST,
+                RowChange::Saved,
+                account.id.get(),
+            )),
             Err(error) => match refused_field(&state, &error) {
                 Some(errors) => {
                     let status = invalid_status(&headers);

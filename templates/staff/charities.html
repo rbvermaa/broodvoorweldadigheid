@@ -5,11 +5,11 @@
 {% block title %}{{ layout.t("staff-nav-charities")? }}{% endblock %}
 {% block page %}
 <h1>{{ layout.t("staff-nav-charities")? }}</h1>
-{% call s::status(saved) %}{% endcall %}
+{% call s::saved_row(saved) %}{% endcall %}
 <p><a href="/staff/charities/new">{{ layout.t("charity-new")? }}</a></p>
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("charities-empty-title")?, layout.t("charities-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endblock %}

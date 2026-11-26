@@ -8,7 +8,7 @@
 {% block title %}{{ heading }}{% endblock %}
 {% block page %}
 <h1>{{ heading }}</h1>
-{% call s::status(saved) %}{% endcall %}
+{% call s::saved_row(saved) %}{% endcall %}
 {% if !errors.is_empty() %}{% call fb::alert("error", layout.t("form-has-errors")?) %}{% endcall %}{% endif %}
 <form method="post" action="{{ action }}">
 {% call s::csrf() %}{% endcall %}
@@ -26,7 +26,7 @@
 {% if table.rows.is_empty() %}
 {% call fb::empty_state(layout.t("windows-empty-title")?, layout.t("windows-empty-text")?) %}{% endcall %}
 {% else %}
-{% call tb::table(table) %}{% endcall %}
+{% call tb::table(table, saved.href) %}{% endcall %}
 {% endif %}
 {% endif %}
 {% endblock %}

@@ -13,17 +13,19 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
 
+const LIST: &str = "/staff/charities";
+
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/charities", get(list))
+        .route(LIST, get(list))
         .route("/staff/charities/new", get(new_form).post(create))
         .route("/staff/charities/check", post(check))
         .route("/staff/charities/{id}", get(edit_form).post(update))
@@ -105,7 +107,7 @@ impl CharityForm {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
-    saved: bool,
+    saved: SavedRow,
 }
 
 #[derive(Template)]
@@ -180,13 +182,14 @@ pub async fn list(
                 })
                 .collect(),
         };
+        let saved = flash.row(&state, &table, |id| charity_path(CharityId::new(id)));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
-                saved: flash.saved(),
+                saved,
             },
         ))
     };
@@ -290,7 +293,12 @@ pub async fn create(
         let charity = charities::create(&mut conn, &input)
             .await
             .map_err(|e| fail(&state, &e))?;
-        Ok(saved(&headers, &charity_path(charity.id)))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Added,
+            charity.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -351,7 +359,12 @@ pub async fn update(
         charities::update(&mut conn, charity.id, &input)
             .await
             .map_err(|e| catalog_error(&state, &e))?;
-        Ok(saved(&headers, &charity_path(charity.id)))
+        Ok(saved_to_list(
+            &headers,
+            LIST,
+            RowChange::Saved,
+            charity.id.get(),
+        ))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }
@@ -369,7 +382,7 @@ pub async fn archive(
         charities::archive(&mut conn, id, state.clock.as_ref())
             .await
             .map_err(|e| catalog_error(&state, &e))?;
-        Ok(saved(&headers, "/staff/charities"))
+        Ok(saved_to_list(&headers, LIST, RowChange::Archived, id.get()))
     };
     run.await.unwrap_or_else(Rejection::into_response)
 }

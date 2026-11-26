@@ -421,8 +421,8 @@ async fn baker_adds_and_edits_an_ingredient(pool: PgPool) {
             ],
         )
         .await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
-    let page = baker.get(created.location()).await;
+    let path = added_path(&created, "/staff/ingredients");
+    let page = baker.get(&path).await;
     page.shows("SPELTbloem");
     page.shows("Molen De Hoop");
 
@@ -440,12 +440,6 @@ async fn baker_adds_and_edits_an_ingredient(pool: PgPool) {
     assert_eq!(duplicate.status, StatusCode::UNPROCESSABLE_ENTITY);
     duplicate.shows(&dutch("ingredient-error-duplicate"));
 
-    let path = created
-        .location()
-        .split('?')
-        .next()
-        .expect("path")
-        .to_owned();
     let edited = baker
         .post(&path, &[("name", "Speltbloem grof"), ("role", "flour")])
         .await;
@@ -675,13 +669,7 @@ async fn baker_creates_a_recipe_and_links_a_product(pool: PgPool) {
             &[("name", "Rogge"), ("kind", "dough")],
         )
         .await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
-    let path = created
-        .location()
-        .split('?')
-        .next()
-        .expect("path")
-        .to_owned();
+    let path = added_path(&created, "/staff/recipes");
     let page = baker.get(&path).await;
     page.shows(&dutch_with("recipe-version-number", &[("n", "1")]));
     page.shows(&dutch("recipe-products-none"));
@@ -732,7 +720,7 @@ async fn baker_creates_a_recipe_and_links_a_product(pool: PgPool) {
     let renamed = baker
         .post(&path, &[("name", "Roggebrood recept"), ("kind", "dough")])
         .await;
-    renamed.redirects_to(&format!("{path}?opgeslagen=1"));
+    renamed.redirects_to(&saved_in_list(&path));
     baker.get("/staff/recipes").await.shows("Roggebrood recept");
     let blank = baker.post(&path, &[("name", ""), ("kind", "dough")]).await;
     assert_eq!(blank.status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -790,7 +778,7 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
     baker
         .post(&water, &[("name", "Kraanwater"), ("role", "water")])
         .await
-        .redirects_to(&format!("{water}?opgeslagen=1"));
+        .redirects_to(&saved_in_list(&water));
 
     let levain = format!("/staff/recipes/{}", k.levain.get());
     let kind = baker
@@ -806,7 +794,7 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
     baker
         .post(&levain, &[("name", "Desem 1:1"), ("kind", "preferment")])
         .await
-        .redirects_to(&format!("{levain}?opgeslagen=1"));
+        .redirects_to(&saved_in_list(&levain));
 
     let no_product = baker
         .post(&format!("{levain}/products"), &[("product_id", "")])
@@ -837,7 +825,7 @@ async fn a_frozen_version_keeps_its_ingredient_roles_and_sub_recipe_kinds(pool: 
             .headers
             .get("hx-redirect")
             .map(|v| v.to_str().expect("ascii")),
-        Some(format!("{levain}?opgeslagen=1").as_str())
+        Some(saved_in_list(&levain).as_str())
     );
 }
 
@@ -1036,7 +1024,10 @@ async fn a_draft_line_is_edited_by_percent_or_by_grams(pool: PgPool) {
     by_pct.shows(&grams_input("gram-0", "900"));
     by_pct.shows("<td class=\"recipe-grams\">1.820</td>");
     assert_eq!(by_pct.replace_url(), format!("{version}/edit?gewicht=1820"));
-    by_pct.shows(&format!("href=\"{version}?gewicht=1820\""));
+    by_pct.shows(&format!(
+        "href=\"/staff/recipes?opgeslagen={}\"",
+        k.dough.get()
+    ));
     assert_eq!(
         stored_lines(&pool, k.dough_v1).await[1].pct.thousandths(),
         70_000
@@ -1559,13 +1550,7 @@ async fn a_starter_hydration_is_edited_on_its_ingredient_page(pool: PgPool) {
         StatusCode::FORBIDDEN
     );
     let created = baker.post("/staff/ingredients/new", &fields).await;
-    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
-    let path = created
-        .location()
-        .split('?')
-        .next()
-        .expect("path")
-        .to_owned();
+    let path = added_path(&created, "/staff/ingredients");
     baker
         .get(&path)
         .await
@@ -1633,4 +1618,110 @@ async fn a_starter_hydration_is_edited_on_its_ingredient_page(pool: PgPool) {
             .hydration,
         Some(Pct::HUNDRED)
     );
+}
+
+/// `/staff/x/7` becomes `/staff/x?opgeslagen=7`: where an edit form goes (ADR 0052).
+fn saved_in_list(path: &str) -> String {
+    let (list, id) = path.rsplit_once('/').expect("an object path");
+    format!("{list}?opgeslagen={id}")
+}
+
+/// The object a create form added, from the list it went back to.
+#[track_caller]
+fn added_path(reply: &Reply, list: &str) -> String {
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.text);
+    let id = reply
+        .location()
+        .strip_prefix(&format!("{list}?toegevoegd="))
+        .unwrap_or_else(|| panic!("{}", reply.location()));
+    format!("{list}/{id}")
+}
+
+/// The list after an object's own form (ADR 0052): the row is named and highlighted.
+#[track_caller]
+fn names_saved_row(page: &Reply, message: &str, href: &str) {
+    page.shows(message);
+    let row = page
+        .text
+        .split("<tr class=\"table-row-saved\">")
+        .nth(1)
+        .and_then(|rest| rest.split("</tr>").next())
+        .unwrap_or_else(|| panic!("no highlighted row in:\n{}", page.text));
+    assert!(row.contains(&format!("href=\"{href}\"")), "{row}");
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn recipe_forms_and_klaar_met_aanpassen_go_back_to_the_recipe_list(pool: PgPool) {
+    let app = app(pool.clone());
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let created = baker
+        .post(
+            "/staff/recipes/new",
+            &[("name", "Rogge"), ("kind", "dough")],
+        )
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+    let id: i64 = created
+        .location()
+        .strip_prefix("/staff/recipes?toegevoegd=")
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| panic!("{}", created.location()));
+    let path = format!("/staff/recipes/{id}");
+    names_saved_row(
+        &baker.get(created.location()).await,
+        &dutch_with("added-row", &[("name", "Rogge")]),
+        &path,
+    );
+
+    let renamed = baker
+        .post(&path, &[("name", "Roggebrood"), ("kind", "dough")])
+        .await;
+    renamed.redirects_to(&format!("/staff/recipes?opgeslagen={id}"));
+    names_saved_row(
+        &baker.get(renamed.location()).await,
+        &dutch_with("saved-row", &[("name", "Roggebrood")]),
+        &path,
+    );
+
+    let version: i64 = sqlx::query_scalar("SELECT id FROM recipe_version WHERE recipe_id = $1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .expect("version");
+    let edit = baker.get(&format!("{path}/versions/{version}/edit")).await;
+    edit.shows(&format!(
+        "<a class=\"button button-primary\" href=\"/staff/recipes?opgeslagen={id}\">{}</a>",
+        dutch("recipe-done")
+    ));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn an_ingredient_form_goes_back_to_the_ingredient_list(pool: PgPool) {
+    let app = app(pool);
+    let baker = client(&app, "Bakker Bas", Role::Baker).await;
+    let fields = |name| [("name", name), ("role", "flour")];
+    let created = baker
+        .post("/staff/ingredients/new", &fields("Speltbloem"))
+        .await;
+    assert_eq!(created.status, StatusCode::SEE_OTHER, "{}", created.text);
+    let id: i64 = created
+        .location()
+        .strip_prefix("/staff/ingredients?toegevoegd=")
+        .and_then(|id| id.parse().ok())
+        .unwrap_or_else(|| panic!("{}", created.location()));
+    let path = format!("/staff/ingredients/{id}");
+    names_saved_row(
+        &baker.get(created.location()).await,
+        &dutch_with("added-row", &[("name", "Speltbloem")]),
+        &path,
+    );
+    let edited = baker.post(&path, &fields("Speltbloem volkoren")).await;
+    edited.redirects_to(&format!("/staff/ingredients?opgeslagen={id}"));
+    names_saved_row(
+        &baker.get(edited.location()).await,
+        &dutch_with("saved-row", &[("name", "Speltbloem volkoren")]),
+        &path,
+    );
+    let refused = baker.post(&path, &fields("")).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
 }

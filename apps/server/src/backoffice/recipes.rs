@@ -19,8 +19,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, pct_value};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved, saved_to_list, t, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -29,7 +29,7 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/recipes", get(list))
+        .route(LIST, get(list))
         .route("/staff/recipes/new", get(new_form).post(create))
         .route("/staff/recipes/{id}", get(show).post(update))
         .route("/staff/recipes/{id}/versions", post(new_version))
@@ -164,7 +164,7 @@ async fn load_version(
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
-    saved: bool,
+    saved: SavedRow,
 }
 
 pub async fn list(
@@ -201,13 +201,14 @@ pub async fn list(
                 })
                 .collect(),
         };
+        let saved = flash.row(&state, &table, |id| recipe_path(RecipeId::new(id)));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
-                saved: flash.saved(),
+                saved,
             },
         ))
     };
@@ -544,7 +545,12 @@ async fn save_recipe(
             None => store::create(&mut conn, &input).await.map(|(r, _)| r),
         };
         match result {
-            Ok(recipe) => Ok(saved(&headers, &recipe_path(recipe.id))),
+            Ok(recipe) => Ok(saved_to_list(
+                &headers,
+                LIST,
+                RowChange::of(existing.is_some()),
+                recipe.id.get(),
+            )),
             Err(error @ (recipes::Error::Duplicate | recipes::Error::InUse)) => {
                 let mut errors = Errors::default();
                 if matches!(error, recipes::Error::Duplicate) {

@@ -17,8 +17,8 @@ use tower_sessions::Session;
 
 use super::form::{Errors, Fields, local_value, parse_local};
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved_to_list, t, t_with,
 };
 use crate::components::{BarChart, Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -130,6 +130,7 @@ pub struct ProductChoice {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
+    saved: SavedRow,
 }
 
 #[derive(Template)]
@@ -230,7 +231,12 @@ fn day_options(days: &[DayChoice], chosen: &str) -> Vec<SelectOption> {
         .collect()
 }
 
-pub async fn list(State(state): State<AppState>, staff: Staff, session: Session) -> Response {
+pub async fn list(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Query(flash): Query<Flash>,
+) -> Response {
     let run = async {
         require(&state, &staff, Permission::Polls)?;
         let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
@@ -256,12 +262,14 @@ pub async fn list(State(state): State<AppState>, staff: Staff, session: Session)
                 })
                 .collect(),
         };
+        let saved = flash.row(&state, &table, |id| poll_path(PollId::new(id)));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
+                saved,
             },
         ))
     };
@@ -377,7 +385,7 @@ pub async fn create(
             Ok(input) => {
                 let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
                 match polls::create(&mut conn, state.clock.as_ref(), &input, &candidates).await {
-                    Ok(id) => return Ok(saved(&headers, &poll_path(id))),
+                    Ok(id) => return Ok(saved_to_list(&headers, PATH, RowChange::Added, id.get())),
                     Err(PollError::Invalid(invalid)) => {
                         let mut errors = Errors::default();
                         let (field, text) = invalid_message(&state, invalid);
@@ -513,7 +521,14 @@ pub async fn update(
             Ok(input) => {
                 let mut conn = state.pool.acquire().await.map_err(|e| fail(&state, &e))?;
                 match polls::update(&mut conn, state.clock.as_ref(), poll.id, &input).await {
-                    Ok(()) => return Ok(saved(&headers, &poll_path(poll.id))),
+                    Ok(()) => {
+                        return Ok(saved_to_list(
+                            &headers,
+                            PATH,
+                            RowChange::Saved,
+                            poll.id.get(),
+                        ));
+                    }
                     Err(PollError::Invalid(invalid)) => {
                         let mut errors = Errors::default();
                         let (field, text) = invalid_message(&state, invalid);

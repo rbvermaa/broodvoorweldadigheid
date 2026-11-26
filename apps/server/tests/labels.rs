@@ -638,7 +638,15 @@ async fn the_label_settings_of_a_product_are_edited(pool: PgPool) {
             ],
         )
         .await
-        .redirects_to(&format!("{path}?opgeslagen=1"));
+        .redirects_to(&format!("/staff/products?opgeslagen={}", b.bread.get()));
+    let list = baker
+        .get(&format!("/staff/products?opgeslagen={}", b.bread.get()))
+        .await;
+    list.shows(&dutch_with("saved-row", &[("name", "Desem wit")]));
+    list.shows(&format!(
+        "<tr class=\"table-row-saved\"><td><a href=\"/staff/products/{}\">",
+        b.bread.get()
+    ));
     let mut conn = app.pool.acquire().await.expect("conn");
     assert_eq!(
         label_settings::get(&mut conn, b.bread)

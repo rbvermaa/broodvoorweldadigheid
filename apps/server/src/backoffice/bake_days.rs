@@ -30,17 +30,19 @@ use super::form::{
 };
 use super::orders::queue_email;
 use super::{
-    Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, path_id, require,
-    saved, t, t_count, t_with,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, is_htmx, layout,
+    not_found, path_id, redirect, require, saved, saved_to_list, t, t_count, t_with,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
 use crate::staff::Staff;
 use crate::state::AppState;
 
+const LIST: &str = "/staff/bake-days";
+
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/bake-days", get(list))
+        .route(LIST, get(list))
         .route("/staff/bake-days/new", get(new_form).post(create))
         .route("/staff/bake-days/{id}", get(show))
         .route("/staff/bake-days/{id}/schedule", post(schedule))
@@ -194,6 +196,12 @@ fn today(state: &AppState) -> Date {
     state.clock.now_in_bakery().date()
 }
 
+/// Whether the list shows a Bread Drop on `date`; one outside it opens on its own page.
+fn listed(state: &AppState, date: Date) -> bool {
+    let from = today(state);
+    (from..=from.saturating_add(jiff::Span::new().days(DAYS_AHEAD))).contains(&date)
+}
+
 fn optional_id(value: &str) -> Result<Option<i64>, ()> {
     if value.is_empty() {
         Ok(None)
@@ -214,7 +222,7 @@ pub struct DayFlash {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
-    saved: bool,
+    saved: SavedRow,
     repeated: String,
 }
 
@@ -223,6 +231,7 @@ pub async fn list(
     staff: Staff,
     session: Session,
     Query(flash): Query<DayFlash>,
+    Query(added): Query<Flash>,
 ) -> Response {
     let run = async {
         require(&state, &staff, Permission::ManageBakeDays)?;
@@ -286,13 +295,14 @@ pub async fn list(
             ],
             rows,
         };
+        let saved = added.row(&state, &table, |id| day_path(BakeDayId::new(id)));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
-                saved: flash.opgeslagen.is_some(),
+                saved,
                 repeated: flash
                     .herhaald
                     .map(|n| t_count(&state, "day-repeated", n))
@@ -422,6 +432,12 @@ pub async fn create(
         let result = days::create(&mut conn, &input).await;
         drop(conn);
         match result {
+            Ok(day) if listed(&state, day.date) => Ok(saved_to_list(
+                &headers,
+                LIST,
+                RowChange::Added,
+                day.id.get(),
+            )),
             Ok(day) => Ok(saved(&headers, &day_path(day.id))),
             Err(bakedays::Error::NotFound) => {
                 errors.add("location_id", t(&state, "day-error-location"));
@@ -1407,10 +1423,7 @@ pub async fn repeat(
         match days::repeat_weekly(&mut conn, day.id, weeks).await {
             Ok(copies) => {
                 let count = copies.len();
-                Ok(saved(
-                    &headers,
-                    &format!("/staff/bake-days?herhaald={count}"),
-                ))
+                Ok(redirect(&headers, format!("{LIST}?herhaald={count}")))
             }
             Err(error) => {
                 drop(conn);

@@ -18,8 +18,8 @@ use tower_sessions::Session;
 use super::form::{Errors, Fields, parse_pct, pct_value};
 use super::products::AllergenBox;
 use super::{
-    Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
-    saved, t,
+    Flash, Outcome, Rejection, RowChange, SavedRow, Step, fail, invalid_status, layout, not_found,
+    path_id, require, saved_to_list, t,
 };
 use crate::components::{Cell, SelectOption, Table};
 use crate::pages::{self, Layout};
@@ -28,11 +28,12 @@ use crate::state::AppState;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/staff/ingredients", get(list))
+        .route(LIST, get(list))
         .route("/staff/ingredients/new", get(new_form).post(create))
         .route("/staff/ingredients/{id}", get(edit_form).post(update))
 }
 
+const LIST: &str = "/staff/ingredients";
 const NEW: &str = "/staff/ingredients/new";
 
 pub const fn role_label(role: IngredientRole) -> &'static str {
@@ -157,7 +158,7 @@ impl IngredientForm {
 struct ListPage<'a> {
     layout: Layout<'a>,
     table: Table,
-    saved: bool,
+    saved: SavedRow,
 }
 
 #[derive(Template)]
@@ -220,13 +221,14 @@ pub async fn list(
                 })
                 .collect(),
         };
+        let saved = flash.row(&state, &table, |id| ingredient_path(IngredientId::new(id)));
         Ok(pages::render(
             &state,
             StatusCode::OK,
             &ListPage {
                 layout: layout(&state, &session).await?,
                 table,
-                saved: flash.saved(),
+                saved,
             },
         ))
     };
@@ -368,7 +370,12 @@ async fn save(
             None => ingredients::create(&mut conn, &input).await,
         };
         match result {
-            Ok(ingredient) => Ok(saved(&headers, &ingredient_path(ingredient.id))),
+            Ok(ingredient) => Ok(saved_to_list(
+                &headers,
+                LIST,
+                RowChange::of(existing.is_some()),
+                ingredient.id.get(),
+            )),
             Err(recipes::Error::Duplicate) => {
                 let mut errors = Errors::default();
                 errors.add("name", t(&state, "ingredient-error-duplicate"));

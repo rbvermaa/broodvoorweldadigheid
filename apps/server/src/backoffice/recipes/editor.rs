@@ -26,8 +26,8 @@ use super::super::form::{Fields, parse_pct, pct_value};
 use super::super::ingredients::{parse_hydration, role_label};
 use super::super::products::AllergenBox;
 use super::super::{
-    Outcome, Rejection, Step, fail, invalid_status, is_htmx, layout, not_found, require, saved, t,
-    t_with,
+    Outcome, Rejection, RowChange, Step, fail, invalid_status, is_htmx, layout, list_after_save,
+    not_found, require, saved, t, t_with,
 };
 use super::method::{
     MethodEditor, MethodState, MethodView, Shown, editor as method_editor, load_view, start_on_page,
@@ -513,7 +513,7 @@ fn footer(state: &AppState, formula: &Formula, grams: u64) -> Option<Footer> {
 struct EditorInput<'a> {
     scale: &'a Scale,
     page: String,
-    /// The other mode of the page (its path without query) and the link text.
+    /// The link out of this mode of the page and its text.
     switch: Option<(String, String)>,
     notice: Option<Message>,
     saved: bool,
@@ -544,9 +544,7 @@ fn editor(state: &AppState, loaded: &Loaded, input: EditorInput<'_>) -> Editor {
             text: t(state, "recipe-no-lines"),
         });
     }
-    let (switch_href, switch_label) = switch
-        .map(|(path, label)| (format!("{path}?{}", scale.query()), label))
-        .unwrap_or_default();
+    let (switch_href, switch_label) = switch.unwrap_or_default();
     Editor {
         editable: add.is_some(),
         page,
@@ -824,8 +822,12 @@ pub async fn version_page(
             EditorInput {
                 scale: &scale,
                 page: path.clone(),
-                switch: (!version.is_frozen())
-                    .then(|| (format!("{path}/edit"), t(&state, "recipe-edit"))),
+                switch: (!version.is_frozen()).then(|| {
+                    (
+                        format!("{path}/edit?{}", scale.query()),
+                        t(&state, "recipe-edit"),
+                    )
+                }),
                 notice: None,
                 saved: false,
                 add: None,
@@ -991,7 +993,10 @@ pub(super) async fn render_edit(reply: &Reply<'_>, loaded: &Loaded, view: EditVi
         EditorInput {
             scale: &view.scale,
             page: format!("{path}/edit"),
-            switch: Some((path.clone(), t(state, "recipe-done"))),
+            switch: Some((
+                list_after_save(super::LIST, RowChange::Saved, loaded.recipe.id.get()),
+                t(state, "recipe-done"),
+            )),
             notice: view.notice,
             saved: view.line_saved,
             add,
