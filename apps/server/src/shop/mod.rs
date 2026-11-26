@@ -23,10 +23,11 @@ use orders::Orders;
 use sqlx::PgConnection;
 use tower_sessions::Session;
 
-use crate::components::{Drop, DropCharity};
+use crate::components::{Drop, DropCharity, DropOrdering, DropPickup, DropStatus};
 use crate::pages;
 use crate::state::AppState;
 
+pub(crate) use drops::for_home;
 pub use lookups::PaymentLookups;
 pub use webhook::settle;
 
@@ -82,15 +83,28 @@ pub(crate) async fn find_drop(
     )
 }
 
-const fn status_id(status: PublicStatus) -> &'static str {
+/// The status a customer can act on; planned drops show when ordering opens instead.
+const fn status_id(status: PublicStatus) -> Option<&'static str> {
     match status {
-        PublicStatus::Planned => "drop-status-planned",
-        PublicStatus::MenuAnnounced => "drop-status-menu-announced",
-        PublicStatus::Open => "drop-status-open",
-        PublicStatus::SoldOut => "drop-status-sold-out",
-        PublicStatus::Closed => "drop-status-closed",
-        PublicStatus::Cancelled => "drop-status-cancelled",
+        PublicStatus::Planned | PublicStatus::MenuAnnounced => None,
+        PublicStatus::Open => Some("drop-status-open"),
+        PublicStatus::SoldOut => Some("drop-status-sold-out"),
+        PublicStatus::Closed => Some("drop-status-closed"),
+        PublicStatus::Cancelled => Some("drop-status-cancelled"),
     }
+}
+
+/// `za 12 dec`, with the year when it is not `today`'s.
+fn short_date(t: &i18n::Translator, date: jiff::civil::Date, today: jiff::civil::Date) -> String {
+    if date.year() == today.year() {
+        t.short_date(date)
+    } else {
+        t.short_date_with_year(date)
+    }
+}
+
+fn datetime(zone: &Amsterdam, at: jiff::Timestamp) -> String {
+    zone.local(at).strftime("%Y-%m-%dT%H:%M%:z").to_string()
 }
 
 /// The display text of a drop. `link` makes the date link to the drop's page.
@@ -101,52 +115,85 @@ pub(crate) fn drop_view(
 ) -> Result<Drop, i18n::I18nError> {
     let t = &state.i18n;
     let zone = Amsterdam::new();
+    let now = state.clock.now();
+    let today = zone.date(now);
     let pickups = drop
         .pickups
         .iter()
         .map(|pickup| {
-            let mut args = FluentArgs::new();
-            args.set("day", t.long_date(zone.date(pickup.starts_at)));
-            args.set("range", zone.time_range(pickup.starts_at, pickup.ends_at)?);
-            args.set("location", pickup.location_name.clone());
-            args.set("address", pickup.address.clone());
-            t.t("drop-pickup", Some(&args))
+            let day = zone.date(pickup.starts_at);
+            let range = zone.time_range(pickup.starts_at, pickup.ends_at)?;
+            Ok(DropPickup {
+                when: if day == drop.date {
+                    range
+                } else {
+                    format!("{} {range}", short_date(t, day, today))
+                },
+                datetime: datetime(&zone, pickup.starts_at),
+                location: pickup.location_name.clone(),
+                address: pickup.address.clone(),
+            })
         })
-        .collect::<Result<_, _>>()?;
-    let deadline = match drop.cutoff_at {
-        Some(cutoff) => {
-            let mut at = FluentArgs::new();
-            at.set("date", t.long_date(zone.date(cutoff)));
-            at.set("time", zone.time(cutoff));
-            let mut args = FluentArgs::new();
-            args.set("deadline", t.t("calendar-deadline-at", Some(&at))?);
-            t.t("order-deadline", Some(&args))?
+        .collect::<Result<_, i18n::I18nError>>()?;
+    let ordering = match (drop.status, drop.opens_at, drop.cutoff_at) {
+        (PublicStatus::Planned | PublicStatus::MenuAnnounced, Some(opens), _) if opens > now => {
+            Some(("drop-label-order-from", "drop-order-from", opens))
         }
-        None => String::new(),
+        (
+            PublicStatus::Planned | PublicStatus::MenuAnnounced | PublicStatus::Open,
+            _,
+            Some(cutoff),
+        ) => Some(("drop-label-order-until", "drop-order-until", cutoff)),
+        _ => None,
+    };
+    let ordering = match ordering {
+        Some((label, text, at)) => {
+            let when = format!("{} {}", short_date(t, zone.date(at), today), zone.time(at));
+            let mut args = FluentArgs::new();
+            args.set("when", when.clone());
+            Some(DropOrdering {
+                label: t.t(label, None)?,
+                text: t.t(text, Some(&args))?,
+                when,
+                datetime: datetime(&zone, at),
+            })
+        }
+        None => None,
+    };
+    let status = match status_id(drop.status) {
+        Some(id) => Some(DropStatus {
+            text: t.t(id, None)?,
+            open: drop.status == PublicStatus::Open,
+        }),
+        None => None,
     };
     let charity = match &drop.charity {
         Some(charity) => {
+            let web = charity.url.starts_with("https://") || charity.url.starts_with("http://");
             let mut args = FluentArgs::new();
             args.set("charity", charity.name.clone());
-            let web = charity.url.starts_with("https://") || charity.url.starts_with("http://");
             Some(DropCharity {
-                text: t.t("drop-charity", Some(&args))?,
+                name: charity.name.clone(),
+                list_text: t.t("drop-for-charity", Some(&args))?,
+                description: charity.description.clone(),
                 url: if web {
                     charity.url.clone()
                 } else {
                     String::new()
                 },
-                link: t.t("drop-charity-link", Some(&args))?,
             })
         }
         None => None,
     };
+    let mut heading = FluentArgs::new();
+    heading.set("date", t.long_date(drop.date));
     Ok(Drop {
-        date: t.long_date(drop.date),
-        status: t.t(status_id(drop.status), None)?,
-        open: drop.status == PublicStatus::Open,
+        date: short_date(t, drop.date, today),
+        heading: t.t("drop-heading", Some(&heading))?,
+        datetime: drop.date.to_string(),
+        status,
         pickups,
-        deadline,
+        ordering,
         charity,
         link: if link {
             drop_path(drop.bake_day_id)

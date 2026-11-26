@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "components/brand.html" as brand %}
+{% import "components/drop.html" as dr %}
 {% block title %}{{ layout.t("home-title")? }}{% endblock %}
 {% block header %}
 <header class="site-header site-header-hero">
@@ -11,4 +12,14 @@
 <h1 class="hero-title">{{ layout.t("home-title")? }}</h1>
 <p class="hero-text">{{ layout.t("home-intro")? }}</p>
 </div>
+{%- if let Some(drop) = featured %}
+{% call dr::drop_feature(drop) %}{% endcall %}
+{%- endif %}
+{%- if !drops.is_empty() %}
+<section class="home-drops" aria-labelledby="home-drops-title">
+<h2 id="home-drops-title">{{ layout.t("home-drops-title")? }}</h2>
+{% call dr::drop_rows(drops) %}{% endcall %}
+<p><a href="/drops">{{ layout.t("drop-back")? }}</a></p>
+</section>
+{%- endif %}
 {% endblock %}

@@ -50,3 +50,5 @@ month-short = { $n ->
 date-long = { $weekday } { $day } { $month } { $year }
 # za 5 dec
 date-short = { $weekday } { $day } { $month }
+# za 9 jan 2027
+date-short-year = { $weekday } { $day } { $month } { $year }

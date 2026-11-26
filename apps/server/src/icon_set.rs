@@ -32,6 +32,9 @@ const SHAPES: [&str; 7] = [
 struct IconsFile {
     lucide: Vec<String>,
     allergens: BTreeMap<String, String>,
+    /// Icons Lucide does not have, as the shapes inside `<svg>`, checked like Lucide's.
+    #[serde(default)]
+    own: BTreeMap<String, String>,
 }
 
 /// `read_svg(name)` returns Lucide's `icons/NAME.svg`.
@@ -69,7 +72,7 @@ pub fn generate(
         .map(String::as_str)
         .collect();
     let mut icons = Vec::new();
-    for name in names {
+    for &name in &names {
         if !name
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
@@ -82,6 +85,17 @@ pub fn generate(
             Err(error) => problems.push(format!("icon {name}: {error}")),
         }
     }
+    for (name, shapes) in &file.own {
+        if names.contains(name.as_str()) {
+            problems.push(format!("own icon {name} is also a Lucide icon"));
+            continue;
+        }
+        match inner_svg(&format!("<svg>{shapes}</svg>")) {
+            Ok(inner) => icons.push((name.as_str(), inner)),
+            Err(error) => problems.push(format!("own icon {name}: {error}")),
+        }
+    }
+    icons.sort_unstable();
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
@@ -254,5 +268,25 @@ mod tests {
             error.contains("\"../x\" is not a Lucide icon name"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn own_icons_are_checked_like_lucide_ones() {
+        let mut toml = toml_with_all("\"check\"");
+        toml.push_str("[own]\nring = '<circle cx=\"12\" cy=\"12\" r=\"4\" />'\n");
+        let out = generate(&toml, |_| Ok(WHEAT.to_string())).expect("ok");
+        assert!(
+            out.contains("(\"ring\", \"<circle cx=\\\"12\\\" cy=\\\"12\\\" r=\\\"4\\\" />\")"),
+            "{out}"
+        );
+
+        let mut toml = toml_with_all("\"check\"");
+        toml.push_str("[own]\ncheck = '<circle r=\"1\" />'\nbad = '<script>alert(1)</script>'\n");
+        let error = generate(&toml, |_| Ok(WHEAT.to_string())).expect_err("invalid");
+        assert!(
+            error.contains("own icon check is also a Lucide icon"),
+            "{error}"
+        );
+        assert!(error.contains("own icon bad:"), "{error}");
     }
 }

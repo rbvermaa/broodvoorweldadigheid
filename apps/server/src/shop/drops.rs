@@ -37,7 +37,6 @@ struct Calendar<'a> {
 #[template(path = "shop/drop.html")]
 struct DropPage<'a> {
     layout: Layout<'a>,
-    heading: String,
     drop: components::Drop,
     /// `None` until the menu is published.
     menu: Option<Vec<components::Product>>,
@@ -45,24 +44,44 @@ struct DropPage<'a> {
     cart: components::Cart,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ListError {
+    #[error("no database connection: {0}")]
+    Pool(#[from] sqlx::Error),
+    #[error("cannot list drops: {0}")]
+    Drops(#[from] bakedays::Error),
+    #[error("cannot show drops: {0}")]
+    Text(#[from] i18n::I18nError),
+}
+
+/// The coming weeks' drops as the shop lists them (F1a), planned drops included.
+async fn coming(state: &AppState) -> Result<Vec<components::Drop>, ListError> {
+    let from = today(state);
+    let to = from.checked_add(CALENDAR_WEEKS.weeks()).unwrap_or(from);
+    let mut conn = state.pool.acquire().await?;
+    let clock = state.clock.as_ref();
+    let drops = public_drops(&mut conn, clock, from, to, &Orders::new(clock)).await?;
+    Ok(drops
+        .iter()
+        .map(|drop| drop_view(state, drop, true))
+        .collect::<Result<_, _>>()?)
+}
+
+/// The home page's drops (F1a): the earliest open one to feature, and the others.
+pub(crate) async fn for_home(
+    state: &AppState,
+) -> Result<(Option<components::Drop>, Vec<components::Drop>), ListError> {
+    let mut drops = coming(state).await?;
+    let featured = drops
+        .iter()
+        .position(|drop| drop.status.as_ref().is_some_and(|status| status.open))
+        .map(|index| drops.remove(index));
+    Ok((featured, drops))
+}
+
 /// The public drop calendar (F1a): the coming weeks, planned drops included.
 pub async fn calendar(State(state): State<AppState>) -> Response {
-    let from = today(&state);
-    let to = from.checked_add(CALENDAR_WEEKS.weeks()).unwrap_or(from);
-    let mut conn = match state.pool.acquire().await {
-        Ok(conn) => conn,
-        Err(err) => return server_error(&state, "no database connection", &err),
-    };
-    let clock = state.clock.as_ref();
-    let drops = match public_drops(&mut conn, clock, from, to, &Orders::new(clock)).await {
-        Ok(drops) => drops,
-        Err(err) => return server_error(&state, "cannot list drops", &err),
-    };
-    let views: Result<Vec<_>, _> = drops
-        .iter()
-        .map(|drop| drop_view(&state, drop, true))
-        .collect();
-    match views {
+    match coming(&state).await {
         Ok(drops) => pages::render(
             &state,
             StatusCode::OK,
@@ -71,7 +90,7 @@ pub async fn calendar(State(state): State<AppState>) -> Response {
                 drops,
             },
         ),
-        Err(err) => server_error(&state, "cannot show drops", &err),
+        Err(err) => server_error(&state, "cannot show the drop calendar", &err),
     }
 }
 
@@ -229,12 +248,8 @@ pub(crate) async fn menu_page(
         StatusCode::OK
     };
     let page = drop_view(state, &drop, false).and_then(|view| {
-        let mut args = FluentArgs::new();
-        args.set("date", view.date.clone());
-        let heading = state.i18n.t("drop-heading", Some(&args))?;
         Ok(DropPage {
             layout: Layout::new(state).with_csrf_token(token),
-            heading,
             drop: view,
             menu: tiles,
             orderable,

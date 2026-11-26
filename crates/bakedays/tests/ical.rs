@@ -28,6 +28,7 @@ fn drops() -> Vec<PublicDrop> {
             date: "2026-10-31".parse().unwrap(),
             status: PublicStatus::MenuAnnounced,
             cutoff_at: Some(ts("2026-10-29T19:00:00Z")),
+            opens_at: None,
             pickups: vec![
                 de_proef(11, "2026-10-31T10:00:00Z", "2026-10-31T11:00:00Z"),
                 de_proef(12, "2026-10-31T11:00:00Z", "2026-10-31T11:30:00Z"),
@@ -56,6 +57,7 @@ fn drops() -> Vec<PublicDrop> {
             date: "2026-11-07".parse().unwrap(),
             status: PublicStatus::Planned,
             cutoff_at: Some(ts("2026-11-05T19:00:00Z")),
+            opens_at: None,
             pickups: vec![de_proef(21, "2026-11-07T10:00:00Z", "2026-11-07T11:00:00Z")],
             charity: None,
             menu: None,
@@ -65,6 +67,7 @@ fn drops() -> Vec<PublicDrop> {
             date: "2026-11-14".parse().unwrap(),
             status: PublicStatus::Cancelled,
             cutoff_at: Some(ts("2026-11-12T19:00:00Z")),
+            opens_at: None,
             pickups: vec![de_proef(31, "2026-11-14T10:00:00Z", "2026-11-14T11:00:00Z")],
             charity: None,
             menu: None,

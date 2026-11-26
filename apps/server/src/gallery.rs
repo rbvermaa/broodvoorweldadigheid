@@ -9,8 +9,9 @@ use i18n::Translator;
 
 use crate::backoffice::SearchBox;
 use crate::components::{
-    ApprovedAllergens, BarChart, Cart, CartRemove, Cell, Drop, DropCharity, Message, PickupWindow,
-    PriceChoice, Product, ProductOrder, SelectOption, Table,
+    ApprovedAllergens, BarChart, Cart, CartRemove, Cell, Drop, DropCharity, DropOrdering,
+    DropPickup, DropStatus, Message, PickupWindow, PriceChoice, Product, ProductOrder,
+    SelectOption, Table,
 };
 use crate::icons::{ALLERGEN_ICONS, ICONS};
 use crate::pages::{self, Layout};
@@ -47,6 +48,11 @@ impl<'a> Gallery<'a> {
         let t = |id: &str| i18n.t(id, None);
         let long = t("gallery-long-word")?;
         let place = t("gallery-pickup-place")?;
+        let with = |id: &str, name: &str, value: String| {
+            let mut args = i18n::FluentArgs::new();
+            args.set(name, value);
+            i18n.t(id, Some(&args))
+        };
         let window = |value: &str,
                       day: &str,
                       time: &str,
@@ -212,26 +218,60 @@ impl<'a> Gallery<'a> {
             },
             drops: vec![
                 Drop {
-                    date: t("gallery-pickup-sat")?,
-                    status: t("gallery-drop-open")?,
-                    open: true,
-                    pickups: vec![format!("{} {}", t("gallery-pickup-morning")?, place)],
-                    deadline: t("gallery-drop-deadline")?,
+                    date: t("gallery-drop-date")?,
+                    heading: t("gallery-drop-heading")?,
+                    datetime: "2026-12-05".to_string(),
+                    status: Some(DropStatus {
+                        text: t("drop-status-open")?,
+                        open: true,
+                    }),
+                    pickups: vec![DropPickup {
+                        when: t("gallery-pickup-morning")?,
+                        datetime: "2026-12-05T10:00+01:00".to_string(),
+                        location: t("gallery-drop-place")?,
+                        address: place.clone(),
+                    }],
+                    ordering: Some(DropOrdering {
+                        label: t("drop-label-order-until")?,
+                        when: t("gallery-drop-until")?,
+                        text: with("drop-order-until", "when", t("gallery-drop-until")?)?,
+                        datetime: "2026-12-03T20:00+01:00".to_string(),
+                    }),
                     charity: Some(DropCharity {
-                        text: t("gallery-drop-charity")?,
+                        name: t("gallery-charity-a")?,
+                        list_text: with("drop-for-charity", "charity", t("gallery-charity-a")?)?,
+                        description: t("gallery-drop-charity")?,
                         url: "https://example.org".to_string(),
-                        link: t("gallery-charity-a")?,
                     }),
                     link: "/gallery".to_string(),
                 },
                 Drop {
-                    date: long.clone(),
-                    status: t("gallery-drop-planned")?,
-                    open: false,
-                    pickups: Vec::new(),
-                    deadline: String::new(),
+                    date: t("gallery-drop-date-year")?,
+                    heading: long.clone(),
+                    datetime: "2027-01-09".to_string(),
+                    status: None,
+                    pickups: vec![
+                        DropPickup {
+                            when: t("gallery-pickup-afternoon")?,
+                            datetime: "2027-01-09T14:00+01:00".to_string(),
+                            location: long.clone(),
+                            address: place.clone(),
+                        },
+                        DropPickup {
+                            when: t("gallery-pickup-morning")?,
+                            datetime: "2027-01-10T10:00+01:00".to_string(),
+                            location: t("gallery-drop-place")?,
+                            address: place.clone(),
+                        },
+                    ],
+                    ordering: Some(DropOrdering {
+                        label: t("drop-label-order-from")?,
+                        when: t("gallery-drop-from")?,
+                        text: with("drop-order-from", "when", t("gallery-drop-from")?)?,
+                        datetime: "2027-01-04T09:00+01:00".to_string(),
+                    }),
                     charity: None,
-                    link: String::new(),
+                    link: "/gallery".to_string(),
                 },
             ],
             carts: vec![Cart {

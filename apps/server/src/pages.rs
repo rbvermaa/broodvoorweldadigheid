@@ -174,6 +174,8 @@ impl<'a> Layout<'a> {
 #[template(path = "home.html")]
 struct Home<'a> {
     layout: Layout<'a>,
+    featured: Option<crate::components::Drop>,
+    drops: Vec<crate::components::Drop>,
 }
 
 #[derive(Template)]
@@ -246,7 +248,8 @@ fn bare_server_error(state: &AppState) -> Response {
         .into_response()
 }
 
-/// The shop's htmx actions need a CSRF token, so the home page starts a session.
+/// The shop's htmx actions need a CSRF token, so the home page starts a session. Without
+/// its drops the home page still shows, so a database hiccup does not take it down.
 pub async fn home(
     axum::extract::State(state): axum::extract::State<AppState>,
     session: tower_sessions::Session,
@@ -258,11 +261,17 @@ pub async fn home(
             return self::error(&state, StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
+    let (featured, drops) = crate::shop::for_home(&state).await.unwrap_or_else(|error| {
+        tracing::error!(%error, "home page without drops");
+        (None, Vec::new())
+    });
     render(
         &state,
         StatusCode::OK,
         &Home {
             layout: Layout::new(&state).with_csrf_token(token),
+            featured,
+            drops,
         },
     )
 }

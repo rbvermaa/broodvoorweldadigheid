@@ -5,16 +5,25 @@ drops-intro = Hier zie je wanneer we bakken. Bestel voor de bestel-deadline en h
 drops-empty-title = Nog geen Bread Drops gepland
 drops-empty-text = Kijk binnenkort nog eens.
 drops-ical = Zet de Bread Drops in je agenda
-drop-status-planned = Gepland
-drop-status-menu-announced = Menu bekend
-drop-status-open = Open voor bestellingen
+drop-status-open = Open
 drop-status-sold-out = Uitverkocht
 drop-status-closed = Gesloten
 drop-status-cancelled = Gaat niet door
-# $location: name, $address: street and town
-drop-pickup = { pickup-moment } bij { $location }, { $address }
-drop-charity = Wat je betaalt voor het brood van deze Bread Drop gaat helemaal naar { $charity }.
-drop-charity-link = Meer over { $charity }
+drop-label-pickup = Ophalen
+drop-label-order-until = Bestellen tot
+drop-label-order-from = Bestellen vanaf
+drop-label-charity = Goed doel
+# $when: short date and time, such as "do 10 dec 20:00"
+drop-order-until = bestellen tot { $when }
+drop-order-from = bestellen vanaf { $when }
+drop-for-charity = voor { $charity }
+# Pickup moments the list leaves out
+drop-more-pickups = { $n ->
+    [one] +1 ander moment
+   *[other] +{ $n } andere momenten
+}
+drop-order-button = Bestellen
+home-drops-title = Komende Bread Drops
 drop-menu = Menu
 drop-menu-later = Het menu volgt nog.
 drop-not-open = Bestellen kan nu niet voor deze Bread Drop.

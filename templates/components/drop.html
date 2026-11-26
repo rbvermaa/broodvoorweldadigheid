@@ -1,25 +1,65 @@
-{# drop: components::Drop. The facts of one drop on the calendar (F1a). #}
-{% macro drop_facts(drop) %}
-<p class="drop-status{% if drop.open %} drop-status-open{% endif %}">{{ drop.status }}</p>
-<ul class="drop-facts">
-{%- for pickup in drop.pickups %}
-<li>{{ layout.icon("map-pin")? }}<span>{{ pickup }}</span></li>
-{%- endfor %}
-{%- if !drop.deadline.is_empty() %}
-<li>{{ layout.icon("clock")? }}<span>{{ drop.deadline }}</span></li>
-{%- endif %}
-</ul>
-{%- if let Some(charity) = drop.charity %}
-<p class="drop-charity">{{ layout.icon("heart")? }}<span>{{ charity.text }}{% if !charity.url.is_empty() %} <a href="{{ charity.url }}" rel="noopener">{{ charity.link }}</a>{% endif %}</span></p>
-{%- else %}
-<p class="drop-charity">{{ layout.icon("info")? }}<span>{{ layout.t("drop-normal-sale")? }}</span></p>
+{# drop: components::Drop. A small pill, only for a status the customer can act on. #}
+{% macro drop_status(drop) %}
+{%- if let Some(status) = drop.status %}
+<p class="drop-status{% if status.open %} drop-status-open{% endif %}">{{ status.text }}</p>
 {%- endif %}
 {% endmacro %}
 
-{# A drop in the calendar list; the date links to its page when `link` is set. #}
-{% macro drop_card(drop) %}
-<article class="drop">
-<h2 class="drop-date">{% if drop.link.is_empty() %}{{ drop.date }}{% else %}<a href="{{ drop.link }}">{{ drop.date }}</a>{% endif %}</h2>
+{# The facts of one drop as a short definition list (F1a, F4c): every pickup moment with
+   its address, the order window and the charity, if the drop has one. #}
+{% macro drop_facts(drop) %}
+<dl class="drop-facts">
+<div class="drop-fact">
+<dt>{{ layout.t("drop-label-pickup")? }}</dt>
+{%- for pickup in drop.pickups %}
+<dd><span><time datetime="{{ pickup.datetime }}">{{ pickup.when }}</time> {{ pickup.location }}</span><span class="drop-fact-detail">{{ pickup.address }}</span></dd>
+{%- endfor %}
+</div>
+{%- if let Some(ordering) = drop.ordering %}
+<div class="drop-fact">
+<dt>{{ ordering.label }}</dt>
+<dd><time datetime="{{ ordering.datetime }}">{{ ordering.when }}</time></dd>
+</div>
+{%- endif %}
+{%- if let Some(charity) = drop.charity %}
+<div class="drop-fact">
+<dt>{{ layout.t("drop-label-charity")? }}</dt>
+<dd><span>{% if charity.url.is_empty() %}{{ charity.name }}{% else %}<a href="{{ charity.url }}" rel="noopener">{{ charity.name }}</a>{% endif %}</span>
+{%- if !charity.description.is_empty() %}<span class="drop-fact-detail">{{ charity.description }}</span>{% endif %}</dd>
+</div>
+{%- endif %}
+</dl>
+{% endmacro %}
+
+{# drops: [components::Drop]. One short row per drop; the date links to the drop's page.
+   The first pickup moment stands for the others, which the drop page lists. #}
+{% macro drop_rows(drops) %}
+<ul class="drop-rows">
+{%- for drop in drops %}
+<li class="drop-row">
+<span class="drop-row-date"><a href="{{ drop.link }}"><time datetime="{{ drop.datetime }}">{{ drop.date }}</time></a></span>
+<span class="drop-row-pickup">
+{%- if let Some(pickup) = drop.pickups.first() %}<time datetime="{{ pickup.datetime }}">{{ pickup.when }}</time> {{ pickup.location }}{% endif %}
+{%- if drop.more_pickups() > 0 %} <span class="drop-row-more">{{ layout.t_count("drop-more-pickups", drop.more_pickups())? }}</span>{% endif -%}
+</span>
+{%- if let Some(status) = drop.status %}<span class="drop-row-status drop-status{% if status.open %} drop-status-open{% endif %}">{{ status.text }}</span>{% endif %}
+<span class="drop-row-info">
+<span class="drop-row-order">{% if let Some(ordering) = drop.ordering %}<time datetime="{{ ordering.datetime }}">{{ ordering.text }}</time>{% endif %}</span>
+{%- if let Some(charity) = drop.charity %}
+<span class="drop-row-charity">{{ charity.list_text }}</span>
+{%- endif %}
+</span>
+</li>
+{%- endfor %}
+</ul>
+{% endmacro %}
+
+{# The open drop at the top of the home page, with a button to its page. #}
+{% macro drop_feature(drop) %}
+<section class="drop-feature" aria-labelledby="drop-feature-title">
+<h2 class="drop-feature-title" id="drop-feature-title">{{ drop.heading }}</h2>
+{% call drop_status(drop) %}{% endcall %}
 {% call drop_facts(drop) %}{% endcall %}
-</article>
+<p><a class="button button-primary" href="{{ drop.link }}">{{ layout.t("drop-order-button")? }}</a></p>
+</section>
 {% endmacro %}

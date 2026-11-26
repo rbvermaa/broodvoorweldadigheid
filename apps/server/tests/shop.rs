@@ -428,10 +428,9 @@ async fn the_calendar_shows_public_drops_only(pool: PgPool) {
         "{html}"
     );
     assert!(html.contains("Voedselbank Drenthe"), "{html}");
-    assert!(html.contains(&dutch("drop-normal-sale")), "{html}");
+    assert!(!html.contains("Normale verkoop"), "{html}");
     assert!(html.contains(&dutch("drop-status-open")), "{html}");
-    assert!(html.contains(&dutch("drop-status-planned")), "{html}");
-    assert!(html.contains("zaterdag 31 oktober 2026"), "{html}");
+    assert!(html.contains(">za 31 okt</time>"), "{html}");
 
     let reply = send(
         &shop.app,

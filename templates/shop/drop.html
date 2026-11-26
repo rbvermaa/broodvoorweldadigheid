@@ -4,11 +4,14 @@
 {% import "components/cart.html" as c %}
 {% import "components/feedback.html" as fb %}
 {% import "components/layout.html" as l %}
-{% block title %}{{ heading }}{% endblock %}
+{% block title %}{{ drop.heading }}{% endblock %}
 {% block content %}
 <p><a href="/drops">{{ layout.t("drop-back")? }}</a></p>
-<h1>{{ heading }}</h1>
+<div class="drop-header">
+<h1>{{ drop.heading }}</h1>
+{% call dr::drop_status(drop) %}{% endcall %}
 {% call dr::drop_facts(drop) %}{% endcall %}
+</div>
 <h2>{{ layout.t("drop-menu")? }}</h2>
 {% call l::split() %}
 <div>

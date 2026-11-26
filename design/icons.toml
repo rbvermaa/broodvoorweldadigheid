@@ -10,11 +10,9 @@ lucide = [
   "circle-check",
   "clock",
   "droplet",
-  "heart",
   "inbox",
   "info",
   "loader-circle",
-  "map-pin",
   "shopping-basket",
   "thermometer",
   "trash-2",
@@ -39,3 +37,8 @@ sesame_seeds = "circle-dot"
 sulphur_dioxide_and_sulphites = "wine"
 lupin = "flower-2"
 molluscs = "shell"
+
+# Icons Lucide does not have: the shapes inside a 24×24 `<svg>`, drawn in Lucide's line
+# style. Served inline like the others, so nothing loads from elsewhere.
+[own]
+instagram = '<rect x="2" y="2" width="20" height="20" rx="5" /><circle cx="12" cy="12" r="4" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />'

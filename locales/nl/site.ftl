@@ -39,3 +39,4 @@ giften-hidden = Niet apart getoond
 giften-privacy = We tonen geen namen en geen losse giften. Bedragen met minder dan { $n } bestellingen erachter tonen we niet apart, zodat niemand een gift kan terugrekenen. Ze tellen wel mee in het totaal.
 giften-empty-title = Nog geen giften
 giften-empty = Na de eerste Bread Drop met een goed doel zie je hier de totalen.
+footer-instagram = Volg ons op Instagram

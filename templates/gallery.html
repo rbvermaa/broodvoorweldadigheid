@@ -73,11 +73,10 @@
 
 <section class="gallery-section" aria-labelledby="gallery-drops">
 <h2 id="gallery-drops">{{ layout.t("gallery-drops")? }}</h2>
-<ul class="drop-list">
-{%- for drop in drops %}
-<li>{% call dr::drop_card(drop) %}{% endcall %}</li>
-{%- endfor %}
-</ul>
+{% call dr::drop_rows(drops) %}{% endcall %}
+{%- if let Some(drop) = drops.first() %}
+{% call dr::drop_feature(drop) %}{% endcall %}
+{%- endif %}
 </section>
 
 <section class="gallery-section" aria-labelledby="gallery-cart-panel">

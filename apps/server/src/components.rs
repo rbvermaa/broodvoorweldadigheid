@@ -215,27 +215,64 @@ impl ProductOrder {
     }
 }
 
-/// One drop on the calendar (F1a). Text fields are display text.
+/// One drop on the calendar (F1a). Text fields are display text; `datetime` fields are
+/// for `<time datetime>`.
 pub struct Drop {
+    /// `za 12 dec`, with the year when it is not this year.
     pub date: String,
-    pub status: String,
-    /// Open for orders: the status is highlighted.
-    pub open: bool,
-    /// One line per pickup slot: when and where.
-    pub pickups: Vec<String>,
-    pub deadline: String,
+    /// `Bread Drop zaterdag 12 december 2026`
+    pub heading: String,
+    pub datetime: String,
+    /// Only a status the customer can act on; a planned drop has none.
+    pub status: Option<DropStatus>,
+    /// By start time; never empty for a drop on the calendar.
+    pub pickups: Vec<DropPickup>,
+    /// Until when, or from when, ordering is possible; `None` once it is over.
+    pub ordering: Option<DropOrdering>,
     /// `None` for a normal sale (F4c).
     pub charity: Option<DropCharity>,
     /// The drop's page; empty for none.
     pub link: String,
 }
 
-pub struct DropCharity {
-    /// Says who the drop is for.
+impl Drop {
+    /// How many pickup moments the compact list leaves out.
+    pub fn more_pickups(&self) -> i64 {
+        i64::try_from(self.pickups.len().saturating_sub(1)).unwrap_or(i64::MAX)
+    }
+}
+
+pub struct DropStatus {
     pub text: String,
+    /// Open for orders: the status is highlighted.
+    pub open: bool,
+}
+
+pub struct DropPickup {
+    /// `11:00–12:00`, or `zo 13 dec 10:00–10:30` on another day than the drop.
+    pub when: String,
+    pub datetime: String,
+    pub location: String,
+    pub address: String,
+}
+
+pub struct DropOrdering {
+    /// `Bestellen tot`, for the drop page.
+    pub label: String,
+    /// `do 10 dec 20:00`
+    pub when: String,
+    /// `bestellen tot do 10 dec 20:00`, for the list.
+    pub text: String,
+    pub datetime: String,
+}
+
+pub struct DropCharity {
+    pub name: String,
+    /// `voor Voedselbank Westerveld`, for the list.
+    pub list_text: String,
+    pub description: String,
     /// An http(s) link to the charity; empty for none.
     pub url: String,
-    pub link: String,
 }
 
 pub struct Cart {
