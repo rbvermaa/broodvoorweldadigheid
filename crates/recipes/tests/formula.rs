@@ -779,9 +779,9 @@ fn migrated(formula: &Formula) -> Option<Formula> {
         .iter()
         .map(|line| {
             let value = (u128::from(line.pct.thousandths()) * total * 2 + main) / (main * 2);
-            Pct::from_thousandths(u32::try_from(value).unwrap())
+            u32::try_from(value).ok().map(Pct::from_thousandths)
         })
-        .collect();
+        .collect::<Option<_>>()?;
     Some(with_pcts(formula, &pcts))
 }
 

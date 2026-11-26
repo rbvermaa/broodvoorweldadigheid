@@ -1,5 +1,5 @@
-//! The main-dough migration (F14, ADR 0053): frozen versions and their batches keep their
-//! grams, drafts keep their numbers, and running the migrations again changes nothing.
+//! The main-dough migration (F14, ADR 0053): old-way versions and their batches keep their
+//! grams, new-way drafts keep their numbers, and migrating again does not run it twice.
 #![forbid(unsafe_code)]
 
 use std::borrow::Cow;
@@ -58,6 +58,20 @@ async fn recipe(
     kind: RecipeKind,
     lines: Vec<(LinePart, u32)>,
 ) -> (domain::RecipeId, RecipeVersionId) {
+    let lines = lines
+        .into_iter()
+        .map(|(part, percent)| (part, percent * 1000))
+        .collect();
+    recipe_x1000(conn, name, kind, lines).await
+}
+
+/// Like [`recipe`], with the percentages in thousandths.
+async fn recipe_x1000(
+    conn: &mut PgConnection,
+    name: &str,
+    kind: RecipeKind,
+    lines: Vec<(LinePart, u32)>,
+) -> (domain::RecipeId, RecipeVersionId) {
     let (recipe, version) = store::create(
         conn,
         &RecipeInput {
@@ -73,8 +87,8 @@ async fn recipe(
         &DraftInput {
             lines: lines
                 .into_iter()
-                .map(|(part, percent)| LineInput {
-                    pct: pct(percent),
+                .map(|(part, thousandths)| LineInput {
+                    pct: Pct::from_thousandths(thousandths),
                     part,
                 })
                 .collect(),
@@ -185,7 +199,9 @@ async fn snapshot(
 }
 
 #[sqlx::test(migrations = false)]
-async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(pool: PgPool) {
+async fn old_way_versions_and_batches_keep_their_grams_and_new_way_drafts_their_numbers(
+    pool: PgPool,
+) {
     let before_migration = Migrator {
         migrations: Cow::Owned(
             db::MIGRATOR
@@ -279,6 +295,84 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
         ],
     )
     .await;
+    // 85% own flour and 22.5% of a stiff starter (15% flour): a factor of 100/85.
+    let (stiff_recipe, stiff_bread) = recipe_x1000(
+        &mut conn,
+        "Stijf",
+        RecipeKind::Dough,
+        vec![
+            (i(wheat), 85_000),
+            (i(water), 70_000),
+            (i(salt), 2_000),
+            (i(stiff), 22_500),
+        ],
+    )
+    .await;
+    store::freeze(&mut conn, stiff_recipe, stiff_bread, &clock)
+        .await
+        .unwrap();
+    // A preferment that is migrated itself (80% own flour), inside a dough that is too.
+    let (pre_recipe, pre) = recipe(
+        &mut conn,
+        "Voordeeg",
+        RecipeKind::Preferment,
+        vec![(i(wheat), 80), (LinePart::Sub(levain), 40)],
+    )
+    .await;
+    let (nested_recipe, nested) = recipe(
+        &mut conn,
+        "Genest",
+        RecipeKind::Dough,
+        vec![(i(wheat), 90), (i(water), 60), (LinePart::Sub(pre), 12)],
+    )
+    .await;
+    store::freeze(&mut conn, nested_recipe, nested, &clock)
+        .await
+        .unwrap();
+    let pre_frozen = store::version(&mut conn, pre_recipe, pre).await.unwrap();
+    assert!(pre_frozen.is_frozen());
+    // 0.001% own flour and 10% starter: the factor 5001 would take the starter above
+    // 1000%, so the version keeps its numbers.
+    let (capped_recipe, capped) = recipe_x1000(
+        &mut conn,
+        "Bijna geen bloem",
+        RecipeKind::Dough,
+        vec![(i(wheat), 1), (i(water), 50_000), (i(desem), 10_000)],
+    )
+    .await;
+    store::freeze(&mut conn, capped_recipe, capped, &clock)
+        .await
+        .unwrap();
+    // Flour and water weigh the same: 90% + 10% from a 100:50 levain, 95% + 5%. Rounding
+    // makes water heavier, so the ingredient list changes order and the approval goes.
+    let (stiff_levain_recipe, stiff_levain) = recipe(
+        &mut conn,
+        "Levain stijf",
+        RecipeKind::Preferment,
+        vec![(i(wheat), 100), (i(water), 50)],
+    )
+    .await;
+    store::freeze(&mut conn, stiff_levain_recipe, stiff_levain, &clock)
+        .await
+        .unwrap();
+    let (tie_recipe, tie) = recipe(
+        &mut conn,
+        "Gelijk",
+        RecipeKind::Dough,
+        vec![
+            (i(wheat), 90),
+            (i(water), 95),
+            (LinePart::Sub(stiff_levain), 15),
+        ],
+    )
+    .await;
+    let tie_loaf = product(&mut conn, "Gelijk brood").await;
+    store::link_product(&mut conn, tie_recipe, tie_loaf)
+        .await
+        .unwrap();
+    store::freeze(&mut conn, tie_recipe, tie, &clock)
+        .await
+        .unwrap();
 
     let day = days::create(
         &mut conn,
@@ -300,7 +394,10 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
         &mut conn,
         mixed,
         &Adjustment {
-            lines: vec![(lines[1].id, Pct::from_thousandths(67_500))],
+            lines: vec![
+                (lines[1].id, Pct::from_thousandths(67_500)),
+                (lines[2].id, Pct::default()),
+            ],
             pieces: Vec::new(),
             reason: Some("natter".to_owned()),
         },
@@ -319,7 +416,25 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
         .await
         .unwrap();
 
-    let versions = [bread, levain, straight, levain_only, landbrood];
+    // A draft copied from the frozen bread holds its numbers the old way.
+    let copied = store::new_version(&mut conn, bread_recipe)
+        .await
+        .unwrap()
+        .id;
+
+    let versions = [
+        bread,
+        levain,
+        straight,
+        levain_only,
+        landbrood,
+        stiff_bread,
+        pre,
+        nested,
+        capped,
+        copied,
+        tie,
+    ];
     let batch_ids = [mixed, planned];
     let old = snapshot(&mut conn, &versions, &batch_ids).await;
     assert_eq!(
@@ -347,12 +462,35 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
     assert_eq!(analysis.total_flour, pct(125));
     assert_eq!(analysis.hydration, Some(pct(85)));
     assert_close(&old.version_grams[0], &new.version_grams[0], 1, "bread");
-    // Nothing to do for the levain, the straight dough, the dough without own flour and
-    // the draft.
-    for index in 1..versions.len() {
+    // Nothing to do for the levain, the straight dough, the dough without own flour, the
+    // draft typed the new way and the version that would go above 1000%.
+    for index in [1, 2, 3, 4, 8] {
         assert_eq!(old.versions[index], new.versions[index], "version {index}");
         assert_eq!(old.version_grams[index], new.version_grams[index]);
     }
+    for index in [0, 5, 6, 7, 9, 10] {
+        assert_ne!(old.versions[index], new.versions[index], "version {index}");
+        assert_close(
+            &old.version_grams[index],
+            &new.version_grams[index],
+            1,
+            &format!("version {index}"),
+        );
+        let analysis = store::formula(&mut conn, versions[index])
+            .await
+            .unwrap()
+            .analysis()
+            .unwrap();
+        assert_eq!(
+            analysis.main_flour.tenths(),
+            1000,
+            "version {index}: {analysis:?}"
+        );
+    }
+    assert_eq!(
+        new.versions[9], new.versions[0],
+        "the copied draft follows the bread"
+    );
     assert_eq!(
         new.versions[4],
         [70_000, 15_000, 15_000, 70_000, 2_000, 20_000]
@@ -366,10 +504,7 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
                 Some(Pct::from_thousandths(81_250)),
                 Pct::from_thousandths(84_375)
             ),
-            (
-                Some(Pct::from_thousandths(2_500)),
-                Pct::from_thousandths(2_500)
-            ),
+            (Some(Pct::from_thousandths(2_500)), Pct::default()),
             (Some(pct(25)), pct(25)),
             (Some(pct(25)), pct(25)),
             (None, Pct::from_thousandths(6_250)),
@@ -387,8 +522,9 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
         assert_close(a, b, 1, &format!("batch {index}"));
     }
     assert_eq!(
-        old.allergen_revs, new.allergen_revs,
-        "no allergen approval cleared"
+        new.allergen_revs,
+        [old.allergen_revs[0], old.allergen_revs[1] + 1],
+        "only the product whose ingredient order changed loses its approval"
     );
     let frozen: bool =
         sqlx::query_scalar("SELECT frozen_at IS NOT NULL FROM recipe_version WHERE id = $1")
@@ -411,9 +547,6 @@ async fn frozen_versions_and_batches_keep_their_grams_and_drafts_their_numbers(p
 
     db::MIGRATOR.run(&pool).await.unwrap();
     let again = snapshot(&mut conn, &versions, &batch_ids).await;
-    assert_eq!(
-        again.versions, new.versions,
-        "running it again changes nothing"
-    );
+    assert_eq!(again.versions, new.versions, "sqlx runs the migration once");
     assert_eq!(again.batch_lines, new.batch_lines);
 }

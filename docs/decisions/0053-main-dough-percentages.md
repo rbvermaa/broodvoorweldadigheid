@@ -29,9 +29,21 @@ data changes:
 | Batches of those versions | Base and actual percentages × the same factor, so the base still equals the version's lines and the batch grams stay the same; dough weight per batch is stored separately and does not change |
 | Frozen versions without own flour, with all their flour in own lines, or without flour | Untouched |
 | A version where a line would go above 1000% | Untouched; it shows the main-flour warning |
-| Drafts | Untouched. The owner typed them in the new convention. Their grams at a dough weight do not change either; only the footer reads differently |
+| Drafts whose all flour shows as 100% but whose own flour does not (copied by "Nieuwe versie" or promoted from an old-way version) | Rescaled like a frozen version: they hold old-way numbers |
+| Other drafts, like the owner's Landbrood (own flours 100% plus a starter) | Untouched: typed the new way. Their grams at a dough weight do not change either; only the footer reads differently |
 
 The migration switches off the frozen-version, mixed-batch and allergen-approval
-triggers for its two updates only: the grams do not change, so no approval is cleared.
-It runs once, like every migration (`_sqlx_migrations`); a db test checks grams before
-and after, untouched drafts, and that running the migrations again changes nothing.
+triggers for its two updates only. Rounding to 0.001% can make two equal weights unequal
+and so reorder an ingredient list. The migration works out each list's order before and
+after, the way `recipes::rollup` does, with exact weights: a product whose recipe's list
+changes order loses its allergen approval (reason "recipe"), a batch whose own approved
+list changes loses that approval. Every other approval stays: its list is the same.
+
+The SQL is not idempotent by itself (a second run would rescale again); like every
+migration it runs once, recorded in `_sqlx_migrations`. A db test covers grams before and
+after (an even and an uneven factor, a migrated preferment inside a migrated dough, a
+batch line at 0%, a mixed batch), the 1000% cap, drafts of both kinds, the approval that
+goes and the one that stays, the triggers being back on, and a second `migrate`.
+
+Not rewritten: `audit_log` entries of earlier batch adjustments keep their percentages in
+the old units. Nothing reads them back today.
