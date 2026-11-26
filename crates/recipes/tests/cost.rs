@@ -4,7 +4,8 @@
 use domain::{IngredientId, Money, RecipeId, RecipeVersionId};
 use proptest::prelude::*;
 use recipes::cost::{
-    CostError, DoughCost, MilliCents, PieceCost, Prices, Variance, VarianceInput, round_div,
+    CostError, DoughCost, MilliCents, PieceCost, Prices, UnitPrice, Variance, VarianceInput,
+    round_div,
 };
 use recipes::{
     DoughGrams, Formula, IngredientRef, IngredientRole, Line, Part, Pct, RecipeKind, ScaleError,
@@ -52,7 +53,12 @@ fn bread() -> Formula {
 
 fn prices(list: &[(i64, i64)]) -> Prices {
     list.iter()
-        .map(|&(id, cents)| (IngredientId::new(id), Money::from_cents(cents)))
+        .map(|&(id, cents)| {
+            (
+                IngredientId::new(id),
+                UnitPrice::per_kg(Money::from_cents(cents)),
+            )
+        })
         .collect()
 }
 
@@ -78,7 +84,7 @@ fn a_missing_price_leaves_the_total_unknown() {
     assert_eq!(cost.total(), None);
     let missing: Vec<i64> = cost.missing().map(|i| i.id.get()).collect();
     assert_eq!(missing, [3]);
-    assert_eq!(cost.lines[2].per_kg, None);
+    assert_eq!(cost.lines[2].price, None);
 }
 
 #[test]
@@ -199,7 +205,12 @@ fn prices_strategy() -> impl Strategy<Value = Prices> {
     prop::collection::vec(0_i64..2_000_000, 5).prop_map(|list| {
         list.into_iter()
             .enumerate()
-            .map(|(i, c)| (IngredientId::new(i64::try_from(i).unwrap() + 1), cents(c)))
+            .map(|(i, c)| {
+                (
+                    IngredientId::new(i64::try_from(i).unwrap() + 1),
+                    UnitPrice::per_kg(cents(c)),
+                )
+            })
             .collect()
     })
 }
@@ -257,4 +268,136 @@ fn a_line_left_out_needs_no_price() {
     let cost = DoughCost::new(&dough, &prices(&[(1, 100), (2, 0)]));
     assert_eq!(cost.missing().count(), 0);
     assert_eq!(cost.total().unwrap().cents(), cents(100));
+}
+
+fn package(cents: i64, weight_g: u32) -> UnitPrice {
+    UnitPrice::new(Money::from_cents(cents), weight_g).unwrap()
+}
+
+#[test]
+fn a_price_needs_a_weight() {
+    assert_eq!(UnitPrice::new(Money::from_cents(2137), 0), None);
+    let sack = package(2137, 25_000);
+    assert_eq!(sack.price(), Money::from_cents(2137));
+    assert_eq!(sack.weight_g(), 25_000);
+    assert_eq!(UnitPrice::per_kg(cents(95)), package(95, 1000));
+}
+
+#[test]
+fn a_package_price_costs_grams_without_rounding_it_per_kilo() {
+    // €21,37 for 25 kg is €0,8548 per kilo: 0,08548 cent per gram, 85,48 millicents.
+    let sack = package(2137, 25_000);
+    assert_eq!(sack.cost(25_000).get(), 2_137_000);
+    assert_eq!(sack.cost(1000).get(), 85_480);
+    assert_eq!(sack.cost(10_453).get(), 893_522);
+    assert_eq!(sack.per_kg_cents(), cents(85));
+    assert_eq!(sack.per_gram().get(), 85);
+    // Rounded to €0,85 per kilo first, 10 453 g would come to 888 505 millicents.
+    assert_ne!(
+        sack.cost(10_453),
+        UnitPrice::per_kg(sack.per_kg_cents()).cost(10_453)
+    );
+
+    // €3,99 for 750 g: 0,532 cent per gram.
+    let pack = package(399, 750);
+    assert_eq!(pack.cost(750).get(), 399_000);
+    assert_eq!(pack.cost(1).get(), 532);
+    assert_eq!(pack.cost(100).get(), 53_200);
+    assert_eq!(pack.cost(7).get(), 3724);
+    assert_eq!(pack.per_kg_cents(), cents(532));
+
+    // €1,00 for 3 g: 33 333,33… millicents a gram, half up per line.
+    let odd = package(100, 3);
+    assert_eq!(odd.cost(1).get(), 33_333);
+    assert_eq!(odd.cost(2).get(), 66_667);
+    assert_eq!(odd.per_kg_cents(), cents(33_333));
+    assert_eq!(package(0, 750).cost(1_000_000), MilliCents::ZERO);
+}
+
+#[test]
+fn package_prices_cost_a_dough() {
+    let dough = DoughGrams::from_formula(&bread(), 17_700).unwrap();
+    let all: Prices = [
+        (IngredientId::new(1), package(2137, 25_000)),
+        (IngredientId::new(2), package(0, 1)),
+        (IngredientId::new(3), package(399, 750)),
+    ]
+    .into_iter()
+    .collect();
+    let cost = DoughCost::new(&dough, &all);
+    // 10 kg flour: 854 800; 200 g salt: 106 400.
+    assert_eq!(cost.total().unwrap().get(), 854_800 + 106_400);
+    assert_eq!(cost.total().unwrap().cents(), cents(961));
+    assert_eq!(cost.lines[0].price, Some(package(2137, 25_000)));
+}
+
+proptest! {
+    #[test]
+    fn a_price_per_kilo_costs_as_before(grams in 0_u64..100_000_000, c in 0_i64..10_000_001) {
+        // ADR 0045 before prices per package: grams × cents per kg, exactly.
+        let price = UnitPrice::per_kg(cents(c));
+        prop_assert_eq!(price.cost(grams).get(), i128::from(grams) * i128::from(c));
+        prop_assert_eq!(price.per_kg_cents(), cents(c));
+        prop_assert_eq!(price.per_gram().get(), i128::from(c));
+    }
+
+    #[test]
+    fn a_package_line_is_within_half_a_millicent(
+        grams in 0_u64..100_000_000,
+        c in 0_i64..10_000_001,
+        weight in 1_u32..1_000_001,
+    ) {
+        let cost = package(c, weight).cost(grams).get();
+        let exact_times_weight = i128::from(grams) * i128::from(c) * 1000;
+        let weight = i128::from(weight);
+        // |cost − exact| ≤ ½ millicent, with ties rounded up.
+        prop_assert!(2 * (cost * weight - exact_times_weight) <= weight);
+        prop_assert!(2 * (exact_times_weight - cost * weight) < weight);
+    }
+
+    #[test]
+    fn package_prices_keep_the_parts_adding_up(
+        standard in formula_strategy(),
+        actual in formula_strategy(),
+        dough_g in 1_u64..5_000_000,
+        good in 0_u64..2_000,
+        standard_prices in package_prices_strategy(),
+        actual_prices in package_prices_strategy(),
+    ) {
+        let good_g = dough_g * good / 1000;
+        let v = Variance::new(&input(
+            &standard, &actual, dough_g, good_g, &standard_prices, &actual_prices,
+        )).unwrap();
+        let parts = v.recipe.cents() + v.price.cents() + v.yield_loss.cents();
+        prop_assert_eq!(parts, v.total().cents());
+        let exact = |f: &Formula, p: &Prices| {
+            DoughCost::new(&DoughGrams::from_formula(f, dough_g).unwrap(), p)
+                .total()
+                .unwrap()
+                .get()
+        };
+        let s1 = exact(&standard, &standard_prices);
+        let s2 = exact(&actual, &standard_prices);
+        let s3 = exact(&actual, &actual_prices);
+        let near = |part: Money, exact_millicents: i128| {
+            (i128::from(part.cents()) * 1000 - exact_millicents).abs() < 1000
+        };
+        prop_assert!(near(v.recipe, s2 - s1));
+        prop_assert!(near(v.price, s3 - s2));
+        prop_assert_eq!(v.actual.cents(), round_div(s3, 1000));
+    }
+}
+
+fn package_prices_strategy() -> impl Strategy<Value = Prices> {
+    prop::collection::vec((0_i64..10_000_001, 1_u32..1_000_001), 5).prop_map(|list| {
+        list.into_iter()
+            .enumerate()
+            .map(|(i, (c, w))| {
+                (
+                    IngredientId::new(i64::try_from(i).unwrap() + 1),
+                    package(c, w),
+                )
+            })
+            .collect()
+    })
 }

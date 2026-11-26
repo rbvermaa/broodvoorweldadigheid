@@ -140,7 +140,7 @@ async fn flour_bread(conn: &mut sqlx::PgConnection, bread: domain::ProductId) {
         &FakeClock::new(ts("2026-10-01T10:00:00Z")),
         &recipes::prices::NewPrice {
             ingredient_id: flour,
-            per_kg: Money::from_cents(100),
+            price: recipes::cost::UnitPrice::per_kg(Money::from_cents(100)),
             valid_from: date("2026-10-01"),
             by: None,
         },

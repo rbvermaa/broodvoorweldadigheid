@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO ingredient_price\n            (ingredient_id, price_per_kg_cents, valid_from, created_at, created_by)\n        SELECT id, $2, date 'epoch' + $3::integer,\n            timestamptz 'epoch' + $4::bigint * interval '1 microsecond', $5\n        FROM ingredient WHERE id = $1\n        RETURNING id, ingredient_id, price_per_kg_cents,\n            (valid_from - date 'epoch') AS \"valid_day!\",\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\"",
+  "query": "INSERT INTO ingredient_price\n            (ingredient_id, price_per_kg_cents, price_cents, weight_g, valid_from, created_at,\n                created_by)\n        SELECT id, $2, $3, $4, date 'epoch' + $5::integer,\n            timestamptz 'epoch' + $6::bigint * interval '1 microsecond', $7\n        FROM ingredient WHERE id = $1\n        RETURNING id, ingredient_id, price_per_kg_cents, price_cents, weight_g,\n            (valid_from - date 'epoch') AS \"valid_day!\",\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\"",
   "describe": {
     "columns": [
       {
@@ -38,12 +38,34 @@
       },
       {
         "ordinal": 3,
+        "name": "price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ingredient_price",
+            "name": "price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "weight_g",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ingredient_price",
+            "name": "weight_g"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "valid_day!",
         "type_info": "Int4",
         "origin": "Expression"
       },
       {
-        "ordinal": 4,
+        "ordinal": 6,
         "name": "created_us!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -53,6 +75,8 @@
       "Left": [
         "Int8",
         "Int8",
+        "Int8",
+        "Int4",
         "Int4",
         "Int8",
         "Int8"
@@ -62,9 +86,11 @@
       false,
       false,
       false,
+      true,
+      true,
       null,
       null
     ]
   },
-  "hash": "60a506d460c0b6de50a2dcb26d6c6a8a062b5e68a3d7c818f8ac1321827acc8e"
+  "hash": "6936e3be9b99e42495bbca9e570cd1fede3c7183ccc813b7a984cf1f3901dbce"
 }
