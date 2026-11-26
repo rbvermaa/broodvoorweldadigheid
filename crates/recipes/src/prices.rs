@@ -10,17 +10,21 @@ use jiff::civil::Date;
 use sqlx::PgConnection;
 
 use crate::Error;
-use crate::cost::{PieceCost, Prices};
+use crate::cost::{PieceCost, Prices, UnitPrice};
 use crate::formula::ScaleError;
 use crate::needs::{ProductRecipe, product_recipes};
 
-/// The highest price per kilogram, in cents: €100.000.
+/// The highest price paid, in cents: €100.000.
+pub const MAX_PRICE_CENTS: i64 = 10_000_000;
+/// The heaviest package, in grams: 1000 kg.
+pub const MAX_WEIGHT_G: u32 = 1_000_000;
+/// The highest price per kilogram, rounded, in cents: €100.000.
 pub const MAX_PER_KG_CENTS: i64 = 10_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewPrice {
     pub ingredient_id: IngredientId,
-    pub per_kg: Money,
+    pub price: UnitPrice,
     /// A date in Europe/Amsterdam; the price counts from the start of that day.
     pub valid_from: Date,
     pub by: Option<StaffUserId>,
@@ -30,7 +34,8 @@ pub struct NewPrice {
 pub struct Price {
     pub id: i64,
     pub ingredient_id: IngredientId,
-    pub per_kg: Money,
+    /// As entered. A price from before prices per package is per 1000 g.
+    pub price: UnitPrice,
     pub valid_from: Date,
     pub created_at: Timestamp,
 }
@@ -39,6 +44,8 @@ struct Row {
     id: i64,
     ingredient_id: i64,
     price_per_kg_cents: i64,
+    price_cents: Option<i64>,
+    weight_g: Option<i32>,
     valid_day: i32,
     created_us: i64,
 }
@@ -47,10 +54,17 @@ impl TryFrom<Row> for Price {
     type Error = Error;
 
     fn try_from(row: Row) -> Result<Self, Error> {
+        let price = match (row.price_cents, row.weight_g) {
+            (Some(cents), Some(weight)) => u32::try_from(weight)
+                .ok()
+                .and_then(|weight| UnitPrice::new(Money::from_cents(cents), weight))
+                .ok_or_else(|| Error::Corrupt("ingredient_price.weight_g".to_owned()))?,
+            _ => UnitPrice::per_kg(Money::from_cents(row.price_per_kg_cents)),
+        };
         Ok(Self {
             id: row.id,
             ingredient_id: IngredientId::new(row.ingredient_id),
-            per_kg: Money::from_cents(row.price_per_kg_cents),
+            price,
             valid_from: from_epoch_days(row.valid_day)?,
             created_at: from_micros(row.created_us)?,
         })
@@ -63,32 +77,49 @@ pub fn today(clock: &dyn Clock) -> Date {
     clock.now_in_bakery().date()
 }
 
+/// Why a price cannot be stored; `None` when it can.
+#[must_use]
+pub fn problem(price: UnitPrice) -> Option<&'static str> {
+    if !(0..=MAX_PRICE_CENTS).contains(&price.price().cents()) {
+        Some("price")
+    } else if price.weight_g() > MAX_WEIGHT_G {
+        Some("weight")
+    } else if price.per_kg_cents().cents() > MAX_PER_KG_CENTS {
+        Some("per_kg")
+    } else {
+        None
+    }
+}
+
 /// Adds a price from `valid_from` on. A second price with the same date replaces the first
 /// from then on; both stay in the history.
 ///
 /// # Errors
-/// [`Error::Invalid`] with `price` below zero or above [`MAX_PER_KG_CENTS`];
-/// [`Error::NotFound`] for an unknown ingredient.
+/// [`Error::Invalid`] with the [`problem`] of the price; [`Error::NotFound`] for an
+/// unknown ingredient.
 pub async fn add(
     conn: &mut PgConnection,
     clock: &dyn Clock,
     price: &NewPrice,
 ) -> Result<Price, Error> {
-    if !(0..=MAX_PER_KG_CENTS).contains(&price.per_kg.cents()) {
-        return Err(Error::Invalid("price"));
+    if let Some(field) = problem(price.price) {
+        return Err(Error::Invalid(field));
     }
     sqlx::query_as!(
         Row,
         r#"INSERT INTO ingredient_price
-            (ingredient_id, price_per_kg_cents, valid_from, created_at, created_by)
-        SELECT id, $2, date 'epoch' + $3::integer,
-            timestamptz 'epoch' + $4::bigint * interval '1 microsecond', $5
+            (ingredient_id, price_per_kg_cents, price_cents, weight_g, valid_from, created_at,
+                created_by)
+        SELECT id, $2, $3, $4, date 'epoch' + $5::integer,
+            timestamptz 'epoch' + $6::bigint * interval '1 microsecond', $7
         FROM ingredient WHERE id = $1
-        RETURNING id, ingredient_id, price_per_kg_cents,
+        RETURNING id, ingredient_id, price_per_kg_cents, price_cents, weight_g,
             (valid_from - date 'epoch') AS "valid_day!",
             (extract(epoch FROM created_at) * 1000000)::bigint AS "created_us!""#,
         price.ingredient_id.get(),
-        price.per_kg.cents(),
+        price.price.per_kg_cents().cents(),
+        price.price.price().cents(),
+        i32::try_from(price.price.weight_g()).map_err(|_| Error::Invalid("weight"))?,
         to_epoch_days(price.valid_from),
         to_micros(clock.now()),
         price.by.map(StaffUserId::get),
@@ -110,7 +141,7 @@ pub async fn history(
 ) -> Result<Vec<Price>, Error> {
     sqlx::query_as!(
         Row,
-        r#"SELECT id, ingredient_id, price_per_kg_cents,
+        r#"SELECT id, ingredient_id, price_per_kg_cents, price_cents, weight_g,
             (valid_from - date 'epoch') AS "valid_day!",
             (extract(epoch FROM created_at) * 1000000)::bigint AS "created_us!"
         FROM ingredient_price WHERE ingredient_id = $1
@@ -136,6 +167,7 @@ pub async fn valid_on(
     sqlx::query_as!(
         Row,
         r#"SELECT DISTINCT ON (ingredient_id) id, ingredient_id, price_per_kg_cents,
+            price_cents, weight_g,
             (valid_from - date 'epoch') AS "valid_day!",
             (extract(epoch FROM created_at) * 1000000)::bigint AS "created_us!"
         FROM ingredient_price WHERE valid_from <= date 'epoch' + $1::integer
@@ -152,7 +184,7 @@ pub async fn valid_on(
     .collect()
 }
 
-/// [`valid_on`] as prices per kilogram.
+/// [`valid_on`] as the prices costing works with.
 ///
 /// # Errors
 /// As [`valid_on`].
@@ -160,7 +192,7 @@ pub async fn prices_on(conn: &mut PgConnection, date: Date) -> Result<Prices, Er
     Ok(valid_on(conn, date)
         .await?
         .into_iter()
-        .map(|(id, price)| (id, price.per_kg))
+        .map(|(id, price)| (id, price.price))
         .collect())
 }
 

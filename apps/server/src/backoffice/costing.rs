@@ -7,17 +7,19 @@ use axum::Router;
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use catalog::products;
 use domain::{BatchId, IngredientId, Money, ProductId};
 use jiff::ToSpan;
 use production::costing::{self, BatchCost};
-use recipes::cost::{CostError, CostLine, DoughCost, STANDARD_PIECES, Variance, round_div};
+use recipes::cost::{
+    CostError, CostLine, DoughCost, STANDARD_PIECES, UnitPrice, Variance, round_div,
+};
 use recipes::prices::{self, NewPrice, NoCost, StandardCost};
 use recipes::{Ingredient, ingredients};
 use tower_sessions::Session;
 
-use super::form::{Errors, Fields, parse_date, parse_money};
+use super::form::{Errors, Fields, parse_count, parse_date, parse_money};
 use super::reports::money;
 use super::{
     Flash, Outcome, Rejection, Step, fail, invalid_status, layout, not_found, path_id, require,
@@ -38,6 +40,10 @@ pub fn routes() -> Router<AppState> {
             "/staff/costing/ingredients/{id}",
             get(ingredient_page).post(add_price),
         )
+        .route(
+            "/staff/costing/ingredients/{id}/preview",
+            post(preview_price),
+        )
         .route("/staff/costing/products/{id}", get(product_page))
         .route("/staff/costing/batches/{id}", get(batch_page))
 }
@@ -54,11 +60,61 @@ fn batch_path(id: BatchId) -> String {
     format!("/staff/costing/batches/{}", id.get())
 }
 
-fn per_kg(state: &AppState, price: Option<Money>) -> Cell {
-    price.map_or_else(
-        || Cell::muted(t(state, "costing-no-price")),
-        |p| Cell::number(money(p)),
+/// `€ 21,37 per 25 kg`, `€ 3,99 per 750 g`, `€ 0,95 per kg`.
+fn as_entered(state: &AppState, price: UnitPrice) -> String {
+    let grams = price.weight_g();
+    let weight = match grams {
+        1000 => t(state, "costing-weight-one-kg"),
+        _ if grams.is_multiple_of(1000) => t_with(
+            state,
+            "costing-weight-kg",
+            &[("kg", i18n::decimal(i64::from(grams / 1000), 0))],
+        ),
+        _ => t_with(
+            state,
+            "costing-weight-g",
+            &[("grams", i18n::decimal(i64::from(grams), 0))],
+        ),
+    };
+    t_with(
+        state,
+        "costing-price-for",
+        &[("price", money(price.price())), ("weight", weight)],
     )
+}
+
+/// One gram to a thousandth of a cent, `€ 0,00085`, so cheap ingredients still show.
+fn per_gram(price: UnitPrice) -> String {
+    let millicents = i64::try_from(price.per_gram().get()).unwrap_or(i64::MAX);
+    format!("€\u{a0}{}", i18n::decimal(millicents, 5))
+}
+
+/// The price as entered, per kilo and per gram; "no price" and two empty cells without.
+fn price_cells(state: &AppState, price: Option<UnitPrice>) -> [Cell; 3] {
+    price.map_or_else(
+        || {
+            [
+                Cell::muted(t(state, "costing-no-price")),
+                Cell::text(String::new()),
+                Cell::text(String::new()),
+            ]
+        },
+        |p| {
+            [
+                Cell::text(as_entered(state, p)),
+                Cell::number(money(p.per_kg_cents())),
+                Cell::number(per_gram(p)),
+            ]
+        },
+    )
+}
+
+fn price_heads(state: &AppState) -> [Cell; 3] {
+    [
+        Cell::text(t(state, "costing-col-price")),
+        Cell::number(t(state, "costing-col-per-kg")),
+        Cell::number(t(state, "costing-col-per-gram")),
+    ]
 }
 
 fn grams(value: u64) -> String {
@@ -157,22 +213,22 @@ async fn overview(State(state): State<AppState>, staff: Staff) -> Response {
         let prices = Table {
             id: "prijzen".to_owned(),
             caption: t(&state, "costing-prices-caption"),
-            head: vec![
-                Cell::text(t(&state, "costing-col-ingredient")),
-                Cell::number(t(&state, "costing-col-per-kg")),
-                Cell::text(t(&state, "costing-col-valid-from")),
-            ],
+            head: [Cell::text(t(&state, "costing-col-ingredient"))]
+                .into_iter()
+                .chain(price_heads(&state))
+                .chain([Cell::text(t(&state, "costing-col-valid-from"))])
+                .collect(),
             rows: all
                 .iter()
                 .map(|i| {
                     let price = valid.get(&i.id);
-                    vec![
-                        Cell::link(i.name.clone(), ingredient_path(i.id)),
-                        per_kg(&state, price.map(|p| p.per_kg)),
-                        Cell::text(
+                    [Cell::link(i.name.clone(), ingredient_path(i.id))]
+                        .into_iter()
+                        .chain(price_cells(&state, price.map(|p| p.price)))
+                        .chain([Cell::text(
                             price.map_or_else(String::new, |p| i18n::numeric_date(p.valid_from)),
-                        ),
-                    ]
+                        )])
+                        .collect()
                 })
                 .collect(),
         };
@@ -250,8 +306,57 @@ async fn overview(State(state): State<AppState>, staff: Staff) -> Response {
 }
 
 pub struct PriceForm {
-    pub per_kg: String,
+    pub price: String,
+    pub weight_g: String,
     pub valid_from: String,
+}
+
+impl PriceForm {
+    fn from_fields(fields: &Fields) -> Self {
+        Self {
+            price: fields.text("price").to_owned(),
+            weight_g: fields.text("weight_g").to_owned(),
+            valid_from: fields.text("valid_from").to_owned(),
+        }
+    }
+
+    /// The price and weight in the form; on a problem, its Dutch text per field in
+    /// `errors`.
+    fn unit_price(&self, state: &AppState, errors: &mut Errors) -> Option<UnitPrice> {
+        let cents = parse_money(&self.price).filter(|c| *c <= prices::MAX_PRICE_CENTS);
+        if cents.is_none() {
+            errors.add("price", t(state, "costing-error-price"));
+        }
+        let weight = parse_count(&self.weight_g).filter(|g| (1..=prices::MAX_WEIGHT_G).contains(g));
+        if weight.is_none() {
+            errors.add("weight_g", t(state, "costing-error-weight"));
+        }
+        let price = UnitPrice::new(Money::from_cents(cents?), weight?)?;
+        if prices::problem(price).is_some() {
+            errors.add("weight_g", t(state, "costing-error-per-kg-high"));
+            return None;
+        }
+        Some(price)
+    }
+
+    /// What the price comes to per kilo and per gram, or how to get there.
+    fn conversion(&self, state: &AppState) -> String {
+        let mut errors = Errors::default();
+        match self.unit_price(state, &mut errors) {
+            Some(price) => t_with(
+                state,
+                "costing-conversion",
+                &[
+                    ("per_kg", money(price.per_kg_cents())),
+                    ("per_gram", per_gram(price)),
+                ],
+            ),
+            None if !errors.get("weight_g").is_empty() && !self.weight_g.trim().is_empty() => {
+                errors.get("weight_g").to_owned()
+            }
+            None => t(state, "costing-conversion-empty"),
+        }
+    }
 }
 
 #[derive(Template)]
@@ -260,7 +365,9 @@ struct IngredientPage<'a> {
     layout: Layout<'a>,
     heading: String,
     action: String,
+    preview: String,
     history: Table,
+    conversion: String,
     form: PriceForm,
     errors: Errors,
     saved: bool,
@@ -292,24 +399,25 @@ async fn render_ingredient(
     let history = Table {
         id: "prijshistorie".to_owned(),
         caption: t(state, "costing-history-caption"),
-        head: vec![
-            Cell::text(t(state, "costing-col-valid-from")),
-            Cell::number(t(state, "costing-col-per-kg")),
-            Cell::text(t(state, "costing-col-entered")),
-        ],
+        head: [Cell::text(t(state, "costing-col-valid-from"))]
+            .into_iter()
+            .chain(price_heads(state))
+            .chain([Cell::text(t(state, "costing-col-entered"))])
+            .collect(),
         rows: history
             .iter()
             .map(|p| {
-                vec![
-                    Cell::text(i18n::numeric_date(p.valid_from)),
-                    Cell::number(money(p.per_kg)),
-                    Cell::text(i18n::numeric_date(
+                [Cell::text(i18n::numeric_date(p.valid_from))]
+                    .into_iter()
+                    .chain(price_cells(state, Some(p.price)))
+                    .chain([Cell::text(i18n::numeric_date(
                         domain::in_bakery_time(p.created_at).date(),
-                    )),
-                ]
+                    ))])
+                    .collect()
             })
             .collect(),
     };
+    let action = ingredient_path(ingredient.id);
     Ok(pages::render(
         state,
         status,
@@ -320,8 +428,10 @@ async fn render_ingredient(
                 "costing-ingredient-heading",
                 &[("name", ingredient.name.clone())],
             ),
-            action: ingredient_path(ingredient.id),
+            preview: format!("{action}/preview"),
+            action,
             history,
+            conversion: form.conversion(state),
             form,
             errors,
             saved,
@@ -341,7 +451,8 @@ async fn ingredient_page(
         let ingredient = load_ingredient(&state, &id).await?;
         let today = prices::today(state.clock.as_ref());
         let form = PriceForm {
-            per_kg: String::new(),
+            price: String::new(),
+            weight_g: String::new(),
             valid_from: today.to_string(),
         };
         render_ingredient(
@@ -352,6 +463,32 @@ async fn ingredient_page(
             form,
             Errors::default(),
             flash.saved(),
+        )
+        .await
+    };
+    run.await.unwrap_or_else(Rejection::into_response)
+}
+
+/// The page for what is in the form, without saving: htmx swaps in the price per kilo and
+/// per gram as the owner types.
+async fn preview_price(
+    State(state): State<AppState>,
+    staff: Staff,
+    session: Session,
+    Path(id): Path<String>,
+    Form(fields): Form<Fields>,
+) -> Response {
+    let run = async {
+        require(&state, &staff, Permission::Costing)?;
+        let ingredient = load_ingredient(&state, &id).await?;
+        render_ingredient(
+            &state,
+            &session,
+            StatusCode::OK,
+            &ingredient,
+            PriceForm::from_fields(&fields),
+            Errors::default(),
+            false,
         )
         .await
     };
@@ -369,20 +506,14 @@ async fn add_price(
     let run = async {
         require(&state, &staff, Permission::Costing)?;
         let ingredient = load_ingredient(&state, &id).await?;
-        let form = PriceForm {
-            per_kg: fields.text("per_kg").to_owned(),
-            valid_from: fields.text("valid_from").to_owned(),
-        };
+        let form = PriceForm::from_fields(&fields);
         let mut errors = Errors::default();
-        let per_kg = parse_money(&form.per_kg).filter(|c| *c <= prices::MAX_PER_KG_CENTS);
-        if per_kg.is_none() {
-            errors.add("per_kg", t(&state, "costing-error-per-kg"));
-        }
+        let price = form.unit_price(&state, &mut errors);
         let valid_from = parse_date(&form.valid_from);
         if valid_from.is_none() {
             errors.add("valid_from", t(&state, "costing-error-valid-from"));
         }
-        let (Some(per_kg), Some(valid_from)) = (per_kg, valid_from) else {
+        let (Some(price), Some(valid_from)) = (price, valid_from) else {
             return render_ingredient(
                 &state,
                 &session,
@@ -400,7 +531,7 @@ async fn add_price(
             state.clock.as_ref(),
             &NewPrice {
                 ingredient_id: ingredient.id,
-                per_kg: Money::from_cents(per_kg),
+                price,
                 valid_from,
                 by: Some(staff.0.id),
             },
@@ -430,17 +561,20 @@ fn product_lines(state: &AppState, cost: &DoughCost) -> Table {
         .lines
         .iter()
         .map(|line: &CostLine| {
-            vec![
+            let mut row = vec![
                 Cell::text(line.ingredient.name.clone()),
                 Cell::number(milligrams(line.grams)),
-                per_kg(state, line.per_kg),
-                Cell::number(fine_money(line.cost.get(), pieces)),
-            ]
+            ];
+            row.extend(price_cells(state, line.price));
+            row.push(Cell::number(fine_money(line.cost.get(), pieces)));
+            row
         })
         .collect();
     if let Some(total) = cost.total() {
         rows.push(vec![
             Cell::text(t(state, "costing-total")),
+            Cell::text(String::new()),
+            Cell::text(String::new()),
             Cell::text(String::new()),
             Cell::text(String::new()),
             Cell::number(money(Money::from_cents(round_div(
@@ -452,12 +586,14 @@ fn product_lines(state: &AppState, cost: &DoughCost) -> Table {
     Table {
         id: "kostprijs".to_owned(),
         caption: t(state, "costing-product-caption"),
-        head: vec![
+        head: [
             Cell::text(t(state, "costing-col-ingredient")),
             Cell::number(t(state, "costing-col-grams")),
-            Cell::number(t(state, "costing-col-per-kg")),
-            Cell::number(t(state, "costing-col-cost")),
-        ],
+        ]
+        .into_iter()
+        .chain(price_heads(state))
+        .chain([Cell::number(t(state, "costing-col-cost"))])
+        .collect(),
         rows,
     }
 }
@@ -536,17 +672,20 @@ fn batch_lines(state: &AppState, cost: &DoughCost, actual: Option<Money>) -> Tab
         .lines
         .iter()
         .map(|line| {
-            vec![
+            let mut row = vec![
                 Cell::text(line.ingredient.name.clone()),
                 Cell::number(grams(line.grams)),
-                per_kg(state, line.per_kg),
-                Cell::number(fine_money(line.cost.get(), 1)),
-            ]
+            ];
+            row.extend(price_cells(state, line.price));
+            row.push(Cell::number(fine_money(line.cost.get(), 1)));
+            row
         })
         .collect();
     if let Some(actual) = actual {
         rows.push(vec![
             Cell::text(t(state, "costing-batch-total")),
+            Cell::text(String::new()),
+            Cell::text(String::new()),
             Cell::text(String::new()),
             Cell::text(String::new()),
             Cell::number(money(actual)),
@@ -555,12 +694,14 @@ fn batch_lines(state: &AppState, cost: &DoughCost, actual: Option<Money>) -> Tab
     Table {
         id: "batchkosten".to_owned(),
         caption: t(state, "costing-batch-caption"),
-        head: vec![
+        head: [
             Cell::text(t(state, "costing-col-ingredient")),
             Cell::number(t(state, "costing-col-batch-grams")),
-            Cell::number(t(state, "costing-col-per-kg")),
-            Cell::number(t(state, "costing-col-cost")),
-        ],
+        ]
+        .into_iter()
+        .chain(price_heads(state))
+        .chain([Cell::number(t(state, "costing-col-cost"))])
+        .collect(),
         rows,
     }
 }

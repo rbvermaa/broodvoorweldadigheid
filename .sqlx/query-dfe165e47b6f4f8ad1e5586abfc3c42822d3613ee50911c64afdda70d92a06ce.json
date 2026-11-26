@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, ingredient_id, price_per_kg_cents,\n            (valid_from - date 'epoch') AS \"valid_day!\",\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\"\n        FROM ingredient_price WHERE ingredient_id = $1\n        ORDER BY valid_from DESC, id DESC",
+  "query": "SELECT DISTINCT ON (ingredient_id) id, ingredient_id, price_per_kg_cents,\n            price_cents, weight_g,\n            (valid_from - date 'epoch') AS \"valid_day!\",\n            (extract(epoch FROM created_at) * 1000000)::bigint AS \"created_us!\"\n        FROM ingredient_price WHERE valid_from <= date 'epoch' + $1::integer\n        ORDER BY ingredient_id, valid_from DESC, id DESC",
   "describe": {
     "columns": [
       {
@@ -38,12 +38,34 @@
       },
       {
         "ordinal": 3,
+        "name": "price_cents",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ingredient_price",
+            "name": "price_cents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "weight_g",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ingredient_price",
+            "name": "weight_g"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
         "name": "valid_day!",
         "type_info": "Int4",
         "origin": "Expression"
       },
       {
-        "ordinal": 4,
+        "ordinal": 6,
         "name": "created_us!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -51,16 +73,18 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int4"
       ]
     },
     "nullable": [
       false,
       false,
       false,
+      true,
+      true,
       null,
       null
     ]
   },
-  "hash": "b3d5fd207fd7cf8e7f6a2a81194d8132df63c9cbf5396ab98fc001f14ec064b0"
+  "hash": "dfe165e47b6f4f8ad1e5586abfc3c42822d3613ee50911c64afdda70d92a06ce"
 }

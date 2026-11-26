@@ -1,8 +1,9 @@
 //! Costing (F16, ADR 0045): what a dough costs at given ingredient prices, the standard
 //! cost per piece, and a batch's variance split into recipe, price and yield. Pure: no I/O.
 //!
-//! Costs are exact integers in thousandths of a cent ([`MilliCents`]): grams × cents per
-//! kilogram. Only the figures shown are rounded, half up to whole cents.
+//! Costs are integers in thousandths of a cent ([`MilliCents`]): grams × price × 1000 ÷
+//! weight, rounded half up to a millicent per ingredient line, which is exact for prices
+//! per kilogram. Only the figures shown are rounded further, half up to whole cents.
 
 use std::collections::HashMap;
 
@@ -11,24 +12,80 @@ use domain::{IngredientId, Money};
 use crate::formula::{Formula, IngredientRef, ScaleError};
 use crate::needs::DoughGrams;
 
-/// Ingredient prices valid on one date, in whole cents per kilogram.
-pub type Prices = HashMap<IngredientId, Money>;
+/// What an ingredient costs: `price` for `weight_g` grams, as paid for a sack or a pack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitPrice {
+    price: Money,
+    weight_g: u32,
+}
+
+impl UnitPrice {
+    /// `None` for a weight of 0 g.
+    #[must_use]
+    pub const fn new(price: Money, weight_g: u32) -> Option<Self> {
+        if weight_g == 0 {
+            None
+        } else {
+            Some(Self { price, weight_g })
+        }
+    }
+
+    /// A price per kilogram: `price` for 1000 g.
+    #[must_use]
+    pub const fn per_kg(price: Money) -> Self {
+        Self {
+            price,
+            weight_g: 1000,
+        }
+    }
+
+    #[must_use]
+    pub const fn price(self) -> Money {
+        self.price
+    }
+
+    #[must_use]
+    pub const fn weight_g(self) -> u32 {
+        self.weight_g
+    }
+
+    /// `grams` at this price, rounded half up to a millicent.
+    #[must_use]
+    pub fn cost(self, grams: u64) -> MilliCents {
+        MilliCents(round_half_up(
+            i128::from(grams) * i128::from(self.price.cents()) * 1000,
+            i128::from(self.weight_g),
+        ))
+    }
+
+    /// One kilogram, rounded half up to cents.
+    #[must_use]
+    pub fn per_kg_cents(self) -> Money {
+        Money::from_cents(round_div(
+            i128::from(self.price.cents()) * 1000,
+            i128::from(self.weight_g),
+        ))
+    }
+
+    /// One gram, rounded half up to a millicent.
+    #[must_use]
+    pub fn per_gram(self) -> MilliCents {
+        self.cost(1)
+    }
+}
+
+/// Ingredient prices valid on one date.
+pub type Prices = HashMap<IngredientId, UnitPrice>;
 
 /// The standard cost per piece is worked out on this many pieces (ADR 0045).
 pub const STANDARD_PIECES: u32 = 1000;
 
-/// An exact cost in thousandths of a cent.
+/// A cost in thousandths of a cent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MilliCents(i128);
 
 impl MilliCents {
     pub const ZERO: Self = Self(0);
-
-    /// `grams` at `per_kg` cents per kilogram.
-    #[must_use]
-    pub fn of(grams: u64, per_kg: Money) -> Self {
-        Self(i128::from(grams) * i128::from(per_kg.cents()))
-    }
 
     #[must_use]
     pub const fn get(self) -> i128 {
@@ -42,11 +99,17 @@ impl MilliCents {
     }
 }
 
+/// `numerator / denominator` rounded half up (towards positive). `denominator` must be
+/// positive.
+const fn round_half_up(numerator: i128, denominator: i128) -> i128 {
+    (2 * numerator + denominator).div_euclid(2 * denominator)
+}
+
 /// `numerator / denominator` rounded half up (towards positive), clamped to `i64`.
 /// `denominator` must be positive.
 #[must_use]
 pub fn round_div(numerator: i128, denominator: i128) -> i64 {
-    let quotient = (2 * numerator + denominator).div_euclid(2 * denominator);
+    let quotient = round_half_up(numerator, denominator);
     i64::try_from(quotient.clamp(i128::from(i64::MIN), i128::from(i64::MAX))).unwrap_or_default()
 }
 
@@ -56,7 +119,7 @@ pub struct CostLine {
     pub ingredient: IngredientRef,
     pub grams: u64,
     /// `None` when the ingredient has no price on the date.
-    pub per_kg: Option<Money>,
+    pub price: Option<UnitPrice>,
     /// Zero without a price.
     pub cost: MilliCents,
 }
@@ -75,12 +138,12 @@ impl DoughCost {
                 .ingredients
                 .iter()
                 .map(|(ingredient, grams)| {
-                    let per_kg = prices.get(&ingredient.id).copied();
+                    let price = prices.get(&ingredient.id).copied();
                     CostLine {
                         ingredient: ingredient.clone(),
                         grams: *grams,
-                        per_kg,
-                        cost: per_kg.map_or(MilliCents::ZERO, |p| MilliCents::of(*grams, p)),
+                        price,
+                        cost: price.map_or(MilliCents::ZERO, |p| p.cost(*grams)),
                     }
                 })
                 .collect(),
@@ -91,7 +154,7 @@ impl DoughCost {
     pub fn missing(&self) -> impl Iterator<Item = &IngredientRef> {
         self.lines
             .iter()
-            .filter(|line| line.per_kg.is_none() && line.grams > 0)
+            .filter(|line| line.price.is_none() && line.grams > 0)
             .map(|line| &line.ingredient)
     }
 
@@ -99,7 +162,7 @@ impl DoughCost {
     #[must_use]
     pub fn total(&self) -> Option<MilliCents> {
         self.lines.iter().try_fold(MilliCents::ZERO, |sum, line| {
-            (line.per_kg.is_some() || line.grams == 0).then_some(MilliCents(sum.0 + line.cost.0))
+            (line.price.is_some() || line.grams == 0).then_some(MilliCents(sum.0 + line.cost.0))
         })
     }
 }
@@ -258,10 +321,13 @@ mod tests {
         assert_eq!(round_div(-6, 10), -1);
         assert_eq!(round_div(i128::MAX / 4, 1), i64::MAX);
         assert_eq!(
-            MilliCents::of(1500, Money::from_cents(81)).cents().cents(),
+            UnitPrice::per_kg(Money::from_cents(81))
+                .cost(1500)
+                .cents()
+                .cents(),
             122
         );
-        assert_eq!(MilliCents::of(1, Money::from_cents(499)).get(), 499);
+        assert_eq!(UnitPrice::per_kg(Money::from_cents(499)).cost(1).get(), 499);
     }
 
     #[test]

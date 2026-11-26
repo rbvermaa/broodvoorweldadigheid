@@ -295,7 +295,8 @@ Product          name_nl, description_nl, photo, price_incl_cents, vat_rate (9 |
                  ingredient_text, allergens_approved_by?, allergens_approved_at?, packaged,
                  sold_online, estimated_cost_cents?, active
 Ingredient       name, supplier_name, allergens[], may_contain[], spec_sheet_document_id?
-IngredientPrice  ingredient_id, price_per_kg_cents, valid_from
+IngredientPrice  ingredient_id, price_cents, weight_g, price_per_kg_cents, valid_from
+                 (price as paid for weight_g grams; rows from before have only price_per_kg_cents)
 Recipe           name, kind (dough | filling | topping), current_version_id
 RecipeVersion    recipe_id, version, frozen_at?, promoted_from_batch_id?, bake_loss_pct, lead_time_hours, notes,
                  method_kind (none | text | steps), method_text

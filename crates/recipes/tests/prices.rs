@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use domain::{IngredientId, Money, ProductId};
 use jiff::civil::{Date, date};
+use recipes::cost::UnitPrice;
 use recipes::prices::{self, NewPrice, NoCost};
 use recipes::{
     DraftInput, Error, IngredientInput, IngredientRole, LineInput, LinePart, Pct, RecipeInput,
@@ -41,7 +42,7 @@ async fn price(conn: &mut PgConnection, id: IngredientId, cents: i64, from: Date
         &clock(),
         &NewPrice {
             ingredient_id: id,
-            per_kg: Money::from_cents(cents),
+            price: UnitPrice::per_kg(Money::from_cents(cents)),
             valid_from: from,
             by: None,
         },
@@ -56,7 +57,7 @@ async fn on(conn: &mut PgConnection, id: IngredientId, day: Date) -> Option<i64>
         .await
         .unwrap()
         .get(&id)
-        .map(|p| p.cents())
+        .map(|p| p.per_kg_cents().cents())
 }
 
 #[sqlx::test(migrator = "db::MIGRATOR")]
@@ -94,7 +95,7 @@ async fn a_second_price_on_the_same_day_counts_and_both_stay(mut conn: PoolConne
     let history = prices::history(&mut conn, flour).await.unwrap();
     let ids: Vec<i64> = history.iter().map(|p| p.id).collect();
     assert_eq!(ids, [typo_fixed, first, older]);
-    assert_eq!(history[0].per_kg, Money::from_cents(59));
+    assert_eq!(history[0].price, UnitPrice::per_kg(Money::from_cents(59)));
     assert_eq!(
         history[0].created_at,
         "2026-12-01T10:00:00Z".parse().unwrap()
@@ -124,22 +125,168 @@ async fn prices_are_never_changed_or_removed(mut conn: PoolConnection<Postgres>)
 #[sqlx::test(migrator = "db::MIGRATOR")]
 async fn a_price_must_be_sensible(mut conn: PoolConnection<Postgres>) {
     let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
-    let new = |id, cents| NewPrice {
+    let new = |id, cents, weight_g| NewPrice {
         ingredient_id: id,
-        per_kg: Money::from_cents(cents),
+        price: UnitPrice::new(Money::from_cents(cents), weight_g).unwrap(),
         valid_from: date(2026, 12, 1),
         by: None,
     };
-    for cents in [-1, prices::MAX_PER_KG_CENTS + 1] {
-        let refused = prices::add(&mut conn, &clock(), &new(flour, cents)).await;
-        assert!(matches!(refused, Err(Error::Invalid("price"))), "{cents}");
+    for (cents, weight, why) in [
+        (-1, 1000, "price"),
+        (prices::MAX_PRICE_CENTS + 1, 1000, "price"),
+        (100, prices::MAX_WEIGHT_G + 1, "weight"),
+        // €1.000 for 1 g is €1.000.000 per kilo.
+        (100_000, 1, "per_kg"),
+    ] {
+        let refused = prices::add(&mut conn, &clock(), &new(flour, cents, weight)).await;
+        assert!(
+            matches!(refused, Err(Error::Invalid(w)) if w == why),
+            "{cents} {weight}"
+        );
     }
-    let unknown = prices::add(&mut conn, &clock(), &new(IngredientId::new(999), 95)).await;
+    let unknown = prices::add(&mut conn, &clock(), &new(IngredientId::new(999), 95, 1000)).await;
     assert!(matches!(unknown, Err(Error::NotFound)));
-    let water = prices::add(&mut conn, &clock(), &new(flour, 0))
+    let water = prices::add(&mut conn, &clock(), &new(flour, 0, 1))
         .await
         .unwrap();
-    assert_eq!(water.per_kg, Money::ZERO);
+    assert_eq!(water.price.price(), Money::ZERO);
+    let most = prices::add(
+        &mut conn,
+        &clock(),
+        &new(flour, prices::MAX_PRICE_CENTS, prices::MAX_WEIGHT_G),
+    )
+    .await
+    .unwrap();
+    assert_eq!(most.price.weight_g(), prices::MAX_WEIGHT_G);
+    // €100 for 1 g is exactly the most per kilo.
+    prices::add(&mut conn, &clock(), &new(flour, 10_000, 1))
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_price_is_kept_as_paid_for_its_weight(mut conn: PoolConnection<Postgres>) {
+    let flour = ingredient(&mut conn, "Roggemeel", IngredientRole::Flour).await;
+    let sack = UnitPrice::new(Money::from_cents(2137), 25_000).unwrap();
+    let added = prices::add(
+        &mut conn,
+        &clock(),
+        &NewPrice {
+            ingredient_id: flour,
+            price: sack,
+            valid_from: date(2026, 12, 1),
+            by: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(added.price, sack);
+    assert_eq!(
+        prices::history(&mut conn, flour).await.unwrap()[0].price,
+        sack
+    );
+    let on_day = prices::prices_on(&mut conn, date(2026, 12, 1))
+        .await
+        .unwrap();
+    assert_eq!(on_day[&flour], sack);
+    // The rounded price per kilo is stored too, for readers that only know that column.
+    let (per_kg, cents, weight): (i64, Option<i64>, Option<i32>) = sqlx::query_as(
+        "SELECT price_per_kg_cents, price_cents, weight_g FROM ingredient_price WHERE id = $1",
+    )
+    .bind(added.id)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    assert_eq!((per_kg, cents, weight), (85, Some(2137), Some(25_000)));
+}
+
+#[sqlx::test(migrator = "db::MIGRATOR")]
+async fn a_price_row_is_old_style_or_new_style(mut conn: PoolConnection<Postgres>) {
+    let flour = ingredient(&mut conn, "Tarwebloem", IngredientRole::Flour).await;
+    let insert = "INSERT INTO ingredient_price
+        (ingredient_id, price_per_kg_cents, price_cents, weight_g, valid_from, created_at)
+        VALUES ($1, $2, $3, $4, date '2026-12-01', now())";
+    for (per_kg, cents, weight) in [
+        (85, Some(2137), None),
+        (85, None, Some(25_000)),
+        (86, Some(2137), Some(25_000)),
+        (0, Some(0), Some(0)),
+        (532, Some(399), Some(-750)),
+    ] {
+        let refused = sqlx::query(insert)
+            .bind(flour.get())
+            .bind(per_kg)
+            .bind(cents)
+            .bind(weight)
+            .execute(&mut *conn)
+            .await;
+        assert!(refused.is_err(), "{per_kg} {cents:?} {weight:?}");
+    }
+    for (per_kg, cents, weight) in [
+        (95, None, None),
+        (85, Some(2137), Some(25_000)),
+        (532, Some(399), Some(750)),
+        (33_333, Some(100), Some(3)),
+    ] {
+        sqlx::query(insert)
+            .bind(flour.get())
+            .bind(per_kg)
+            .bind(cents)
+            .bind(weight)
+            .execute(&mut *conn)
+            .await
+            .unwrap_or_else(|e| panic!("{per_kg} {cents:?} {weight:?}: {e}"));
+    }
+}
+
+/// The migration that added prices per package.
+const PACKAGE_MIGRATION: i64 = 20_261_207_001_100;
+
+#[sqlx::test(migrations = false)]
+async fn prices_entered_per_kilo_keep_their_cost(pool: sqlx::PgPool) {
+    let before = db::MIGRATOR
+        .iter()
+        .map(|m| m.version)
+        .filter(|v| *v < PACKAGE_MIGRATION)
+        .max()
+        .unwrap();
+    db::MIGRATOR.run_to(before, &pool).await.unwrap();
+    let flour: i64 = sqlx::query_scalar(
+        "INSERT INTO ingredient (name, role) VALUES ('Tarwebloem', 'flour') RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ingredient_price (ingredient_id, price_per_kg_cents, valid_from, created_at)
+        VALUES ($1, 95, date '2026-12-01', now()), ($1, 0, date '2026-11-01', now())",
+    )
+    .bind(flour)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    db::MIGRATOR.run(&pool).await.unwrap();
+    let mut conn = pool.acquire().await.unwrap();
+    let flour = IngredientId::new(flour);
+    let history = prices::history(&mut conn, flour).await.unwrap();
+    let kept: Vec<UnitPrice> = history.iter().map(|p| p.price).collect();
+    assert_eq!(
+        kept,
+        [
+            UnitPrice::per_kg(Money::from_cents(95)),
+            UnitPrice::per_kg(Money::ZERO)
+        ]
+    );
+    let price = prices::prices_on(&mut conn, date(2026, 12, 1))
+        .await
+        .unwrap()[&flour];
+    assert_eq!(price.cost(10_453).get(), 10_453 * 95);
+    assert_eq!(price.per_kg_cents(), Money::from_cents(95));
+    let updated = sqlx::query("UPDATE ingredient_price SET weight_g = 1000")
+        .execute(&mut *conn)
+        .await;
+    assert!(updated.is_err(), "prices stay history");
 }
 
 #[test]
