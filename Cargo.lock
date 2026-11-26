@@ -667,6 +667,7 @@ dependencies = [
  "auth",
  "clap",
  "db",
+ "domain",
  "jiff",
  "serde",
  "serde_json",

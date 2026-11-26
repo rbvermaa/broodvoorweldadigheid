@@ -80,6 +80,67 @@ pub enum BackupCommand {
     Run(RunArgs),
     #[command(about = "Restore the latest backup into a scratch database and verify it")]
     RestoreTest(RestoreTestArgs),
+    #[command(about = "List the backup runs in a repository, newest first")]
+    List(RepoArgs),
+    #[command(about = "Forget the runs the --keep-* policy drops, then remove their data")]
+    Prune(PruneArgs),
+    #[command(
+        about = "Replace the database with a backup run; stop the server first (make restore-local)"
+    )]
+    Restore(RestoreArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct RepoArgs {
+    #[arg(long)]
+    pub repo: String,
+    #[arg(long)]
+    pub password_file: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct PruneArgs {
+    #[command(flatten)]
+    pub repo: RepoArgs,
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "newest run of each of the last N hours"
+    )]
+    pub keep_hourly: usize,
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "newest run of each of the last N days"
+    )]
+    pub keep_daily: usize,
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "newest run of each of the last N ISO weeks"
+    )]
+    pub keep_weekly: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct RestoreArgs {
+    #[command(flatten)]
+    pub repo: RepoArgs,
+    #[arg(
+        long,
+        env = "DATABASE_URL",
+        hide_env_values = true,
+        help = "the database to replace; the login must be allowed to drop and create databases"
+    )]
+    pub database_url: String,
+    #[arg(
+        long,
+        default_value = "latest",
+        help = "run id from `backup list`, or latest"
+    )]
+    pub run: String,
+    #[arg(long, help = "required: the current database is dropped")]
+    pub yes_overwrite: bool,
 }
 
 #[derive(Debug, Args)]
@@ -96,6 +157,11 @@ pub struct RunArgs {
     pub database_url: String,
     #[arg(long)]
     pub uploads: Option<PathBuf>,
+    #[arg(
+        long,
+        help = "directory with Kanidm's online backups; skipped with a warning while it is empty"
+    )]
+    pub kanidm: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -177,13 +243,81 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
                 println!("wrote {}", path.display());
             }
         }
-        Command::Backup(BackupCommand::Run(args)) => {
+        Command::Backup(command) => execute_backup(command, now).await?,
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn rustic_repo(args: &RepoArgs) -> backup::Repo<'_> {
+    backup::Repo {
+        location: &args.repo,
+        password_file: &args.password_file,
+    }
+}
+
+async fn execute_backup(command: BackupCommand, now: jiff::Timestamp) -> Result<(), Error> {
+    let time_zone = domain::bakery_time_zone();
+    match command {
+        BackupCommand::List(args) => {
+            let runs = backup::list(&rustic_repo(&args))?;
+            if runs.is_empty() {
+                println!("no backups in {}", args.repo);
+            }
+            for run in &runs {
+                println!("{}", backup::retention::describe(run, &time_zone));
+            }
+        }
+        BackupCommand::Prune(args) => {
+            let policy = backup::Policy {
+                hourly: args.keep_hourly,
+                daily: args.keep_daily,
+                weekly: args.keep_weekly,
+            };
+            let plan = backup::prune(&rustic_repo(&args.repo), policy, &time_zone)?;
+            println!(
+                "kept {} runs, forgot {} runs ({} snapshots) in {}",
+                plan.keep.len(),
+                plan.forget_runs.len(),
+                plan.forget.len(),
+                args.repo.repo
+            );
+        }
+        BackupCommand::Restore(args) => {
+            let run_id = backup::run_id(now)?;
+            let restored = backup::restore(&backup::Restore {
+                repo: &args.repo.repo,
+                password_file: &args.repo.password_file,
+                database_url: &args.database_url,
+                run: Some(&args.run),
+                scratch_database: &backup::scratch_database(&run_id),
+                confirmed: args.yes_overwrite,
+                now,
+            })
+            .await?;
+            println!(
+                "restored run {} into database {}: {} tables match the manifest, migrations applied\n\
+                 the data from before is in database {}; drop it once you no longer need it",
+                restored.run, restored.database, restored.tables, restored.previous
+            );
+        }
+        BackupCommand::Run(args) => {
             let run_id = &backup::run_id(now)?;
+            let kanidm = args.kanidm.as_deref().filter(|dir| {
+                let present = backup::has_files(dir);
+                if !present {
+                    eprintln!(
+                        "warning: no Kanidm backup in {} yet; this run has the database only",
+                        dir.display()
+                    );
+                }
+                present
+            });
             backup::run(&backup::BackupRun {
                 repos: &args.repos,
                 password_file: &args.password_file,
                 database_url: &args.database_url,
                 uploads: args.uploads.as_deref(),
+                kanidm,
                 run_id,
             })
             .await?;
@@ -192,7 +326,7 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
                 args.repos.len()
             );
         }
-        Command::Backup(BackupCommand::RestoreTest(args)) => {
+        BackupCommand::RestoreTest(args) => {
             let run_id = &backup::run_id(now)?;
             let scratch_database = backup::scratch_database(run_id);
             let mut failed = 0;
@@ -228,7 +362,7 @@ pub async fn execute(command: Command, now: jiff::Timestamp) -> Result<ExitCode,
             }
         }
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -452,5 +586,92 @@ mod tests {
         ])
         .expect_err("missing --repo");
         assert!(error.to_string().contains("--repo"), "{error}");
+    }
+
+    #[test]
+    fn parses_backup_run_with_kanidm() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "backup",
+            "run",
+            "--repo=/backup/repo",
+            "--password-file=/pw",
+            "--database-url=postgres://db/postgres",
+            "--kanidm=/kanidm/backups",
+        ])
+        .expect("valid arguments");
+        let Command::Backup(BackupCommand::Run(args)) = cli.command else {
+            panic!("expected backup run, got {cli:?}");
+        };
+        assert_eq!(args.kanidm, Some(PathBuf::from("/kanidm/backups")));
+        assert_eq!(args.uploads, None);
+    }
+
+    #[test]
+    fn parses_backup_prune_with_zero_as_the_default() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "backup",
+            "prune",
+            "--repo=/backup/repo",
+            "--password-file=/pw",
+            "--keep-hourly=24",
+            "--keep-weekly=8",
+        ])
+        .expect("valid arguments");
+        let Command::Backup(BackupCommand::Prune(args)) = cli.command else {
+            panic!("expected backup prune, got {cli:?}");
+        };
+        assert_eq!(args.repo.repo, "/backup/repo");
+        assert_eq!(
+            (args.keep_hourly, args.keep_daily, args.keep_weekly),
+            (24, 0, 8)
+        );
+    }
+
+    #[test]
+    fn backup_restore_defaults_to_latest_and_no_confirmation() {
+        let parse = |extra: &[&str]| {
+            let mut args = vec![
+                "cli",
+                "backup",
+                "restore",
+                "--repo=/backup/repo",
+                "--password-file=/pw",
+                "--database-url=postgres://db/postgres",
+            ];
+            args.extend(extra);
+            let cli = Cli::try_parse_from(args).expect("valid arguments");
+            let Command::Backup(BackupCommand::Restore(args)) = cli.command else {
+                panic!("expected backup restore, got {cli:?}");
+            };
+            args
+        };
+        let plain = parse(&[]);
+        assert_eq!(plain.run, "latest");
+        assert!(!plain.yes_overwrite);
+        let confirmed = parse(&["--run=1795640400000000000", "--yes-overwrite"]);
+        assert_eq!(confirmed.run, "1795640400000000000");
+        assert!(confirmed.yes_overwrite);
+    }
+
+    #[tokio::test]
+    async fn backup_restore_refuses_without_yes_overwrite_before_touching_anything() {
+        let cli = Cli::try_parse_from([
+            "cli",
+            "backup",
+            "restore",
+            "--repo=/does/not/exist",
+            "--password-file=/does/not/exist",
+            "--database-url=postgres://nowhere.invalid/postgres",
+        ])
+        .expect("valid arguments");
+        let error = execute(cli.command, jiff::Timestamp::UNIX_EPOCH)
+            .await
+            .expect_err("not confirmed");
+        assert_eq!(
+            error.to_string(),
+            "restoring replaces the whole database with the backup; pass --yes-overwrite to go ahead"
+        );
     }
 }

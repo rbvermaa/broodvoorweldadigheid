@@ -52,8 +52,33 @@ postgres volume to start fresh (`bvw` is the `make up` project name):
     docker compose --file deploy/compose.yaml --project-name bvw rm -f postgres
     docker volume rm bvw_pgdata
 
-Do not use `docker compose down --volumes`: it also deletes Kanidm, the Caddy CA and the
-backup repository.
+Do not use `docker compose down --volumes` (`-v`): it also deletes Kanidm, the Caddy CA and
+the backup volume. `make down` never does.
+
+## Backups of the local stack
+
+`make down` and `make up` keep the data; it lives in Docker volumes. To also survive
+`down -v` or a broken volume, back it up to a directory on the Mac (ADR 0050):
+
+    make backup              # database and Kanidm to ~/Backups/bvw, then thin out old runs
+    make backup-schedule     # the same every hour; log in ~/Backups/bvw/backup.log
+    make backup-unschedule   # stop the hourly backups
+    make backup-list         # the runs, newest first
+
+`BVW_BACKUP_DIR=/other/dir` puts the backups elsewhere (an absolute path). The backups keep
+24 hourly, 14 daily and 8 weekly runs. The first backup copies `secrets/rustic-password` to
+the backup directory; keep it, since the backups only open with it.
+
+To put a run back (the server stops for a moment; the data from before stays as a second
+database, `postgres_before_<run>`):
+
+    make restore-local CONFIRM=yes                          # the newest run
+    make restore-local SNAPSHOT=1795640400000000000 CONFIRM=yes   # a run from backup-list
+
+After `docker compose down -v`, start an empty stack with `make up` first, then restore.
+This restores the database only. Kanidm (staff and passkeys) comes back with
+`make kanidm-setup`, `make kanidm-person` and `make staff-add` (new persons get a new
+sub), or from the `kanidm` part of a run (ADR 0050).
 
 The server sends email through Mailpit (`SMTP_HOST=mailpit`). Order emails need the
 company's address and KvK number, which have no form yet; until they are set, payments

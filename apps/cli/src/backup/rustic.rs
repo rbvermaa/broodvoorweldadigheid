@@ -70,17 +70,14 @@ pub fn backup_dir(repo: &Repo<'_>, dir: &Path, tags: &[&str]) -> Command {
     command
 }
 
-/// All tags must match. Never use `latest` without tags: it spans every snapshot group.
+/// All tags must match; no tags lists every snapshot. Never use `latest` without tags: it
+/// spans every snapshot group.
 pub fn snapshots(repo: &Repo<'_>, tags: &[&str]) -> Command {
     let mut command = rustic(repo);
-    command.args([
-        "snapshots",
-        "--json",
-        "--group-by",
-        "",
-        "--filter-tags",
-        &tags.join(","),
-    ]);
+    command.args(["snapshots", "--json", "--group-by", ""]);
+    if !tags.is_empty() {
+        command.args(["--filter-tags", &tags.join(",")]);
+    }
     command
 }
 
@@ -93,6 +90,13 @@ pub fn dump(repo: &Repo<'_>, snapshot_id: &str, filename: &str) -> Command {
 pub fn forget(repo: &Repo<'_>, snapshot_ids: &[String]) -> Command {
     let mut command = rustic(repo);
     command.arg("forget").args(snapshot_ids);
+    command
+}
+
+/// Removes the data that only forgotten snapshots used.
+pub fn prune(repo: &Repo<'_>) -> Command {
+    let mut command = rustic(repo);
+    command.arg("prune");
     command
 }
 
@@ -243,6 +247,19 @@ mod tests {
                 "manifest,run-9"
             ])
         );
+    }
+
+    #[test]
+    fn snapshots_without_tags_lists_everything() {
+        assert_eq!(
+            args(&snapshots(&repo(), &[])),
+            with_global(&["snapshots", "--json", "--group-by", ""])
+        );
+    }
+
+    #[test]
+    fn prune_runs_rustic_prune() {
+        assert_eq!(args(&prune(&repo())), with_global(&["prune"]));
     }
 
     #[test]

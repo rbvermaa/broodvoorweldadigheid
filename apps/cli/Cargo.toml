@@ -11,6 +11,7 @@ workspace = true
 auth = { path = "../../crates/auth" }
 clap = { workspace = true, features = ["env"] }
 db = { path = "../../crates/db" }
+domain = { path = "../../crates/domain" }
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true

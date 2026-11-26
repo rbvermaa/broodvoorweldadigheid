@@ -45,7 +45,7 @@ pub struct Choice {
     pub run: String,
 }
 
-fn run_of(snapshot: &Snapshot) -> Option<&str> {
+pub(crate) fn run_of(snapshot: &Snapshot) -> Option<&str> {
     snapshot
         .tags
         .iter()
@@ -96,6 +96,41 @@ pub fn choose(repo: &str, dumps: &[Snapshot], manifests: &[Snapshot]) -> Result<
             repo: repo.to_string(),
             skipped: skipped.join("\n  "),
         })
+    }
+}
+
+/// `latest` (or `None`) is [`choose`]; otherwise the run with that id, `run-` prefix optional.
+pub fn choose_run(
+    repo: &str,
+    dumps: &[Snapshot],
+    manifests: &[Snapshot],
+    run: Option<&str>,
+) -> Result<Choice, Error> {
+    let wanted = match run.map(str::trim) {
+        None | Some("latest") => return choose(repo, dumps, manifests),
+        Some(run) => run.strip_prefix(RUN_TAG_PREFIX).unwrap_or(run),
+    };
+    let newest_of = |snapshots: &[Snapshot]| {
+        snapshots
+            .iter()
+            .rev()
+            .find(|snapshot| run_of(snapshot) == Some(wanted))
+            .cloned()
+    };
+    match (newest_of(dumps), newest_of(manifests)) {
+        (Some(dump), Some(manifest)) => Ok(Choice {
+            dump,
+            manifest,
+            run: wanted.to_string(),
+        }),
+        (Some(_), None) => Err(Error::RunIncomplete {
+            repo: repo.to_string(),
+            run: wanted.to_string(),
+        }),
+        (None, _) => Err(Error::NoSuchRun {
+            repo: repo.to_string(),
+            run: wanted.to_string(),
+        }),
     }
 }
 
@@ -227,6 +262,46 @@ mod tests {
             error.to_string(),
             "no db snapshot in /repo has a manifest:\
              \n  db snapshot d9 of run 9 has no manifest — backup failed?"
+        );
+    }
+
+    #[test]
+    fn choose_run_finds_a_named_run_or_the_latest() {
+        let dumps = [
+            snapshot("d1", "2026-11-21T02:00:00Z", &["db", "run-1"]),
+            snapshot("d2", "2026-11-22T02:00:00Z", &["db", "run-2"]),
+            snapshot("d3", "2026-11-23T02:00:00Z", &["db", "run-3"]),
+        ];
+        let manifests = [
+            snapshot("m1", "2026-11-21T02:00:01Z", &["manifest", "run-1"]),
+            snapshot("m2", "2026-11-22T02:00:01Z", &["manifest", "run-2"]),
+        ];
+        for run in ["1", "run-1", " 1 "] {
+            let choice = choose_run("/repo", &dumps, &manifests, Some(run)).expect(run);
+            assert_eq!(
+                (choice.dump.id.as_str(), choice.manifest.id.as_str()),
+                ("d1", "m1")
+            );
+            assert_eq!(choice.run, "1");
+        }
+        let latest = choose_run("/repo", &dumps[..2], &manifests, Some("latest")).expect("latest");
+        assert_eq!(latest.run, "2");
+        assert_eq!(
+            choose_run("/repo", &dumps[..2], &manifests, None)
+                .expect("none")
+                .run,
+            "2"
+        );
+
+        let error = choose_run("/repo", &dumps, &manifests, Some("3")).expect_err("incomplete");
+        assert_eq!(
+            error.to_string(),
+            "run 3 in /repo has no manifest, so it is incomplete; pick another run"
+        );
+        let error = choose_run("/repo", &dumps, &manifests, Some("9")).expect_err("missing");
+        assert_eq!(
+            error.to_string(),
+            "no backup run 9 in /repo; `make backup-list` shows the runs"
         );
     }
 

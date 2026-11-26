@@ -73,6 +73,22 @@ pub fn with_database(url: &str, database: &str) -> Result<String, Error> {
     ))
 }
 
+/// The database a `postgres://` URL connects to.
+pub fn database_name(url: &str) -> Result<String, Error> {
+    let authority_start = url.find("://").ok_or(Error::DatabaseUrl)? + 3;
+    let rest = &url[authority_start..];
+    let (before_query, query) = rest.split_once('?').unwrap_or((rest, ""));
+    if names_a_database(query)? {
+        return Err(Error::DatabaseInQuery);
+    }
+    let (_, path) = before_query.split_once('/').ok_or(Error::DatabaseUrl)?;
+    let name = percent_decode(path)?;
+    if name.is_empty() {
+        return Err(Error::DatabaseUrl);
+    }
+    Ok(name)
+}
+
 /// Order-independent and constant memory: two sums of 64-bit halves of per-row md5s, so the
 /// table never has to fit in one text value.
 fn fingerprint_query(schema: &str, table: &str) -> String {
@@ -240,6 +256,34 @@ mod tests {
                 "the database URL must not name a database in its query (dbname=, database=)"
             );
         }
+    }
+
+    #[test]
+    fn database_name_reads_the_path() {
+        for (url, name) in [
+            ("postgres://postgres:pw@postgres:5432/postgres", "postgres"),
+            ("postgres://app@db/bak%20flow?sslmode=disable", "bak flow"),
+            ("postgres://app@localhost/x?host=/sock", "x"),
+        ] {
+            assert_eq!(database_name(url).expect(url), name);
+        }
+        for url in [
+            "postgres://db",
+            "postgres://db/",
+            "postgres://db/?host=/s",
+            "db/x",
+        ] {
+            let error = database_name(url).expect_err(url);
+            assert_eq!(
+                error.to_string(),
+                "the database URL must look like postgres://user@host/database"
+            );
+        }
+        let error = database_name("postgres://db/x?dbname=y").expect_err("query");
+        assert_eq!(
+            error.to_string(),
+            "the database URL must not name a database in its query (dbname=, database=)"
+        );
     }
 
     #[test]

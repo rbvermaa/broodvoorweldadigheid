@@ -2,16 +2,19 @@ pub mod manifest;
 pub mod postgres;
 mod process;
 mod report;
+pub mod retention;
 pub mod rustic;
 pub mod select;
 
 use std::path::Path;
 
+use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 use sqlx::{AssertSqlSafe, Connection, Executor, PgConnection};
 
 pub use manifest::{Manifest, Mismatch, Mismatches};
 pub use postgres::with_database;
+pub use retention::{Plan, Policy, Run};
 pub use rustic::Repo;
 pub use select::{RUN_TAG_PREFIX, run_id, scratch_database};
 
@@ -20,6 +23,7 @@ pub const DB_FILE: &str = "db.dump";
 pub const MANIFEST_TAG: &str = "manifest";
 pub const MANIFEST_FILE: &str = "manifest.json";
 pub const UPLOADS_TAG: &str = "uploads";
+pub const KANIDM_TAG: &str = "kanidm";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -115,6 +119,48 @@ pub enum Error {
     },
     #[error("restore test failed for {failed} of {total} repositories")]
     RestoreTestsFailed { failed: usize, total: usize },
+    #[error("the retention policy keeps no backups; set at least one --keep-* above 0")]
+    KeepsNothing,
+    #[error("run {run} in {repo} has no manifest, so it is incomplete; pick another run")]
+    RunIncomplete { repo: String, run: String },
+    #[error("no backup run {run} in {repo}; `make backup-list` shows the runs")]
+    NoSuchRun { repo: String, run: String },
+    #[error(
+        "restoring replaces the whole database with the backup; pass --yes-overwrite to go ahead"
+    )]
+    NotConfirmed,
+    #[error("will not restore over database {0}")]
+    ProtectedDatabase(String),
+    #[error("{0}")]
+    Swap(Box<SwapFailed>),
+}
+
+#[derive(Debug)]
+pub struct SwapFailed {
+    pub database: String,
+    pub scratch: String,
+    pub previous: String,
+    pub restored_back: bool,
+    pub source: sqlx::Error,
+}
+
+impl std::fmt::Display for SwapFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "could not rename the restored database {} to {}: {}. ",
+            self.scratch, self.database, self.source
+        )?;
+        if self.restored_back {
+            write!(f, "The data from before is back in place")
+        } else {
+            write!(
+                f,
+                "The data from before is in {}; rename it back by hand",
+                self.previous
+            )
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -123,6 +169,8 @@ pub struct BackupRun<'a> {
     pub password_file: &'a Path,
     pub database_url: &'a str,
     pub uploads: Option<&'a Path>,
+    /// Kanidm's online backups (deploy/compose.yaml), stored as they are.
+    pub kanidm: Option<&'a Path>,
     pub run_id: &'a str,
 }
 
@@ -179,6 +227,7 @@ pub async fn run(backup: &BackupRun<'_>) -> Result<(), Error> {
             &manifest_json,
             &run_tag,
             backup.uploads,
+            backup.kanidm,
         ) {
             failures.push(format!(
                 "{location}: {}: {}",
@@ -213,6 +262,7 @@ fn store_run(
     manifest_json: &[u8],
     run_tag: &str,
     uploads: Option<&Path>,
+    kanidm: Option<&Path>,
 ) -> Result<(), StepFailed> {
     let stored = (|| {
         let mut dump_command =
@@ -220,7 +270,11 @@ fn store_run(
         source.apply(&mut dump_command);
         process::run(dump_command).map_err(|error| ("db", error))?;
         if let Some(uploads) = uploads {
-            backup_uploads(repo, uploads, run_tag).map_err(|error| ("uploads", error))?;
+            backup_files(repo, uploads, UPLOADS_TAG, run_tag)
+                .map_err(|error| ("uploads", error))?;
+        }
+        if let Some(kanidm) = kanidm {
+            backup_files(repo, kanidm, KANIDM_TAG, run_tag).map_err(|error| ("kanidm", error))?;
         }
         process::run_with_input(
             rustic::backup_stdin(repo, MANIFEST_FILE, &[MANIFEST_TAG, run_tag]),
@@ -236,8 +290,8 @@ fn store_run(
 }
 
 /// rustic skips files it cannot read and still exits 0.
-fn backup_uploads(repo: &Repo<'_>, uploads: &Path, run_tag: &str) -> Result<(), Error> {
-    let stderr = process::run_stderr(rustic::backup_dir(repo, uploads, &[UPLOADS_TAG, run_tag]))?;
+fn backup_files(repo: &Repo<'_>, dir: &Path, tag: &str, run_tag: &str) -> Result<(), Error> {
+    let stderr = process::run_stderr(rustic::backup_dir(repo, dir, &[tag, run_tag]))?;
     if rustic::skipped_files(&stderr) {
         return Err(Error::Unreadable {
             program: "rustic".to_string(),
@@ -301,15 +355,7 @@ pub async fn restore_test(test: &RestoreTest<'_>) -> Result<Verified, Error> {
         &rustic::list_snapshots(&repo, &[MANIFEST_TAG])?,
     )?;
     let age = select::check_age(&choice, test.now, test.max_age)?;
-    let manifest_json = process::run(rustic::dump(&repo, &choice.manifest.id, MANIFEST_FILE))?;
-    let expected: Manifest =
-        serde_json::from_slice(&manifest_json).map_err(|source| Error::ManifestJson {
-            snapshot: choice.manifest.id.clone(),
-            source,
-        })?;
-    if expected.tables.is_empty() {
-        return Err(Error::EmptyManifest);
-    }
+    let expected = load_manifest(&repo, &choice)?;
     if expected.uploads {
         let run_tag = format!("{RUN_TAG_PREFIX}{}", choice.run);
         if rustic::list_snapshots(&repo, &[UPLOADS_TAG, &run_tag])?.is_empty() {
@@ -344,6 +390,177 @@ pub async fn restore_test(test: &RestoreTest<'_>) -> Result<Verified, Error> {
         run: choice.run,
         age,
     })
+}
+
+fn load_manifest(repo: &Repo<'_>, choice: &select::Choice) -> Result<Manifest, Error> {
+    let manifest_json = process::run(rustic::dump(repo, &choice.manifest.id, MANIFEST_FILE))?;
+    let manifest: Manifest =
+        serde_json::from_slice(&manifest_json).map_err(|source| Error::ManifestJson {
+            snapshot: choice.manifest.id.clone(),
+            source,
+        })?;
+    if manifest.tables.is_empty() {
+        return Err(Error::EmptyManifest);
+    }
+    Ok(manifest)
+}
+
+/// Kanidm writes its first online backup some time after it starts; until then there is
+/// nothing to store.
+pub fn has_files(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| {
+        entries.any(|entry| entry.is_ok_and(|entry| entry.path().is_file()))
+    })
+}
+
+/// Every run in the repository, newest first.
+pub fn list(repo: &Repo<'_>) -> Result<Vec<Run>, Error> {
+    Ok(retention::runs(&rustic::list_snapshots(repo, &[])?))
+}
+
+/// Forgets the runs the policy does not keep, then removes their data.
+pub fn prune(repo: &Repo<'_>, policy: Policy, time_zone: &TimeZone) -> Result<Plan, Error> {
+    let plan = retention::plan(&rustic::list_snapshots(repo, &[])?, policy, time_zone)?;
+    if !plan.forget.is_empty() {
+        process::run(rustic::forget(repo, &plan.forget))?;
+        process::run(rustic::prune(repo))?;
+    }
+    Ok(plan)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Restore<'a> {
+    pub repo: &'a str,
+    pub password_file: &'a Path,
+    /// The database to replace; this login must be allowed to drop and create databases.
+    pub database_url: &'a str,
+    /// `None` or `latest` for the newest complete run.
+    pub run: Option<&'a str>,
+    pub scratch_database: &'a str,
+    pub confirmed: bool,
+    pub now: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Restored {
+    pub database: String,
+    /// The data from before the restore, kept under another name.
+    pub previous: String,
+    pub run: String,
+    pub tables: usize,
+}
+
+/// Restores into a scratch database and checks it against the manifest first; only then does
+/// the scratch database take the target's name. Only the database is restored.
+pub async fn restore(restore: &Restore<'_>) -> Result<Restored, Error> {
+    if !restore.confirmed {
+        return Err(Error::NotConfirmed);
+    }
+    let database = postgres::database_name(restore.database_url)?;
+    if ["template0", "template1", restore.scratch_database].contains(&database.as_str()) {
+        return Err(Error::ProtectedDatabase(database));
+    }
+    let repo = Repo {
+        location: restore.repo,
+        password_file: restore.password_file,
+    };
+    let choice = select::choose_run(
+        restore.repo,
+        &rustic::list_snapshots(&repo, &[DB_TAG])?,
+        &rustic::list_snapshots(&repo, &[MANIFEST_TAG])?,
+        restore.run,
+    )?;
+    let expected = load_manifest(&repo, &choice)?;
+
+    let scratch_url = with_database(restore.database_url, restore.scratch_database)?;
+    let scratch = postgres::quote_ident(restore.scratch_database);
+    let mut current = PgConnection::connect(restore.database_url).await?;
+    drop_stale_scratch_databases(&mut current, restore.now).await?;
+    current
+        .execute(AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS {scratch} WITH (FORCE)"
+        )))
+        .await?;
+    current
+        .execute(AssertSqlSafe(format!("CREATE DATABASE {scratch}")))
+        .await?;
+    let verified = restore_and_compare(&repo, &choice.dump.id, &scratch_url, &expected).await;
+    let tables = match verified {
+        Ok(tables) => tables,
+        Err(error) => {
+            current
+                .execute(AssertSqlSafe(format!(
+                    "DROP DATABASE {scratch} WITH (FORCE)"
+                )))
+                .await?;
+            return Err(error);
+        }
+    };
+    current.close().await?;
+
+    // Only for the swap: CREATE DATABASE elsewhere fails while anyone is connected to template1.
+    let maintenance = if database == "postgres" {
+        "template1"
+    } else {
+        "postgres"
+    };
+    let previous = format!("{database}_before_{}", run_id(restore.now)?);
+    let mut admin =
+        PgConnection::connect(&with_database(restore.database_url, maintenance)?).await?;
+    let swapped = swap(&mut admin, &database, restore.scratch_database, &previous).await;
+    admin.close().await?;
+    swapped?;
+    Ok(Restored {
+        database,
+        previous,
+        run: choice.run,
+        tables,
+    })
+}
+
+/// Keeps the current database as `previous` instead of dropping it. Renaming needs it to
+/// have no connections; the server is stopped, so only stragglers are ended.
+async fn swap(
+    admin: &mut PgConnection,
+    database: &str,
+    scratch: &str,
+    previous: &str,
+) -> Result<(), Error> {
+    let target = postgres::quote_ident(database);
+    let kept = postgres::quote_ident(previous);
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+         WHERE datname = $1 AND pid <> pg_backend_pid()",
+    )
+    .bind(database)
+    .execute(&mut *admin)
+    .await?;
+    admin
+        .execute(AssertSqlSafe(format!(
+            "ALTER DATABASE {target} RENAME TO {kept}"
+        )))
+        .await?;
+    let renamed = admin
+        .execute(AssertSqlSafe(format!(
+            "ALTER DATABASE {} RENAME TO {target}",
+            postgres::quote_ident(scratch)
+        )))
+        .await;
+    if let Err(source) = renamed {
+        let back = admin
+            .execute(AssertSqlSafe(format!(
+                "ALTER DATABASE {kept} RENAME TO {target}"
+            )))
+            .await;
+        return Err(Error::Swap(Box::new(SwapFailed {
+            database: database.to_string(),
+            scratch: scratch.to_string(),
+            previous: previous.to_string(),
+            restored_back: back.is_ok(),
+            source,
+        })));
+    }
+    Ok(())
 }
 
 async fn restore_and_compare(

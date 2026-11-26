@@ -16,6 +16,9 @@ pub const IMAGES: [&str; 5] = [
 const CADDY_ROOT_CA: &str = "caddy:/data/caddy/pki/authorities/local/root.crt";
 const BACKUP_REPO: &str = "--repo=/backup/repo";
 const RUSTIC_PASSWORD: &str = "--password-file=/run/secrets/rustic_password";
+const KANIDM_BACKUPS: &str = "--kanidm=/kanidm/backups";
+/// The `make backup` policy (Makefile BACKUP_KEEP).
+const KEEP: [&str; 3] = ["--keep-hourly=24", "--keep-daily=14", "--keep-weekly=8"];
 const SEED_SQL: &str = "CREATE TABLE IF NOT EXISTS smoke_check (id integer PRIMARY KEY); \
                         INSERT INTO smoke_check VALUES (1) ON CONFLICT DO NOTHING;";
 const ATTEMPTS: u32 = 60;
@@ -163,6 +166,10 @@ impl Stack {
             ("BVW_IMAGE_TAG", self.options.tag.clone()),
             ("BVW_SUBNET", self.options.subnet.clone()),
             ("BVW_CADDY_IP", self.options.caddy_ip.to_string()),
+            // Never the host directory `make backup` may have in the environment.
+            ("BVW_BACKUP_DIR", "backup".into()),
+            // Every minute, so the first Kanidm online backup comes within the smoke test.
+            ("BVW_KANIDM_BACKUP_SCHEDULE", "* * * * *".into()),
         ]
     }
 
@@ -189,7 +196,8 @@ impl Stack {
         self.compose(&["cp", CADDY_ROOT_CA, &self.ca_file().display().to_string()])
     }
 
-    pub fn seed(&self) -> Step {
+    /// Prints only the rows, unaligned, so one value comes out as itself.
+    pub fn psql(&self, sql: &str) -> Step {
         self.compose(&[
             "exec",
             "-T",
@@ -199,32 +207,48 @@ impl Stack {
             "--username=postgres",
             "--dbname=postgres",
             "--set=ON_ERROR_STOP=1",
-            &format!("--command={SEED_SQL}"),
+            "--tuples-only",
+            "--no-align",
+            &format!("--command={sql}"),
         ])
+    }
+
+    pub fn seed(&self) -> Step {
+        self.psql(SEED_SQL)
+    }
+
+    fn backup_cli(&self, command: &str, extra: &[&str]) -> Step {
+        let mut args = vec![
+            "run",
+            "--rm",
+            "backup",
+            "backup",
+            command,
+            BACKUP_REPO,
+            RUSTIC_PASSWORD,
+        ];
+        args.extend(extra);
+        self.compose(&args)
     }
 
     pub fn backup_run(&self) -> Step {
-        self.compose(&[
-            "run",
-            "--rm",
-            "backup",
-            "backup",
-            "run",
-            BACKUP_REPO,
-            RUSTIC_PASSWORD,
-        ])
+        self.backup_cli("run", &[KANIDM_BACKUPS])
     }
 
     pub fn restore_test(&self) -> Step {
-        self.compose(&[
-            "run",
-            "--rm",
-            "backup",
-            "backup",
-            "restore-test",
-            BACKUP_REPO,
-            RUSTIC_PASSWORD,
-        ])
+        self.backup_cli("restore-test", &[])
+    }
+
+    pub fn backup_list(&self) -> Step {
+        self.backup_cli("list", &[])
+    }
+
+    pub fn backup_prune(&self) -> Step {
+        self.backup_cli("prune", &KEEP)
+    }
+
+    pub fn restore(&self) -> Step {
+        self.backup_cli("restore", &["--run=latest", "--yes-overwrite"])
     }
 
     pub fn logs(&self) -> Step {
@@ -403,12 +427,47 @@ fn smoke(stack: &Stack) -> Result<(), String> {
     expect_session(stack)?;
     expect(stack, "localhost", "/drops", |body| body.contains("<h1>"))?;
     execute(stack, &stack.seed())?;
-    execute(stack, &stack.backup_run())?;
+    retry("a backup with a Kanidm online backup in it", || {
+        execute(stack, &stack.backup_run())?;
+        let listed = execute(stack, &stack.backup_list())?;
+        let listed = String::from_utf8_lossy(&listed.stdout);
+        if lists_kanidm(&listed) {
+            Ok(())
+        } else {
+            Err(format!("no complete run with Kanidm yet:\n{listed}"))
+        }
+    })?;
+    execute(stack, &stack.backup_prune())?;
     execute(stack, &stack.restore_test())?;
+    execute(stack, &stack.psql("DROP TABLE smoke_check"))?;
+    execute(stack, &stack.compose(&["stop", "server"]))?;
+    execute(stack, &stack.restore())?;
+    execute(stack, &stack.up())?;
+    let restored = execute(stack, &stack.psql("SELECT id FROM smoke_check"))?;
+    if String::from_utf8_lossy(&restored.stdout).trim() != "1" {
+        return Err(format!(
+            "smoke_check not restored: {:?}",
+            String::from_utf8_lossy(&restored.stdout)
+        ));
+    }
+    expect(stack, "localhost", "/health", health_ok)?;
     println!(
-        "compose-smoke: health, Kanidm, redirects, session, drops, backup and restore test passed"
+        "compose-smoke: health, Kanidm, redirects, session, drops, backup with Kanidm, prune, \
+         restore test and restore passed"
     );
     Ok(())
+}
+
+/// `cli backup list` output with a complete run that holds Kanidm's backup.
+pub fn lists_kanidm(listed: &str) -> bool {
+    listed.lines().any(|line| {
+        let mut columns = line.split("  ").map(str::trim).filter(|c| !c.is_empty());
+        columns.any(|column| column == "complete")
+            && line
+                .rsplit("  ")
+                .next()
+                .is_some_and(|parts| parts.split(", ").any(|part| part == "kanidm"))
+    })
 }
 
 fn expect(stack: &Stack, host: &str, path: &str, body_ok: fn(&str) -> bool) -> Result<(), String> {
@@ -683,6 +742,8 @@ mod tests {
                 ("BVW_IMAGE_TAG", "s9".to_string()),
                 ("BVW_SUBNET", "10.89.7.0/24".to_string()),
                 ("BVW_CADDY_IP", "10.89.7.10".to_string()),
+                ("BVW_BACKUP_DIR", "backup".to_string()),
+                ("BVW_KANIDM_BACKUP_SCHEDULE", "* * * * *".to_string()),
             ]
         );
     }
@@ -736,6 +797,7 @@ mod tests {
                 "run",
                 "--repo=/backup/repo",
                 "--password-file=/run/secrets/rustic_password",
+                "--kanidm=/kanidm/backups",
             ])
         );
         assert_eq!(
@@ -750,6 +812,52 @@ mod tests {
                 "--password-file=/run/secrets/rustic_password",
             ])
         );
+    }
+
+    #[test]
+    fn prune_and_restore_use_the_make_policy_and_confirm() {
+        let stack = stack();
+        let tail = |step: Step| step.args[compose_prefix().len()..].to_vec();
+        assert_eq!(
+            tail(stack.backup_prune()),
+            strings(&[
+                "run",
+                "--rm",
+                "backup",
+                "backup",
+                "prune",
+                "--repo=/backup/repo",
+                "--password-file=/run/secrets/rustic_password",
+                "--keep-hourly=24",
+                "--keep-daily=14",
+                "--keep-weekly=8",
+            ])
+        );
+        assert_eq!(
+            tail(stack.restore())[4..],
+            strings(&[
+                "restore",
+                "--repo=/backup/repo",
+                "--password-file=/run/secrets/rustic_password",
+                "--run=latest",
+                "--yes-overwrite",
+            ])[..]
+        );
+        assert_eq!(tail(stack.backup_list())[4], "list");
+    }
+
+    #[test]
+    fn lists_kanidm_needs_a_complete_run_with_kanidm() {
+        assert!(lists_kanidm(
+            "1795640400000000000   2026-11-25 20:00:00 CET  complete    db, kanidm, manifest\n"
+        ));
+        assert!(!lists_kanidm(
+            "1795640400000000000   2026-11-25 20:00:00 CET  complete    db, manifest\n"
+        ));
+        assert!(!lists_kanidm(
+            "1795640400000000000   2026-11-25 20:00:00 CET  incomplete  db, kanidm\n"
+        ));
+        assert!(!lists_kanidm("no backups in /backup/repo\n"));
     }
 
     #[test]
